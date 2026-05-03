@@ -58,7 +58,9 @@ pip install -e ".[dev]"
 ./scripts/export_maniskill_scene_preview.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
 ./scripts/check_jaka_connection.sh --ip 192.168.1.100
 ./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
+./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
 ./scripts/check_rh56_connection.sh --port /dev/ttyUSB0
+./scripts/rh56_pc_direct_bringup.sh --config configs/hand/rh56_real.yaml --port /dev/ttyUSB0 --polls 20
 ./scripts/check_rh56_via_jaka.sh --ip 192.168.1.100
 ./scripts/save_jaka_preset.sh --preset-name upright --joints 0 0 0 0 0 0
 ./scripts/arm_hand_smoke_test.sh --ip 192.168.1.100 --preset-name upright --hand-id 1 --execute
@@ -217,7 +219,9 @@ python tools/collect_jaka_rh56_pickcube_privileged_oracle.py \
 
 - `check_jaka_connection.sh` 只做连接与状态读取
 - `check_jaka_zero_motion.sh` 默认也只做预检查，只有加 `--execute` 才会下发零位移 `move_joints`
+- `check_jaka_edg_servo_capability.sh` 默认只导入 SDK 并检查 EDG/servo 能力；加 `--connect` 后读取控制器诊断；只有加 `--execute-enable-cycle` 才会执行无运动 servo enable/disable cycle
 - `check_rh56_connection.sh` 只做连接与状态读取
+- `rh56_pc_direct_bringup.sh` 用于 RH56 PC direct USB-RS485 主链路 bring-up；默认只读完整反馈并测频率，只有加 `--execute` 才会发送 open/close/preset 命令
 - `check_rh56_via_jaka.sh` 通过 JAKA 工具端 RS485 向 RH56 发送 open/close 测试帧
 - `save_jaka_preset.sh` 把当前关节或显式关节角保存到 `configs/robot/jaka_mini2.yaml`
 - `arm_hand_smoke_test.sh` 按指定机械臂 preset 执行最小组合测试：`move_joints -> hand open -> hand close`

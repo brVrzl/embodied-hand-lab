@@ -34,6 +34,21 @@ Pass gate:
 ## 3. JAKA EDG Servo Mode
 
 - [ ] Confirm SDK exposes `edg_init`, `servo_move_enable`, `edg_servo_j` or `edg_servo_p`.
+- [ ] Run read-only SDK capability probe:
+
+```bash
+./scripts/check_jaka_edg_servo_capability.sh \
+  --config configs/robot/jaka_mini2_real.yaml
+```
+
+- [ ] Run connected SDK capability probe:
+
+```bash
+./scripts/check_jaka_edg_servo_capability.sh \
+  --config configs/robot/jaka_mini2_real.yaml \
+  --connect
+```
+
 - [ ] Confirm trajectory mode is disabled before entering servo mode.
 - [ ] Enter EDG servo with conservative filter and bounded motion.
 - [ ] Test `step_num=4` small joint or Cartesian increments.
@@ -64,6 +79,15 @@ Stretch gate:
 - [ ] Read `ERROR`.
 - [ ] Read `STATUS`.
 - [ ] Read `TEMP`.
+- [ ] Run read-only feedback frequency probe:
+
+```bash
+./scripts/rh56_pc_direct_bringup.sh \
+  --config configs/hand/rh56_real.yaml \
+  --port /dev/ttyUSB0 \
+  --polls 20
+```
+
 - [ ] Set default speed.
 - [ ] Set default force.
 - [ ] Execute open.
@@ -170,6 +194,21 @@ Pass gate:
 ## 3. JAKA EDG servo mode
 
 - [ ] 确认 SDK 暴露 `edg_init`、`servo_move_enable`、`edg_servo_j` 或 `edg_servo_p`。
+- [ ] 运行只导入 SDK 的能力探测：
+
+```bash
+./scripts/check_jaka_edg_servo_capability.sh \
+  --config configs/robot/jaka_mini2_real.yaml
+```
+
+- [ ] 运行连接控制器后的能力探测：
+
+```bash
+./scripts/check_jaka_edg_servo_capability.sh \
+  --config configs/robot/jaka_mini2_real.yaml \
+  --connect
+```
+
 - [ ] 进入 servo mode 前确认 trajectory mode 已停止。
 - [ ] 使用保守滤波和小幅有界运动进入 EDG servo。
 - [ ] 使用 `step_num=4` 测试小幅关节或笛卡尔增量。
@@ -190,6 +229,15 @@ Pass gate:
 - [ ] 只有在 `step_num=2` 稳定后才测试 `step_num=1`。
 - [ ] `step_num=1` 通过无接触验证前，不用于接触实验。
 
+可选的无运动 servo enable/disable 检查：
+
+```bash
+./scripts/check_jaka_edg_servo_capability.sh \
+  --config configs/robot/jaka_mini2_real.yaml \
+  --connect \
+  --execute-enable-cycle
+```
+
 ## 4. RH56 PC direct USB-RS485
 
 - [ ] 通过 USB-RS485 将 RH56 直接接到 PC。
@@ -200,6 +248,15 @@ Pass gate:
 - [ ] 读取 `ERROR`。
 - [ ] 读取 `STATUS`。
 - [ ] 读取 `TEMP`。
+- [ ] 运行只读反馈频率探测：
+
+```bash
+./scripts/rh56_pc_direct_bringup.sh \
+  --config configs/hand/rh56_real.yaml \
+  --port /dev/ttyUSB0 \
+  --polls 20
+```
+
 - [ ] 设置默认 speed。
 - [ ] 设置默认 force。
 - [ ] 执行 open。
@@ -212,6 +269,17 @@ Pass gate:
 - [ ] command timeout rate 低于 2%。
 - [ ] 没有手指方向、幅度或顺序错误。
 - [ ] error/status/temp 保持安全。
+
+可选写命令测试，必须确认手部周围安全后执行：
+
+```bash
+./scripts/rh56_pc_direct_bringup.sh \
+  --config configs/hand/rh56_real.yaml \
+  --port /dev/ttyUSB0 \
+  --polls 20 \
+  --execute \
+  --command-cycles 3
+```
 
 ## 5. RH56 JAKA tool RS485 fallback
 
