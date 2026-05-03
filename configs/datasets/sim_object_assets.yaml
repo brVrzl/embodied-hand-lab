@@ -1,0 +1,109 @@
+schema_version: sim_object_assets_v0.1
+
+recommended_order:
+  - maniskill_ycb
+  - google_scanned_objects
+  - maniskill_egad_or_graspnet
+  - dexgraspnet_objects
+
+asset_sets:
+  maniskill_ycb:
+    role: first_training_and_benchmark_set
+    priority: primary
+    source: ManiSkill ycb asset package
+    download_command: ".venv/bin/python -m mani_skill.utils.download_asset ycb"
+    local_root: "/home/w/.maniskill/data/assets/mani_skill2_ycb"
+    metadata: "info_pick_v0.json"
+    expected_files_per_object:
+      - textured.obj
+      - collision.ply
+    prepared_mujoco_assets:
+      manifest: "data/external/maniskill_ycb_mujoco_assets.json"
+      converted_root: "data/sim_assets/maniskill_ycb_mujoco"
+      conversion_command: ".venv/bin/python tools/prepare_maniskill_ycb_mujoco_assets.py"
+      preview_command: "scripts/view_mujoco_ycb_object.sh --object 002_master_chef_can --viewer"
+      status_2026_04_30:
+        train_plus_heldout_objects: 40
+        mujoco_compile_failures: 0
+        note: "MuJoCo cannot decode the packaged collision.ply directly, so the checked path uses scaled collision.obj exports."
+    why:
+      - Widely reused robotics manipulation object set.
+      - ManiSkill already uses it in PickSingleYCB and PickClutterYCB.
+      - Assets include convex collision mesh and physical metadata usable for simulation.
+      - Small enough to start immediately before moving to larger scan datasets.
+    initial_train_split:
+      include_categories:
+        - box
+        - can
+        - bottle
+        - cup
+        - mug
+        - bowl
+        - fruit
+        - tool
+        - toy
+      exclude_ids:
+        - "022_windex_bottle"
+        - "028_skillet_lid"
+        - "029_plate"
+        - "059_chain"
+      heldout_strategy: hold_out_shape_categories_and_object_instances
+
+  google_scanned_objects:
+    role: unseen_object_generalization_expansion
+    priority: secondary
+    source: Google Scanned Objects / Open Robotics Gazebo model database
+    license: CC-BY-4.0
+    expected_scale:
+      objects: 1030
+      size_gb: 13
+    why:
+      - Real scanned household objects with metadata, mass/inertia/collision information.
+      - Much larger diversity than YCB.
+      - Useful for held-out object generalization after YCB pipeline is stable.
+    caveats:
+      - Native format is SDF/Gazebo; MuJoCo import needs conversion and validation.
+      - Must generate or verify convex collision meshes before dexterous grasp simulation.
+
+  maniskill_egad_or_graspnet:
+    role: geometry_diversity_and_seen_novel_splits
+    priority: secondary
+    why:
+      - EGAD provides thousands of grasp-like object geometries in ManiSkill/RoboVerse ecosystems.
+      - GraspNet provides 88 real objects, 6-DoF grasp labels, and object 3D models.
+    caveats:
+      - GraspNet license is non-commercial style; use for research only.
+      - Extra conversion may be needed for MuJoCo collision quality.
+
+  dexgraspnet_objects:
+    role: dexterous_grasp_research_reference
+    priority: later
+    license: CC-BY-NC-4.0
+    expected_scale:
+      objects: 5355
+      categories: 133
+    why:
+      - Large dexterous grasp dataset and object collection.
+      - Useful as related-work scale reference and later pretraining source.
+    caveats:
+      - ShadowHand-centric grasps are not directly executable on RH56.
+      - Non-commercial license and larger conversion burden.
+
+first_experiment:
+  name: ycb_codebook_grasp_selector_v0
+  object_source: maniskill_ycb
+  target_count:
+    train_objects: 24
+    heldout_objects: 8
+  samples_per_object:
+    yaw: 12
+    xy_offsets: 5
+    wrist_candidates: 16
+    hand_codes: active_codebook_subset
+  labels:
+    - success
+    - lift_m
+    - max_lift_m
+    - final_contacts
+    - failure_mode
+  model_target: "object_features + wrist_candidate + hand_code -> success_probability / expected_lift"

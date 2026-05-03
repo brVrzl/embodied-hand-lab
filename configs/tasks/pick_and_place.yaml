@@ -1,0 +1,14 @@
+task_name: pick_and_place
+description: Pick an object from a source area and place it into a target area.
+required_sensors:
+  - rgb
+  - depth
+  - arm_joint_states
+  - hand_states
+success_condition: Object ends in the target region and hand releases stably.
+recommended_logging_fields:
+  - grasp_preset
+  - source_region
+  - target_region
+  - object_name
+

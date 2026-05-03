@@ -1,0 +1,133 @@
+mode: real
+device_name: inspire_rh56
+transport: jaka_tool_rs485
+backend_type: jaka_tool_rs485
+serial:
+  # Keep serial fields populated so you can fall back to direct USB-RS485 if needed.
+  port: /dev/ttyUSB0
+  baudrate: 115200
+  timeout_sec: 0.2
+  hand_id: 1
+jaka_tool_rs485:
+  robot_config_path: configs/robot/jaka_mini2_real.yaml
+  channel_id: 1
+  hand_id: 1
+  command_pause_sec: 0.8
+  switch_mode_for_commands: true
+  mode_switch_transport: tcp
+  command_send_transport: tcp
+  command_channel_mode: 1
+  feedback_channel_mode: 0
+  mode_switch_retries: 5
+  mode_switch_retry_sec: 0.2
+  feedback_settle_sec: 0.3
+  state_feedback:
+    enabled: true
+    host: 192.168.71.50
+    port: 10001
+    timeout_sec: 0.2
+    read_retries: 5
+    read_retry_sec: 0.2
+    rebuild_after_command: true
+    signal_type: 3
+    frequency_hz: 0.0
+    angle_signal_addresses: [1546, 1548, 1550, 1552, 1554, 1556]
+    terminator: none
+    angle_signal_names:
+      - rh56_angle_0
+      - rh56_angle_1
+      - rh56_angle_2
+      - rh56_angle_3
+      - rh56_angle_4
+      - rh56_angle_5
+  prepare_tio:
+    enable_vout: true
+    vout_enable: 1
+    vout_vol: 0
+    set_ai_pin_mode: true
+    ai_pin_mode: 1
+    set_channel_mode: true
+    # Keep the channel in Modbus RTU for controller-side angle feedback signals.
+    channel_mode: 0
+    set_comm: false
+    comm:
+      chn_id: 1
+      slave_id: 1
+      baudrate: 115200
+      databit: 8
+      stopbit: 1
+      parity: 78
+ros2_services:
+  namespace: /inspire_hand
+  set_angle: /inspire_hand/set_angle
+  set_pos: /inspire_hand/set_pos
+  set_force: /inspire_hand/set_force
+  set_speed: /inspire_hand/set_speed
+  set_gesture_no: /inspire_hand/set_gesture_no
+  get_angle_act: /inspire_hand/get_angle_act
+  get_pos_act: /inspire_hand/get_pos_act
+  get_force_act: /inspire_hand/get_force_act
+  get_current_act: /inspire_hand/get_current_act
+  get_error: /inspire_hand/get_error
+  get_temp: /inspire_hand/get_temp
+finger_count: 6
+control_frequency_hz: 5
+close_strength: 0.6
+pinch_strength: 0.4
+speed_default: [800, 800, 800, 800, 800, 800]
+force_default: [500, 500, 500, 500, 500, 500]
+hand_schema:
+  version: inspire6_v1
+  canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  raw_order: [thumb_close, thumb_lateral, index, middle, ring, pinky]
+  hand_delta_limit: 0.05
+  dof_calibration:
+    index: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    middle: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    ring: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    pinky: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    thumb_close: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    thumb_lateral: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+verification:
+  expected_transport: jaka_tool_rs485
+  expected_controller_ip: 192.168.71.50
+  known_ambiguities:
+    - JAKA TIO supports at most 8 RS485 signals; keep only rh56_angle_0..5 for continuous feedback.
+    - If raw command sending fails after enabling feedback, test mode switching with check_rh56_via_jaka.sh before data collection.
+  confirm_with:
+    - ./scripts/setup_jaka_rh56_tio_signals.sh
+    - ./scripts/check_jaka_tcp_tio_signals.sh --compact --terminator none --polls 5 --poll-sec 0.5 --channel-id 1
+gesture_presets:
+  open: [1000, 1000, 1000, 1000, 1000, 1000]
+  close: [0, 0, 0, 0, 0, 0]
+  pinch: [400, 400, 500, 200, 200, 500]
+  power_grasp: [150, 150, 200, 200, 200, 450]
+  tripod: [250, 250, 250, 200, 200, 500]
+  lateral: [500, 500, 500, 250, 250, 650]
+  # Successful top-down pinch on small paper box, confirmed 2026-04-28.
+  # Physical dof norm: [0.0, 0.0, 0.1, 0.1, 0.9, 1.0]
+  # Current debug raw order: [dof0, dof1, dof2, dof3, dof4, dof5].
+  pinch_box_v1: [1000, 1000, 900, 900, 100, 0]
+  # Refined top-down pinch on small paper box, confirmed 2026-04-28.
+  # Physical dof norm: [0.0, 0.0, 0.12, 0.15, 0.4, 1.0]
+  pinch_box_v2: [1000, 1000, 880, 850, 600, 0]
+  # Incorrect stage ordering retained for traceability; DOF4/5 were later corrected.
+  # Physical dof norm: [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+  pinch_box_thumb_rotate_v1: [1000, 1000, 1000, 1000, 0, 1000]
+  # Incorrect stage ordering retained for traceability; DOF4/5 were later corrected.
+  # Physical dof norm: [0.0, 0.0, 0.12, 0.15, 1.0, 1.0]
+  pinch_box_v3: [1000, 1000, 880, 850, 0, 0]
+  # Corrected stage 1: rotate thumb first. Physical dof norm: [0, 0, 0, 0, 0, 1].
+  pinch_box_thumb_rotate_v2: [1000, 1000, 1000, 1000, 1000, 0]
+  # Corrected stage 2 after thumb rotation. Physical dof norm: [0, 0, 0.12, 0.15, 0.4, 1.0].
+  pinch_box_v4: [1000, 1000, 880, 850, 600, 0]
+topics:
+  state: /hand/state
+  command: /hand/command
+services:
+  execute_grasp: /hand/execute_grasp
+  get_state: /hand/get_state
+safety:
+  estop_enabled: true
+  max_close_strength: 0.85

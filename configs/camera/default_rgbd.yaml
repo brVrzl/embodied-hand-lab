@@ -1,0 +1,17 @@
+mode: mock
+device_type: rgbd
+vendor: generic
+model: mock_rgbd
+width: 64
+height: 48
+fps: 10
+depth_unit_m: 0.001
+topics:
+  rgb: /sensors/camera/color/image_raw
+  depth: /sensors/camera/depth/image_raw
+  camera_info: /sensors/camera/color/camera_info
+frames:
+  base: camera_link
+  rgb_optical: camera_color_optical_frame
+  depth_optical: camera_depth_optical_frame
+

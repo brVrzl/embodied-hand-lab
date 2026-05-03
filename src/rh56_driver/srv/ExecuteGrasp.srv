@@ -1,0 +1,7 @@
+string command
+float32 strength
+string preset_name
+---
+bool success
+string message
+

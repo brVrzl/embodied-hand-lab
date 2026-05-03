@@ -1,0 +1,36 @@
+env:
+  env_id: PickCubeJakaRH56-v1
+  robot_uids: jaka_rh56
+  agent_module: sim_maniskill.agents.jaka_rh56
+  env_module: sim_maniskill.tasks.pick_cube_jaka_rh56
+  obs_mode: rgbd
+  control_mode: pd_joint_delta_pos
+  render_mode: human
+  num_envs: 1
+  camera_uid: base_camera
+  flatten_rgbd_obs: false
+  sensor_configs:
+    width: 128
+    height: 128
+  env_kwargs:
+    start_pose: pregrasp
+
+task:
+  task_name: pick_and_place
+  instruction: pick the cube and place it at the goal region with jaka mini2 and rh56
+  operator: sim_maniskill_jaka_rh56
+
+robot:
+  arm_joint_count: 6
+  hand_joint_count: 6
+
+recording:
+  episodes: 1
+  max_steps: 50
+  seed: 0
+  policy: random
+  output_dir: data/episodes/maniskill_jaka_rh56_pick_cube
+  export_dir: data/exports/structured/maniskill_jaka_rh56_pick_cube
+
+logging:
+  logging_config: configs/logging/default.yaml

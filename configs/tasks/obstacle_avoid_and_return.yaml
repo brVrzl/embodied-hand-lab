@@ -1,0 +1,11 @@
+task_name: obstacle_avoid_and_return
+description: Navigate around an obstacle, reach a target, then return to the start area.
+required_sensors:
+  - dog_states
+  - rgb
+success_condition: Robot completes outbound and return path without collision or manual takeover.
+recommended_logging_fields:
+  - obstacle_type
+  - return_path_strategy
+  - manual_takeover
+

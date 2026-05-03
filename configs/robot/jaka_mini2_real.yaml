@@ -1,0 +1,86 @@
+mode: real
+robot_name: jaka_mini2
+ip: 192.168.71.50
+port: 10001
+command_timeout_sec: 3.0
+control_frequency_hz: 10
+default_speed_scale: 0.05
+backend_type: jaka_sdk
+sdk:
+  python_module: jkrc
+  python_search_paths:
+  - /home/w/projects/RoboTwin/机械臂资料/机械臂/SDK V2.2.7/Linux/python3/x86_64-linux-gnu
+  auto_power_on: false
+  auto_enable_robot: false
+  assume_pose_units:
+    translation: mm
+    rotation: rad
+safety:
+  estop_enabled: true
+  joint_limit_margin_deg: 5.0
+  max_tcp_linear_speed_mps: 0.1
+  max_tcp_angular_speed_rps: 0.5
+frames:
+  base: jaka_base
+  tool: jaka_tool0
+tooling:
+  mounted_hand: inspire_rh56
+  adapter_flange_thickness_m: 0.009
+  nominal_tcp_offset_m:
+    x: 0.0
+    y: 0.0
+    z: 0.009
+topics:
+  joint_states: /arm/joint_states
+  ee_pose: /arm/ee_pose
+  command_joints: /arm/command/joints
+  command_pose: /arm/command/pose
+verification:
+  expected_joint_count: 6
+  expected_controller_ip: 192.168.71.50
+  confirm_with:
+  - ./scripts/check_jaka_connection.sh --config configs/robot/jaka_mini2_real.yaml
+  - ./scripts/check_jaka_zero_motion.sh --config configs/robot/jaka_mini2_real.yaml
+joint_names:
+- joint_1
+- joint_2
+- joint_3
+- joint_4
+- joint_5
+- joint_6
+joint_presets:
+  upright:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  pregrasp_box_v1:
+  - -1.8512820634925071
+  - -1.0198619981200396
+  - -1.3621907644771152
+  - -0.6283884958574136
+  - 0.7510010353847634
+  - 0.4990565642294198
+  pinch_lift_box_v1:
+  - -1.5841297272747097
+  - -0.8438440709608238
+  - -0.7899924461816842
+  - -0.26349032736535094
+  - -0.7110091585135491
+  - 0.27218883154259016
+  pinch_grasp_box_v1:
+  - -1.5841057588253824
+  - -0.8493980454368482
+  - -0.8278070234752003
+  - -0.27751522629175746
+  - -0.6691911809923009
+  - 0.29039304832473645
+  pinch_grasp_box_v2:
+  - -1.6095123151138138
+  - -1.1001802718205456
+  - -0.3238415868834238
+  - -0.09026085575389077
+  - -0.9833679422653254
+  - 0.02262371269799536
