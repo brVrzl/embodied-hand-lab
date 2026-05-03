@@ -73,6 +73,8 @@ Stretch gate:
 
 - [ ] Connect RH56 directly to PC via USB-RS485.
 - [ ] Confirm power supply and common ground/wiring are safe.
+- [ ] Confirm the configured protocol order is `[pinky, ring, middle, index, thumb_close, thumb_lateral]`.
+- [ ] Confirm published/canonical order is `[index, middle, ring, pinky, thumb_close, thumb_lateral]`.
 - [ ] Read `ANGLE_ACT`.
 - [ ] Read `FORCE_ACT`.
 - [ ] Read `CURRENT`.
@@ -90,6 +92,7 @@ Stretch gate:
 
 - [ ] Set default speed.
 - [ ] Set default force.
+- [ ] Execute the four low-amplitude asymmetric channel-identification commands from `docs/rh56dfq_official_materials_notes.md`.
 - [ ] Execute open.
 - [ ] Execute close or a safe hand-code.
 - [ ] Run 100 safe commands while logging feedback.
@@ -242,6 +245,8 @@ Pass gate:
 
 - [ ] 通过 USB-RS485 将 RH56 直接接到 PC。
 - [ ] 确认供电、接线和共地安全。
+- [ ] 确认配置中的协议顺序是 `[pinky, ring, middle, index, thumb_close, thumb_lateral]`。
+- [ ] 确认 ROS2/数据集使用的 canonical 顺序是 `[index, middle, ring, pinky, thumb_close, thumb_lateral]`。
 - [ ] 读取 `ANGLE_ACT`。
 - [ ] 读取 `FORCE_ACT`。
 - [ ] 读取 `CURRENT`。
@@ -259,6 +264,7 @@ Pass gate:
 
 - [ ] 设置默认 speed。
 - [ ] 设置默认 force。
+- [ ] 执行 `docs/rh56dfq_official_materials_notes.md` 中的四组低幅度非对称通道识别命令。
 - [ ] 执行 open。
 - [ ] 执行 close 或安全 hand-code。
 - [ ] 连续运行 100 次安全命令并记录反馈。

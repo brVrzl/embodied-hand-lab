@@ -16,8 +16,9 @@ from rh56_driver.hand_schema import (
     DEFAULT_HAND_DELTA_LIMIT,
 )
 
-DATASET_SCHEMA_VERSION = "jaka_rh56_pickcube_v0.2"
-SUPPORTED_SCHEMA_VERSIONS = {DATASET_SCHEMA_VERSION}
+DATASET_SCHEMA_VERSION = "jaka_rh56_palm_handcode_v0.1"
+LEGACY_SCHEMA_VERSIONS = {"jaka_rh56_pickcube_v0.2"}
+SUPPORTED_SCHEMA_VERSIONS = {DATASET_SCHEMA_VERSION, *LEGACY_SCHEMA_VERSIONS}
 
 FAILURE_MODES = {
     "none",
@@ -33,8 +34,20 @@ FAILURE_MODES = {
 
 DEFAULT_SCHEMA_METADATA = {
     "schema_version": DATASET_SCHEMA_VERSION,
+    "format_family": "episode_step_jsonl",
+    "standard_alignment": {
+        "primary_training_export": "lerobot_v3_compatible",
+        "transition_keys": ["observation", "action", "reward", "discount", "is_first", "is_last", "is_terminal"],
+        "raw_stream_export": "rosbag2_mcap",
+        "hdf5_compatibility": "robomimic_style_optional",
+    },
     "control_hz": 10.0,
     "dt": 0.1,
+    "timestamp_unit": "seconds",
+    "timestamp_clock": "unix_time",
+    "frame_index_base": 0,
+    "episode_index_dtype": "int64",
+    "task_index_dtype": "int64",
     "embodiment": "jaka_mini2_rh56_single_arm",
     "arm_dof": 6,
     "hand_dof": 6,
@@ -45,6 +58,7 @@ DEFAULT_SCHEMA_METADATA = {
     "ee_translation_delta_limit_m": DEFAULT_EE_TRANSLATION_DELTA_LIMIT_M,
     "rotation_delta_type": "euler_xyz",
     "action_delta_base": "command",
+    "action_timing": "action_at_t_applied_after_observation_t",
     "hand_delta_cmd_clipped": True,
     "hand_delta_state_clipped": True,
     "hand_delta_state_raw_available": True,
@@ -182,11 +196,24 @@ class EpisodeRecorder:
         export_dir = Path(export_dir).resolve()
         export_dir.mkdir(parents=True, exist_ok=True)
         samples_path = export_dir / "samples.jsonl"
-        manifest = {"episodes": []}
+        manifest: dict[str, Any] = {"episodes": [], "tasks": []}
+        task_to_index: dict[str, int] = {}
+        global_index = 0
         if samples_path.exists():
             samples_path.unlink()
         for episode_index, episode_dir in enumerate(sorted(self.data_root.glob("episode_*"))):
             metadata = json.loads((episode_dir / "metadata.json").read_text(encoding="utf-8"))
+            task_name = metadata["task_name"]
+            if task_name not in task_to_index:
+                task_to_index[task_name] = len(task_to_index)
+                manifest["tasks"].append(
+                    {
+                        "task_index": task_to_index[task_name],
+                        "task_name": task_name,
+                        "instruction": metadata["natural_language_instruction"],
+                    }
+                )
+            task_index = task_to_index[task_name]
             export_metadata = self._schema_metadata(metadata)
             failure_mode = self._normalize_failure_mode(
                 success=bool(metadata.get("success")),
@@ -196,20 +223,28 @@ class EpisodeRecorder:
             steps_path = episode_dir / "steps.jsonl"
             if not steps_path.exists():
                 continue
-            step_count = 0
-            for line in steps_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                step = json.loads(line)
+            raw_steps = [json.loads(line) for line in steps_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            step_count = len(raw_steps)
+            for step_offset, step in enumerate(raw_steps):
                 observation_state = self._build_observation_state(step)
                 action = self._build_action(step.get("action", {}), observation_state)
+                is_first = step_offset == 0
+                is_last = step_offset == step_count - 1
+                episode_success = bool(metadata["success"])
                 sample = {
+                    "index": global_index,
                     "episode_id": metadata["episode_id"],
                     "episode_index": episode_index,
-                    "frame_index": step.get("frame_index", step_count),
+                    "frame_index": step.get("frame_index", step_offset),
+                    "task_index": task_index,
                     "task_name": metadata["task_name"],
                     "instruction": metadata["natural_language_instruction"],
                     "timestamp": step["timestamp"],
+                    "is_first": is_first,
+                    "is_last": is_last,
+                    "is_terminal": is_last,
+                    "reward": 1.0 if is_last and episode_success else 0.0,
+                    "discount": 0.0 if is_last else 1.0,
                     "metadata": export_metadata,
                     "observation": {
                         "rgb_path": step["rgb_path"],
@@ -224,15 +259,22 @@ class EpisodeRecorder:
                         "extra_observation": step.get("extra_observation"),
                     },
                     "action": action,
+                    "next": {
+                        "done": is_last,
+                        "reward": 1.0 if is_last and episode_success else 0.0,
+                        "discount": 0.0 if is_last else 1.0,
+                    },
                     "episode_success": metadata["success"],
                     "episode_failure_mode": failure_mode,
                     "operator_notes": step["operator_notes"] or metadata.get("operator_notes", ""),
                 }
                 self._append_jsonl(samples_path, sample)
-                step_count += 1
+                global_index += 1
             manifest["episodes"].append(
                 {
                     "episode_id": metadata["episode_id"],
+                    "episode_index": episode_index,
+                    "task_index": task_index,
                     "task_name": metadata["task_name"],
                     "success": metadata["success"],
                     "failure_mode": failure_mode,

@@ -19,7 +19,11 @@ from rh56_driver.hand_schema import (
 
 REQUIRED_METADATA_FIELDS = {
     "schema_version",
+    "format_family",
     "control_hz",
+    "timestamp_unit",
+    "timestamp_clock",
+    "frame_index_base",
     "canonical_hand_order",
     "ee_delta_frame",
     "ee_translation_delta_limit_type",
@@ -60,6 +64,10 @@ def _check_metadata(metadata: dict[str, Any], *, context: str) -> None:
     missing = sorted(field for field in REQUIRED_METADATA_FIELDS if field not in metadata)
     _require(not missing, f"{context}: missing metadata fields {missing}")
     _require(metadata["schema_version"] in SUPPORTED_SCHEMA_VERSIONS, f"{context}: unsupported schema_version {metadata['schema_version']!r}")
+    _require(metadata["format_family"] == "episode_step_jsonl", f"{context}: invalid format_family")
+    _require(metadata["timestamp_unit"] == "seconds", f"{context}: invalid timestamp_unit")
+    _require(metadata["timestamp_clock"] in {"unix_time", "ros_time"}, f"{context}: invalid timestamp_clock")
+    _require(int(metadata["frame_index_base"]) == 0, f"{context}: frame_index_base must be 0")
     _require(metadata["canonical_hand_order"] == list(CANONICAL_HAND_ORDER), f"{context}: canonical_hand_order mismatch")
     _require(metadata["ee_delta_frame"] in VALID_EE_DELTA_FRAMES, f"{context}: invalid ee_delta_frame")
     _require(
@@ -77,8 +85,13 @@ def _check_metadata(metadata: dict[str, Any], *, context: str) -> None:
 
 
 def _check_sample(sample: dict[str, Any], *, eps: float) -> dict[str, float]:
-    for field in ("episode_index", "frame_index", "timestamp"):
+    for field in ("index", "episode_index", "frame_index", "task_index", "timestamp"):
         _require(field in sample, f"sample missing {field}")
+    for field in ("is_first", "is_last", "is_terminal"):
+        _require(isinstance(sample.get(field), bool), f"{field} must be bool")
+    _require(isinstance(sample.get("reward"), (int, float)), "reward must be numeric")
+    _require(isinstance(sample.get("discount"), (int, float)), "discount must be numeric")
+    _require(0.0 <= float(sample["discount"]) <= 1.0, "discount must be in [0, 1]")
     _check_metadata(sample.get("metadata") or {}, context=f"episode={sample.get('episode_index')} frame={sample.get('frame_index')}")
 
     observation = sample.get("observation") or {}
@@ -126,6 +139,11 @@ def _check_sample(sample: dict[str, Any], *, eps: float) -> dict[str, float]:
         _require(failure_mode == "none", "success episode must use failure_mode=none")
     else:
         _require(failure_mode != "none", "failure episode must have a non-none failure_mode")
+    if sample["is_last"]:
+        _require(sample["is_terminal"] is True, "last sample must be terminal")
+        _require(float(sample["discount"]) == 0.0, "last sample must have discount=0")
+    else:
+        _require(sample["is_terminal"] is False, "non-last sample must not be terminal")
 
     privileged = metadata.get("privileged_observation") or {}
     _require(privileged.get("object_pose") is True, "metadata.privileged_observation.object_pose must be true")
@@ -165,6 +183,7 @@ def validate(export_root: str | Path, *, eps: float = 1e-6) -> dict[str, Any]:
     max_abs_ee_delta_xyz = 0.0
     max_ee_translation_delta_norm = 0.0
     sample_count = 0
+    expected_global_index = 0
     with samples_path.open("r", encoding="utf-8") as handle:
         for line_no, line in enumerate(handle, start=1):
             if not line.strip():
@@ -175,6 +194,8 @@ def validate(export_root: str | Path, *, eps: float = 1e-6) -> dict[str, Any]:
             except ValidationError as exc:
                 raise ValidationError(f"{samples_path}:{line_no}: {exc}") from exc
             sample_count += 1
+            _require(int(sample["index"]) == expected_global_index, f"global index gap at sample {sample['index']}")
+            expected_global_index += 1
             max_abs_ee_delta_xyz = max(max_abs_ee_delta_xyz, sample_metrics["max_abs_ee_delta_xyz"])
             max_ee_translation_delta_norm = max(max_ee_translation_delta_norm, sample_metrics["ee_translation_delta_norm"])
             per_episode[int(sample["episode_index"])].append(sample)
@@ -189,11 +210,13 @@ def validate(export_root: str | Path, *, eps: float = 1e-6) -> dict[str, Any]:
         samples = sorted(samples, key=lambda item: item["frame_index"])
         last_frame = -1
         last_timestamp = -float("inf")
-        for sample in samples:
+        for offset, sample in enumerate(samples):
             frame_index = int(sample["frame_index"])
             timestamp = float(sample["timestamp"])
             _require(frame_index > last_frame, f"episode {episode_index}: frame_index is not strictly increasing")
             _require(timestamp >= last_timestamp, f"episode {episode_index}: timestamp is not monotonic")
+            _require(sample["is_first"] is (offset == 0), f"episode {episode_index}: invalid is_first")
+            _require(sample["is_last"] is (offset == len(samples) - 1), f"episode {episode_index}: invalid is_last")
             last_frame = frame_index
             last_timestamp = timestamp
 

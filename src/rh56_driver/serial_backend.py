@@ -6,6 +6,7 @@ from typing import Any
 from embodiment_core.logger import get_logger
 from embodiment_core.types import HandState
 
+from .hand_schema import RH56_PROTOCOL_ORDER, canonical_to_raw, raw_to_canonical
 from .interfaces import HandBackend, HandCommand
 
 
@@ -38,6 +39,9 @@ class RH56SerialBackend(HandBackend):
         self.baudrate = int(serial_cfg.get("baudrate", 115200))
         self.timeout = float(serial_cfg.get("timeout_sec", 0.2))
         self.hand_id = int(serial_cfg.get("hand_id", 1))
+        schema_cfg = config.get("hand_schema", {})
+        self.protocol_order = tuple(schema_cfg.get("protocol_order", RH56_PROTOCOL_ORDER))
+        self.gesture_order = schema_cfg.get("gesture_order", "canonical")
         self._last_mode = "idle"
 
     def connect(self) -> bool:
@@ -48,36 +52,36 @@ class RH56SerialBackend(HandBackend):
 
         self.ser = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=self.timeout)
         self.clear_error()
-        self.set_speeds(self.config.get("speed_default", [800] * 6))
-        self.set_forces(self.config.get("force_default", [500] * 6))
+        self.set_canonical_speeds(self.config.get("speed_default", [800] * 6))
+        self.set_canonical_forces(self.config.get("force_default", [500] * 6))
         self.logger.info("Connected to RH56 serial backend on %s", self.port)
         return True
 
     def execute(self, command: HandCommand) -> bool:
         gestures = self.config.get("gesture_presets", {})
         if command.command == "open":
-            ok = self.set_angles(gestures.get("open", [1000] * 6))
+            ok = self.set_command_angles(gestures.get("open", [1000] * 6))
         elif command.command == "close":
-            ok = self.set_angles(gestures.get("close", [0] * 6))
+            ok = self.set_command_angles(gestures.get("close", [0] * 6))
         elif command.command == "pinch":
-            ok = self.set_angles(gestures.get("pinch", [400, 400, 500, 200, 200, 500]))
+            ok = self.set_command_angles(gestures.get("pinch", [400, 400, 500, 200, 200, 500]))
         elif command.command == "preset_grasp":
             preset_name = command.preset_name or "power_grasp"
             preset = gestures.get(preset_name)
             if preset is None:
                 raise ValueError(f"Unknown RH56 preset: {preset_name}")
-            ok = self.set_angles(preset)
+            ok = self.set_command_angles(preset)
         else:
             raise ValueError(f"Unsupported hand command: {command.command}")
         self._last_mode = command.command if command.command != "preset_grasp" else command.preset_name
         return ok
 
     def read_state(self) -> HandState:
-        forces = self.get_forces()
+        forces = self.get_canonical_forces()
         return HandState(
             mode=self._last_mode,
-            finger_positions=self.get_angles(),
-            finger_currents=self.get_currents(),
+            finger_positions=self.get_canonical_angles(),
+            finger_currents=self.get_canonical_currents(),
             contact_flags=[value > 0 for value in forces],
             force_estimate=forces,
         )
@@ -98,22 +102,49 @@ class RH56SerialBackend(HandBackend):
         self._validate_vector(values, 0, 1000)
         return self.write_register(self.REG["SPEED_SET"], self._u16_list_to_bytes(values))
 
+    def set_canonical_speeds(self, values: list[int]) -> bool:
+        return self.set_speeds(self._canonical_to_protocol_ints(values))
+
     def set_forces(self, values: list[int]) -> bool:
         self._validate_vector(values, 0, 1000)
         return self.write_register(self.REG["FORCE_SET"], self._u16_list_to_bytes(values))
+
+    def set_canonical_forces(self, values: list[int]) -> bool:
+        return self.set_forces(self._canonical_to_protocol_ints(values))
 
     def set_angles(self, values: list[int]) -> bool:
         self._validate_vector(values, 0, 1000)
         return self.write_register(self.REG["ANGLE_SET"], self._u16_list_to_bytes(values))
 
+    def set_canonical_angles(self, values: list[int]) -> bool:
+        return self.set_angles(self._canonical_to_protocol_ints(values))
+
+    def set_command_angles(self, values: list[int]) -> bool:
+        if isinstance(self.gesture_order, str):
+            if self.gesture_order == "canonical":
+                return self.set_canonical_angles(values)
+            if self.gesture_order in {"protocol", "raw"}:
+                return self.set_angles(values)
+            raise ValueError(f"Unsupported RH56 gesture_order={self.gesture_order!r}")
+        return self.set_angles([int(round(value)) for value in canonical_to_raw(values, raw_order=self.gesture_order)])
+
     def get_angles(self) -> list[float]:
         return [float(v) for v in self._u16_list_from_bytes(self.read_register(self.REG["ANGLE_ACT"], 12), 6)]
+
+    def get_canonical_angles(self) -> list[float]:
+        return raw_to_canonical(self.get_angles(), raw_order=self.protocol_order)
 
     def get_forces(self) -> list[float]:
         return [float(v) for v in self._u16_list_from_bytes(self.read_register(self.REG["FORCE_ACT"], 12), 6)]
 
+    def get_canonical_forces(self) -> list[float]:
+        return raw_to_canonical(self.get_forces(), raw_order=self.protocol_order)
+
     def get_currents(self) -> list[float]:
         return [float(v) for v in self._u16_list_from_bytes(self.read_register(self.REG["CURRENT"], 12), 6)]
+
+    def get_canonical_currents(self) -> list[float]:
+        return raw_to_canonical(self.get_currents(), raw_order=self.protocol_order)
 
     def read_register(self, address: int, length: int) -> list[int]:
         payload = [self.hand_id, 0x04, 0x11, address & 0xFF, (address >> 8) & 0xFF, length]
@@ -198,6 +229,9 @@ class RH56SerialBackend(HandBackend):
             hi = data[2 * index + 1] & 0xFF
             values.append(lo | (hi << 8))
         return values
+
+    def _canonical_to_protocol_ints(self, values: list[int]) -> list[int]:
+        return [int(round(value)) for value in canonical_to_raw(values, raw_order=self.protocol_order)]
 
     @staticmethod
     def _validate_vector(values: list[int], min_value: int, max_value: int) -> None:

@@ -80,6 +80,13 @@ hand_schema:
   version: inspire6_v1
   canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
   canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  # Official 485/C API order from the RH56DFQ vendor materials:
+  # pinky, ring, middle, index, thumb bend, thumb lateral.
+  protocol_order: [pinky, ring, middle, index, thumb_close, thumb_lateral]
+  # Gesture presets in this project are semantic/canonical unless a backend
+  # explicitly documents otherwise; the PC-direct backend converts to protocol_order.
+  gesture_order: canonical
+  # Legacy internal/debug order retained for old dataset conversion helpers.
   raw_order: [thumb_close, thumb_lateral, index, middle, ring, pinky]
   hand_delta_limit: 0.05
   dof_calibration:

@@ -6,6 +6,7 @@ from rh56_driver.hand_schema import (
     CANONICAL_HAND_ORDER,
     DEFAULT_RH56_CALIBRATION,
     RH56_INTERNAL_ORDER,
+    RH56_PROTOCOL_ORDER,
     apply_delta,
     build_hand_state,
     canonical_to_raw,
@@ -24,6 +25,16 @@ def test_canonical_raw_roundtrip() -> None:
     restored = raw_to_canonical(raw, raw_order=RH56_INTERNAL_ORDER)
 
     assert np.allclose(raw, [0.5, 0.6, 0.1, 0.2, 0.3, 0.4])
+    assert np.allclose(restored, canonical)
+
+
+def test_official_rh56_protocol_order_roundtrip() -> None:
+    canonical = [10, 20, 30, 40, 50, 60]
+
+    protocol = canonical_to_raw(canonical, raw_order=RH56_PROTOCOL_ORDER)
+    restored = raw_to_canonical(protocol, raw_order=RH56_PROTOCOL_ORDER)
+
+    assert np.allclose(protocol, [40, 30, 20, 10, 50, 60])
     assert np.allclose(restored, canonical)
 
 

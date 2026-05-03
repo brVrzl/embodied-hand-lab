@@ -51,6 +51,8 @@ hand_schema:
   version: inspire6_v1
   canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
   canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  protocol_order: [pinky, ring, middle, index, thumb_close, thumb_lateral]
+  gesture_order: canonical
   raw_order: [thumb_close, thumb_lateral, index, middle, ring, pinky]
   hand_delta_limit: 0.05
   dof_calibration:

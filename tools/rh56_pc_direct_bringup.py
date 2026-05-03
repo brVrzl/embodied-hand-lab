@@ -8,18 +8,24 @@ from pathlib import Path
 from typing import Any
 
 from embodiment_core.config import load_yaml
+from rh56_driver.hand_schema import CANONICAL_HAND_ORDER, raw_to_canonical
 from rh56_driver.serial_backend import RH56SerialBackend
 
 
 def _read_full_state(backend: RH56SerialBackend) -> dict[str, Any]:
-    forces = backend.get_forces()
-    currents = backend.get_currents()
-    angles = backend.get_angles()
+    raw_forces = backend.get_forces()
+    raw_currents = backend.get_currents()
+    raw_angles = backend.get_angles()
     return {
         "timestamp": time.time(),
-        "angles": angles,
-        "forces": forces,
-        "currents": currents,
+        "protocol_order": list(backend.protocol_order),
+        "canonical_order": list(CANONICAL_HAND_ORDER),
+        "angles_raw": raw_angles,
+        "forces_raw": raw_forces,
+        "currents_raw": raw_currents,
+        "angles_canonical": raw_to_canonical(raw_angles, raw_order=backend.protocol_order),
+        "forces_canonical": raw_to_canonical(raw_forces, raw_order=backend.protocol_order),
+        "currents_canonical": raw_to_canonical(raw_currents, raw_order=backend.protocol_order),
         "status_raw": backend.read_register(backend.REG["STATUS"], 6),
         "errors_raw": backend.read_register(backend.REG["ERROR"], 6),
         "temps_raw": backend.read_register(backend.REG["TEMP"], 6),
@@ -90,6 +96,8 @@ def main() -> None:
         "port": backend.port,
         "baudrate": backend.baudrate,
         "timeout_sec": backend.timeout,
+        "protocol_order": list(backend.protocol_order),
+        "gesture_order": backend.gesture_order,
         "polls_requested": args.polls,
         "poll_sec": args.poll_sec,
         "execute": args.execute,
@@ -128,17 +136,17 @@ def main() -> None:
 
         if args.execute:
             backend.clear_error()
-            backend.set_speeds(config.get("speed_default", [800] * 6))
-            backend.set_forces(config.get("force_default", [500] * 6))
+            backend.set_canonical_speeds(config.get("speed_default", [800] * 6))
+            backend.set_canonical_forces(config.get("force_default", [500] * 6))
 
             gestures = config.get("gesture_presets", {})
             open_cmd = gestures.get("open", [1000] * 6)
             close_cmd = gestures.get("close", [0] * 6)
             for cycle in range(args.command_cycles):
                 t0 = time.time()
-                open_ok = backend.set_angles(open_cmd)
+                open_ok = backend.set_command_angles(open_cmd)
                 t1 = time.time()
-                close_ok = backend.set_angles(close_cmd)
+                close_ok = backend.set_command_angles(close_cmd)
                 t2 = time.time()
                 command_results.append(
                     {
@@ -155,7 +163,7 @@ def main() -> None:
                 if preset is None:
                     raise ValueError(f"Unknown RH56 preset: {args.preset}")
                 t0 = time.time()
-                preset_ok = backend.set_angles(preset)
+                preset_ok = backend.set_command_angles(preset)
                 command_results.append(
                     {
                         "preset": args.preset,

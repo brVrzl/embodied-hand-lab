@@ -23,6 +23,15 @@ RH56_INTERNAL_ORDER: tuple[str, ...] = (
     "pinky",
 )
 
+RH56_PROTOCOL_ORDER: tuple[str, ...] = (
+    "pinky",
+    "ring",
+    "middle",
+    "index",
+    "thumb_close",
+    "thumb_lateral",
+)
+
 HAND_SCHEMA_VERSION = "inspire6_v1"
 DEFAULT_HAND_DELTA_LIMIT = 0.05
 DEFAULT_EE_TRANSLATION_DELTA_LIMIT_M = 0.02

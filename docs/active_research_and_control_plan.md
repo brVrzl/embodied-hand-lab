@@ -98,6 +98,14 @@ Canonical RH56 order:
 [index, middle, ring, pinky, thumb_close, thumb_lateral]
 ```
 
+Official RH56 485/C API protocol order:
+
+```text
+[pinky, ring, middle, index, thumb_close, thumb_lateral]
+```
+
+The PC-direct backend must convert all policy commands and published state between these two orders. See `docs/rh56dfq_official_materials_notes.md` for the vendor-material inspection notes.
+
 ### ROS2 Humble Nodes
 
 Implement the stack as separate ROS2 nodes so control, perception, policy, and logging can be tested independently.
