@@ -17,13 +17,9 @@ def _minimal_hand_xml() -> ET.Element:
             <body name="rh56_R_hand_base_link">
               <geom name="rh56_R_hand_base_link_geom_0" type="mesh" mesh="rh56_R_hand_base_link"/>
               <body name="rh56_R_thumb_distal"/>
-              <body name="rh56_R_index_proximal"/>
               <body name="rh56_R_index_distal"/>
-              <body name="rh56_R_middle_proximal"/>
               <body name="rh56_R_middle_distal"/>
-              <body name="rh56_R_ring_proximal"/>
               <body name="rh56_R_ring_distal"/>
-              <body name="rh56_R_pinky_proximal"/>
               <body name="rh56_R_pinky_distal"/>
             </body>
           </worldbody>
@@ -32,14 +28,15 @@ def _minimal_hand_xml() -> ET.Element:
     )
 
 
-def test_unifuc_pad_proxy_uses_rectangular_phalanx_pads() -> None:
+def test_unifuc_pad_proxy_uses_existing_distal_rectangular_pads() -> None:
     root = _minimal_hand_xml()
 
     _configure_collision_model(root, collision_mode="unifuc_pad_proxy", include_calibration_markers=True)
 
     geoms = {geom.get("name"): geom for geom in root.iter("geom")}
     assert geoms["index_pad_proxy"].get("type") == "box"
-    assert geoms["index_proximal_pad_proxy"].get("type") == "box"
-    assert geoms["middle_tip_pad_proxy"].get("type") == "box"
-    assert geoms["pinky_pad_proxy"].get("pos", "").split()[2].startswith("-0.006")
+    assert geoms["index_pad_proxy"].get("pos") == "0.0083 0.0250 0.0015"
+    assert geoms["middle_pad_proxy"].get("pos") == "0.0064 0.0260 0.0015"
+    assert "index_proximal_pad_proxy" not in geoms
+    assert "middle_tip_pad_proxy" not in geoms
     assert geoms["index_unifuc_center"].get("contype") == "0"

@@ -208,8 +208,8 @@ def run_pose_view(args: argparse.Namespace) -> None:
     if args.collision_mode == "mesh":
         print("  当前基础模型仍保留 RH56 analytic collision proxy；STL mesh 只用于视觉。")
     elif args.collision_mode == "unifuc_pad_proxy":
-        print("  观察 cyan rectangular pad proxy 是否落在真实指腹/指节接触面附近。")
-        print("  橙色小球是每块矩形 pad 的中心，只可视化、不参与碰撞。")
+        print("  观察已有 UniFuc-style cyan rectangular pad proxy 是否落在真实 distal 指腹附近。")
+        print("  橙色小球是每块已有矩形 pad 的中心，只可视化、不参与碰撞。")
     else:
         print("  观察 cyan capsule/box collision proxy 是否落在真实指腹/指尖附近。")
         print("  黄/橙/红/紫小球是沿 distal link 的候选校准点，只可视化、不参与碰撞。")

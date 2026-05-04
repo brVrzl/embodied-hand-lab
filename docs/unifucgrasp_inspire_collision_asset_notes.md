@@ -67,8 +67,8 @@ UniFucGrasp Inspire asset:
 
 Use UniFucGrasp assets for A/B collision development:
 
-1. Compare fingertip pad surface locations against the current cyan rectangular pad proxies.
-2. Use force-sensor pad meshes as visual guides for better rectangular phalanx/pad proxy placement.
+1. Compare fingertip pad surface locations against the current existing cyan rectangular pad proxies.
+2. Use force-sensor pad meshes as visual guides only after validating the link-local frame; do not infer new RH56 pad coordinates directly from the external UniFuc URDF.
 3. Use `inspire.pth` to compare sampled hand point clouds under canonical poses.
 4. Add a new collision mode later:
 
@@ -79,7 +79,7 @@ unifuc_pad_proxy
 unifuc_mesh_reference
 ```
 
-The first target is now `unifuc_pad_proxy`: keep the current project kinematic chain and mount, but use UniFucGrasp force-sensor meshes as references for thin rectangular pad proxies on proximal/distal phalanges.
+The first target is `unifuc_pad_proxy`: keep the current project kinematic chain and mount, and keep the project-local distal pad centers unless they are revalidated in the MuJoCo viewer and against real RH56 photos.
 
 Do not immediately switch `data/sim_assets/jaka_rh56.xml` to the UniFucGrasp URDF because:
 
@@ -98,7 +98,7 @@ Checked on 2026-05-04:
 - dexsuite `dex-urdf`: provides an `inspire_hand_right.urdf` open-source reference model, useful for link naming and independent geometry checks.
 - InternRobotics GRScenes: provides Inspire hand URDF assets under a dataset license, useful as another external reference but not a direct drop-in replacement.
 
-Decision: do not replace the full hand model yet. Use `unifuc_pad_proxy` as the default contact mode and keep external URDFs as references until mount, joint axes, and command order are validated against the real RH56.
+Decision: do not replace the full hand model yet. Use the existing project-local `unifuc_pad_proxy` as the default contact mode and keep external URDFs as references until mount, joint axes, link-local frames, and command order are validated against the real RH56.
 
 ## Mapping For Dataset Use
 

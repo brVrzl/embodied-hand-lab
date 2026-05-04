@@ -23,7 +23,7 @@ First confirm the hand pose and contact proxies:
 DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
 ```
 
-Check that the cyan rectangular active collision proxies sit near the real RH56 finger-pad/phalanx contact surfaces, especially in `real_pinch_v4`. If the active proxies are visibly on the joint root instead of the pad surface, grasp metrics are not meaningful yet.
+Check that the existing cyan rectangular active collision proxies sit near the real RH56 distal finger pads, especially in `real_pinch_v4`. If the active proxies are visibly on the joint root instead of the pad surface, grasp metrics are not meaningful yet.
 
 Then inspect a simple hand-object interaction:
 
@@ -110,7 +110,7 @@ ManiSkill 仍然可以用于 episode schema、action representation 和 data-exp
 DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
 ```
 
-重点看 `real_pinch_v4`：cyan 矩形 active collision proxies 应该落在真实 RH56 指腹/指节接触面附近。如果它们明显落在关节根部而不是接触面，当前 grasp metric 就还没有意义。
+重点看 `real_pinch_v4`：已有 cyan 矩形 active collision proxies 应该落在真实 RH56 distal 指腹附近。如果它们明显落在关节根部而不是接触面，当前 grasp metric 就还没有意义。
 
 然后看一个简单的手-物体交互过程：
 

@@ -54,8 +54,8 @@ English: The benchmark does not overwrite the base robot MJCF. It creates a sepa
 
 - 中文：禁用机器人原始 mesh collision，避免未校准 mesh 造成虚假碰撞。
   English: Disable raw robot mesh collisions to avoid false contacts from uncalibrated meshes.
-- 中文：默认使用 `unifuc_pad_proxy`，在 RH56 近端/远端指节上加入薄矩形 force-sensor 风格 pad proxy。
-  English: Use `unifuc_pad_proxy` by default, adding thin rectangular force-sensor-style pad proxies on RH56 proximal/distal phalanges.
+- 中文：默认使用已有 `unifuc_pad_proxy`，在已验证的 distal pad 中心加入薄矩形 force-sensor 风格 proxy。
+  English: Use the existing `unifuc_pad_proxy` by default, adding thin rectangular force-sensor-style proxies at the validated distal pad centers.
 - 中文：提高仿真中的 RH56 actuator stiffness，用于抓取验证。
   English: Increase simulated RH56 actuator stiffness for grasp validation.
 - 中文：每个场景加入一个物体和一个局部桌面。
@@ -98,8 +98,8 @@ English: Manual inspection on 2026-04-28 showed that the previous non-thumb `pad
 
 当前修正 / Current fix:
 
-- 中文：默认 active cyan proxies 已从球形切换为 UniFucGrasp force-sensor 风格矩形 pads。
-  English: The default active cyan proxies are changed from spheres to UniFucGrasp force-sensor-style rectangular pads.
+- 中文：默认 active cyan proxies 使用项目内已有 UniFucGrasp force-sensor 风格矩形 pads。
+  English: The default active cyan proxies use the existing project-local UniFucGrasp force-sensor-style rectangular pads.
 - 中文：`proxy` 仍保留旧球形 fingertip proxy，仅用于 A/B 对照。
   English: `proxy` keeps the old spherical fingertip proxy mode only for A/B comparison.
 - 中文：`--mode poses` 会额外显示黄/橙/红/紫候选校准点；这些 marker 只可视化，不参与碰撞。
@@ -115,9 +115,9 @@ English: Manual inspection on 2026-04-28 showed that the previous non-thumb `pad
 scripts/view_mujoco_rh56_pose_contact.sh --mode poses
 ```
 
-中文：先观察 `real_pinch_v4`，确认 cyan rectangular pads 是否落在真实指腹/指节接触面附近，而不是关节根部。`power_close` 只用于观察极限自碰，不应作为有效抓取姿态。
+中文：先观察 `real_pinch_v4`，确认 cyan rectangular pads 是否落在真实 distal 指腹附近，而不是关节根部。`power_close` 只用于观察极限自碰，不应作为有效抓取姿态。
 
-English: First inspect `real_pinch_v4` and check whether the cyan rectangular pads sit near the real finger-pad/phalanx contact surfaces, not the joint roots. `power_close` is only for extreme self-collision inspection and should not be treated as a valid grasp posture.
+English: First inspect `real_pinch_v4` and check whether the cyan rectangular pads sit near the real distal finger pads, not the joint roots. `power_close` is only for extreme self-collision inspection and should not be treated as a valid grasp posture.
 
 ## Current Results / 当前结果
 
