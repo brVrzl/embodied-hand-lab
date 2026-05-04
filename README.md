@@ -193,6 +193,16 @@ DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object ligh
 
 详细说明见 [MuJoCo Simulation Mainline](docs/mujoco_simulation_mainline.md)、[RH56 Hand-Ref Grasp Planner](docs/rh56_handref_grasp_planner.md) 和 [MuJoCo RH56 Grasp Benchmark](docs/mujoco_grasp_benchmark.md)。
 
+当前 baseline 入口：
+
+```bash
+./scripts/audit_rh56_handref_grasps.sh
+./scripts/export_rh56_handref_candidate_media.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --ranks 0
+./scripts/train_rh56_handref_ranker_baseline.sh --val-objects light_can_50mm
+```
+
+baseline 报告见 [RH56 Hand-Ref Baseline Report](docs/rh56_handref_baseline_report.md)。
+
 ## ManiSkill 仿真采集
 
 适用场景：

@@ -72,6 +72,10 @@ Default object set:
 
 These are MuJoCo contact-filter results, not real-hardware claims. They are good enough to drive the next engineering step: export presets and replay a small subset on the real RH56 after PC-direct feedback is available.
 
+The first strict audit + visual evidence + learned ranker baseline is recorded in:
+
+- `docs/rh56_handref_baseline_report.md`
+
 The can task is horizontal because the upright-can probe was pushed away by the current
 arm approach before a stable opposing contact formed. That makes it a side-grasp task
 instead of an upright top/side hybrid task.
