@@ -127,17 +127,17 @@ It is not yet sufficient for:
 
 ## Recommended Next Fix
 
-Add a new collision option:
+Use the new default collision option:
 
 ```text
 unifuc_pad_proxy
 ```
 
-Implementation idea:
+Implementation direction:
 
 - Keep the current RH56/JAKA kinematic chain and mount.
 - Keep current segment capsules for coarse collision.
-- Replace or supplement distal spherical `*_pad_proxy` geoms with flat ellipsoid/box pads sized from UniFucGrasp force-sensor meshes:
+- Replace or supplement spherical `*_pad_proxy` geoms with flat rectangular pads sized from UniFucGrasp force-sensor meshes:
 
 ```text
 index/middle/ring: size approx 0.0055 0.0075 0.0012
@@ -152,12 +152,11 @@ python tools/check_mujoco_rh56_collision_modes.py
 python tools/rh56_handref_grasp_planner.py --objects foam_block_40mm light_cylinder_36mm light_can_50mm
 ```
 
-Expected improvement:
+Implemented direction:
 
-- Less artificial pad thickness.
-- More realistic fingertip contact surface.
-- Fewer false self-contacts from spherical pads.
-- Better alignment with UniFucGrasp's Inspire force-sensor geometry.
+- Default benchmark/viewer collision mode is `unifuc_pad_proxy`.
+- Old spherical mode remains available as `proxy` for A/B comparison.
+- Rectangular pads are added on proximal and distal phalanges, with primary `*_pad_proxy` names retained for metrics and object placement.
 
 # 中文版本
 

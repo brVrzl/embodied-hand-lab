@@ -300,15 +300,41 @@ FINGERTIP_PROXY_DEFS = {
 }
 
 UNIFUC_PAD_PROXY_DEFS = {
-    # UniFucGrasp Inspire force-sensor meshes are thin pads, roughly
-    # 11-12 mm wide, 14-16 mm long, and 2 mm thick. MuJoCo box sizes are
-    # half-extents. The centers intentionally reuse the current calibrated
-    # distal-link pad centers so this mode isolates shape/thickness changes.
-    "rh56_R_thumb_distal": ("thumb_pad_proxy", "0.0000 0.0160 -0.0010", "0.0055 0.0075 0.0015"),
-    "rh56_R_index_distal": ("index_pad_proxy", "0.0083 0.0250 0.0015", "0.0056 0.0078 0.0012"),
-    "rh56_R_middle_distal": ("middle_pad_proxy", "0.0064 0.0260 0.0015", "0.0054 0.0077 0.0012"),
-    "rh56_R_ring_distal": ("ring_pad_proxy", "0.0080 0.0250 0.0015", "0.0058 0.0079 0.0012"),
-    "rh56_R_pinky_distal": ("pinky_pad_proxy", "0.0079 0.0225 0.0016", "0.0062 0.0082 0.0012"),
+    # UniFucGrasp's Inspire model exposes force-sensor meshes on proximal and
+    # distal phalanges. These boxes approximate those force-sensor surfaces on
+    # the current RH56 kinematic chain. MuJoCo box sizes are half-extents.
+    # The primary `*_pad_proxy` names are kept for object placement and metrics.
+    "rh56_R_thumb_distal": [
+        ("thumb_pad_proxy", "0.0000 0.0190 -0.0060", "0.0055 0.0075 0.0015"),
+    ],
+    "rh56_R_index_proximal": [
+        ("index_proximal_pad_proxy", "0.0095 0.0200 -0.0065", "0.0052 0.0068 0.0012"),
+    ],
+    "rh56_R_index_distal": [
+        ("index_pad_proxy", "0.0083 0.0375 -0.0061", "0.0056 0.0078 0.0012"),
+        ("index_tip_pad_proxy", "0.0083 0.0525 -0.0061", "0.0040 0.0048 0.0012"),
+    ],
+    "rh56_R_middle_proximal": [
+        ("middle_proximal_pad_proxy", "0.0081 0.0200 -0.0065", "0.0052 0.0068 0.0012"),
+    ],
+    "rh56_R_middle_distal": [
+        ("middle_pad_proxy", "0.0064 0.0410 -0.0061", "0.0054 0.0077 0.0012"),
+        ("middle_tip_pad_proxy", "0.0064 0.0560 -0.0061", "0.0040 0.0048 0.0012"),
+    ],
+    "rh56_R_ring_proximal": [
+        ("ring_proximal_pad_proxy", "0.0080 0.0200 -0.0065", "0.0052 0.0068 0.0012"),
+    ],
+    "rh56_R_ring_distal": [
+        ("ring_pad_proxy", "0.0080 0.0375 -0.0061", "0.0058 0.0079 0.0012"),
+        ("ring_tip_pad_proxy", "0.0080 0.0525 -0.0061", "0.0040 0.0048 0.0012"),
+    ],
+    "rh56_R_pinky_proximal": [
+        ("pinky_proximal_pad_proxy", "0.0079 0.0200 -0.0065", "0.0050 0.0066 0.0012"),
+    ],
+    "rh56_R_pinky_distal": [
+        ("pinky_pad_proxy", "0.0079 0.0280 -0.0061", "0.0062 0.0082 0.0012"),
+        ("pinky_tip_pad_proxy", "0.0079 0.0430 -0.0061", "0.0040 0.0046 0.0012"),
+    ],
 }
 
 
@@ -368,40 +394,41 @@ def _add_fingertip_collision_proxies(root: ET.Element, *, include_calibration_ma
 
 
 def _add_unifuc_pad_collision_proxies(root: ET.Element, *, include_calibration_markers: bool = False) -> None:
-    for body_name, (geom_name, pos, size) in UNIFUC_PAD_PROXY_DEFS.items():
+    for body_name, geoms in UNIFUC_PAD_PROXY_DEFS.items():
         body = _find_body(root, body_name)
-        if not any(geom.get("name") == geom_name for geom in body.iter("geom")):
-            ET.SubElement(
-                body,
-                "geom",
-                {
-                    "name": geom_name,
-                    "type": "box",
-                    "pos": pos,
-                    "size": size,
-                    "rgba": "0.05 0.85 0.80 0.55",
-                    "friction": "2.2 0.12 0.006",
-                    "condim": "4",
-                    "priority": "2",
-                },
-            )
-        if include_calibration_markers:
-            center_x, center_y, center_z = pos.split()
-            marker_name = geom_name.replace("_pad_proxy", "_unifuc_center")
-            if not any(geom.get("name") == marker_name for geom in body.iter("geom")):
+        for geom_name, pos, size in geoms:
+            if not any(geom.get("name") == geom_name for geom in body.iter("geom")):
                 ET.SubElement(
                     body,
                     "geom",
                     {
-                        "name": marker_name,
-                        "type": "sphere",
-                        "pos": f"{center_x} {center_y} {center_z}",
-                        "size": "0.0025",
-                        "rgba": "1.00 0.55 0.05 0.70",
-                        "contype": "0",
-                        "conaffinity": "0",
+                        "name": geom_name,
+                        "type": "box",
+                        "pos": pos,
+                        "size": size,
+                        "rgba": "0.05 0.85 0.80 0.55",
+                        "friction": "2.2 0.12 0.006",
+                        "condim": "4",
+                        "priority": "2",
                     },
                 )
+            if include_calibration_markers:
+                center_x, center_y, center_z = pos.split()
+                marker_name = geom_name.replace("_pad_proxy", "_unifuc_center")
+                if not any(geom.get("name") == marker_name for geom in body.iter("geom")):
+                    ET.SubElement(
+                        body,
+                        "geom",
+                        {
+                            "name": marker_name,
+                            "type": "sphere",
+                            "pos": f"{center_x} {center_y} {center_z}",
+                            "size": "0.0025",
+                            "rgba": "1.00 0.55 0.05 0.70",
+                            "contype": "0",
+                            "conaffinity": "0",
+                        },
+                    )
 
 
 def _add_table_object_camera(
@@ -486,10 +513,17 @@ def _build_scene_xml(
     tree.write(out_xml, encoding="utf-8", xml_declaration=False)
 
 
-def _estimate_nominal_object_pos(base_xml: Path, grasp_q: np.ndarray, close_ctrl: np.ndarray, spec: ObjectSpec) -> np.ndarray:
+def _estimate_nominal_object_pos(
+    base_xml: Path,
+    grasp_q: np.ndarray,
+    close_ctrl: np.ndarray,
+    spec: ObjectSpec,
+    *,
+    collision_mode: str,
+) -> np.ndarray:
     tree = ET.parse(base_xml)
     root = tree.getroot()
-    _add_fingertip_collision_proxies(root)
+    _configure_collision_model(root, collision_mode=collision_mode)
     model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
     data = mujoco.MjData(model)
     _set_kinematic_pose(model, data, grasp_q, close_ctrl)
@@ -731,7 +765,13 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         for candidate in candidates[: args.max_candidates]:
             close_ctrl = _physical_norm_to_mujoco_ctrl(candidate["physical_close_norm"])
             rotate_ctrl = _physical_norm_to_mujoco_ctrl(candidate["physical_rotate_norm"])
-            nominal_pos = _estimate_nominal_object_pos(Path(args.base_xml), grasp_q, close_ctrl, spec)
+            nominal_pos = _estimate_nominal_object_pos(
+                Path(args.base_xml),
+                grasp_q,
+                close_ctrl,
+                spec,
+                collision_mode=args.collision_mode,
+            )
             object_pos = nominal_pos + np.asarray(candidate["object_offset"], dtype=np.float64)
             object_pos[2] = max(object_pos[2], spec.half_height + 0.016)
             table_top_z = float(object_pos[2] - spec.half_height - 0.002)
@@ -799,7 +839,7 @@ def main() -> None:
     parser.add_argument("--success-lift", type=float, default=0.020)
     parser.add_argument("--point-count", type=int, default=768)
     parser.add_argument("--max-candidates", type=int, default=72)
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
     args = parser.parse_args()
 
     summary = run_benchmark(args)

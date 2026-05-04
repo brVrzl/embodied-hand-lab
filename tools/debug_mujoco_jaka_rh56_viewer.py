@@ -12,6 +12,8 @@ import imageio.v3 as iio
 import mujoco
 import numpy as np
 
+from mujoco_rh56_grasp_benchmark import COLLISION_MODES, _configure_collision_model
+
 
 BASE_XML = Path("data/sim_assets/jaka_rh56.xml")
 DEBUG_DIR = Path("data/mujoco_debug")
@@ -129,7 +131,7 @@ def _add_debug_world(root: ET.Element, scenario: str, cube_pos: list[float]) -> 
     root.set("model", f"jaka_rh56_mujoco_debug_{scenario}")
 
 
-def build_debug_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str) -> dict[str, Any]:
+def build_debug_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str, collision_mode: str) -> dict[str, Any]:
     base_xml = Path(base_xml)
     out_xml = Path(out_xml)
     out_xml.parent.mkdir(parents=True, exist_ok=True)
@@ -137,12 +139,14 @@ def build_debug_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str)
     cube_pos = positions["cube_in_hand_pos"] if scenario == "cube_in_hand" else positions["table_cube_pos"]
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    _configure_collision_model(root, collision_mode=collision_mode, include_calibration_markers=False)
     _add_debug_world(root, scenario=scenario, cube_pos=cube_pos)
     tree.write(out_xml, encoding="utf-8", xml_declaration=False)
     summary = {
         "base_xml": str(base_xml.resolve()),
         "debug_xml": str(out_xml.resolve()),
         "scenario": scenario,
+        "collision_mode": collision_mode,
         "cube_pos": cube_pos,
         **positions,
     }
@@ -278,6 +282,7 @@ def main() -> None:
     parser.add_argument("--base-xml", default=str(BASE_XML))
     parser.add_argument("--out-xml", default=str(DEBUG_DIR / "jaka_rh56_debug.xml"))
     parser.add_argument("--scenario", choices=["hand_close", "cube_in_hand", "table_cube"], default="cube_in_hand")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
     parser.add_argument("--duration", type=float, default=6.0)
     parser.add_argument("--cycle-period", type=float, default=3.0)
     parser.add_argument("--viewer", action="store_true")
@@ -287,7 +292,7 @@ def main() -> None:
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
 
-    summary = build_debug_xml(args.base_xml, args.out_xml, scenario=args.scenario)
+    summary = build_debug_xml(args.base_xml, args.out_xml, scenario=args.scenario, collision_mode=args.collision_mode)
     print(json.dumps(summary, indent=2))
     run_debug(
         args.out_xml,

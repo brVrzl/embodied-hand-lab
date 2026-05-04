@@ -67,8 +67,8 @@ UniFucGrasp Inspire asset:
 
 Use UniFucGrasp assets for A/B collision development:
 
-1. Compare fingertip pad surface locations against the current cyan capsule proxies.
-2. Use force-sensor pad meshes as visual guides for better capsule/sphere proxy placement.
+1. Compare fingertip pad surface locations against the current cyan rectangular pad proxies.
+2. Use force-sensor pad meshes as visual guides for better rectangular phalanx/pad proxy placement.
 3. Use `inspire.pth` to compare sampled hand point clouds under canonical poses.
 4. Add a new collision mode later:
 
@@ -79,7 +79,7 @@ unifuc_pad_proxy
 unifuc_mesh_reference
 ```
 
-The first target should be `unifuc_pad_proxy`: keep the current project kinematic chain and mount, but tune the fingertip proxy positions/radii using UniFucGrasp pad meshes as reference.
+The first target is now `unifuc_pad_proxy`: keep the current project kinematic chain and mount, but use UniFucGrasp force-sensor meshes as references for thin rectangular pad proxies on proximal/distal phalanges.
 
 Do not immediately switch `data/sim_assets/jaka_rh56.xml` to the UniFucGrasp URDF because:
 
@@ -88,6 +88,17 @@ Do not immediately switch `data/sim_assets/jaka_rh56.xml` to the UniFucGrasp URD
 - local real hand command order is already calibrated;
 - full mesh collision is likely too brittle for grasp validation;
 - switching the full hand would mix geometry changes with controller/order changes.
+
+## Open-Source Model Search Notes
+
+Checked on 2026-05-04:
+
+- Correll Lab RH56DFX project page: reports a sim-to-real validated MuJoCo RH56DFX model and analytical width-to-grasp planning, but the page currently says code is coming soon.
+- UniFucGrasp/UFG: provides InspireHand assets with force-sensor meshes and functional grasp data; these are already imported under `data/external/unifucgrasp_inspire/`.
+- dexsuite `dex-urdf`: provides an `inspire_hand_right.urdf` open-source reference model, useful for link naming and independent geometry checks.
+- InternRobotics GRScenes: provides Inspire hand URDF assets under a dataset license, useful as another external reference but not a direct drop-in replacement.
+
+Decision: do not replace the full hand model yet. Use `unifuc_pad_proxy` as the default contact mode and keep external URDFs as references until mount, joint axes, and command order are validated against the real RH56.
 
 ## Mapping For Dataset Use
 
