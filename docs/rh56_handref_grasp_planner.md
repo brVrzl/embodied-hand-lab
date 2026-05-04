@@ -14,6 +14,7 @@ This planner implements the short-term method selected from `hand_ref.md`:
 Run:
 
 ```bash
+scripts/run_rh56_handref_grasps_smoke.sh
 scripts/run_rh56_handref_grasps.sh
 ```
 
@@ -57,9 +58,19 @@ Default object set:
 
 | Object | Family | Current best result |
 | --- | --- | --- |
-| `foam_block_40mm` | box precision pinch | lifts about 9.6 cm with thumb/index/middle pinch and no ring/pinky overwrap |
+| `foam_block_40mm` | box precision pinch | lifts about 10.0 cm with thumb/index/middle pinch and no ring/pinky overwrap |
 | `light_cylinder_36mm` | cylinder power envelope | lifts about 11.2 cm from a side/power grasp |
 | `light_can_50mm` | horizontal can side grasp | lifts about 11.1 cm from a side/power grasp |
+
+2026-05-04 smoke with the existing project-local `unifuc_pad_proxy` and 40 candidates per object:
+
+| Object | Successes / Candidates | Best lift | Best wrist pose | Best close raw |
+| --- | ---: | ---: | --- | --- |
+| `foam_block_40mm` | 16 / 40 | `0.100 m` | `precision_yaw_left` | `[1000, 1000, 580, 550, 400, 0]` |
+| `light_cylinder_36mm` | 10 / 40 | `0.112 m` | `power_center` | `[500, 500, 500, 500, 450, 0]` |
+| `light_can_50mm` | 10 / 40 | `0.111 m` | `power_axis_left` | `[500, 500, 500, 500, 450, 0]` |
+
+These are MuJoCo contact-filter results, not real-hardware claims. They are good enough to drive the next engineering step: export presets and replay a small subset on the real RH56 after PC-direct feedback is available.
 
 The can task is horizontal because the upright-can probe was pushed away by the current
 arm approach before a stable opposing contact formed. That makes it a side-grasp task
@@ -135,6 +146,21 @@ planner 会输出每个候选对应的 arm pose 和诊断信息，例如：
 - `failure_mode`
 
 这些信息用于判断候选是否可达、是否接触合理、是否存在撞桌/自碰撞/弱接触/滑出等问题。
+
+当前建议先跑：
+
+```bash
+scripts/run_rh56_handref_grasps_smoke.sh
+scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
+```
+
+然后用 viewer 看前三类物体的最佳候选：
+
+```bash
+DISPLAY=:1 scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object foam_block_40mm --show-contacts
+DISPLAY=:1 scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_cylinder_36mm --show-contacts
+DISPLAY=:1 scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_can_50mm --show-contacts
+```
 
 ## 定位
 

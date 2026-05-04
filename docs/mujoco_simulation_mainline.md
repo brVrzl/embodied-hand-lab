@@ -53,10 +53,11 @@ On the current workstation, the script automatically falls back to `DISPLAY=:1` 
 
 ### Evaluation Gates
 
-Run the current analytical candidate benchmark:
+Run the current main evaluation task, the RH56 hand-reference grasp planner:
 
 ```bash
-./scripts/run_mujoco_grasp_benchmark.sh
+./scripts/run_rh56_handref_grasps_smoke.sh
+./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
 ```
 
 Inspect best candidate rollouts after the benchmark has produced candidate summaries:
@@ -64,10 +65,12 @@ Inspect best candidate rollouts after the benchmark has produced candidate summa
 ```bash
 DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh \
   --mode grasp \
-  --object foam_cube \
+  --object foam_block_40mm \
   --rank 0 \
   --show-contacts
 ```
+
+`run_mujoco_grasp_benchmark.sh` remains available as a lightweight contact/schema diagnostic. Do not treat it as the main task after the hand-ref planner is working.
 
 Current interpretation:
 
@@ -81,7 +84,7 @@ The simulation task that currently fits the research direction is:
 
 ```text
 object point cloud / object width
--> object-relative palm pose candidates
+-> object-conditioned wrist/palm pose candidates
 -> RH56 hand-code sequence
 -> MuJoCo contact + lift verification
 -> export top candidates as real-robot presets
@@ -140,21 +143,24 @@ DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh --scenario table_cube 
 
 ### 评估门槛
 
-运行当前解析式候选抓取 benchmark：
+运行当前主评估任务，也就是 RH56 hand-reference grasp planner：
 
 ```bash
-./scripts/run_mujoco_grasp_benchmark.sh
+./scripts/run_rh56_handref_grasps_smoke.sh
+./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
 ```
 
-benchmark 产生候选 summary 后，可以查看候选 rollout：
+planner 产生候选 summary 后，可以查看候选 rollout：
 
 ```bash
 DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh \
   --mode grasp \
-  --object foam_cube \
+  --object foam_block_40mm \
   --rank 0 \
   --show-contacts
 ```
+
+`run_mujoco_grasp_benchmark.sh` 仍保留为轻量 contact/schema 诊断。hand-ref planner 已经能跑通后，不再把它作为主评估任务。
 
 当前解释方式：
 
@@ -168,7 +174,7 @@ DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh \
 
 ```text
 物体点云 / 物体宽度
--> object-relative palm pose candidates
+-> object-conditioned wrist/palm pose candidates
 -> RH56 hand-code sequence
 -> MuJoCo contact + lift verification
 -> 导出 top candidates 作为真机 preset

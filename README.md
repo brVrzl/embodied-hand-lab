@@ -59,7 +59,8 @@ pip install -e ".[dev]"
 ./scripts/export_maniskill_scene_preview.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
 DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
 DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
-./scripts/run_mujoco_grasp_benchmark.sh
+./scripts/run_rh56_handref_grasps_smoke.sh
+./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
 ./scripts/check_jaka_connection.sh --ip 192.168.1.100
 ./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
 ./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
@@ -173,13 +174,24 @@ DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
 
 当前机器如果没有显式设置 `DISPLAY`，脚本会在存在 `/tmp/.X11-unix/X1` 时自动使用 `DISPLAY=:1`。如果换到纯 headless 服务器，需要额外配置 `MUJOCO_GL=egl` 或 `MUJOCO_GL=osmesa`。
 
-运行候选抓取 benchmark：
+运行当前主评估任务，也就是 hand-ref grasp planner：
 
 ```bash
-./scripts/run_mujoco_grasp_benchmark.sh
+./scripts/run_rh56_handref_grasps_smoke.sh
+./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
 ```
 
-详细说明见 [MuJoCo Simulation Mainline](docs/mujoco_simulation_mainline.md) 和 [MuJoCo RH56 Grasp Benchmark](docs/mujoco_grasp_benchmark.md)。
+查看最佳候选：
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object foam_block_40mm --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_cylinder_36mm --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_can_50mm --show-contacts
+```
+
+`run_mujoco_grasp_benchmark.sh` 仍保留为轻量 contact/schema 诊断；论文主线和真机 preset 导出优先看 `run_rh56_handref_grasps.sh`。
+
+详细说明见 [MuJoCo Simulation Mainline](docs/mujoco_simulation_mainline.md)、[RH56 Hand-Ref Grasp Planner](docs/rh56_handref_grasp_planner.md) 和 [MuJoCo RH56 Grasp Benchmark](docs/mujoco_grasp_benchmark.md)。
 
 ## ManiSkill 仿真采集
 
