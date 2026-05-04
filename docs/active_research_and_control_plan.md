@@ -230,7 +230,7 @@ JAKA:
 
 ### Simulation Gate
 
-Use `PickCubeJakaRH56-v1` for an offline pipeline gate, not as evidence of real RH56 contact quality.
+Use ManiSkill `PickCubeJakaRH56-v1` for an offline pipeline gate, not as evidence of real RH56 contact quality.
 
 Current suitable use:
 
@@ -253,13 +253,30 @@ PickCubeJakaRH56 state-only -> palm-frame privileged oracle -> structured export
 
 Pass when at least five episodes validate and action records contain `delta_palm_pose`, `hand_code_id`, `hand_cmd`, and `close_strength`.
 
-The second sim gate is contact-only:
+After visual inspection on 2026-05-04, the ManiSkill JAKA+RH56 viewer path is not the active grasp-contact evaluation layer. The RH56 hand/contact visualization is not reliable enough there to support grasp claims.
+
+The active contact-grasp simulation gate is MuJoCo:
 
 ```text
-LiftCubeJakaRH56-v1 -> scripted lift/hold policy -> success from height + grasp contact + static arm
+MuJoCo JAKA+RH56 asset
+-> RH56 pad proxy inspection
+-> object-relative palm candidate
+-> hand-code close sequence
+-> contact + lift verification
 ```
 
-This gate is closer to mainstream benchmark evaluation because success is computed by the environment and does not use kinematic carry. Low success is acceptable at this stage; it becomes a diagnostic for RH56 contact model and scripted palm pose quality.
+Run:
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+./scripts/run_mujoco_grasp_benchmark.sh
+```
+
+This gate is closer to the current research question because it directly exposes hand geometry, pad proxies, per-candidate contact summaries, and lift outcomes. Low success is acceptable at this stage; it becomes a diagnostic for RH56 contact model, palm pose, hand-code, and lift path quality.
+
+JAKA EDG servo stability gate:
+
 - Run 60 seconds of small bounded servo motion at `step_num=2`.
 - Record command interval, dropped calls, protective stops, and visible oscillation.
 
@@ -508,6 +525,22 @@ object observation -> T_object_to_palm + approach direction + hand_code sequence
 - JAKA EDG servo 按 `step_num=4 -> 2 -> 1` 逐步测试。
 - RH56 PC direct 完成读写、100 次命令压力测试、完整反馈记录。
 - 比较 PC direct 与 JAKA tool RS485 的延迟和反馈信息量。
+
+仿真 gate：
+
+- ManiSkill `PickCubeJakaRH56-v1` 只用于 state-only schema validation、palm-frame oracle action logging、structured export 和 replay inspection。
+- 2026-05-04 viewer 检查后，ManiSkill JAKA+RH56 不再作为当前主抓取接触评估层。
+- 主抓取接触评估转到 MuJoCo：先看 RH56 pad proxy，再看手-物体交互，最后跑候选抓取 benchmark。
+
+运行：
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+./scripts/run_mujoco_grasp_benchmark.sh
+```
+
+MuJoCo 成功只能解释为仿真接触模型成功，不等同于真实硬件成功；MuJoCo 失败则用于定位 pad proxy、palm pose、hand-code 或 lift path 问题。
 
 真实任务：
 

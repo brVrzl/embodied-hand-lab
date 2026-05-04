@@ -40,8 +40,9 @@
 - episode 可开始、记录、停止并落盘
 - episode 可导出为结构化样本与 LeRobot 风格 stub
 - 提供 bring-up、数据协议、研究路线图文档
-- 提供 ManiSkill 仿真采集入口，可先跑桌面任务假数据链路
-- 已形成 RH56 hand-code / external dataset / MuJoCo replay 的前置研究材料
+- 提供 ManiSkill 仿真采集入口，用于 schema、episode、structured export 数据链路验证
+- 提供 MuJoCo JAKA+RH56 手部可视化、contact proxy 校准和抓取候选评估入口
+- 已形成 RH56 hand-code / external dataset / MuJoCo grasp benchmark 的前置研究材料
 
 ## 快速开始
 
@@ -56,6 +57,9 @@ pip install -e ".[dev]"
 ./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube.yaml
 ./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube_state.yaml
 ./scripts/export_maniskill_scene_preview.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+./scripts/run_mujoco_grasp_benchmark.sh
 ./scripts/check_jaka_connection.sh --ip 192.168.1.100
 ./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
 ./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
@@ -88,7 +92,7 @@ tools/                辅助工具
 - `src/rh56_driver`：RH56 最小驱动层
 - `src/vision_interface`：相机抽象层
 - `src/data_recorder`：统一 episode recorder
-- `src/sim_maniskill`：ManiSkill 仿真采集入口
+- `src/sim_maniskill`：ManiSkill 仿真采集入口，用于数据链路验证
 - `src/task_library`：任务模板与元数据
 - `src/evaluation`：最小评测
 - `src/lerobot_bridge`：LeRobot 导出 stub
@@ -142,13 +146,48 @@ ros2 topic pub /hand/command_code std_msgs/msg/String \
 
 `/hand/command_angles` 暂时拒绝 `normalized_0_1`，因为 normalized policy command 必须经过明确标定后才能转成 RH56 raw angle，不能在 ROS2 topic 中隐式猜测。
 
+## MuJoCo 抓取仿真主线
+
+当前 JAKA mini2 + RH56 的抓取接触评估主线是 MuJoCo。ManiSkill 仍保留用于 episode schema、action representation 和 structured export 检查，但在其 viewer 中手部几何/接触没有确认可靠前，不作为 RH56 抓取成功率证据。
+
+先看 RH56 姿态和接触 proxy：
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+```
+
+再看一个手-物体闭合过程：
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+```
+
+如果没有 GUI，可以录制 MP4：
+
+```bash
+./scripts/view_mujoco_jaka_rh56_grasp_debug.sh \
+  --scenario cube_in_hand \
+  --duration 3.0 \
+  --record-mp4 data/replays/mujoco_jaka_rh56_debug/cube_in_hand.mp4
+```
+
+当前机器如果没有显式设置 `DISPLAY`，脚本会在存在 `/tmp/.X11-unix/X1` 时自动使用 `DISPLAY=:1`。如果换到纯 headless 服务器，需要额外配置 `MUJOCO_GL=egl` 或 `MUJOCO_GL=osmesa`。
+
+运行候选抓取 benchmark：
+
+```bash
+./scripts/run_mujoco_grasp_benchmark.sh
+```
+
+详细说明见 [MuJoCo Simulation Mainline](docs/mujoco_simulation_mainline.md) 和 [MuJoCo RH56 Grasp Benchmark](docs/mujoco_grasp_benchmark.md)。
+
 ## ManiSkill 仿真采集
 
 适用场景：
 
 - 还没买 RGB-D 相机
 - 想先把桌面任务的采集与训练链路跑通
-- 不急着一开始就还原 `JAKA mini2 + RH56`
+- 验证 schema、episode、structured export，而不是验证 RH56 抓取接触
 
 最小入口：
 
@@ -185,7 +224,7 @@ JAKA + RH56 仿真替换入口：
   --out-dir data/reports/jaka_rh56_sim_task_assessment
 ```
 
-运行第一个 contact-only 评估任务，不使用 kinematic carry：
+运行 ManiSkill contact-only evaluator prototype，不使用 kinematic carry；它只用于调试 task/evaluator flow，不作为当前主抓取接触 benchmark：
 
 ```bash
 ./scripts/evaluate_jaka_rh56_lift_hold.sh \

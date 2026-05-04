@@ -4,6 +4,10 @@ Date / 日期: 2026-04-28
 
 ## Goal / 目标
 
+中文：2026-05-04 起，MuJoCo 是本项目 JAKA mini2 + RH56 抓取接触评估的主仿真层。更高层的主线说明见 `docs/mujoco_simulation_mainline.md`。
+
+English: As of 2026-05-04, MuJoCo is the main simulation layer for JAKA mini2 + RH56 grasp-contact evaluation in this project. See `docs/mujoco_simulation_mainline.md` for the higher-level mainline.
+
 中文：这个 benchmark 的目标是把项目推进到“先仿真、后真机迁移”的抓取流程。当前流程在 MuJoCo 中直接生成物体点云，从点云估计物体宽度，再基于 RH56 的宽度和对向接触先验生成候选抓取姿态，最后用 MuJoCo 的接触和 lift 结果验证候选。
 
 English: This benchmark moves the project toward a simulation-first grasp pipeline. It generates object point clouds directly from MuJoCo primitives, estimates object width from the point cloud, generates RH56 grasp candidates using analytical width/contact priors, and validates candidates with MuJoCo contact and lift outcomes.

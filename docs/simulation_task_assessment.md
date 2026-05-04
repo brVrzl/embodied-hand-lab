@@ -6,7 +6,7 @@ Task under review: `PickCubeJakaRH56-v1`
 
 ## Verdict
 
-`PickCubeJakaRH56-v1` is suitable for the next offline simulation step, but only for a narrow purpose:
+`PickCubeJakaRH56-v1` is suitable only for a narrow offline pipeline purpose:
 
 - validate the episode/data schema.
 - validate palm-frame action fields.
@@ -14,7 +14,9 @@ Task under review: `PickCubeJakaRH56-v1`
 - train a small state-only BC or retrieval baseline.
 - exercise structured export and schema validation before hardware is connected.
 
-It is not yet suitable for claims about real RH56 grasp physics, pseudo-tactile force thresholds, or robust dexterous manipulation.
+It is not suitable for claims about real RH56 grasp physics, pseudo-tactile force thresholds, or robust dexterous manipulation.
+
+After visual inspection on 2026-05-04, the ManiSkill JAKA+RH56 viewer path should not be treated as the main grasp-evaluation layer because the hand geometry/contact representation is not reliable enough for RH56 grasp inspection. The active contact-evaluation path is now MuJoCo. See `docs/mujoco_simulation_mainline.md`.
 
 ## Why It Is Useful Now
 
@@ -80,9 +82,11 @@ After the smoke gate passes:
 4. Add RGB-D only after renderer support is confirmed.
 5. Move pseudo-tactile threshold tuning to real RH56 feedback, not simulated contact forces.
 
-## Contact-Only Evaluation Task
+## ManiSkill Contact-Only Evaluation Task
 
-`LiftCubeJakaRH56-v1` is now the first truly evaluative JAKA+RH56 sim task. It follows the standard benchmark pattern used by tasks such as ManiSkill `PickCube`, `StackCube`, and `PegInsertionSide`: randomized tabletop object state, bounded horizon, explicit success terms, and a policy-independent evaluator.
+`LiftCubeJakaRH56-v1` follows the standard benchmark pattern used by tasks such as ManiSkill `PickCube`, `StackCube`, and `PegInsertionSide`: randomized tabletop object state, bounded horizon, explicit success terms, and a policy-independent evaluator.
+
+However, because the current ManiSkill viewer path does not provide a trustworthy RH56 hand/contact visualization, this task is now a schema/evaluator prototype rather than the main contact-grasp benchmark.
 
 Success requires:
 
@@ -121,9 +125,21 @@ For SSH/headless sessions without a working display, export diagnostic frames an
 
 Interpretation:
 
-- High success means the scripted policy and current contact model can support a basic lift/hold evaluation.
-- Low success is still useful; it identifies either policy weakness or RH56 contact-model mismatch.
+- High success means the scripted policy and current ManiSkill contact model can support a basic lift/hold evaluator prototype.
+- Low success is still useful for debugging task flow, but it should not drive the RH56 grasp research plan.
 - Do not tune real pseudo-tactile thresholds from simulated contact forces.
+
+## MuJoCo Main Evaluation Path
+
+Use MuJoCo for RH56 hand/contact inspection and candidate grasp evaluation:
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+./scripts/run_mujoco_grasp_benchmark.sh
+```
+
+The MuJoCo path is currently better aligned with the research question because it exposes the actual hand geometry, active contact proxies, per-candidate XML scenes, contact summaries, and lift results.
 
 # 中文版本
 
@@ -131,7 +147,7 @@ Interpretation:
 
 ## 结论
 
-这个任务适合继续推进仿真层，但用途要收窄：
+这个任务只适合继续作为离线数据链路验证，用途要收窄：
 
 - 验证 episode/data schema。
 - 验证 palm-frame action 字段。
@@ -139,7 +155,9 @@ Interpretation:
 - 训练一个小的 state-only BC 或 retrieval baseline。
 - 在真实设备接入前，先跑通 structured export 和 schema validation。
 
-它暂时不适合支撑真实 RH56 抓取物理、伪触觉力阈值、复杂灵巧操作鲁棒性等结论。
+它不适合支撑真实 RH56 抓取物理、伪触觉力阈值、复杂灵巧操作鲁棒性等结论。
+
+2026-05-04 人工查看 viewer 后，ManiSkill JAKA+RH56 路径不应再作为主抓取评估层，因为当前手部几何/接触可视化不足以支撑 RH56 抓取判断。当前接触评估主线转到 MuJoCo，见 `docs/mujoco_simulation_mainline.md`。
 
 ## 现在为什么有用
 
@@ -205,9 +223,11 @@ smoke gate 通过后：
 4. 只有确认 renderer 可用后再加入 RGB-D。
 5. 伪触觉阈值调参放到真实 RH56 feedback 上，不从仿真接触力直接得出。
 
-## Contact-Only 评估任务
+## ManiSkill Contact-Only 评估任务
 
-`LiftCubeJakaRH56-v1` 是当前第一个真正有评估意义的 JAKA+RH56 仿真任务。它参照 ManiSkill `PickCube`、`StackCube`、`PegInsertionSide` 这类主流任务的模式：桌面物体随机化、固定 horizon、明确 success terms、独立于 policy 的 evaluator。
+`LiftCubeJakaRH56-v1` 参照 ManiSkill `PickCube`、`StackCube`、`PegInsertionSide` 这类主流任务的模式：桌面物体随机化、固定 horizon、明确 success terms、独立于 policy 的 evaluator。
+
+但因为当前 ManiSkill viewer 路径无法提供可信的 RH56 手部/接触可视化，它现在只作为 schema/evaluator prototype，不作为主要 contact-grasp benchmark。
 
 成功条件：
 
@@ -246,6 +266,18 @@ smoke gate 通过后：
 
 解释方式：
 
-- 高成功率说明 scripted policy 和当前接触模型能支撑基础 lift/hold 评估。
-- 低成功率也有价值，说明 policy 或 RH56 接触模型需要继续改。
+- 高成功率只能说明 scripted policy 和当前 ManiSkill contact model 可以支撑一个基础 lift/hold evaluator prototype。
+- 低成功率仍可用于调试 task flow，但不应驱动 RH56 抓取研究路线。
 - 不要从仿真接触力直接调真实 RH56 伪触觉阈值。
+
+## MuJoCo 主评估路径
+
+RH56 手部/接触检查和候选抓取评估改用 MuJoCo：
+
+```bash
+DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
+DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
+./scripts/run_mujoco_grasp_benchmark.sh
+```
+
+MuJoCo 路径当前更贴合研究问题，因为它能直接暴露手部几何、active contact proxy、每个候选抓取的 XML 场景、contact summary 和 lift result。
