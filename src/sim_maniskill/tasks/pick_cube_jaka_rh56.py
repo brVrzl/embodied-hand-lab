@@ -32,6 +32,8 @@ JAKA_RH56_GOAL_THRESH = 0.025
 JAKA_RH56_CUBE_SPAWN_HALF_SIZE = 0.07
 JAKA_RH56_CUBE_SPAWN_CENTER = (-0.10, 0.0)
 JAKA_RH56_MAX_GOAL_HEIGHT = 0.15
+JAKA_RH56_LIFT_SUCCESS_HEIGHT = 0.075
+JAKA_RH56_LIFT_STATIC_QVEL = 0.35
 JAKA_RH56_CAMERA_TARGET = [-0.12, 0.0, 0.05]
 JAKA_RH56_SENSOR_CAM_EYE_POS = [0.24, -0.16, 0.78]
 JAKA_RH56_SENSOR_CAM_TARGET_POS = JAKA_RH56_CAMERA_TARGET
@@ -260,3 +262,45 @@ class PickCubeJakaRH56Env(PickCubeEnv):
                 },
             },
         }
+
+
+@register_env("LiftCubeJakaRH56-v1", max_episode_steps=80)
+class LiftCubeJakaRH56Env(PickCubeJakaRH56Env):
+    """Contact-only lift/hold evaluation task for the JAKA+RH56 embodiment.
+
+    Unlike the privileged PickCube oracle used for data-pipeline smoke tests,
+    this task's success condition depends on simulated contact: the cube must
+    be above the lift threshold while grasped and the arm must be reasonably
+    static. It is intentionally stricter and may fail until the RH56 contact
+    model is calibrated.
+    """
+
+    lift_success_height = JAKA_RH56_LIFT_SUCCESS_HEIGHT
+    lift_static_qvel = JAKA_RH56_LIFT_STATIC_QVEL
+
+    def evaluate(self):
+        object_height = self.cube.pose.p[:, 2]
+        is_lifted = object_height >= self.lift_success_height
+        is_grasped = self.agent.is_grasping(self.cube)
+        is_robot_static = self.agent.is_static(self.lift_static_qvel)
+        return {
+            "success": is_lifted & is_grasped & is_robot_static,
+            "is_lifted": is_lifted,
+            "is_grasped": is_grasped,
+            "is_robot_static": is_robot_static,
+            "object_height": object_height,
+            "lift_success_height": torch.full_like(object_height, float(self.lift_success_height)),
+        }
+
+    def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: dict):
+        tcp_to_obj_dist = torch.linalg.norm(self.cube.pose.p - self.agent.tcp_pose.p, axis=1)
+        reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
+        lift_progress = torch.clamp(
+            (self.cube.pose.p[:, 2] - self.cube_half_size) / max(self.lift_success_height - self.cube_half_size, 1e-6),
+            0.0,
+            1.0,
+        )
+        reward = reaching_reward + info["is_grasped"].float() + lift_progress
+        reward += info["is_robot_static"].float() * info["is_lifted"].float()
+        reward[info["success"]] = 5.0
+        return reward

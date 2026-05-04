@@ -75,10 +75,35 @@ Pass condition:
 After the smoke gate passes:
 
 1. Train a state-only BC baseline on the structured export.
-2. Add a non-kinematic contact-only baseline and compare it against the privileged oracle.
+2. Run the non-kinematic contact-only `LiftCubeJakaRH56-v1` task and compare it against the privileged oracle.
 3. Add object-width and approach-direction variation.
 4. Add RGB-D only after renderer support is confirmed.
 5. Move pseudo-tactile threshold tuning to real RH56 feedback, not simulated contact forces.
+
+## Contact-Only Evaluation Task
+
+`LiftCubeJakaRH56-v1` is now the first truly evaluative JAKA+RH56 sim task. It follows the standard benchmark pattern used by tasks such as ManiSkill `PickCube`, `StackCube`, and `PegInsertionSide`: randomized tabletop object state, bounded horizon, explicit success terms, and a policy-independent evaluator.
+
+Success requires:
+
+- cube height above `0.075 m`.
+- simulated RH56 grasp contact.
+- arm reasonably static.
+
+Run:
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 5 \
+  --max-steps 100 \
+  --out data/reports/jaka_rh56_lift_hold_eval/summary.json
+```
+
+Interpretation:
+
+- High success means the scripted policy and current contact model can support a basic lift/hold evaluation.
+- Low success is still useful; it identifies either policy weakness or RH56 contact-model mismatch.
+- Do not tune real pseudo-tactile thresholds from simulated contact forces.
 
 # 中文版本
 
@@ -155,7 +180,32 @@ PYTHONPATH=src .venv/bin/python tools/validate_episode_schema.py \
 smoke gate 通过后：
 
 1. 在 structured export 上训练 state-only BC baseline。
-2. 增加不使用 kinematic carry 的 contact-only baseline，与 privileged oracle 对照。
+2. 运行不使用 kinematic carry 的 `LiftCubeJakaRH56-v1` contact-only 任务，与 privileged oracle 对照。
 3. 增加物体宽度和 approach direction 变化。
 4. 只有确认 renderer 可用后再加入 RGB-D。
 5. 伪触觉阈值调参放到真实 RH56 feedback 上，不从仿真接触力直接得出。
+
+## Contact-Only 评估任务
+
+`LiftCubeJakaRH56-v1` 是当前第一个真正有评估意义的 JAKA+RH56 仿真任务。它参照 ManiSkill `PickCube`、`StackCube`、`PegInsertionSide` 这类主流任务的模式：桌面物体随机化、固定 horizon、明确 success terms、独立于 policy 的 evaluator。
+
+成功条件：
+
+- 方块高度超过 `0.075 m`。
+- RH56 仿真接触判定为 grasped。
+- 机械臂基本静止。
+
+运行：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 5 \
+  --max-steps 100 \
+  --out data/reports/jaka_rh56_lift_hold_eval/summary.json
+```
+
+解释方式：
+
+- 高成功率说明 scripted policy 和当前接触模型能支撑基础 lift/hold 评估。
+- 低成功率也有价值，说明 policy 或 RH56 接触模型需要继续改。
+- 不要从仿真接触力直接调真实 RH56 伪触觉阈值。

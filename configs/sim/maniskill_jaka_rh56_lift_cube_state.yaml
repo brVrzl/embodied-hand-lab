@@ -1,0 +1,34 @@
+env:
+  env_id: LiftCubeJakaRH56-v1
+  robot_uids: jaka_rh56
+  agent_module: sim_maniskill.agents.jaka_rh56
+  env_module: sim_maniskill.tasks.pick_cube_jaka_rh56
+  obs_mode: state
+  control_mode: pd_joint_delta_pos
+  render_mode: null
+  render_backend: none
+  sim_backend: physx_cpu
+  num_envs: 1
+  flatten_rgbd_obs: false
+  env_kwargs:
+    start_pose: pregrasp
+
+task:
+  task_name: lift_and_hold_cube
+  instruction: lift the cube and hold it above the table with the rh56 hand
+  operator: sim_maniskill_jaka_rh56_lift_hold
+
+robot:
+  arm_joint_count: 6
+  hand_joint_count: 6
+
+recording:
+  episodes: 1
+  max_steps: 80
+  seed: 0
+  policy: zero
+  output_dir: data/episodes/maniskill_jaka_rh56_lift_cube_state
+  export_dir: data/exports/structured/maniskill_jaka_rh56_lift_cube_state
+
+logging:
+  logging_config: configs/logging/default.yaml

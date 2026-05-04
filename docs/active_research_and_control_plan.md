@@ -252,6 +252,14 @@ PickCubeJakaRH56 state-only -> palm-frame privileged oracle -> structured export
 ```
 
 Pass when at least five episodes validate and action records contain `delta_palm_pose`, `hand_code_id`, `hand_cmd`, and `close_strength`.
+
+The second sim gate is contact-only:
+
+```text
+LiftCubeJakaRH56-v1 -> scripted lift/hold policy -> success from height + grasp contact + static arm
+```
+
+This gate is closer to mainstream benchmark evaluation because success is computed by the environment and does not use kinematic carry. Low success is acceptable at this stage; it becomes a diagnostic for RH56 contact model and scripted palm pose quality.
 - Run 60 seconds of small bounded servo motion at `step_num=2`.
 - Record command interval, dropped calls, protective stops, and visible oscillation.
 

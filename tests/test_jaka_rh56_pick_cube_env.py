@@ -38,3 +38,22 @@ def test_pick_cube_jaka_rh56_reset_uses_custom_workspace() -> None:
         assert base_pose[0] == pytest.approx(-0.615, abs=1e-5)
     finally:
         env.close()
+
+
+def test_lift_cube_jaka_rh56_exposes_contact_only_success_terms() -> None:
+    config = load_yaml("configs/sim/maniskill_jaka_rh56_lift_cube_state.yaml")
+
+    env = create_env_from_config(config)
+    try:
+        env.reset(seed=1)
+        info = env.unwrapped.evaluate()
+
+        assert "success" in info
+        assert "is_lifted" in info
+        assert "is_grasped" in info
+        assert "is_robot_static" in info
+        assert "object_height" in info
+        assert "lift_success_height" in info
+        assert float(info["lift_success_height"].reshape(-1)[0]) == pytest.approx(0.075)
+    finally:
+        env.close()

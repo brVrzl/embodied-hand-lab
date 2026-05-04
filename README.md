@@ -185,6 +185,15 @@ JAKA + RH56 仿真替换入口：
   --out-dir data/reports/jaka_rh56_sim_task_assessment
 ```
 
+运行第一个 contact-only 评估任务，不使用 kinematic carry：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 5 \
+  --max-steps 100 \
+  --out data/reports/jaka_rh56_lift_hold_eval/summary.json
+```
+
 如果要先验证“JAKA+RH56 task schema -> episode -> structured export”闭环，可以使用特权 scripted oracle：
 
 ```bash
@@ -204,6 +213,7 @@ PYTHONPATH=src python tools/validate_episode_schema.py \
 注意：
 
 - 这个 palm-frame oracle 会在 scripted close 阶段后用特权方式移动 cube，只用于验证数据格式、action representation、训练脚本和评测链路。
+- 真正用于 contact-only sim evaluation 的入口是 `LiftCubeJakaRH56-v1` 和 `evaluate_jaka_rh56_lift_hold.sh`。
 - 不要把该数据报告为物理抓取成功率。
 - 当前本机无可用 SAPIEN GPU/CPU renderer，`--rgbd` 采集会失败；state-only 采集可用。
 - 真实物理抓取 oracle 下一步要继续修 RH56 手指接触、抓取偏置和 `is_grasping` 判定。
