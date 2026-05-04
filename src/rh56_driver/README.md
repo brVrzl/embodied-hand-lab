@@ -14,6 +14,7 @@ Inspire RH56 最小驱动层，当前以“高级夹爪模式”优先。
 - 基于本地 RH56 协议资料整理的 `serial_protocol` real backend
 - 基于 JAKA TIO 的 `jaka_tool_rs485` real backend
 - 官方 ROS2 service 命名约定配置
+- `ros2_bridge.py`：mock-first JSON ROS2 bridge，用于先固定 topic 语义
 
 真实设备接入说明：
 
@@ -22,6 +23,20 @@ Inspire RH56 最小驱动层，当前以“高级夹爪模式”优先。
 - `serial_backend.py` 基于你本地 `灵巧手资料/inspire_hand/rh56.py` 与 `inspire_hand_485_ros2/service_interfaces/*.srv` 整理
 - `jaka_tool_backend.py` 用于 RH56 通过 JAKA 末端航插口接入：临时切 raw RS485 发送控制帧，切回 Modbus RTU 后重建 6 个角度信号量读取真实反馈
 - 若你最终采用厂家 ROS2 工作空间，可把 `backend_type` 改为 `ros2_services` 并补齐对应 client
+
+ROS2 JSON bridge:
+
+- 入口：`./scripts/run_rh56_ros2_json_bridge.sh --config configs/hand/rh56.yaml --state-hz 20`
+- 发布：
+  - `/hand/state`
+  - `/hand/raw_feedback`
+  - `/hand/backend_mode`
+- 订阅：
+  - `/hand/command_angles`
+  - `/hand/command_code`
+  - `/hand/command_force`
+- 所有 payload 暂时使用 `std_msgs/String` JSON。
+- `/hand/command_angles` 只接受 canonical `rh56_angle_raw_0_1000`，不隐式接受 normalized command。
 
 JAKA 工具端 RS485 说明：
 

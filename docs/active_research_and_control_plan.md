@@ -122,6 +122,7 @@ Implement the stack as separate ROS2 nodes so control, perception, policy, and l
 - Publishes `/hand/state`, `/hand/raw_feedback`, `/hand/backend_mode`.
 - Accepts `/hand/command_code`, `/hand/command_angles`, `/hand/command_force`.
 - Provides backend switching only when the hand is idle.
+- Current offline implementation uses a `std_msgs/String` JSON bridge to lock topic semantics before custom ROS2 message generation is finalized. All command payloads must include explicit units and canonical order.
 
 `camera_node`
 

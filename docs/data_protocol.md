@@ -224,6 +224,28 @@ Use the controlled set in `data_recorder.episode_recorder.FAILURE_MODES`:
 
 Do not mix free-form failure names into training labels. Put extra explanation in `failure_reason` or `operator_notes`.
 
+## RH56 ROS2 JSON Bridge
+
+The current offline bridge uses `std_msgs/String` JSON payloads so it can run before custom ROS2 message generation is finalized. This is an integration layer, not the final message definition.
+
+State topic payloads must include:
+
+- `schema_version`
+- `timestamp`
+- `backend_mode`
+- `canonical_hand_order`
+- `hand.position`
+- `hand.position_unit`
+- `hand.order`
+
+Command topic payloads must include explicit units:
+
+```json
+{"values": [1000, 1000, 1000, 1000, 1000, 1000], "unit": "rh56_angle_raw_0_1000", "order": "canonical"}
+```
+
+Normalized commands such as `normalized_0_1` must go through a calibrated policy adapter. They are intentionally rejected by `/hand/command_angles` to prevent silent raw/normalized confusion.
+
 ## References
 
 - LeRobotDataset v3.0: https://huggingface.co/docs/lerobot/lerobot-dataset-v3
@@ -455,3 +477,25 @@ data/exports/lerobot/
 - `unknown`
 
 不要把自由文本 failure name 混入训练标签。额外解释写入 `failure_reason` 或 `operator_notes`。
+
+## RH56 ROS2 JSON Bridge
+
+当前离线 bridge 使用 `std_msgs/String` JSON payload，这样在 custom ROS2 message 还没最终确定前也能运行。它是集成层，不是最终消息定义。
+
+状态 topic payload 必须包含：
+
+- `schema_version`
+- `timestamp`
+- `backend_mode`
+- `canonical_hand_order`
+- `hand.position`
+- `hand.position_unit`
+- `hand.order`
+
+命令 topic payload 必须显式写单位：
+
+```json
+{"values": [1000, 1000, 1000, 1000, 1000, 1000], "unit": "rh56_angle_raw_0_1000", "order": "canonical"}
+```
+
+`normalized_0_1` 这类归一化命令必须先经过有明确标定的 policy adapter。`/hand/command_angles` 会故意拒绝 normalized 命令，避免 raw/normalized 被静默混用。

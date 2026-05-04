@@ -61,6 +61,7 @@ pip install -e ".[dev]"
 ./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
 ./scripts/check_rh56_connection.sh --port /dev/ttyUSB0
 ./scripts/rh56_pc_direct_bringup.sh --config configs/hand/rh56_real.yaml --port /dev/ttyUSB0 --polls 20
+./scripts/run_rh56_ros2_json_bridge.sh --config configs/hand/rh56.yaml --state-hz 20 --position-unit normalized_0_1
 ./scripts/check_rh56_via_jaka.sh --ip 192.168.1.100
 ./scripts/save_jaka_preset.sh --preset-name upright --joints 0 0 0 0 0 0
 ./scripts/arm_hand_smoke_test.sh --ip 192.168.1.100 --preset-name upright --hand-id 1 --execute
@@ -110,6 +111,36 @@ tools/                辅助工具
 7. 对接真实硬件时，仅替换对应 adapter backend，不改 recorder 和任务层。
 8. JAKA/RH56 的本地官方资料路径已在各模块 README 中写明，可直接照着替换。
 9. 新实现优先服务 `docs/active_research_and_control_plan.md`：JAKA EDG servo、RH56 PC direct、palm-frame hand-code、pseudo-tactile correction。
+
+## RH56 ROS2 JSON Bridge
+
+暂时没有实机时，可以先用 mock hand 固定 ROS2 topic 语义：
+
+```bash
+source /opt/ros/humble/setup.bash
+./scripts/run_rh56_ros2_json_bridge.sh \
+  --config configs/hand/rh56.yaml \
+  --state-hz 20 \
+  --position-unit normalized_0_1
+```
+
+默认 topic：
+
+- `/hand/state`：JSON string，canonical hand order，显式 `position_unit`
+- `/hand/raw_feedback`：JSON string，PC-direct backend 可用时发布协议 raw feedback
+- `/hand/backend_mode`：JSON string，当前 backend
+- `/hand/command_angles`：JSON string，只接受 canonical `rh56_angle_raw_0_1000`
+- `/hand/command_code`：JSON string，接受 `open`、`close`、`pinch` 或 preset name
+- `/hand/command_force`：JSON string，只接受 canonical `rh56_force_raw_0_1000`
+
+示例命令：
+
+```bash
+ros2 topic pub /hand/command_code std_msgs/msg/String \
+  "{data: '{\"command\":\"open\"}'}"
+```
+
+`/hand/command_angles` 暂时拒绝 `normalized_0_1`，因为 normalized policy command 必须经过明确标定后才能转成 RH56 raw angle，不能在 ROS2 topic 中隐式猜测。
 
 ## ManiSkill 仿真采集
 
