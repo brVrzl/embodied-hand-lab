@@ -227,6 +227,31 @@ JAKA:
 
 - Verify trajectory mode for home and pregrasp.
 - Verify EDG servo at `step_num=4`, then `2`, then optionally `1`.
+
+### Simulation Gate
+
+Use `PickCubeJakaRH56-v1` for an offline pipeline gate, not as evidence of real RH56 contact quality.
+
+Current suitable use:
+
+- state-only schema validation.
+- palm-frame oracle action logging.
+- small BC/retrieval baseline training.
+- structured export and replay inspection.
+
+Current unsuitable use:
+
+- reporting physical RH56 grasp success.
+- tuning pseudo-tactile thresholds from simulated forces.
+- making broad dexterous manipulation claims from single-object PickCube.
+
+The first sim gate is:
+
+```text
+PickCubeJakaRH56 state-only -> palm-frame privileged oracle -> structured export -> schema validation -> export inspection
+```
+
+Pass when at least five episodes validate and action records contain `delta_palm_pose`, `hand_code_id`, `hand_cmd`, and `close_strength`.
 - Run 60 seconds of small bounded servo motion at `step_num=2`.
 - Record command interval, dropped calls, protective stops, and visible oscillation.
 

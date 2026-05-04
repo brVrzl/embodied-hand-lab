@@ -233,7 +233,8 @@ def collect(args: argparse.Namespace) -> dict[str, str]:
                     "review_camera_fov": args.review_camera_fov if args.save_rgb else None,
                     "review_image_size": args.image_size if args.save_rgb else None,
                     "rgb_frame_semantics": "post_step_after_oracle_carry_review" if args.save_rgb else None,
-                    "policy": "privileged_kinematic_oracle",
+                    "policy": "palm_frame_privileged_oracle",
+                    "action_representation": "delta_palm_pose_plus_hand_cmd_and_close_strength",
                     "requested_failure_mode": args.failure_mode,
                     "seed": seed,
                     "limitations": (
@@ -326,10 +327,16 @@ def collect(args: argparse.Namespace) -> dict[str, str]:
                     observation=step_obs,
                     action={
                         "source": "maniskill",
-                        "policy": "privileged_kinematic_oracle",
+                        "policy": "palm_frame_privileged_oracle",
                         "step_index": step_idx,
                         "action": action.tolist(),
                         "ee_delta": ee_delta,
+                        "delta_palm_pose": ee_delta,
+                        "palm_delta_frame": "base",
+                        "target_palm_position": target.astype(np.float32, copy=False).tolist(),
+                        "hand_code_id": 1 if float(np.mean(hand_cmd)) > 0.5 else 0,
+                        "hand_code_name": "close" if float(np.mean(hand_cmd)) > 0.5 else "open",
+                        "close_strength": float(np.mean(hand_cmd)),
                         "hand_delta_cmd": hand_delta,
                         "hand_delta_state_raw": hand_delta_state_raw,
                         "hand_delta_state": hand_delta_state,
@@ -370,7 +377,7 @@ def collect(args: argparse.Namespace) -> dict[str, str]:
                 failure_mode=final_failure_mode,
                 failure_reason="" if final_success else observed_quality,
                 operator_notes=(
-                    "privileged_kinematic_oracle; success requires final_object_height >= "
+                    "palm_frame_privileged_oracle with kinematic carry; success requires final_object_height >= "
                     f"{STRONG_SUCCESS_OBJECT_HEIGHT_M:.3f}; final_object_height={final_object_height:.6f}; "
                     f"observed_quality={observed_quality}; not physical grasp performance"
                 ),
@@ -420,7 +427,7 @@ def main() -> None:
     parser.add_argument(
         "--failure-mode",
         choices=sorted(FAILURE_MODES),
-        default="unknown",
+        default="none",
         help="Failure label to use if an episode does not reach privileged success. Successful episodes are always exported with failure_mode=none.",
     )
     parser.add_argument("--output-dir", default="data/episodes/jaka_rh56_pickcube_privileged_oracle")
