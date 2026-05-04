@@ -109,6 +109,16 @@ Open an interactive viewer for the scripted rollout:
   --fps 20
 ```
 
+For SSH/headless sessions without a working display, export diagnostic frames and MP4 instead:
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --save-frames data/reports/jaka_rh56_lift_hold_eval/frames \
+  --save-video data/reports/jaka_rh56_lift_hold_eval/videos
+```
+
 Interpretation:
 
 - High success means the scripted policy and current contact model can support a basic lift/hold evaluation.
@@ -222,6 +232,16 @@ smoke gate 通过后：
   --max-steps 100 \
   --viewer \
   --fps 20
+```
+
+远程 SSH 没有可用 display 时，导出离线诊断帧和 MP4：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --save-frames data/reports/jaka_rh56_lift_hold_eval/frames \
+  --save-video data/reports/jaka_rh56_lift_hold_eval/videos
 ```
 
 解释方式：

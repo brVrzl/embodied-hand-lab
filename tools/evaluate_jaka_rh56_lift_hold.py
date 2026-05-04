@@ -19,6 +19,12 @@ from rh56_driver.hand_schema import (
 from sim_maniskill.teleop import _estimate_tcp_position_jacobian
 
 
+def _lazy_imageio() -> Any:
+    import imageio.v3 as iio
+
+    return iio
+
+
 def _arr(value: Any) -> np.ndarray:
     if hasattr(value, "detach") and hasattr(value, "cpu") and hasattr(value, "numpy"):
         value = value.detach().cpu().numpy()
@@ -63,6 +69,67 @@ def _target_for_step(env: Any, step_idx: int) -> tuple[np.ndarray, np.ndarray, s
     return obj + grasp_offset + np.array([0.0, 0.0, 0.16], dtype=np.float32), np.ones(6, dtype=np.float32), "lift_hold"
 
 
+def _save_diagnostic_frame(
+    path: Path,
+    *,
+    step_idx: int,
+    phase: str,
+    object_pos: np.ndarray,
+    tcp_pos: np.ndarray,
+    target_pos: np.ndarray,
+    final_info: dict[str, Any],
+) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8, 4), dpi=120)
+    fig.suptitle(f"LiftCubeJakaRH56 step={step_idx} phase={phase}")
+
+    axes[0].set_title("top view x-y")
+    axes[0].scatter([object_pos[0]], [object_pos[1]], c="red", label="cube")
+    axes[0].scatter([tcp_pos[0]], [tcp_pos[1]], c="blue", label="tcp")
+    axes[0].scatter([target_pos[0]], [target_pos[1]], c="green", label="target")
+    axes[0].set_xlim(-0.35, 0.15)
+    axes[0].set_ylim(-0.25, 0.25)
+    axes[0].set_xlabel("x m")
+    axes[0].set_ylabel("y m")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].legend(loc="upper right", fontsize=8)
+
+    axes[1].set_title("side view x-z")
+    axes[1].scatter([object_pos[0]], [object_pos[2]], c="red", label="cube")
+    axes[1].scatter([tcp_pos[0]], [tcp_pos[2]], c="blue", label="tcp")
+    axes[1].scatter([target_pos[0]], [target_pos[2]], c="green", label="target")
+    axes[1].axhline(float(final_info.get("lift_success_height", 0.075)), color="orange", linestyle="--", linewidth=1)
+    axes[1].set_xlim(-0.35, 0.15)
+    axes[1].set_ylim(0.0, 0.30)
+    axes[1].set_xlabel("x m")
+    axes[1].set_ylabel("z m")
+    axes[1].grid(True, alpha=0.3)
+    status = (
+        f"h={final_info.get('object_height', 0.0):.3f} "
+        f"grasp={final_info.get('is_grasped', False)} "
+        f"lift={final_info.get('is_lifted', False)}"
+    )
+    axes[1].text(0.02, 0.96, status, transform=axes[1].transAxes, va="top", fontsize=8)
+
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def _write_mp4_from_frames(frame_paths: list[Path], video_path: Path, *, fps: float) -> None:
+    if not frame_paths:
+        return
+    iio = _lazy_imageio()
+    video_path.parent.mkdir(parents=True, exist_ok=True)
+    frames = [iio.imread(path) for path in frame_paths]
+    iio.imwrite(video_path, frames, fps=max(float(fps), 1.0))
+
+
 def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     import sim_maniskill.agents.jaka_rh56  # noqa: F401
     import sim_maniskill.tasks.pick_cube_jaka_rh56  # noqa: F401
@@ -80,6 +147,8 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
         make_kwargs["render_backend"] = "none"
     env = gym.make("LiftCubeJakaRH56-v1", **make_kwargs)
     episode_summaries: list[dict[str, Any]] = []
+    frame_root = Path(args.save_frames).resolve() if args.save_frames else None
+    video_root = Path(args.save_video).resolve() if args.save_video else None
     try:
         for episode_idx in range(args.episodes):
             env.reset(seed=args.seed + episode_idx)
@@ -88,6 +157,7 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             max_height = 0.0
             first_success_step: int | None = None
             phase_counts: dict[str, int] = {}
+            frame_paths: list[Path] = []
             for step_idx in range(args.max_steps):
                 if viewer is not None and viewer.closed:
                     break
@@ -95,10 +165,6 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 phase_counts[phase] = phase_counts.get(phase, 0) + 1
                 action, _ = _ik_action(env, target, hand_cmd)
                 _, _, terminated, truncated, info = env.step(action)
-                if viewer is not None:
-                    env.unwrapped.render_human()
-                    if args.fps > 0:
-                        time.sleep(1.0 / args.fps)
                 final_info = {
                     "success": _bool(info["success"]),
                     "is_lifted": _bool(info["is_lifted"]),
@@ -107,6 +173,24 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                     "object_height": float(_arr(info["object_height"])[0]),
                     "lift_success_height": float(_arr(info["lift_success_height"])[0]),
                 }
+                if viewer is not None:
+                    env.unwrapped.render_human()
+                    if args.fps > 0:
+                        time.sleep(1.0 / args.fps)
+                if frame_root is not None and step_idx % max(args.frame_stride, 1) == 0:
+                    object_pos = _arr(env.unwrapped.cube.pose.p)[:3]
+                    tcp_pos = _arr(env.unwrapped.agent.tcp_pose.p)[:3]
+                    frame_path = frame_root / f"episode_{episode_idx:03d}" / f"frame_{step_idx:06d}.png"
+                    _save_diagnostic_frame(
+                        frame_path,
+                        step_idx=step_idx,
+                        phase=phase,
+                        object_pos=object_pos,
+                        tcp_pos=tcp_pos,
+                        target_pos=target,
+                        final_info=final_info,
+                    )
+                    frame_paths.append(frame_path)
                 max_height = max(max_height, final_info["object_height"])
                 if final_info["success"] and first_success_step is None:
                     first_success_step = step_idx
@@ -122,8 +206,12 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                     "max_object_height": max_height,
                     "final_info": final_info,
                     "phase_counts": phase_counts,
+                    "diagnostic_frame_dir": str(frame_paths[0].parent) if frame_paths else "",
+                    "diagnostic_video": str(video_root / f"episode_{episode_idx:03d}.mp4") if video_root is not None and frame_paths else "",
                 }
             )
+            if video_root is not None and frame_paths:
+                _write_mp4_from_frames(frame_paths, video_root / f"episode_{episode_idx:03d}.mp4", fps=args.fps)
     finally:
         env.close()
 
@@ -155,6 +243,9 @@ def main() -> None:
     parser.add_argument("--out", default="data/reports/jaka_rh56_lift_hold_eval/summary.json")
     parser.add_argument("--viewer", action="store_true", help="Open ManiSkill human viewer and play the scripted rollout.")
     parser.add_argument("--fps", type=float, default=20.0)
+    parser.add_argument("--save-frames", default="", help="Save headless diagnostic PNG frames to this directory.")
+    parser.add_argument("--save-video", default="", help="Save an MP4 built from diagnostic frames to this path or directory.")
+    parser.add_argument("--frame-stride", type=int, default=1)
     args = parser.parse_args()
     print(json.dumps(evaluate(args), indent=2))
 

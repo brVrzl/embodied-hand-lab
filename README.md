@@ -204,6 +204,16 @@ JAKA + RH56 仿真替换入口：
   --fps 20
 ```
 
+远程 SSH 没有可用 display 时，导出离线诊断帧和 MP4：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --save-frames data/reports/jaka_rh56_lift_hold_eval/frames \
+  --save-video data/reports/jaka_rh56_lift_hold_eval/videos
+```
+
 如果要先验证“JAKA+RH56 task schema -> episode -> structured export”闭环，可以使用特权 scripted oracle：
 
 ```bash
