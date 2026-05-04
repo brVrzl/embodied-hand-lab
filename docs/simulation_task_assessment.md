@@ -99,6 +99,16 @@ Run:
   --out data/reports/jaka_rh56_lift_hold_eval/summary.json
 ```
 
+Open an interactive viewer for the scripted rollout:
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --viewer \
+  --fps 20
+```
+
 Interpretation:
 
 - High success means the scripted policy and current contact model can support a basic lift/hold evaluation.
@@ -202,6 +212,16 @@ smoke gate 通过后：
   --episodes 5 \
   --max-steps 100 \
   --out data/reports/jaka_rh56_lift_hold_eval/summary.json
+```
+
+打开 viewer 查看 scripted rollout：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --viewer \
+  --fps 20
 ```
 
 解释方式：

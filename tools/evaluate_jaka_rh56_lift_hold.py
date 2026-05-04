@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -66,30 +67,38 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
     import sim_maniskill.agents.jaka_rh56  # noqa: F401
     import sim_maniskill.tasks.pick_cube_jaka_rh56  # noqa: F401
 
-    env = gym.make(
-        "LiftCubeJakaRH56-v1",
-        robot_uids="jaka_rh56",
-        obs_mode="state_dict",
-        control_mode="pd_joint_delta_pos",
-        render_mode=None,
-        render_backend="none",
-        sim_backend="physx_cpu",
-        num_envs=1,
-        start_pose="pregrasp",
-    )
+    make_kwargs = {
+        "robot_uids": "jaka_rh56",
+        "obs_mode": "state_dict",
+        "control_mode": "pd_joint_delta_pos",
+        "render_mode": "human" if args.viewer else None,
+        "sim_backend": "physx_cpu",
+        "num_envs": 1,
+        "start_pose": "pregrasp",
+    }
+    if not args.viewer:
+        make_kwargs["render_backend"] = "none"
+    env = gym.make("LiftCubeJakaRH56-v1", **make_kwargs)
     episode_summaries: list[dict[str, Any]] = []
     try:
         for episode_idx in range(args.episodes):
             env.reset(seed=args.seed + episode_idx)
+            viewer = env.unwrapped.render_human() if args.viewer else None
             final_info: dict[str, Any] = {}
             max_height = 0.0
             first_success_step: int | None = None
             phase_counts: dict[str, int] = {}
             for step_idx in range(args.max_steps):
+                if viewer is not None and viewer.closed:
+                    break
                 target, hand_cmd, phase = _target_for_step(env, step_idx)
                 phase_counts[phase] = phase_counts.get(phase, 0) + 1
                 action, _ = _ik_action(env, target, hand_cmd)
                 _, _, terminated, truncated, info = env.step(action)
+                if viewer is not None:
+                    env.unwrapped.render_human()
+                    if args.fps > 0:
+                        time.sleep(1.0 / args.fps)
                 final_info = {
                     "success": _bool(info["success"]),
                     "is_lifted": _bool(info["is_lifted"]),
@@ -144,6 +153,8 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="data/reports/jaka_rh56_lift_hold_eval/summary.json")
+    parser.add_argument("--viewer", action="store_true", help="Open ManiSkill human viewer and play the scripted rollout.")
+    parser.add_argument("--fps", type=float, default=20.0)
     args = parser.parse_args()
     print(json.dumps(evaluate(args), indent=2))
 

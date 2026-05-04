@@ -194,6 +194,16 @@ JAKA + RH56 仿真替换入口：
   --out data/reports/jaka_rh56_lift_hold_eval/summary.json
 ```
 
+如果要打开 viewer 看 scripted lift/hold 过程：
+
+```bash
+./scripts/evaluate_jaka_rh56_lift_hold.sh \
+  --episodes 1 \
+  --max-steps 100 \
+  --viewer \
+  --fps 20
+```
+
 如果要先验证“JAKA+RH56 task schema -> episode -> structured export”闭环，可以使用特权 scripted oracle：
 
 ```bash
