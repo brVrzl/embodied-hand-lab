@@ -72,10 +72,10 @@ ros2_services:
   get_temp: /inspire_hand/get_temp
 finger_count: 6
 control_frequency_hz: 5
-close_strength: 0.6
-pinch_strength: 0.4
-speed_default: [800, 800, 800, 800, 800, 800]
-force_default: [500, 500, 500, 500, 500, 500]
+close_strength: 0.35
+pinch_strength: 0.25
+speed_default: [500, 500, 500, 500, 500, 500]
+force_default: [260, 260, 260, 260, 260, 260]
 hand_schema:
   version: inspire6_v1
   canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
@@ -90,12 +90,12 @@ hand_schema:
   raw_order: [thumb_close, thumb_lateral, index, middle, ring, pinky]
   hand_delta_limit: 0.05
   dof_calibration:
-    index: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
-    middle: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
-    ring: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
-    pinky: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
-    thumb_close: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
-    thumb_lateral: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 500}
+    index: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
+    middle: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
+    ring: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
+    pinky: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
+    thumb_close: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
+    thumb_lateral: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 500, default_force_limit: 260}
 verification:
   expected_transport: jaka_tool_rs485
   expected_controller_ip: 192.168.71.50
@@ -137,4 +137,8 @@ services:
   get_state: /hand/get_state
 safety:
   estop_enabled: true
-  max_close_strength: 0.85
+  max_close_strength: 0.8
+  max_force_limit: 260
+  current_warn_count: 700
+  current_stop_count: 900
+  force_stop_count: 900

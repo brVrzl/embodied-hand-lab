@@ -15,11 +15,10 @@ def test_all_yaml_configs_load() -> None:
 def test_required_robot_config_fields() -> None:
     jaka = load_yaml("configs/robot/jaka_mini2.yaml")
     rh56 = load_yaml("configs/hand/rh56.yaml")
-    dog = load_yaml("configs/quadruped/default.yaml")
+    camera = load_yaml("configs/camera/default_rgbd.yaml")
     assert jaka["mode"] in {"mock", "real"}
     assert "joint_names" in jaka
     assert rh56["mode"] in {"mock", "real"}
     assert "serial" in rh56
-    assert dog["mode"] in {"mock", "real"}
-    assert "topics" in dog
-
+    assert camera["device_type"] == "rgbd"
+    assert "topics" in camera

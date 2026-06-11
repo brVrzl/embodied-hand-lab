@@ -93,3 +93,28 @@ def test_apply_commands_and_raw_feedback_payload() -> None:
     assert payload["available"] is True
     assert payload["protocol_order"] == ["pinky", "ring", "middle", "index", "thumb_close", "thumb_lateral"]
     assert payload["angles_raw"] == [4.0, 3.0, 2.0, 1.0, 5.0, 6.0]
+
+
+def test_apply_commands_clamp_to_configured_hand_safety_limits() -> None:
+    backend = FakeCanonicalBackend()
+    backend.config = {
+        "safety": {"max_close_strength": 0.8, "max_force_limit": 260},
+        "hand_schema": {
+            "dof_calibration": {
+                name: {
+                    "raw_open": 1000,
+                    "raw_close": 0,
+                    "safe_min": 0,
+                    "safe_max": 1000,
+                    "default_force_limit": 260,
+                }
+                for name in ["index", "middle", "ring", "pinky", "thumb_close", "thumb_lateral"]
+            }
+        },
+    }
+
+    assert apply_angle_command(backend, parse_angle_command({"values": [0, 100, 200, 300, 400, 500]})) is True
+    assert apply_force_command(backend, parse_force_command({"values": [1000] * 6})) is True
+
+    assert backend.angles == [200, 200, 200, 300, 400, 500]
+    assert backend.forces == [260] * 6

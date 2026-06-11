@@ -1,0 +1,39 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 1
+      Class: rviz_default_plugins/Grid
+      Name: Grid
+      Plane: XY
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+      Name: JAKA mini2 + RH56
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Name: Shadow palm target
+      Topic:
+        Value: /teleop/shadow_palm_target
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Name: Real palm target
+      Topic:
+        Value: /jaka/teleop_palm_target
+      Value: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: jaka_Link_0
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+Window Geometry:
+  Height: 900
+  Width: 1400

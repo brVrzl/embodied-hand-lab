@@ -1,0 +1,70 @@
+hebi:
+  family: HEBI
+  name: mobileIO
+  lookup_wait_sec: 5.0
+  setup_ui: true
+  max_stale_feedback_sec: 0.25
+  publish_hz: 30.0
+  read_timeout_ms: 10.0
+
+topics:
+  arm_palm_target_jog: /jaka/teleop_palm_target_jog
+  hand_command_code: /rh56/command_code
+  shadow_joint_states: /teleop/shadow_joint_states
+  shadow_status: /teleop/shadow_status
+  hebi_pose: /teleop/hebi_mobile_io/pose
+  shadow_palm_target: /teleop/shadow_palm_target
+
+direction_calibration:
+  phone_to_robot:
+    x: {source: y, sign: -1.0, scale: 1.0}
+    y: {source: x, sign: 1.0, scale: 1.0}
+    z: {source: z, sign: 1.0, scale: 1.0}
+  wrist_roll:
+    source: rot_z
+    sign: -1.0
+    scale: 1.0
+
+hebi_mapper:
+  max_translation_velocity_m_s: 0.020
+  max_wrist_roll_velocity_rad_s: 0.12
+  translation_gain_s_inv: 0.60
+  rotation_gain_s_inv: 0.40
+  translation_deadband_m: 0.004
+  rotation_deadband_deg: 2.0
+  precision_axis: a3
+  precision_min_scale: 0.25
+  velocity_filter_time_constant_sec: 0.08
+
+relative_pose_lag_follow:
+  target_response_mode: direct
+  position_scale: 0.25
+  max_step_position_m: 0.010
+  max_step_rotation_deg: 2.0
+  max_target_lead_m: 0.08
+  workspace_min_m: [-0.14, -0.46, 0.16]
+  workspace_max_m: [0.06, -0.24, 0.46]
+  max_pos_tracking_error_warn_m: 0.025
+  max_pos_tracking_error_pause_m: 0.070
+  max_q_tracking_error_pause_rad: 0.25
+  min_warn_time_scale: 0.25
+  phone_translation_deadband_m: 0.004
+  phone_rotation_deadband_deg: 1.0
+  phone_jump_reject_translation_m: 0.25
+  phone_jump_reject_rotation_deg: 45.0
+  phone_still_translation_m: 0.003
+  phone_still_rotation_deg: 0.8
+  phone_still_freeze_tracking_error_m: 0.004
+  freeze_when_phone_still: true
+  target_filter_time_constant_sec: 0.160
+  max_target_velocity_m_s: 0.020
+  max_target_jump_m: 0.020
+
+shadow:
+  mjcf_path: data/sim_assets/jaka_rh56.xml
+  initial_arm_joints_rad: [-1.57079632679, -0.75, 1.10, 0.0, -0.35, 0.0]
+  ik_gain: 0.7
+  ik_damping: 0.05
+  ik_max_step_rad: 0.08
+  ik_iterations: 20
+  target_workspace_radius_m: 0.08

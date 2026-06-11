@@ -11,7 +11,6 @@
 - arm joint states
 - arm ee pose
 - hand states
-- dog states
 - action
 - success/failure
 - operator notes
@@ -19,5 +18,4 @@
 第一版落盘：
 
 - 原始：`metadata.json + steps.jsonl + rgb/*.npy + depth/*.npy`
-- 导出：结构化样本 JSONL + LeRobot 风格 stub
-
+- 导出：结构化样本 JSONL + manifest

@@ -1,4 +1,1 @@
-from .stack import EmbodiedLabStack
-
-__all__ = ["EmbodiedLabStack"]
-
+__all__: list[str] = []

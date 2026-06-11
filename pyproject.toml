@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.24",
   "mujoco>=3.8.0",
+  "pyserial>=3.5",
   "PyYAML>=6.0",
 ]
 
@@ -22,6 +23,19 @@ data = [
   "huggingface_hub>=0.24",
   "pandas>=2.0",
   "pyarrow>=15.0",
+]
+vision-teleop = [
+  "mediapipe>=0.10.35",
+  "opencv-contrib-python>=4.13",
+]
+realsense = [
+  "pyrealsense2>=2.55",
+]
+phone-teleop = [
+  "hebi-py>=2.13",
+]
+gamepad = [
+  "pygame>=2.6",
 ]
 
 [tool.pytest.ini_options]

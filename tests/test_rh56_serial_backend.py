@@ -45,3 +45,17 @@ def test_serial_backend_returns_canonical_state_from_official_protocol_order() -
     assert state.force_estimate == [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
     assert state.finger_currents == [100.0, 200.0, 300.0, 400.0, 500.0, 600.0]
     assert state.contact_flags == [True, True, True, True, True, True]
+
+
+def test_serial_backend_decodes_force_feedback_as_signed_16_bit() -> None:
+    backend = RH56SerialBackend({"hand_schema": {"protocol_order": ["pinky", "ring", "middle", "index", "thumb_close", "thumb_lateral"]}})
+
+    def fake_read_register(address: int, length: int) -> list[int]:
+        assert address == backend.REG["FORCE_ACT"]
+        assert length == 12
+        return _u16_bytes([65535, 65505, 10, 0, 65349, 32769])
+
+    backend.read_register = fake_read_register  # type: ignore[method-assign]
+
+    assert backend.get_forces() == [-1.0, -31.0, 10.0, 0.0, -187.0, -32767.0]
+    assert backend.get_canonical_forces() == [0.0, 10.0, -31.0, -1.0, -187.0, -32767.0]

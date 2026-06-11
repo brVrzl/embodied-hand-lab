@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 import statistics
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -30,6 +33,35 @@ def _read_full_state(backend: RH56SerialBackend) -> dict[str, Any]:
         "errors_raw": backend.read_register(backend.REG["ERROR"], 6),
         "temps_raw": backend.read_register(backend.REG["TEMP"], 6),
     }
+
+
+def _serial_preflight(port: str) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "requested_port_exists": Path(port).exists(),
+        "tty_candidates": sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")),
+        "serial_by_id": sorted(glob.glob("/dev/serial/by-id/*")),
+        "serial_by_path": sorted(glob.glob("/dev/serial/by-path/*")),
+    }
+    try:
+        import grp
+
+        result["user_groups"] = sorted(grp.getgrgid(group_id).gr_name for group_id in os.getgroups())
+        result["in_dialout"] = "dialout" in result["user_groups"]
+    except Exception as exc:
+        result["group_error"] = str(exc)
+
+    try:
+        brltty = subprocess.run(
+            ["systemctl", "is-active", "brltty-udev.service"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        result["brltty_udev_active"] = brltty.stdout.strip() == "active"
+        result["brltty_udev_status"] = brltty.stdout.strip() or brltty.stderr.strip()
+    except Exception as exc:
+        result["brltty_check_error"] = str(exc)
+    return result
 
 
 def _summarize_intervals(timestamps: list[float]) -> dict[str, Any]:
@@ -71,11 +103,22 @@ def main() -> None:
         default=0,
         help="Number of open/close command cycles to run. Requires --execute.",
     )
+    parser.add_argument("--command-dwell-sec", type=float, default=1.0)
     parser.add_argument(
         "--preset",
         default="",
         help="Optional gesture preset to send after read checks. Requires --execute.",
     )
+    parser.add_argument(
+        "--channel-id-test",
+        action="store_true",
+        help="Run four low-amplitude canonical finger-identification commands. Requires --execute.",
+    )
+    parser.add_argument("--channel-id-low", type=int, default=900)
+    parser.add_argument("--channel-id-high", type=int, default=1000)
+    parser.add_argument("--channel-id-dwell-sec", type=float, default=1.0)
+    parser.add_argument("--preflight-only", action="store_true")
+    parser.add_argument("--out", default="", help="Optional path to save the JSON result.")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -102,10 +145,16 @@ def main() -> None:
         "poll_sec": args.poll_sec,
         "execute": args.execute,
         "command_cycles": args.command_cycles,
+        "command_dwell_sec": args.command_dwell_sec,
         "preset": args.preset,
+        "channel_id_test": args.channel_id_test,
     }
+    result["preflight"] = _serial_preflight(backend.port)
 
     try:
+        if args.preflight_only:
+            return
+
         try:
             import serial  # type: ignore
         except Exception as exc:
@@ -131,7 +180,7 @@ def main() -> None:
         result["last_state"] = states[-1] if states else None
 
         command_results: list[dict[str, Any]] = []
-        if (args.command_cycles > 0 or args.preset) and not args.execute:
+        if (args.command_cycles > 0 or args.preset or args.channel_id_test) and not args.execute:
             raise RuntimeError("Command tests require --execute.")
 
         if args.execute:
@@ -142,11 +191,56 @@ def main() -> None:
             gestures = config.get("gesture_presets", {})
             open_cmd = gestures.get("open", [1000] * 6)
             close_cmd = gestures.get("close", [0] * 6)
+            if args.channel_id_test:
+                high = args.channel_id_high
+                low = args.channel_id_low
+                channel_tests = [
+                    ("index", [low, high, high, high, high, high]),
+                    ("middle", [high, low, high, high, high, high]),
+                    ("ring", [high, high, low, high, high, high]),
+                    ("pinky", [high, high, high, low, high, high]),
+                ]
+                for finger_name, command in channel_tests:
+                    t0 = time.time()
+                    ok = backend.set_command_angles(command)
+                    if args.channel_id_dwell_sec > 0:
+                        time.sleep(args.channel_id_dwell_sec)
+                    post_state = _read_full_state(backend)
+                    command_results.append(
+                        {
+                            "channel_id_finger": finger_name,
+                            "canonical_command": command,
+                            "ok": ok,
+                            "latency_sec": time.time() - t0,
+                            "post_state": post_state,
+                        }
+                    )
+                t0 = time.time()
+                open_ok = backend.set_command_angles(open_cmd)
+                if args.channel_id_dwell_sec > 0:
+                    time.sleep(args.channel_id_dwell_sec)
+                post_state = _read_full_state(backend)
+                command_results.append(
+                    {
+                        "channel_id_return_open": True,
+                        "canonical_command": open_cmd,
+                        "ok": open_ok,
+                        "latency_sec": time.time() - t0,
+                        "post_state": post_state,
+                    }
+                )
+
             for cycle in range(args.command_cycles):
                 t0 = time.time()
                 open_ok = backend.set_command_angles(open_cmd)
+                if args.command_dwell_sec > 0:
+                    time.sleep(args.command_dwell_sec)
+                open_state = _read_full_state(backend)
                 t1 = time.time()
                 close_ok = backend.set_command_angles(close_cmd)
+                if args.command_dwell_sec > 0:
+                    time.sleep(args.command_dwell_sec)
+                close_state = _read_full_state(backend)
                 t2 = time.time()
                 command_results.append(
                     {
@@ -155,6 +249,8 @@ def main() -> None:
                         "close_ok": close_ok,
                         "open_latency_sec": t1 - t0,
                         "close_latency_sec": t2 - t1,
+                        "open_post_state": open_state,
+                        "close_post_state": close_state,
                     }
                 )
 
@@ -164,11 +260,15 @@ def main() -> None:
                     raise ValueError(f"Unknown RH56 preset: {args.preset}")
                 t0 = time.time()
                 preset_ok = backend.set_command_angles(preset)
+                if args.command_dwell_sec > 0:
+                    time.sleep(args.command_dwell_sec)
+                preset_state = _read_full_state(backend)
                 command_results.append(
                     {
                         "preset": args.preset,
                         "preset_ok": preset_ok,
                         "latency_sec": time.time() - t0,
+                        "post_state": preset_state,
                     }
                 )
 
@@ -182,6 +282,10 @@ def main() -> None:
             backend.close_port()
         except Exception as exc:
             result["close_error"] = str(exc)
+        if args.out:
+            out_path = Path(args.out)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(json.dumps(result, indent=2, ensure_ascii=False))
 
 

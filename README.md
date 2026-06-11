@@ -1,373 +1,122 @@
 # Embodied Lab
 
-面向真实世界具身智能实验的第一版工程仓库。目标不是一次性做“大一统大模型”，而是围绕 `JAKA mini2 + Inspire RH56` 建立可控、可记录、可复现实验栈，并支撑当前研究主线：
+面向 `JAKA mini2 + Inspire RH56` 的真实机器人遥操作、数据采集和灵巧抓取研究仓库。
 
-**Palm-Frame Hand-Code Transfer for Data-Efficient Dexterous Grasping on JAKA mini2 + Inspire RH56**。
+当前原则：保留已经调通的实机链路，删除早期探索材料时不得影响遥操作、硬件 bring-up、ROS2 bridge、RViz shadow、RH56 PC direct 和支撑 IK/预览的 MuJoCo 资产。
 
-当前唯一有效的研究与控制计划见：
+## 保留主线
 
-- `docs/active_research_and_control_plan.md`
+- `iPhone / HEBI Mobile I/O`：已调通的手机 ARKit 相对位姿遥操作链路，必须保留。
+- `Xbox / RViz shadow`：手柄遥操作、实机命令镜像和 RViz 预览链路，必须保留。
+- `JAKA mini2`：连接检查、preset、EDG servo 安全桥、掌心目标 IK。
+- `Inspire RH56`：PC direct USB-RS485 主链路、ROS2 JSON bridge、基础 safety gate。
+- `MuJoCo JAKA+RH56 asset`：`data/sim_assets/jaka_rh56.xml` 是遥操作 IK/RViz shadow 的依赖，必须保留。
+- `文献与实验计划`：只保留当前论文主线和近期可信文献索引，旧探索材料不再作为入口。
 
-## 项目目标
-
-- 支持桌面操作链路：`JAKA mini2 + Inspire RH56`
-- 支持 JAKA trajectory mode 与后续 EDG servo mode 并存
-- 支持 RH56 PC direct USB-RS485 主链路与 JAKA tool RS485 备用链路
-- 支持统一 episode 数据采集、导出、评测
-- 兼容 `ROS2 Humble + Ubuntu 22.04 + Python 3.10`
-- 数据组织尽量贴近 LeRobot，便于后续 hand-code、PocketDP3/DP3 和轻量策略研究
-
-## 当前支持硬件
-
-- 机械臂：JAKA mini2
-  - 当前状态：统一接口 + mock backend + `jkrc` SDK backend 骨架已完成
-  - 当前段式控制：`joint_move` / `linear_move`
-  - 计划新增高频控制：JAKA EDG servo，服务 palm-frame 微调和视觉闭环
-  - 本地 SDK 资料已定位
-- 灵巧手：因时 Inspire RH56
-  - 当前状态：高级夹爪模式最小接口 + mock backend + RS485 serial backend + JAKA tool RS485 backend 已完成
-  - 论文实验主链路：PC direct USB-RS485，读取 angle / force / current / status / temp
-  - 备用链路：JAKA tool RS485，仅用于简化部署或演示
-  - 官方 ROS2 service 接口已整理进配置
-- RGB-D 相机：Orbbec / RealSense 风格抽象
-  - 当前状态：mock camera + placeholder adapter 已完成
-  - 厂商 SDK：`待替换适配点`
-
-## 当前阶段功能
-
-- mock 模式下整栈可启动
-- JAKA 与 RH56 可通过统一 Python 接口调用
-- episode 可开始、记录、停止并落盘
-- episode 可导出为结构化样本与 LeRobot 风格 stub
-- 提供 bring-up、数据协议、研究路线图文档
-- 提供 ManiSkill 仿真采集入口，用于 schema、episode、structured export 数据链路验证
-- 提供 MuJoCo JAKA+RH56 手部可视化、contact proxy 校准和抓取候选评估入口
-- 已形成 RH56 hand-code / external dataset / MuJoCo grasp benchmark 的前置研究材料
-
-## 快速开始
+## 快速环境
 
 ```bash
 cd /home/w/projects/embodied_lab
 /usr/bin/python3.10 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-./scripts/start_mock_stack.sh
-./scripts/start_data_recording.sh --task pick_and_place --instruction "pick the cube and place it in tray"
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_pick_cube.yaml
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube.yaml
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube_state.yaml
-./scripts/export_maniskill_scene_preview.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
-DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
-DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
-./scripts/run_rh56_handref_grasps_smoke.sh
-./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
+```
+
+可选依赖：
+
+```bash
+pip install -e ".[gamepad]"        # Xbox
+pip install -e ".[phone-teleop]"   # HEBI Mobile I/O
+pip install -e ".[vision-teleop]"  # iPhone camera + MediaPipe hand tracking
+```
+
+## 实机检查
+
+```bash
 ./scripts/check_jaka_connection.sh --ip 192.168.1.100
 ./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
 ./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
 ./scripts/check_rh56_connection.sh --port /dev/ttyUSB0
 ./scripts/rh56_pc_direct_bringup.sh --config configs/hand/rh56_real.yaml --port /dev/ttyUSB0 --polls 20
-./scripts/run_rh56_ros2_json_bridge.sh --config configs/hand/rh56.yaml --state-hz 20 --position-unit normalized_0_1
-./scripts/check_rh56_via_jaka.sh --ip 192.168.1.100
-./scripts/save_jaka_preset.sh --preset-name upright --joints 0 0 0 0 0 0
-./scripts/arm_hand_smoke_test.sh --ip 192.168.1.100 --preset-name upright --hand-id 1 --execute
-pytest
 ```
 
-## 仓库结构
+默认检查命令只读状态或做无运动检查；只有脚本参数显式带 `--execute` / `--enable-*` 时才会下发运动或手指命令。
+
+## iPhone / HEBI 遥操作
+
+HEBI Mobile I/O 是已调通链路。iPhone 与 PC 需在同一 WiFi；HEBI app 中 `Family=HEBI`、`Name=mobileIO`，并允许相机权限。
+
+```bash
+./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
+./scripts/record_hebi_mobile_io.sh --duration-sec 20
+./scripts/run_hebi_rviz_shadow.sh
+```
+
+实机 arm-only 入口：
+
+```bash
+./scripts/run_real_jaka_hebi_arm_teleop.sh \
+  --enable-motion \
+  --teleop-mode relative_pose_lag_follow \
+  --teleop-profile practical \
+  --jsonl-out logs/teleop/hebi_real_arm_$(date +%Y%m%d_%H%M%S).jsonl
+```
+
+MediaPipe 手部跟踪入口：
+
+```bash
+./scripts/check_iphone_camera_stream.sh --url http://IPHONE_IP:PORT/video
+./scripts/run_iphone_mediapipe_hand_teleop.sh --url http://IPHONE_IP:PORT/video
+./scripts/run_iphone_rh56_safety_gate.sh --url http://IPHONE_IP:PORT/video --ros2
+```
+
+## Xbox / RViz 遥操作
+
+```bash
+./scripts/run_jaka_rh56_rviz.sh
+./scripts/run_xbox_rviz_shadow.sh
+./scripts/run_xbox_ros2_teleop.sh
+```
+
+实机推荐从一键入口开始，它会启动 real bridge、Xbox intent publisher、RViz 和 shadow mirror：
+
+```bash
+./scripts/run_xbox_real_arm_with_rviz_shadow.sh --hand-port /dev/ttyUSB0
+```
+
+核心安全约定：`RB` 是机械臂死人开关；短 horizon TCP velocity IK、关节限幅、命令超时和 saturation watchdog 不应删除。
+
+## 结构
 
 ```text
-docs/                 文档
-scripts/              启动脚本
-configs/              YAML 配置
-src/                  各模块源码
-launch/               ROS2 风格 launch 入口
-tests/                最小测试
-data/                 默认数据目录
-tools/                辅助工具
+configs/              当前硬件、手、遥操作、RViz 配置
+data/sim_assets/      遥操作 IK 和预览需要的 JAKA+RH56 MuJoCo 资产
+docs/                 当前文档入口和近期可信文献索引
+scripts/              人直接运行的入口
+src/                  Python 包源码
+tests/                保留链路的回归测试
+tools/                scripts 调用的实现工具
 ```
 
 关键模块：
 
-- `src/robot_bringup`：统一 bring-up 入口
-- `src/jaka_driver_adapter`：JAKA 统一接口层
-- `src/rh56_driver`：RH56 最小驱动层
-- `src/vision_interface`：相机抽象层
-- `src/data_recorder`：统一 episode recorder
-- `src/sim_maniskill`：ManiSkill 仿真采集入口，用于数据链路验证
-- `src/task_library`：任务模板与元数据
-- `src/evaluation`：最小评测
-- `src/lerobot_bridge`：LeRobot 导出 stub
+- `src/teleop_tools`：Xbox、iPhone/HEBI、RViz shadow、相对位姿跟随。
+- `src/jaka_driver_adapter`：JAKA SDK/mock、掌心目标 IK、servo jog 安全解析。
+- `src/rh56_driver`：RH56 schema、serial backend、ROS2 bridge。
+- `src/robot_bringup`：实机 ROS2 bridge 和 RViz joint-state bridge。
+- `src/sim_maniskill`：仅保留必要仿真/预览支持，不作为当前实机抓取成功率证据。
 
-真实设备模板配置：
-
-- `configs/robot/jaka_mini2_real.yaml`
-- `configs/hand/rh56_real.yaml`
-
-建议保留原有 `mock` 配置不动，真实 bring-up 一律显式传 `--config`。
-
-## 典型工作流
-
-1. 用 `scripts/start_mock_stack.sh` 验证全链路。
-2. 用 `scripts/start_arm_hand_stack.sh` 按模块 bring-up。
-3. 用 `scripts/start_data_recording.sh` 启动一次 episode 记录。
-4. 若先走仿真，使用 `scripts/start_maniskill_recording.sh` 采集桌面任务 episode。
-5. 用 `scripts/export_lerobot_dataset.sh` 导出结构化样本。
-6. 用 `python -m evaluation.report ...` 生成评测报告。
-7. 对接真实硬件时，仅替换对应 adapter backend，不改 recorder 和任务层。
-8. JAKA/RH56 的本地官方资料路径已在各模块 README 中写明，可直接照着替换。
-9. 新实现优先服务 `docs/active_research_and_control_plan.md`：JAKA EDG servo、RH56 PC direct、palm-frame hand-code、pseudo-tactile correction。
-
-## RH56 ROS2 JSON Bridge
-
-暂时没有实机时，可以先用 mock hand 固定 ROS2 topic 语义：
+## 验证
 
 ```bash
-source /opt/ros/humble/setup.bash
-./scripts/run_rh56_ros2_json_bridge.sh \
-  --config configs/hand/rh56.yaml \
-  --state-hz 20 \
-  --position-unit normalized_0_1
+.venv/bin/python -m pytest \
+  tests/test_xbox_ros2_teleop.py \
+  tests/test_xbox_rviz_shadow.py \
+  tests/test_rviz_shadow_sync.py \
+  tests/test_jaka_servo_jog.py \
+  tests/test_robot_bringup_ros2_bridge.py \
+  tests/test_rh56_ros2_bridge.py \
+  tests/test_rh56_serial_backend.py
 ```
 
-默认 topic：
-
-- `/hand/state`：JSON string，canonical hand order，显式 `position_unit`
-- `/hand/raw_feedback`：JSON string，PC-direct backend 可用时发布协议 raw feedback
-- `/hand/backend_mode`：JSON string，当前 backend
-- `/hand/command_angles`：JSON string，只接受 canonical `rh56_angle_raw_0_1000`
-- `/hand/command_code`：JSON string，接受 `open`、`close`、`pinch` 或 preset name
-- `/hand/command_force`：JSON string，只接受 canonical `rh56_force_raw_0_1000`
-
-示例命令：
-
-```bash
-ros2 topic pub /hand/command_code std_msgs/msg/String \
-  "{data: '{\"command\":\"open\"}'}"
-```
-
-`/hand/command_angles` 暂时拒绝 `normalized_0_1`，因为 normalized policy command 必须经过明确标定后才能转成 RH56 raw angle，不能在 ROS2 topic 中隐式猜测。
-
-## MuJoCo 抓取仿真主线
-
-当前 JAKA mini2 + RH56 的抓取接触评估主线是 MuJoCo。ManiSkill 仍保留用于 episode schema、action representation 和 structured export 检查，但在其 viewer 中手部几何/接触没有确认可靠前，不作为 RH56 抓取成功率证据。
-
-先看 RH56 姿态和接触 proxy：
-
-```bash
-DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode poses --show-contacts
-```
-
-再看一个手-物体闭合过程：
-
-```bash
-DISPLAY=:1 ./scripts/view_mujoco_jaka_rh56_grasp_debug.sh
-```
-
-如果没有 GUI，可以录制 MP4：
-
-```bash
-./scripts/view_mujoco_jaka_rh56_grasp_debug.sh \
-  --scenario cube_in_hand \
-  --duration 3.0 \
-  --record-mp4 data/replays/mujoco_jaka_rh56_debug/cube_in_hand.mp4
-```
-
-当前机器如果没有显式设置 `DISPLAY`，脚本会在存在 `/tmp/.X11-unix/X1` 时自动使用 `DISPLAY=:1`。如果换到纯 headless 服务器，需要额外配置 `MUJOCO_GL=egl` 或 `MUJOCO_GL=osmesa`。
-
-运行当前主评估任务，也就是 hand-ref grasp planner：
-
-```bash
-./scripts/run_rh56_handref_grasps_smoke.sh
-./scripts/run_rh56_handref_grasps.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --max-candidates 40
-```
-
-查看最佳候选：
-
-```bash
-DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object foam_block_40mm --show-contacts
-DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_cylinder_36mm --show-contacts
-DISPLAY=:1 ./scripts/view_mujoco_rh56_pose_contact.sh --mode grasp --object light_can_50mm --show-contacts
-```
-
-`run_mujoco_grasp_benchmark.sh` 仍保留为轻量 contact/schema 诊断；论文主线和真机 preset 导出优先看 `run_rh56_handref_grasps.sh`。
-
-详细说明见 [MuJoCo Simulation Mainline](docs/mujoco_simulation_mainline.md)、[RH56 Hand-Ref Grasp Planner](docs/rh56_handref_grasp_planner.md) 和 [MuJoCo RH56 Grasp Benchmark](docs/mujoco_grasp_benchmark.md)。
-
-当前 baseline 入口：
-
-```bash
-./scripts/audit_rh56_handref_grasps.sh
-./scripts/export_rh56_handref_candidate_media.sh --objects foam_block_40mm light_cylinder_36mm light_can_50mm --ranks 0
-./scripts/train_rh56_handref_ranker_baseline.sh --val-objects light_can_50mm
-```
-
-baseline 报告见 [RH56 Hand-Ref Baseline Report](docs/rh56_handref_baseline_report.md)。
-
-## ManiSkill 仿真采集
-
-适用场景：
-
-- 还没买 RGB-D 相机
-- 想先把桌面任务的采集与训练链路跑通
-- 验证 schema、episode、structured export，而不是验证 RH56 抓取接触
-
-最小入口：
-
-```bash
-cd /home/w/projects/embodied_lab
-source .venv/bin/activate
-pip install gymnasium mani_skill torch
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_pick_cube.yaml
-```
-
-默认配置会：
-
-- 创建 `PickCube-v1`
-- 使用 `rgbd` 观测与 `pd_ee_delta_pose` 控制
-- 采 1 条 episode 到 `data/episodes/maniskill_pick_cube`
-- 导出结构化样本到 `data/exports/structured/maniskill_pick_cube`
-
-JAKA + RH56 仿真替换入口：
-
-```bash
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube.yaml
-```
-
-如果本机 ManiSkill/SAPIEN 的 renderer 还没配好，先用 state-only 验证机器人替换：
-
-```bash
-./scripts/start_maniskill_recording.sh --config configs/sim/maniskill_jaka_rh56_pick_cube_state.yaml
-```
-
-评估当前 JAKA+RH56 PickCube 任务是否适合当前研究阶段：
-
-```bash
-./scripts/evaluate_jaka_rh56_sim_task.sh \
-  --out-dir data/reports/jaka_rh56_sim_task_assessment
-```
-
-运行 ManiSkill contact-only evaluator prototype，不使用 kinematic carry；它只用于调试 task/evaluator flow，不作为当前主抓取接触 benchmark：
-
-```bash
-./scripts/evaluate_jaka_rh56_lift_hold.sh \
-  --episodes 5 \
-  --max-steps 100 \
-  --out data/reports/jaka_rh56_lift_hold_eval/summary.json
-```
-
-如果要打开 viewer 看 scripted lift/hold 过程：
-
-```bash
-./scripts/evaluate_jaka_rh56_lift_hold.sh \
-  --episodes 1 \
-  --max-steps 100 \
-  --viewer \
-  --fps 20
-```
-
-远程 SSH 没有可用 display 时，导出离线诊断帧和 MP4：
-
-```bash
-./scripts/evaluate_jaka_rh56_lift_hold.sh \
-  --episodes 1 \
-  --max-steps 100 \
-  --save-frames data/reports/jaka_rh56_lift_hold_eval/frames \
-  --save-video data/reports/jaka_rh56_lift_hold_eval/videos
-```
-
-如果要先验证“JAKA+RH56 task schema -> episode -> structured export”闭环，可以使用特权 scripted oracle：
-
-```bash
-source .venv/bin/activate
-export PYTHONPATH=$PWD/src:$PWD/tools
-export MPLCONFIGDIR=/tmp/matplotlib
-python tools/collect_jaka_rh56_pickcube_privileged_oracle.py \
-  --episodes 5 \
-  --max-steps 120 \
-  --output-dir data/episodes/jaka_rh56_pickcube_palm_frame_smoke \
-  --export-dir data/exports/structured/jaka_rh56_pickcube_palm_frame_smoke
-
-PYTHONPATH=src python tools/validate_episode_schema.py \
-  --export-root data/exports/structured/jaka_rh56_pickcube_palm_frame_smoke
-```
-
-注意：
-
-- 这个 palm-frame oracle 会在 scripted close 阶段后用特权方式移动 cube，只用于验证数据格式、action representation、训练脚本和评测链路。
-- 真正用于 contact-only sim evaluation 的入口是 `LiftCubeJakaRH56-v1` 和 `evaluate_jaka_rh56_lift_hold.sh`。
-- 不要把该数据报告为物理抓取成功率。
-- 当前本机无可用 SAPIEN GPU/CPU renderer，`--rgbd` 采集会失败；state-only 采集可用。
-- 真实物理抓取 oracle 下一步要继续修 RH56 手指接触、抓取偏置和 `is_grasping` 判定。
-
-如果你想先看场景是否和实机摆位接近，直接导出一份预览：
-
-```bash
-./scripts/export_maniskill_scene_preview.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
-```
-
-如果你想直接盯着窗口看，不要再用录制命令，改用这个常驻查看器：
-
-```bash
-./scripts/view_maniskill_scene.sh --config configs/sim/maniskill_jaka_rh56_scene_preview.yaml
-```
-
-说明：
-
-- 这个命令会一直停在初始场景，直到你手动关窗或 `Ctrl+C`
-- 如果你想让仿真持续刷新但不动作，可以加 `--step-zero`
-
-默认会在 `data/previews/maniskill_jaka_rh56_scene_preview` 下写出：
-
-- `scene_summary.json`：机器人 base pose、TCP、cube、goal、qpos
-- `human_render.ppm`：如果本机 renderer 可用，就导出第三人称视角
-- `sensor_rgb.ppm`：如果 `obs_mode=rgbd` 且本机 renderer 可用，就导出任务相机视角
-
-说明：
-
-- 这会注册一个专用的 `PickCubeJakaRH56-v1` 任务，而不是继续硬套官方 `PickCube-v1`
-- 机器人使用本地 `RoboTwin/robot_sim` 中的 `JAKA + RH56` MJCF 组合模型
-- 当前第一版先使用 `pd_joint_delta_pos` 联调，不直接做末端位姿控制
-- 本地模型里的手部安装位姿当前按 9mm 法兰厚度保留为 `0.009m`
-- 工作台按实物近似为 `1.20m x 0.60m`，机器人安装点距右侧边约 `0.25m`、距前侧边约 `0.30m`
-- 机器人 base pose 现在固定为朝向工作台，`cube_spawn_center` 放在机器人左侧内侧工作区，默认距 base 约 `0.5m`
-- 当前仿真主线只保留 `PickCubeJakaRH56-v1`。临时盒子放置任务已移除，避免偏离 ManiSkill 官方 `PickCube-v1` 的任务语义和 baseline 生态。
-- 键盘 teleop 控制：`w/s/a/d/r/v` 微调 TCP，`u/j i/k o/l 7/4 8/5` 可在 joint 模式微调 1-5 关节，`q/e` 旋转第 6 轴末端 roll，`g` 合手，`f` 开手，`p` 标记成功退出，`x` 标记失败退出。
-
-说明：
-
-- 当前入口优先验证“仿真采数据 -> 导出 -> 后续训练”链路
-- 默认策略是 `random`，只适合联调，不适合作为高质量 imitation 数据
-- 若当前 `.venv` 实际绑定的是 Python 3.13，先删除并用 `/usr/bin/python3.10 -m venv .venv` 重建
-
-实机安全检查入口：
-
-- `scripts/check_jaka_connection.sh`
-- `scripts/check_jaka_zero_motion.sh`
-- `scripts/check_rh56_connection.sh`
-- `scripts/check_rh56_via_jaka.sh`
-- `scripts/save_jaka_preset.sh`
-- `scripts/arm_hand_smoke_test.sh`
-
-其中：
-
-- `check_jaka_connection.sh` 只做连接与状态读取
-- `check_jaka_zero_motion.sh` 默认也只做预检查，只有加 `--execute` 才会下发零位移 `move_joints`
-- `check_jaka_edg_servo_capability.sh` 默认只导入 SDK 并检查 EDG/servo 能力；加 `--connect` 后读取控制器诊断；只有加 `--execute-enable-cycle` 才会执行无运动 servo enable/disable cycle
-- `check_rh56_connection.sh` 只做连接与状态读取
-- `rh56_pc_direct_bringup.sh` 用于 RH56 PC direct USB-RS485 主链路 bring-up；默认只读完整反馈并测频率，只有加 `--execute` 才会发送 open/close/preset 命令
-- `check_rh56_via_jaka.sh` 通过 JAKA 工具端 RS485 向 RH56 发送 open/close 测试帧
-- `save_jaka_preset.sh` 把当前关节或显式关节角保存到 `configs/robot/jaka_mini2.yaml`
-- `arm_hand_smoke_test.sh` 按指定机械臂 preset 执行最小组合测试：`move_joints -> hand open -> hand close`
-
-## 下一阶段路线图
-
-- 第一阶段：完成 JAKA trajectory + EDG servo 双模式 bring-up，完成 RH56 PC direct USB-RS485 主链路。
-- 第二阶段：完成 ROS2 Humble arm / hand / camera / TF / recorder 数据总线。
-- 第三阶段：验证 palm-frame hand-code transfer 与 pseudo-tactile correction。
-- 第四阶段：在少样本真实任务上接入 PocketDP3/DP3 或轻量策略 baseline。
-
-详细说明见：
-
-- [Active Research and Control Plan](docs/active_research_and_control_plan.md)
-- [Hardware Bring-Up Checklist](docs/hardware_bringup_checklist.md)
-- [Data Protocol](docs/data_protocol.md)
+当前项目精简后，新增或删除内容前先确认上述遥操作回归测试仍通过。

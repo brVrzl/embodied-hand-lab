@@ -158,17 +158,66 @@ def parse_code_command(message: Any) -> HandCommand:
     return HandCommand(command="preset_grasp", preset_name=command, strength=strength)
 
 
+def _backend_config(backend: HandBackend) -> dict[str, Any]:
+    config = getattr(backend, "config", {})
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _clamp_raw_angle_commands(values: list[int], config: dict[str, Any]) -> list[int]:
+    schema = config.get("hand_schema", {})
+    safety = config.get("safety", {})
+    dof_cfg = schema.get("dof_calibration", {})
+    max_close = float(safety.get("max_close_strength", 1.0))
+    max_close = max(0.0, min(1.0, max_close))
+    clamped: list[int] = []
+    for name, value in zip(CANONICAL_HAND_ORDER, values, strict=True):
+        cfg = dof_cfg.get(name, {}) if isinstance(dof_cfg, dict) else {}
+        raw_open = float(cfg.get("raw_open", 1000.0))
+        raw_close = float(cfg.get("raw_close", 0.0))
+        safe_min = float(cfg.get("safe_min", min(raw_open, raw_close)))
+        safe_max = float(cfg.get("safe_max", max(raw_open, raw_close)))
+        max_close_raw = raw_open + (raw_close - raw_open) * max_close
+        low = max(safe_min, min(raw_open, max_close_raw))
+        high = min(safe_max, max(raw_open, max_close_raw))
+        clamped.append(int(round(max(low, min(high, float(value))))))
+    return clamped
+
+
+def _clamp_force_commands(values: list[int], config: dict[str, Any]) -> list[int]:
+    schema = config.get("hand_schema", {})
+    safety = config.get("safety", {})
+    dof_cfg = schema.get("dof_calibration", {})
+    default_limit = safety.get("max_force_limit", None)
+    clamped: list[int] = []
+    for name, value in zip(CANONICAL_HAND_ORDER, values, strict=True):
+        cfg = dof_cfg.get(name, {}) if isinstance(dof_cfg, dict) else {}
+        limit = cfg.get("default_force_limit", default_limit)
+        if default_limit is not None:
+            limit = min(float(limit), float(default_limit))
+        if limit is None:
+            clamped.append(int(round(value)))
+        else:
+            clamped.append(int(round(max(0.0, min(float(limit), float(value))))))
+    return clamped
+
+
 def apply_angle_command(backend: HandBackend, command: HandAngleCommand) -> bool:
     if command.unit == "normalized_0_1":
         raise ValueError("normalized_0_1 commands require a calibrated policy adapter; send rh56_angle_raw_0_1000 here.")
-    values = [int(round(value)) for value in command.values]
+    values = _clamp_raw_angle_commands(
+        [int(round(value)) for value in command.values],
+        _backend_config(backend),
+    )
     if hasattr(backend, "set_canonical_angles"):
         return bool(backend.set_canonical_angles(values))  # type: ignore[attr-defined]
     raise TypeError("Backend does not support canonical angle commands.")
 
 
 def apply_force_command(backend: HandBackend, command: HandAngleCommand) -> bool:
-    values = [int(round(value)) for value in command.values]
+    values = _clamp_force_commands(
+        [int(round(value)) for value in command.values],
+        _backend_config(backend),
+    )
     if hasattr(backend, "set_canonical_forces"):
         return bool(backend.set_canonical_forces(values))  # type: ignore[attr-defined]
     raise TypeError("Backend does not support canonical force commands.")
@@ -206,7 +255,11 @@ def run_ros2_json_node(
         def _publish_json(self, publisher: Any, payload: dict[str, Any]) -> None:
             message = String()
             message.data = json.dumps(payload, ensure_ascii=False)
-            publisher.publish(message)
+            try:
+                publisher.publish(message)
+            except Exception:
+                if rclpy.ok():
+                    raise
 
         def _publish_state(self) -> None:
             now = time.time()
@@ -251,9 +304,12 @@ def run_ros2_json_node(
     node = RH56JsonNode()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 def main(argv: list[str] | None = None) -> None:

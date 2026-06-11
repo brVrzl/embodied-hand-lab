@@ -5,7 +5,6 @@ from pathlib import Path
 
 from embodiment_core.config import load_yaml
 from jaka_driver_adapter.adapter import JakaDriverAdapter
-from quadruped_adapter.adapter import QuadrupedAdapter
 from rh56_driver.node import RH56Driver
 from vision_interface.mock_camera import MockRGBDCamera
 
@@ -18,7 +17,6 @@ def main() -> None:
     parser.add_argument("--task", required=True)
     parser.add_argument("--instruction", required=True)
     parser.add_argument("--operator", default="operator")
-    parser.add_argument("--include-dog", action="store_true")
     parser.add_argument("--output-dir", default=None)
     args = parser.parse_args()
 
@@ -26,12 +24,9 @@ def main() -> None:
     camera = MockRGBDCamera()
     arm = JakaDriverAdapter.from_yaml("configs/robot/jaka_mini2.yaml")
     hand = RH56Driver.from_yaml("configs/hand/rh56.yaml")
-    dog = QuadrupedAdapter.from_yaml("configs/quadruped/default.yaml") if args.include_dog else None
 
     arm.connect()
     hand.connect()
-    if dog:
-        dog.connect()
 
     recorder.start_episode(task_name=args.task, instruction=args.instruction, operator=args.operator)
     recorder.record_step(
@@ -46,7 +41,6 @@ def main() -> None:
                 "frame_id": "jaka_base",
             },
             "hand_states": hand.read_state().to_dict(),
-            "dog_states": dog.get_robot_state().to_dict() if dog else None,
         },
         action={"type": "noop"},
     )

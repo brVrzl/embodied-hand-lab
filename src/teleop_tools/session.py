@@ -8,7 +8,6 @@ from typing import Any
 from embodiment_core.logger import get_logger
 from embodiment_core.types import Pose
 from jaka_driver_adapter.adapter import JakaDriverAdapter
-from quadruped_adapter.adapter import QuadrupedAdapter
 from rh56_driver.node import RH56Driver
 
 
@@ -17,12 +16,10 @@ class TeleopSession:
         self,
         arm: JakaDriverAdapter | None = None,
         hand: RH56Driver | None = None,
-        dog: QuadrupedAdapter | None = None,
         log_path: str | Path = "data/teleop_actions.jsonl",
     ) -> None:
         self.arm = arm
         self.hand = hand
-        self.dog = dog
         self.log_path = Path(log_path).resolve()
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger = get_logger("TeleopSession")
@@ -55,14 +52,6 @@ class TeleopSession:
         self._log("hand", command, {"preset": preset})
         return ok
 
-    def dog_teleop(self, linear_x: float, linear_y: float, angular_z: float) -> bool:
-        if self.dog is None:
-            raise RuntimeError("Quadruped adapter is not configured.")
-        payload = {"linear_x": linear_x, "linear_y": linear_y, "angular_z": angular_z}
-        ok = self.dog.teleop(payload)
-        self._log("dog", "cmd_vel", payload)
-        return ok
-
     def _log(self, source: str, action_type: str, payload: dict[str, Any]) -> None:
         event = {
             "timestamp": time.time(),
@@ -73,4 +62,3 @@ class TeleopSession:
         with self.log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(event) + "\n")
         self.logger.info("Teleop event: %s", event)
-

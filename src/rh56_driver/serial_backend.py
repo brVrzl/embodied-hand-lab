@@ -135,7 +135,7 @@ class RH56SerialBackend(HandBackend):
         return raw_to_canonical(self.get_angles(), raw_order=self.protocol_order)
 
     def get_forces(self) -> list[float]:
-        return [float(v) for v in self._u16_list_from_bytes(self.read_register(self.REG["FORCE_ACT"], 12), 6)]
+        return [float(v) for v in self._s16_list_from_bytes(self.read_register(self.REG["FORCE_ACT"], 12), 6)]
 
     def get_canonical_forces(self) -> list[float]:
         return raw_to_canonical(self.get_forces(), raw_order=self.protocol_order)
@@ -176,7 +176,8 @@ class RH56SerialBackend(HandBackend):
         buffer = bytearray()
         frames: list[bytes] = []
         while time.time() < deadline:
-            chunk = self.ser.read(64)
+            waiting = getattr(self.ser, "in_waiting", 0)
+            chunk = self.ser.read(max(int(waiting), 1))
             if chunk:
                 buffer.extend(chunk)
                 frames = self._split_frames(bytes(buffer))
@@ -229,6 +230,11 @@ class RH56SerialBackend(HandBackend):
             hi = data[2 * index + 1] & 0xFF
             values.append(lo | (hi << 8))
         return values
+
+    @classmethod
+    def _s16_list_from_bytes(cls, data: list[int], count: int) -> list[int]:
+        values = cls._u16_list_from_bytes(data, count)
+        return [value - 65536 if value >= 32768 else value for value in values]
 
     def _canonical_to_protocol_ints(self, values: list[int]) -> list[int]:
         return [int(round(value)) for value in canonical_to_raw(values, raw_order=self.protocol_order)]

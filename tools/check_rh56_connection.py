@@ -1,18 +1,57 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import os
 from pathlib import Path
+from typing import Any
 
 from embodiment_core.config import load_yaml
 from rh56_driver.serial_backend import RH56SerialBackend
 
 
+def _serial_preflight(port: str) -> dict[str, Any]:
+    candidates = sorted(glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*"))
+    by_id = sorted(glob.glob("/dev/serial/by-id/*"))
+    by_path = sorted(glob.glob("/dev/serial/by-path/*"))
+    result: dict[str, Any] = {
+        "requested_port_exists": Path(port).exists(),
+        "tty_candidates": candidates,
+        "serial_by_id": by_id,
+        "serial_by_path": by_path,
+    }
+    try:
+        import grp
+
+        group_ids = os.getgroups()
+        result["user_groups"] = sorted(grp.getgrgid(group_id).gr_name for group_id in group_ids)
+        result["in_dialout"] = "dialout" in result["user_groups"]
+    except Exception as exc:
+        result["group_error"] = str(exc)
+
+    try:
+        import subprocess
+
+        brltty = subprocess.run(
+            ["systemctl", "is-active", "brltty-udev.service"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        result["brltty_udev_active"] = brltty.stdout.strip() == "active"
+        result["brltty_udev_status"] = brltty.stdout.strip() or brltty.stderr.strip()
+    except Exception as exc:
+        result["brltty_check_error"] = str(exc)
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Safe RH56 connectivity check without motion.")
-    parser.add_argument("--config", default="configs/hand/rh56.yaml")
+    parser.add_argument("--config", default="configs/hand/rh56_real.yaml")
     parser.add_argument("--port", default=None)
     parser.add_argument("--baudrate", type=int, default=None)
+    parser.add_argument("--preflight-only", action="store_true")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -30,6 +69,11 @@ def main() -> None:
         "port": config.get("serial", {}).get("port"),
         "baudrate": config.get("serial", {}).get("baudrate"),
     }
+    result["preflight"] = _serial_preflight(str(result["port"]))
+
+    if args.preflight_only:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return
 
     try:
         try:
