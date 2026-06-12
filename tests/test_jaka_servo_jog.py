@@ -266,6 +266,43 @@ def test_palm_target_jog_accepts_absolute_palm_position_target() -> None:
     assert any(abs(value) > 0.0 for value in backend.joints)
 
 
+def test_palm_target_jog_holds_small_absolute_target_updates() -> None:
+    backend = FakeBackend()
+    clock = [1.0]
+    controller = JakaPalmTargetJogController(
+        backend,  # type: ignore[arg-type]
+        state_flags=lambda: {},
+        max_joint_velocity_rad_s=1.0,
+        max_joint_acceleration_rad_s2=100.0,
+        max_joint_tracking_error_rad=0.0,
+        max_joint_tracking_error_fault_rad=0.0,
+        target_deadband_m=0.002,
+        prime_after_enable_ticks=0,
+        now=lambda: clock[0],
+    )
+    controller.accept(PalmTargetJogCommand(True, [0.0, 0.0, 0.0], 0.0))
+    assert controller.tick() is True
+    anchor = controller.status()["palm_preview_position_m"]
+    assert isinstance(anchor, list)
+
+    first_target = [float(anchor[0]) + 0.010, float(anchor[1]), float(anchor[2])]
+    clock[0] = 1.1
+    controller.accept(PalmTargetJogCommand(True, [0.0, 0.0, 0.0], 0.0, first_target))
+    assert controller.tick() is True
+    first_joints = list(backend.joints)
+
+    small_target = [first_target[0] + 0.001, first_target[1], first_target[2]]
+    clock[0] = 1.2
+    controller.accept(PalmTargetJogCommand(True, [0.0, 0.0, 0.0], 0.0, small_target))
+    assert controller.tick() is True
+
+    status = controller.status()
+    assert backend.joints == pytest.approx(first_joints)
+    assert status["target_deadband_hold"] is True
+    assert status["watchdog_reason"] == "target_deadband"
+    assert status["qdot_cmd"] == pytest.approx([0.0] * 6)
+
+
 def test_palm_target_jog_resynchronizes_target_to_actual_feedback_each_tick() -> None:
     backend = FakeBackend()
     clock = [1.0]
@@ -534,6 +571,44 @@ def test_palm_target_jog_holds_actual_when_joint_tracking_error_exceeds_limit() 
     assert status["joint_tracking_error_limited"] is True
     assert status["joint_tracking_error_indices_1_based"] == [1]
     assert status["qdot_cmd"] == pytest.approx([0.0] * 6)
+
+
+def test_palm_target_jog_tracking_hold_respects_minimum_hold_time() -> None:
+    backend = FakeBackend()
+    clock = [1.0]
+    controller = JakaPalmTargetJogController(
+        backend,  # type: ignore[arg-type]
+        state_flags=lambda: {},
+        max_joint_velocity_rad_s=0.2,
+        max_joint_acceleration_rad_s2=100.0,
+        max_joint_tracking_error_rad=0.012,
+        joint_tracking_release_rad=0.008,
+        joint_tracking_hold_min_sec=0.2,
+        max_joint_tracking_error_fault_rad=0.025,
+        prime_after_enable_ticks=0,
+        now=lambda: clock[0],
+    )
+    controller.accept(PalmTargetJogCommand(True, [0.0, 0.0, 0.0], 0.0))
+    assert controller.tick() is True
+
+    controller._last_q_cmd = [0.02, 0.0, 0.0, 0.0, 0.0, 0.0]  # noqa: SLF001
+    controller.servo.target_joints = [0.02, 0.0, 0.0, 0.0, 0.0, 0.0]
+    backend.joints = [0.0] * 6
+    clock[0] = 1.1
+    controller.accept(PalmTargetJogCommand(True, [0.01, 0.0, 0.0], 0.0))
+    assert controller.tick() is True
+    assert controller.status()["joint_tracking_hold_active"] is True
+
+    clock[0] = 1.2
+    controller.accept(PalmTargetJogCommand(True, [0.01, 0.0, 0.0], 0.0))
+    assert controller.tick() is True
+    assert controller.status()["joint_tracking_hold_active"] is True
+    assert controller.status()["qdot_cmd"] == pytest.approx([0.0] * 6)
+
+    clock[0] = 1.35
+    controller.accept(PalmTargetJogCommand(True, [0.01, 0.0, 0.0], 0.0))
+    assert controller.tick() is True
+    assert controller.status()["joint_tracking_hold_active"] is False
 
 
 def test_palm_target_jog_latches_fault_when_joint_tracking_error_is_large() -> None:

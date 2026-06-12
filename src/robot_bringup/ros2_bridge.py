@@ -273,18 +273,21 @@ def run_real_arm_hand_ros2_node(
     enable_arm_teleop: bool = False,
     arm_teleop_hz: float = 50.0,
     arm_teleop_watchdog_sec: float = 0.25,
-    arm_teleop_max_palm_velocity_m_s: float = 0.015,
+    arm_teleop_max_palm_velocity_m_s: float = 0.15,
     arm_teleop_max_wrist_roll_velocity_rad_s: float = 0.08,
-    arm_teleop_max_joint_velocity_rad_s: float = 0.08,
-    arm_teleop_max_joint_acceleration_rad_s2: float = 0.25,
+    arm_teleop_max_joint_velocity_rad_s: float = 0.45,
+    arm_teleop_max_joint_acceleration_rad_s2: float = 1.50,
     arm_teleop_max_session_excursion_rad: float = 0.0,
-    arm_teleop_max_session_palm_excursion_m: float = 0.03,
+    arm_teleop_max_session_palm_excursion_m: float = 0.0,
     arm_teleop_tcp_velocity_horizon_sec: float = 0.12,
-    arm_teleop_max_tcp_target_offset_m: float = 0.004,
+    arm_teleop_max_tcp_target_offset_m: float = 0.010,
     arm_teleop_max_raw_ik_error_rad: float = 0.04,
-    arm_teleop_max_joint_tracking_error_rad: float = 0.012,
-    arm_teleop_max_joint_tracking_error_fault_rad: float = 0.025,
-    arm_teleop_saturation_hold_sec: float = 0.0,
+    arm_teleop_target_deadband_m: float = 0.0003,
+    arm_teleop_max_joint_tracking_error_rad: float = 0.030,
+    arm_teleop_joint_tracking_release_rad: float = 0.020,
+    arm_teleop_max_joint_tracking_error_fault_rad: float = 0.055,
+    arm_teleop_joint_tracking_hold_min_sec: float = 0.04,
+    arm_teleop_saturation_hold_sec: float = 0.05,
     arm_teleop_joint_limit_margin_deg: float = 10.0,
     arm_teleop_prime_after_enable_ticks: int = 5,
     arm_teleop_step_num: int = 1,
@@ -372,8 +375,11 @@ def run_real_arm_hand_ros2_node(
                     tcp_velocity_horizon_sec=arm_teleop_tcp_velocity_horizon_sec,
                     max_tcp_target_offset_m=arm_teleop_max_tcp_target_offset_m,
                     max_raw_ik_error_rad=arm_teleop_max_raw_ik_error_rad,
+                    target_deadband_m=arm_teleop_target_deadband_m,
                     max_joint_tracking_error_rad=arm_teleop_max_joint_tracking_error_rad,
+                    joint_tracking_release_rad=arm_teleop_joint_tracking_release_rad,
                     max_joint_tracking_error_fault_rad=arm_teleop_max_joint_tracking_error_fault_rad,
+                    joint_tracking_hold_min_sec=arm_teleop_joint_tracking_hold_min_sec,
                     saturation_hold_sec=arm_teleop_saturation_hold_sec,
                     joint_limit_margin_rad=math.radians(arm_teleop_joint_limit_margin_deg),
                     prime_after_enable_ticks=arm_teleop_prime_after_enable_ticks,
@@ -678,18 +684,21 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--arm-teleop-hz", type=float, default=50.0)
     parser.add_argument("--arm-teleop-watchdog-sec", type=float, default=0.25)
-    parser.add_argument("--arm-teleop-max-palm-velocity-m-s", type=float, default=0.015)
+    parser.add_argument("--arm-teleop-max-palm-velocity-m-s", type=float, default=0.15)
     parser.add_argument("--arm-teleop-max-wrist-roll-velocity-rad-s", type=float, default=0.08)
-    parser.add_argument("--arm-teleop-max-joint-velocity-rad-s", type=float, default=0.08)
-    parser.add_argument("--arm-teleop-max-joint-acceleration-rad-s2", type=float, default=0.25)
+    parser.add_argument("--arm-teleop-max-joint-velocity-rad-s", type=float, default=0.45)
+    parser.add_argument("--arm-teleop-max-joint-acceleration-rad-s2", type=float, default=1.50)
     parser.add_argument("--arm-teleop-max-session-excursion-rad", type=float, default=0.0)
-    parser.add_argument("--arm-teleop-max-session-palm-excursion-m", type=float, default=0.03)
+    parser.add_argument("--arm-teleop-max-session-palm-excursion-m", type=float, default=0.0)
     parser.add_argument("--arm-teleop-tcp-velocity-horizon-sec", type=float, default=0.12)
-    parser.add_argument("--arm-teleop-max-tcp-target-offset-m", type=float, default=0.004)
+    parser.add_argument("--arm-teleop-max-tcp-target-offset-m", type=float, default=0.010)
     parser.add_argument("--arm-teleop-max-raw-ik-error-rad", type=float, default=0.04)
-    parser.add_argument("--arm-teleop-max-joint-tracking-error-rad", type=float, default=0.012)
-    parser.add_argument("--arm-teleop-max-joint-tracking-error-fault-rad", type=float, default=0.025)
-    parser.add_argument("--arm-teleop-saturation-hold-sec", type=float, default=0.0)
+    parser.add_argument("--arm-teleop-target-deadband-m", type=float, default=0.0003)
+    parser.add_argument("--arm-teleop-max-joint-tracking-error-rad", type=float, default=0.030)
+    parser.add_argument("--arm-teleop-joint-tracking-release-rad", type=float, default=0.020)
+    parser.add_argument("--arm-teleop-max-joint-tracking-error-fault-rad", type=float, default=0.055)
+    parser.add_argument("--arm-teleop-joint-tracking-hold-min-sec", type=float, default=0.04)
+    parser.add_argument("--arm-teleop-saturation-hold-sec", type=float, default=0.05)
     parser.add_argument("--arm-teleop-joint-limit-margin-deg", type=float, default=10.0)
     parser.add_argument("--arm-teleop-prime-after-enable-ticks", type=int, default=5)
     parser.add_argument("--arm-teleop-step-num", type=int, default=1)
@@ -723,8 +732,11 @@ def main(argv: list[str] | None = None) -> None:
         arm_teleop_tcp_velocity_horizon_sec=args.arm_teleop_tcp_velocity_horizon_sec,
         arm_teleop_max_tcp_target_offset_m=args.arm_teleop_max_tcp_target_offset_m,
         arm_teleop_max_raw_ik_error_rad=args.arm_teleop_max_raw_ik_error_rad,
+        arm_teleop_target_deadband_m=args.arm_teleop_target_deadband_m,
         arm_teleop_max_joint_tracking_error_rad=args.arm_teleop_max_joint_tracking_error_rad,
+        arm_teleop_joint_tracking_release_rad=args.arm_teleop_joint_tracking_release_rad,
         arm_teleop_max_joint_tracking_error_fault_rad=args.arm_teleop_max_joint_tracking_error_fault_rad,
+        arm_teleop_joint_tracking_hold_min_sec=args.arm_teleop_joint_tracking_hold_min_sec,
         arm_teleop_saturation_hold_sec=args.arm_teleop_saturation_hold_sec,
         arm_teleop_joint_limit_margin_deg=args.arm_teleop_joint_limit_margin_deg,
         arm_teleop_prime_after_enable_ticks=args.arm_teleop_prime_after_enable_ticks,

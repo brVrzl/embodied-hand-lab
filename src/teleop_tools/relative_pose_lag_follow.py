@@ -59,11 +59,16 @@ class RelativePoseLagFollowConfig:
     phone_jump_reject_rotation_rad: float = math.radians(45.0)
     phone_still_translation_m: float = 0.002
     phone_still_rotation_rad: float = math.radians(0.5)
+    phone_still_min_sec: float = 0.0
     phone_still_freeze_tracking_error_m: float = 0.03
     freeze_when_phone_still: bool = True
     target_filter_time_constant_sec: float = 0.10
     max_target_velocity_m_s: float = 0.02
+    max_target_acceleration_m_s2: float = 0.0
     max_target_jump_m: float = 0.05
+    target_update_deadband_m: float = 0.0
+    target_update_release_m: float = 0.0
+    reanchor_requires_deadman_release: bool = False
     phone_to_robot_axis_map: dict[str, Any] | None = None
 
 
@@ -164,6 +169,10 @@ class RelativePoseLagFollower:
         self.last_raw_target_pose: TcpPose | None = None
         self.last_q_cmd: list[float] | None = None
         self.last_timestamp_sec: float | None = None
+        self.last_target_velocity_m_s = np.zeros(3, dtype=np.float64)
+        self.phone_still_started_at_sec: float | None = None
+        self.target_deadband_holding = False
+        self.waiting_for_deadman_release_after_reject = False
 
     def reset(self) -> None:
         self.phone_anchor_pose = None
@@ -173,6 +182,9 @@ class RelativePoseLagFollower:
         self.last_raw_target_pose = None
         self.last_q_cmd = None
         self.last_timestamp_sec = None
+        self.last_target_velocity_m_s = np.zeros(3, dtype=np.float64)
+        self.phone_still_started_at_sec = None
+        self.target_deadband_holding = False
 
     def step(
         self,
@@ -189,7 +201,17 @@ class RelativePoseLagFollower:
         log = self._base_log(timestamp, snapshot, actual_tcp_pose, q_current)
         if not snapshot.valid or not snapshot.enabled:
             self.reset()
+            self.waiting_for_deadman_release_after_reject = False
             log.update({"command_deadman": False, "reason": snapshot.reason})
+            return RelativePoseLagFollowOutput(False, None, 0.0, log)
+        if self.waiting_for_deadman_release_after_reject:
+            log.update(
+                {
+                    "command_deadman": False,
+                    "reason": "waiting_for_deadman_release_after_reject",
+                    "reanchor_requires_deadman_release": True,
+                }
+            )
             return RelativePoseLagFollowOutput(False, None, 0.0, log)
         if self.phone_anchor_pose is None or self.robot_anchor_pose is None:
             self._anchor(phone_pose, actual_tcp_pose)
@@ -204,12 +226,16 @@ class RelativePoseLagFollower:
         )
         if phone_pose_jump_rejected:
             self.reset()
+            self.waiting_for_deadman_release_after_reject = (
+                self.config.reanchor_requires_deadman_release
+            )
             log.update(
                 {
                     "command_deadman": False,
                     "reason": "phone_pose_jump_rejected",
                     "phone_step_translation_m": phone_step_translation_m,
                     "phone_step_rotation_rad": phone_step_rotation_rad,
+                    "reanchor_requires_deadman_release": self.config.reanchor_requires_deadman_release,
                 }
             )
             return RelativePoseLagFollowOutput(False, None, 0.0, log)
@@ -231,12 +257,24 @@ class RelativePoseLagFollower:
             return RelativePoseLagFollowOutput(False, None, 0.0, log)
 
         desired_workspace_bounded = self._workspace_bounded_target(desired_raw)
-        desired_bounded, target_lead_limited, target_filtered, target_velocity_limited, still_freeze = self._command_target(
+        phone_still_now = self._phone_still(phone_step_translation_m, phone_step_rotation_rad)
+        phone_still, phone_still_duration_sec = self._update_phone_still(
+            phone_still_now,
+            timestamp,
+        )
+        (
+            desired_bounded,
+            target_lead_limited,
+            target_filtered,
+            target_velocity_limited,
+            target_acceleration_limited,
+            target_deadband_hold,
+            still_freeze,
+        ) = self._command_target(
             actual_tcp_pose=actual_tcp_pose,
             desired_workspace_bounded=desired_workspace_bounded,
             dt=dt,
-            phone_step_translation_m=phone_step_translation_m,
-            phone_step_rotation_rad=phone_step_rotation_rad,
+            phone_still=phone_still,
         )
         pos_error, rot_error, q_error = self._tracking_errors(desired_bounded, actual_tcp_pose, q_current)
         time_scale, lag_warn, lag_pause = self._time_scale(pos_error, rot_error, q_error)
@@ -259,7 +297,10 @@ class RelativePoseLagFollower:
                 "phone_delta_pose": phone_delta_pose.to_dict(),
                 "phone_step_translation_m": phone_step_translation_m,
                 "phone_step_rotation_rad": phone_step_rotation_rad,
-                "phone_still": self._phone_still(phone_step_translation_m, phone_step_rotation_rad),
+                "phone_still": phone_still,
+                "phone_still_now": phone_still_now,
+                "phone_still_duration_sec": phone_still_duration_sec,
+                "phone_still_min_sec": self.config.phone_still_min_sec,
                 "mapped_phone_delta_m": mapped_delta.astype(float).tolist(),
                 "desired_tcp_pose_raw": desired_raw.to_dict(),
                 "accepted_desired_tcp_pose_raw": desired_raw.to_dict() if command_deadman else None,
@@ -273,6 +314,8 @@ class RelativePoseLagFollower:
                 "actual_tcp_pose": actual_tcp_pose.to_dict(),
                 "target_filtered": target_filtered,
                 "target_velocity_limited": target_velocity_limited,
+                "target_acceleration_limited": target_acceleration_limited,
+                "target_deadband_hold": target_deadband_hold,
                 "still_freeze": still_freeze,
                 "tcp_tracking_error_pos": pos_error,
                 "tcp_tracking_error_rot": rot_error,
@@ -284,6 +327,7 @@ class RelativePoseLagFollower:
                 "lag_warn": lag_warn,
                 "lag_pause": lag_pause,
                 "target_lead_limited": target_lead_limited,
+                "reanchor_requires_deadman_release": self.config.reanchor_requires_deadman_release,
                 "ik_success": ik.success,
                 "ik_reason": ik.reason,
                 "teleop_mode": "relative_pose_lag_follow",
@@ -325,6 +369,15 @@ class RelativePoseLagFollower:
             translation_m <= self.config.phone_still_translation_m
             and rotation_rad <= self.config.phone_still_rotation_rad
         )
+
+    def _update_phone_still(self, phone_still_now: bool, timestamp: float) -> tuple[bool, float]:
+        if not phone_still_now:
+            self.phone_still_started_at_sec = None
+            return False, 0.0
+        if self.phone_still_started_at_sec is None:
+            self.phone_still_started_at_sec = timestamp
+        duration = max(0.0, timestamp - self.phone_still_started_at_sec)
+        return duration >= max(0.0, self.config.phone_still_min_sec), duration
 
     def _raw_target_jump_rejected(self, desired_raw: TcpPose) -> bool:
         limit = float(self.config.max_target_jump_m)
@@ -368,26 +421,43 @@ class RelativePoseLagFollower:
         actual_tcp_pose: TcpPose,
         desired_workspace_bounded: TcpPose,
         dt: float,
-        phone_step_translation_m: float,
-        phone_step_rotation_rad: float,
-    ) -> tuple[TcpPose, bool, bool, bool, bool]:
+        phone_still: bool,
+    ) -> tuple[TcpPose, bool, bool, bool, bool, bool, bool]:
         if self.config.target_response_mode == "lag_follow":
             target, lead_limited = self._rate_limited_target(
                 current=self.last_target_pose or actual_tcp_pose,
                 target=desired_workspace_bounded,
             )
-            return target, lead_limited, False, False, False
+            target, deadband_hold = self._target_update_deadbanded(
+                current=self.last_target_pose or actual_tcp_pose,
+                target=target,
+            )
+            return target, lead_limited or deadband_hold, False, False, False, deadband_hold, False
 
         last_target = self.last_target_pose or actual_tcp_pose
-        phone_still = self._phone_still(phone_step_translation_m, phone_step_rotation_rad)
         tracking_error = self._position_error(desired_workspace_bounded, actual_tcp_pose)
         still_freeze = self._should_freeze_when_phone_still(phone_still, tracking_error)
         if still_freeze:
-            return actual_tcp_pose, False, False, False, True
+            self.last_target_velocity_m_s = np.zeros(3, dtype=np.float64)
+            return actual_tcp_pose, False, False, False, False, False, True
 
         target, filtered = self._filtered_target(current=last_target, target=desired_workspace_bounded, dt=dt)
         target, velocity_limited = self._velocity_limited_target(current=last_target, target=target, dt=dt)
-        return target, filtered or velocity_limited, filtered, velocity_limited, False
+        target, acceleration_limited = self._acceleration_limited_target(
+            current=last_target,
+            target=target,
+            dt=dt,
+        )
+        target, deadband_hold = self._target_update_deadbanded(current=last_target, target=target)
+        return (
+            target,
+            filtered or velocity_limited or acceleration_limited or deadband_hold,
+            filtered,
+            velocity_limited,
+            acceleration_limited,
+            deadband_hold,
+            False,
+        )
 
     def _position_error(self, target: TcpPose, actual_tcp_pose: TcpPose) -> float:
         return float(np.linalg.norm(_as_position(target.position_m) - _as_position(actual_tcp_pose.position_m)))
@@ -421,6 +491,41 @@ class RelativePoseLagFollower:
             return target, False
         limited_pos = current_pos + delta * (max_step / norm)
         return TcpPose(limited_pos.astype(float).tolist(), target.quaternion_wxyz), True
+
+    def _acceleration_limited_target(self, *, current: TcpPose, target: TcpPose, dt: float) -> tuple[TcpPose, bool]:
+        max_acceleration = float(self.config.max_target_acceleration_m_s2)
+        if max_acceleration <= 0.0 or dt <= 0.0:
+            self.last_target_velocity_m_s = (
+                (_as_position(target.position_m) - _as_position(current.position_m))
+                / max(dt, 1e-3)
+            )
+            return target, False
+        current_pos = _as_position(current.position_m)
+        target_pos = _as_position(target.position_m)
+        desired_velocity = (target_pos - current_pos) / max(dt, 1e-3)
+        velocity_delta = desired_velocity - self.last_target_velocity_m_s
+        max_delta = max_acceleration * max(dt, 1e-3)
+        delta_norm = float(np.linalg.norm(velocity_delta))
+        limited = delta_norm > max_delta > 0.0
+        if limited:
+            desired_velocity = self.last_target_velocity_m_s + velocity_delta * (max_delta / max(delta_norm, 1e-9))
+        self.last_target_velocity_m_s = desired_velocity
+        return TcpPose((current_pos + desired_velocity * dt).astype(float).tolist(), target.quaternion_wxyz), limited
+
+    def _target_update_deadbanded(self, *, current: TcpPose, target: TcpPose) -> tuple[TcpPose, bool]:
+        deadband = max(0.0, float(self.config.target_update_deadband_m))
+        if deadband <= 0.0:
+            self.target_deadband_holding = False
+            return target, False
+        release = max(deadband, float(self.config.target_update_release_m or deadband))
+        delta = float(np.linalg.norm(_as_position(target.position_m) - _as_position(current.position_m)))
+        threshold = release if self.target_deadband_holding else deadband
+        if delta <= threshold:
+            self.target_deadband_holding = True
+            self.last_target_velocity_m_s = np.zeros(3, dtype=np.float64)
+            return current, True
+        self.target_deadband_holding = False
+        return target, False
 
     def _tracking_errors(
         self,

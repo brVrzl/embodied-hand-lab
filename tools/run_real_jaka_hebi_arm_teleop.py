@@ -63,13 +63,20 @@ def _relative_config_from_config(config: dict[str, Any]) -> RelativePoseLagFollo
                 math.radians(float(relative_cfg.get("phone_still_rotation_deg", 0.5))),
             )
         ),
+        phone_still_min_sec=float(relative_cfg.get("phone_still_min_sec", 0.0)),
         phone_still_freeze_tracking_error_m=float(
             relative_cfg.get("phone_still_freeze_tracking_error_m", 0.03)
         ),
         freeze_when_phone_still=bool(relative_cfg.get("freeze_when_phone_still", True)),
         target_filter_time_constant_sec=float(relative_cfg.get("target_filter_time_constant_sec", 0.10)),
         max_target_velocity_m_s=float(relative_cfg.get("max_target_velocity_m_s", 0.02)),
+        max_target_acceleration_m_s2=float(relative_cfg.get("max_target_acceleration_m_s2", 0.0)),
         max_target_jump_m=float(relative_cfg.get("max_target_jump_m", 0.05)),
+        target_update_deadband_m=float(relative_cfg.get("target_update_deadband_m", 0.0)),
+        target_update_release_m=float(relative_cfg.get("target_update_release_m", 0.0)),
+        reanchor_requires_deadman_release=bool(
+            relative_cfg.get("reanchor_requires_deadman_release", False)
+        ),
         phone_to_robot_axis_map=direction_cfg.get("phone_to_robot"),
     )
 

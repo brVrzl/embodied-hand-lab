@@ -17,8 +17,8 @@ topics:
 
 direction_calibration:
   phone_to_robot:
-    x: {source: y, sign: -1.0, scale: 1.0}
-    y: {source: x, sign: 1.0, scale: 1.0}
+    x: {source: y, sign: 1.0, scale: 1.0}
+    y: {source: x, sign: -1.0, scale: 1.0}
     z: {source: z, sign: 1.0, scale: 1.0}
   wrist_roll:
     source: rot_z
@@ -38,14 +38,14 @@ hebi_mapper:
 
 relative_pose_lag_follow:
   target_response_mode: direct
-  position_scale: 0.25
+  position_scale: 0.35
   max_step_position_m: 0.010
   max_step_rotation_deg: 2.0
   max_target_lead_m: 0.08
   workspace_min_m: [-0.14, -0.46, 0.16]
   workspace_max_m: [0.06, -0.24, 0.46]
-  max_pos_tracking_error_warn_m: 0.025
-  max_pos_tracking_error_pause_m: 0.070
+  max_pos_tracking_error_warn_m: 0.040
+  max_pos_tracking_error_pause_m: 0.090
   max_q_tracking_error_pause_rad: 0.25
   min_warn_time_scale: 0.25
   phone_translation_deadband_m: 0.004
@@ -54,11 +54,16 @@ relative_pose_lag_follow:
   phone_jump_reject_rotation_deg: 45.0
   phone_still_translation_m: 0.003
   phone_still_rotation_deg: 0.8
-  phone_still_freeze_tracking_error_m: 0.004
+  phone_still_min_sec: 0.12
+  phone_still_freeze_tracking_error_m: 0.008
   freeze_when_phone_still: true
-  target_filter_time_constant_sec: 0.160
-  max_target_velocity_m_s: 0.020
-  max_target_jump_m: 0.020
+  target_filter_time_constant_sec: 0.020
+  max_target_velocity_m_s: 0.250
+  max_target_acceleration_m_s2: 2.000
+  max_target_jump_m: 0.050
+  target_update_deadband_m: 0.0003
+  target_update_release_m: 0.0008
+  reanchor_requires_deadman_release: true
 
 shadow:
   mjcf_path: data/sim_assets/jaka_rh56.xml

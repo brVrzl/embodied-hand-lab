@@ -112,6 +112,32 @@ def test_phone_pose_jump_rejects_command_and_resets_anchor() -> None:
     assert follower.phone_anchor_pose is None
 
 
+def test_phone_pose_jump_requires_deadman_release_when_configured() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            phone_jump_reject_translation_m=0.05,
+            reanchor_requires_deadman_release=True,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    rejected = follower.step(_snapshot(0.1, [0.20, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    locked = follower.step(_snapshot(0.2, [0.20, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    released = follower.step(
+        _snapshot(0.3, [0.20, 0.0, 0.0], b1=False),
+        _actual([0.0, 0.0, 0.0]),
+        q_current,
+    )
+    reanchored = follower.step(_snapshot(0.4, [0.20, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert rejected.log["reason"] == "phone_pose_jump_rejected"
+    assert locked.command_deadman is False
+    assert locked.log["reason"] == "waiting_for_deadman_release_after_reject"
+    assert released.command_deadman is False
+    assert reanchored.command_deadman is True
+
+
 def test_direct_mode_limits_target_velocity() -> None:
     follower = RelativePoseLagFollower(
         _config(
@@ -128,6 +154,48 @@ def test_direct_mode_limits_target_velocity() -> None:
     assert output.command_deadman is True
     assert output.palm_target_position_m == pytest.approx([0.001, 0.0, 0.0])
     assert output.log["target_velocity_limited"] is True
+
+
+def test_direct_mode_limits_target_acceleration() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            max_target_velocity_m_s=10.0,
+            max_target_acceleration_m_s2=0.10,
+            phone_jump_reject_translation_m=1.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(_snapshot(0.1, [0.10, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert output.command_deadman is True
+    assert output.palm_target_position_m == pytest.approx([0.001, 0.0, 0.0])
+    assert output.log["target_acceleration_limited"] is True
+
+
+def test_direct_mode_holds_small_target_updates_until_release_threshold() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            target_update_deadband_m=0.002,
+            target_update_release_m=0.004,
+            phone_jump_reject_translation_m=1.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    first = follower.step(_snapshot(0.1, [0.010, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    held = follower.step(_snapshot(0.2, [0.011, 0.0, 0.0]), _actual([0.010, 0.0, 0.0]), q_current)
+    released = follower.step(_snapshot(0.3, [0.015, 0.0, 0.0]), _actual([0.010, 0.0, 0.0]), q_current)
+
+    assert first.palm_target_position_m == pytest.approx([0.010, 0.0, 0.0])
+    assert held.palm_target_position_m == pytest.approx([0.010, 0.0, 0.0])
+    assert held.log["target_deadband_hold"] is True
+    assert released.palm_target_position_m == pytest.approx([0.015, 0.0, 0.0])
+    assert released.log["target_deadband_hold"] is False
 
 
 def test_workspace_bounds_do_not_pull_anchor_back_when_manual_pose_starts_outside_box() -> None:

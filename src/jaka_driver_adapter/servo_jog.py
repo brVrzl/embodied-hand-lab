@@ -503,8 +503,11 @@ class JakaPalmTargetJogController:
         tcp_velocity_horizon_sec: float = 0.20,
         max_tcp_target_offset_m: float = 0.04,
         max_raw_ik_error_rad: float = 0.12,
+        target_deadband_m: float = 0.0,
         max_joint_tracking_error_rad: float = 0.012,
+        joint_tracking_release_rad: float = 0.0,
         max_joint_tracking_error_fault_rad: float = 0.025,
+        joint_tracking_hold_min_sec: float = 0.0,
         saturation_velocity_ratio: float = 0.98,
         saturation_min_joints: int = 6,
         saturation_hold_sec: float = 0.0,
@@ -525,8 +528,11 @@ class JakaPalmTargetJogController:
         self.tcp_velocity_horizon_sec = max(0.0, float(tcp_velocity_horizon_sec))
         self.max_tcp_target_offset_m = abs(float(max_tcp_target_offset_m))
         self.max_raw_ik_error_rad = abs(float(max_raw_ik_error_rad))
+        self.target_deadband_m = abs(float(target_deadband_m))
         self.max_joint_tracking_error_rad = abs(float(max_joint_tracking_error_rad))
+        self.joint_tracking_release_rad = abs(float(joint_tracking_release_rad))
         self.max_joint_tracking_error_fault_rad = abs(float(max_joint_tracking_error_fault_rad))
+        self.joint_tracking_hold_min_sec = max(0.0, float(joint_tracking_hold_min_sec))
         self.saturation_velocity_ratio = max(0.0, min(1.0, float(saturation_velocity_ratio)))
         self.saturation_min_joints = max(1, int(saturation_min_joints))
         self.saturation_hold_sec = max(0.0, float(saturation_hold_sec))
@@ -567,6 +573,8 @@ class JakaPalmTargetJogController:
         self._joint_tracking_error_indices_1_based: list[int] = []
         self._joint_tracking_error_limited = False
         self._joint_tracking_error_faulted = False
+        self._joint_tracking_hold_active = False
+        self._joint_tracking_hold_until_sec = 0.0
         self._last_tcp_current: list[float] | None = None
         self._last_tcp_target: list[float] | None = None
         self._last_tcp_target_error_m: float | None = None
@@ -575,6 +583,8 @@ class JakaPalmTargetJogController:
         self._is_saturated = False
         self._saturated_joint_indices_1_based: list[int] = []
         self._saturation_time_sec = 0.0
+        self._target_deadband_hold = False
+        self._last_position_target_m: list[float] | None = None
         self._watchdog_active = False
         self._watchdog_reason = ""
         self._hold_current_active = False
@@ -592,6 +602,9 @@ class JakaPalmTargetJogController:
         self.servo.accept(JointJogCommand(deadman=command.deadman, joint_velocity_rad_s=[0.0] * 6))
         if not command.deadman:
             self.last_tick_time = None
+            self._last_position_target_m = None
+            self._target_deadband_hold = False
+            self._joint_tracking_hold_active = False
 
     def tick(self) -> bool:
         now = self.now()
@@ -627,7 +640,7 @@ class JakaPalmTargetJogController:
             )
             self.latch_fault("joint_tracking_error_fault")
             return False
-        if self._joint_tracking_error_exceeded():
+        if self._joint_tracking_hold_should_continue(now):
             return self._hold_actual_joints(
                 now=now,
                 dt=dt,
@@ -672,6 +685,8 @@ class JakaPalmTargetJogController:
         self.ik_state.set_arm_joints_rad(actual_joints)
         tcp_current = self.ik_state.current_palm_position_m.tolist()
         if self.command.hold_current:
+            self._last_position_target_m = None
+            self._target_deadband_hold = False
             if self._hold_current_active:
                 hold_joints = list(self._last_q_cmd or self.servo.target_joints or actual_joints)
             else:
@@ -699,12 +714,23 @@ class JakaPalmTargetJogController:
         self._hold_current_active = False
         if has_position_target:
             assert target_position is not None
+            if self._position_target_deadband_holds(target_position):
+                return self._hold_commanded_joints(
+                    now=now,
+                    dt=dt,
+                    actual_joints=actual_joints,
+                    q_cmd_reference=q_cmd_reference,
+                    tcp_current=tcp_current,
+                    reason="target_deadband",
+                )
             self.ik_state.apply_position_target(
                 palm_target_position_m=[float(value) for value in target_position],
                 wrist_roll_velocity_rad_s=wrist_roll_velocity,
                 dt=dt,
             )
         else:
+            self._last_position_target_m = None
+            self._target_deadband_hold = False
             self.ik_state.apply_short_horizon(
                 palm_velocity_m_s=palm_velocity,
                 wrist_roll_velocity_rad_s=wrist_roll_velocity,
@@ -776,8 +802,11 @@ class JakaPalmTargetJogController:
                 "tcp_velocity_horizon_sec": self.tcp_velocity_horizon_sec,
                 "max_tcp_target_offset_m": self.max_tcp_target_offset_m,
                 "max_raw_ik_error_rad": self.max_raw_ik_error_rad,
+                "target_deadband_m": self.target_deadband_m,
                 "max_joint_tracking_error_rad": self.max_joint_tracking_error_rad,
+                "joint_tracking_release_rad": self._effective_joint_tracking_release_rad(),
                 "max_joint_tracking_error_fault_rad": self.max_joint_tracking_error_fault_rad,
+                "joint_tracking_hold_min_sec": self.joint_tracking_hold_min_sec,
                 "saturation_velocity_ratio": self.saturation_velocity_ratio,
                 "saturation_min_joints": self.saturation_min_joints,
                 "saturation_hold_sec": self.saturation_hold_sec,
@@ -790,10 +819,13 @@ class JakaPalmTargetJogController:
                 "qdot_cmd": self._last_qdot_cmd,
                 "joint_error": self._last_joint_error,
                 "raw_ik_error_limited": self._raw_ik_error_limited,
+                "target_deadband_hold": self._target_deadband_hold,
                 "joint_tracking_error_rad": self._joint_tracking_error_rad,
                 "joint_tracking_error_indices_1_based": self._joint_tracking_error_indices_1_based,
                 "joint_tracking_error_limited": self._joint_tracking_error_limited,
                 "joint_tracking_error_faulted": self._joint_tracking_error_faulted,
+                "joint_tracking_hold_active": self._joint_tracking_hold_active,
+                "joint_tracking_hold_until_sec": self._joint_tracking_hold_until_sec,
                 "tcp_current": self._last_tcp_current,
                 "tcp_target": self._last_tcp_target,
                 "tcp_target_error_m": self._last_tcp_target_error_m,
@@ -913,6 +945,26 @@ class JakaPalmTargetJogController:
             and self._joint_tracking_error_rad > self.max_joint_tracking_error_rad
         )
 
+    def _effective_joint_tracking_release_rad(self) -> float:
+        if self.joint_tracking_release_rad > 0.0:
+            return self.joint_tracking_release_rad
+        return self.max_joint_tracking_error_rad
+
+    def _joint_tracking_hold_should_continue(self, now: float) -> bool:
+        if self._joint_tracking_error_exceeded() and not self._joint_tracking_hold_active:
+            self._joint_tracking_hold_active = True
+            self._joint_tracking_hold_until_sec = now + self.joint_tracking_hold_min_sec
+            return True
+        if not self._joint_tracking_hold_active:
+            return False
+        release = self._effective_joint_tracking_release_rad()
+        if now < self._joint_tracking_hold_until_sec:
+            return True
+        if release > 0.0 and self._joint_tracking_error_rad > release:
+            return True
+        self._joint_tracking_hold_active = False
+        return False
+
     def _joint_tracking_error_fault_exceeded(self) -> bool:
         self._joint_tracking_error_faulted = (
             self.max_joint_tracking_error_fault_rad > 0.0
@@ -951,6 +1003,60 @@ class JakaPalmTargetJogController:
             self.last_tick_time = None
         return streamed
 
+    def _position_target_deadband_holds(self, target_position: list[float]) -> bool:
+        if self.target_deadband_m <= 0.0:
+            self._target_deadband_hold = False
+            self._last_position_target_m = [float(value) for value in target_position]
+            return False
+        target = [float(value) for value in target_position]
+        if self._last_position_target_m is None:
+            self._last_position_target_m = target
+            self._target_deadband_hold = False
+            return False
+        delta = math.sqrt(
+            sum(
+                (current - previous) ** 2
+                for current, previous in zip(target, self._last_position_target_m, strict=True)
+            )
+        )
+        if delta <= self.target_deadband_m:
+            self._target_deadband_hold = True
+            return True
+        self._last_position_target_m = target
+        self._target_deadband_hold = False
+        return False
+
+    def _hold_commanded_joints(
+        self,
+        *,
+        now: float,
+        dt: float,
+        actual_joints: list[float],
+        q_cmd_reference: list[float],
+        tcp_current: list[float],
+        reason: str,
+    ) -> bool:
+        self._watchdog_active = True
+        self._watchdog_reason = reason
+        hold_joints = list(q_cmd_reference)
+        self._record_debug_state(
+            dt=dt,
+            q_current=actual_joints,
+            q_cmd=hold_joints,
+            raw_ik_q=actual_joints,
+            qdot_cmd=[0.0] * 6,
+            tcp_current=tcp_current,
+        )
+        self.servo.target_joints = hold_joints
+        self.servo.command = JointJogCommand(deadman=True, joint_velocity_rad_s=[0.0] * 6)
+        self.servo.reset_velocity_limiter()
+        streamed = self.servo.tick()
+        self._last_q_cmd = list(self.servo.target_joints or hold_joints)
+        self.last_tick_time = now
+        if not streamed and not self.servo.enabled:
+            self.last_tick_time = None
+        return streamed
+
     def _reset_motion_watchdogs(self) -> None:
         self._is_saturated = False
         self._saturated_joint_indices_1_based = []
@@ -958,8 +1064,11 @@ class JakaPalmTargetJogController:
         self._watchdog_active = False
         self._watchdog_reason = ""
         self._raw_ik_error_limited = False
+        self._target_deadband_hold = False
         self._joint_tracking_error_limited = False
         self._joint_tracking_error_faulted = False
+        self._joint_tracking_hold_active = False
+        self._joint_tracking_hold_until_sec = 0.0
         self.servo.reset_velocity_limiter()
 
     def _record_debug_state(
