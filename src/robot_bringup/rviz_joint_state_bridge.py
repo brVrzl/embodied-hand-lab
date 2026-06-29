@@ -59,7 +59,7 @@ def run_rviz_joint_state_bridge(
         from sensor_msgs.msg import JointState  # type: ignore
         from std_msgs.msg import String  # type: ignore
     except Exception as exc:
-        raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble first.") from exc
+        raise RuntimeError("ROS2 Python packages are required. Source ROS2 first, e.g. scripts/source_ros2.sh.") from exc
 
     class RvizJointStateBridge(Node):  # type: ignore[misc]
         def __init__(self) -> None:

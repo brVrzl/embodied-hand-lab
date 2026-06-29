@@ -1,0 +1,71 @@
+workspace_id: jaka_rh56_tennis_ball_lift_current_v0
+date: 2026-06-16
+status: rough_unregistered_from_photo_and_realsense_view
+
+table:
+  length_m: 1.20
+  width_m: 0.60
+  thickness_m: 0.04
+
+fixture_frame:
+  profile_side_m: 0.03
+  left_camera_upright:
+    rough_alignment: upper_left_table_corner
+    camera_mount_height_m: 0.50
+    lower_base_height_m: 0.53
+  right_robot_frame:
+    rough_offset_from_table_right_edge_m: 0.29
+    rough_offset_from_bottom_frame_top_right_m: 0.29
+
+object:
+  type: tennis_ball
+  radius_m: 0.0335
+  mass_kg_nominal: 0.058
+  spawn_region:
+    type: square
+    center_xy_m_in_sim: [-0.12, 0.0]
+    half_size_m: 0.04
+    note: First 20-30 real trials should use the center, then randomize within this 8cm square.
+
+task:
+  name: tennis_ball_grasp_lift
+  lift_height_m_above_table: 0.08
+  place_target_enabled: false
+
+camera:
+  serial: "346222072985"
+  model: realsense_d435
+  resolution: [640, 480]
+  intrinsics_from_latest_check:
+    fx: 604.892333984375
+    fy: 604.61767578125
+    cx: 326.8591003417969
+    cy: 251.8049774169922
+  sim_initial_guess:
+    eye_xyz_m: [0.20, -0.22, 0.53]
+    target_xyz_m: [-0.12, 0.0, 0.055]
+    fov_y_rad: 0.78
+  calibration_status:
+    camera_to_robot_base: uncalibrated
+    table_plane_from_depth: pending
+    april_tag_or_checkerboard: pending
+
+cameras:
+  overhead_oblique:
+    role: workspace_state
+    recommended_mount_xyz_m_in_sim: [-0.78, 0.26, 0.58]
+    recommended_target_xyz_m_in_sim: [-0.48, -0.06, 0.055]
+    fov_y_deg: 42.0
+    real_mount_note: Place this camera high near the left-back table corner or left upright, tilted down toward the ball spawn area and robot palm. This view is the primary workspace/global state camera and should keep the robot base, hand, ball, and table texture visible.
+  contact_side:
+    role: finger_object_contact
+    recommended_mount_xyz_m_in_sim: [-0.76, -0.34, 0.27]
+    recommended_target_xyz_m_in_sim: [-0.50, -0.08, 0.065]
+    fov_y_deg: 44.0
+    real_mount_note: Place this camera lower near the left-front table edge, aimed across the table at the tennis ball and descending fingers. This view is the contact camera and should prioritize fingertip-ball visibility over full-table coverage.
+
+data_contract:
+  canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  raw_trace: hand_target_raw_count
+  train_norm: hand_target_norm
+  code_annotation: [hand_code_id, hand_code, close_strength]

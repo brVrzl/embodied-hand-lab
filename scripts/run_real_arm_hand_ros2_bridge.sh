@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # shellcheck disable=SC1091
-source scripts/source_ros2_humble.sh
+source scripts/source_ros2.sh
 
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
 if [ ! -x "$PYTHON_BIN" ]; then

@@ -1,0 +1,54 @@
+workspace_config: configs/workspace/tennis_ball_lift_current.yaml
+base_xml: data/sim_assets/jaka_rh56.xml
+out_xml: data/mujoco_debug/tennis_ball_lift_workspace.xml
+collision_mode: unifuc_pad_proxy
+
+scene:
+  floor:
+    z_m: -1.0
+    rgba: [0.62, 0.62, 0.60, 1.0]
+  table:
+    center_xyz_m: [-0.265, 0.0, -0.05]
+    size_xyz_m: [0.60, 0.30, 0.02]
+    rgba: [0.72, 0.66, 0.56, 1.0]
+  tennis_ball:
+    center_xyz_m: [-0.54, -0.11, 0.0035]
+    radius_m: 0.0335
+    mass_kg: 0.058
+    rgba: [0.78, 0.92, 0.18, 1.0]
+    spawn_region_half_size_m: 0.04
+  frame:
+    enabled: true
+    profile_side_m: 0.03
+    rgba: [0.75, 0.75, 0.72, 1.0]
+    robot_mount:
+      enabled: true
+      center_xy_m: [0.0, 0.0]
+      base_rail_spacing_m: 0.10
+      base_rail_length_m: 0.32
+      cross_rail_spacing_m: 0.24
+      cross_rail_length_m: 0.28
+      bolt_spacing_along_rail_m: 0.18
+      bolt_radius_m: 0.007
+      top_z_m: 0.0
+
+cameras:
+  overhead_oblique:
+    eye_xyz_m: [-0.78, 0.26, 0.58]
+    target_xyz_m: [-0.48, -0.06, 0.055]
+    fovy_deg: 42.0
+    show_model: true
+  contact_side:
+    eye_xyz_m: [-0.76, -0.34, 0.27]
+    target_xyz_m: [-0.50, -0.08, 0.065]
+    fovy_deg: 44.0
+    show_model: true
+
+viewer:
+  width: 640
+  height: 480
+  panel_width: 560
+  panel_height_per_camera: 315
+  panel_geometry: "+20+40"
+  fps: 30
+  duration_sec: 0.0

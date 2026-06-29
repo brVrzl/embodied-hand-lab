@@ -1,3 +1,13 @@
-from .pick_cube_jaka_rh56 import PickCubeJakaRH56Env
+from .pick_cube_jaka_rh56 import (
+    LiftCubeJakaRH56Env,
+    PickCubeJakaRH56Env,
+    TennisBallLiftJakaRH56Env,
+    TennisBallPlaceJakaRH56Env,
+)
 
-__all__ = ["PickCubeJakaRH56Env"]
+__all__ = [
+    "LiftCubeJakaRH56Env",
+    "PickCubeJakaRH56Env",
+    "TennisBallLiftJakaRH56Env",
+    "TennisBallPlaceJakaRH56Env",
+]

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from teleop_tools.hebi_mobile_io import HebiMobileIOSnapshot
+from teleop_tools.hebi_mobile_io import (
+    HebiMobileIOSnapshot,
+    quat_conjugate_wxyz,
+    rotate_vector_wxyz,
+)
 from teleop_tools.relative_pose_lag_follow import RelativePoseLagFollower, RelativePoseLagFollowConfig, TcpPose
 
 
@@ -13,17 +17,27 @@ IDENTITY_AXIS_MAP = {
 }
 
 
-def _snapshot(timestamp: float, position: list[float], *, b1: bool = True) -> HebiMobileIOSnapshot:
+def _snapshot(
+    timestamp: float,
+    position: list[float],
+    *,
+    b1: bool = True,
+    quaternion_wxyz: list[float] | None = None,
+) -> HebiMobileIOSnapshot:
     return HebiMobileIOSnapshot(
         timestamp_sec=timestamp,
         position_m=position,
-        quaternion_wxyz=[1.0, 0.0, 0.0, 0.0],
+        quaternion_wxyz=quaternion_wxyz or [1.0, 0.0, 0.0, 0.0],
         raw_inputs={"b1": b1},
     )
 
 
 def _actual(position: list[float]) -> TcpPose:
     return TcpPose(position, [1.0, 0.0, 0.0, 0.0])
+
+
+def _actual_pose(position: list[float], quaternion_wxyz: list[float]) -> TcpPose:
+    return TcpPose(position, quaternion_wxyz)
 
 
 def _config(**overrides: object) -> RelativePoseLagFollowConfig:
@@ -232,3 +246,214 @@ def test_lower_workspace_allows_downward_motion_from_manual_low_pose() -> None:
     assert output.command_deadman is True
     assert output.palm_target_position_m == pytest.approx([0.0, 0.0, 0.19])
     assert output.log["desired_tcp_pose_workspace_bounded"]["position_m"] == pytest.approx([0.0, 0.0, 0.19])
+
+
+def test_orientation_control_maps_phone_relative_rotation_to_target_quaternion() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_scale=1.0,
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(
+        _snapshot(
+            0.1,
+            [0.0, 0.0, 0.0],
+            quaternion_wxyz=[0.9238795325, 0.0, 0.0, 0.3826834324],
+        ),
+        _actual([0.0, 0.0, 0.0]),
+        q_current,
+    )
+
+    assert output.command_deadman is True
+    assert output.palm_target_quaternion_wxyz == pytest.approx(
+        [0.9238795325, 0.0, 0.0, 0.3826834324]
+    )
+    assert output.log["desired_tcp_pose_raw"]["quaternion_wxyz"] == pytest.approx(
+        [0.9238795325, 0.0, 0.0, 0.3826834324]
+    )
+
+
+def test_axis_mapped_relative_orientation_uses_phone_to_robot_axis_map() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="axis_mapped_relative",
+            orientation_scale=1.0,
+            phone_to_robot_axis_map={
+                "x": {"source": "y", "sign": 1.0, "scale": 1.0},
+                "y": {"source": "x", "sign": -1.0, "scale": 1.0},
+                "z": {"source": "z", "sign": 1.0, "scale": 1.0},
+            },
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(
+        _snapshot(
+            0.1,
+            [0.0, 0.0, 0.0],
+            quaternion_wxyz=[0.7071067812, 0.7071067812, 0.0, 0.0],
+        ),
+        _actual([0.0, 0.0, 0.0]),
+        q_current,
+    )
+
+    assert output.command_deadman is True
+    assert output.palm_target_quaternion_wxyz == pytest.approx(
+        [0.7071067812, 0.0, -0.7071067812, 0.0]
+    )
+
+
+def test_mounted_device_orientation_uses_phone_to_robot_world_axis_map() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="mounted_device",
+            orientation_scale=1.0,
+            phone_to_robot_axis_map={
+                "x": {"source": "y", "sign": 1.0, "scale": 1.0},
+                "y": {"source": "x", "sign": -1.0, "scale": 1.0},
+                "z": {"source": "z", "sign": 1.0, "scale": 1.0},
+            },
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(
+        _snapshot(
+            0.1,
+            [0.0, 0.0, 0.0],
+            quaternion_wxyz=[0.7071067812, 0.7071067812, 0.0, 0.0],
+        ),
+        _actual([0.0, 0.0, 0.0]),
+        q_current,
+    )
+
+    assert output.command_deadman is True
+    assert output.palm_target_quaternion_wxyz == pytest.approx(
+        [0.7071067812, 0.0, -0.7071067812, 0.0]
+    )
+
+
+def test_mounted_device_orientation_honors_world_to_phone_convention() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="mounted_device",
+            phone_quaternion_convention="world-to-phone",
+            orientation_scale=1.0,
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+    phone_to_world = [0.7071067812, 0.7071067812, 0.0, 0.0]
+    world_to_phone = quat_conjugate_wxyz(phone_to_world).astype(float).tolist()
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(
+        _snapshot(0.1, [0.0, 0.0, 0.0], quaternion_wxyz=world_to_phone),
+        _actual([0.0, 0.0, 0.0]),
+        q_current,
+    )
+
+    assert output.command_deadman is True
+    assert output.palm_target_quaternion_wxyz == pytest.approx(phone_to_world)
+
+
+def test_mounted_device_orientation_preserves_robot_phone_mount_offset() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="mounted_device",
+            orientation_scale=1.0,
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+    robot_anchor = [0.7071067812, 0.0, 0.0, 0.7071067812]
+
+    follower.step(
+        _snapshot(0.0, [0.0, 0.0, 0.0]),
+        _actual_pose([0.0, 0.0, 0.0], robot_anchor),
+        q_current,
+    )
+    output = follower.step(
+        _snapshot(
+            0.1,
+            [0.0, 0.0, 0.0],
+            quaternion_wxyz=[0.7071067812, 0.7071067812, 0.0, 0.0],
+        ),
+        _actual_pose([0.0, 0.0, 0.0], robot_anchor),
+        q_current,
+    )
+
+    assert output.command_deadman is True
+    assert rotate_vector_wxyz(output.palm_target_quaternion_wxyz, [0.0, 0.0, 1.0]) == pytest.approx(
+        [1.0, 0.0, 0.0]
+    )
+
+
+def test_phone_back_camera_orientation_maps_to_palm_normal() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="phone_back_camera",
+            phone_back_camera_axis=(0.0, 0.0, -1.0),
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(_snapshot(0.1, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert output.command_deadman is True
+    assert output.palm_target_quaternion_wxyz == pytest.approx(
+        [0.7071067812, -0.7071067812, 0.0, 0.0]
+    )
+    assert rotate_vector_wxyz(output.palm_target_quaternion_wxyz, [0.0, 1.0, 0.0]) == pytest.approx(
+        [0.0, 0.0, -1.0]
+    )
+
+
+def test_phone_back_camera_orientation_uses_configured_phone_axis() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            orientation_control_enabled=True,
+            orientation_mapping_mode="phone_back_camera",
+            phone_back_camera_axis=(0.0, 1.0, 0.0),
+            phone_jump_reject_rotation_rad=10.0,
+            max_rot_tracking_error_pause_rad=10.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(_snapshot(0.1, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert output.command_deadman is True
+    assert rotate_vector_wxyz(output.palm_target_quaternion_wxyz, [0.0, 1.0, 0.0]) == pytest.approx(
+        [0.0, 1.0, 0.0]
+    )

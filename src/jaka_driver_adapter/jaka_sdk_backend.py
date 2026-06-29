@@ -17,8 +17,8 @@ from .interfaces import JakaBackend
 class JakaSDKBackend(JakaBackend):
     """Adapter for the official JAKA Python SDK.
 
-    The callable names used here are grounded in the local SDK demo/docs found under:
-    `/home/w/projects/RoboTwin/机械臂资料/机械臂/SDK V2.2.7/`.
+    The callable names used here are grounded in the local SDK copied under:
+    `third_party/jaka_sdk/v2.2.7/`.
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -144,22 +144,37 @@ class JakaSDKBackend(JakaBackend):
     def _load_sdk_module(self) -> ModuleType:
         module_name = self.config.get("sdk", {}).get("python_module", "jkrc")
         search_paths = self.config.get("sdk", {}).get("python_search_paths", [])
+        failures: list[str] = []
         for candidate in search_paths:
-            if candidate and candidate not in sys.path:
-                sys.path.insert(0, candidate)
-            self._preload_sdk_dependencies(candidate)
+            sdk_dir = Path(candidate).expanduser().resolve() if candidate else None
+            sdk_path = str(sdk_dir) if sdk_dir is not None else ""
+            if sdk_dir is not None and not sdk_dir.exists():
+                failures.append(f"{candidate}: path does not exist")
+                continue
+            try:
+                self._preload_sdk_dependencies(sdk_path)
+                if sdk_path and sdk_path not in sys.path:
+                    sys.path.insert(0, sdk_path)
+                return importlib.import_module(module_name)
+            except Exception as exc:
+                failures.append(f"{candidate}: {exc}")
+                if sdk_path in sys.path:
+                    sys.path.remove(sdk_path)
+                continue
         try:
             return importlib.import_module(module_name)
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to import official JAKA Python SDK module {module_name!r}. "
-                "Check configs/robot/jaka_mini2.yaml sdk.python_search_paths."
-            ) from exc
+            failures.append(f"default sys.path: {exc}")
+        details = "; ".join(failures) if failures else "no sdk.python_search_paths configured"
+        raise RuntimeError(
+            f"Failed to import official JAKA Python SDK module {module_name!r}. "
+            f"Checked configs/robot/jaka_mini2.yaml sdk.python_search_paths: {details}"
+        )
 
     def _preload_sdk_dependencies(self, candidate: str) -> None:
         if not candidate:
             return
-        sdk_dir = Path(candidate)
+        sdk_dir = Path(candidate).expanduser().resolve()
         lib_path = sdk_dir / "libjakaAPI.so"
         if not lib_path.exists():
             return

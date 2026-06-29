@@ -16,7 +16,7 @@
 ## 快速环境
 
 ```bash
-cd /home/w/projects/embodied_lab
+cd /home/thor/projects/embodied_lab
 /usr/bin/python3.10 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"

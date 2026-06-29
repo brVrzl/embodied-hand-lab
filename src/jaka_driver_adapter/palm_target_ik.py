@@ -18,6 +18,7 @@ JAKA_MINI2_JOINT_LIMITS_RAD = [
     (-2.0 * np.pi, 2.0 * np.pi),
 ]
 DEFAULT_JOINT_LIMIT_MARGIN_RAD = float(np.deg2rad(5.0))
+IDENTITY_QUAT_WXYZ = np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 
 
 def safe_joint_limits_rad(
@@ -57,6 +58,49 @@ def joint_limit_margin_blockers(
     return blockers
 
 
+def _unit_quat_wxyz(values: list[float] | np.ndarray) -> np.ndarray:
+    quat = np.asarray(values, dtype=np.float64)
+    if quat.shape != (4,):
+        raise ValueError("quaternion must contain 4 values in wxyz order.")
+    norm = float(np.linalg.norm(quat))
+    if norm <= 1e-9:
+        return IDENTITY_QUAT_WXYZ.copy()
+    return quat / norm
+
+
+def _quat_conjugate_wxyz(quat: list[float] | np.ndarray) -> np.ndarray:
+    q = _unit_quat_wxyz(quat)
+    return np.asarray([q[0], -q[1], -q[2], -q[3]], dtype=np.float64)
+
+
+def _quat_multiply_wxyz(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> np.ndarray:
+    aw, ax, ay, az = _unit_quat_wxyz(a)
+    bw, bx, by, bz = _unit_quat_wxyz(b)
+    return _unit_quat_wxyz(
+        np.asarray(
+            [
+                aw * bw - ax * bx - ay * by - az * bz,
+                aw * bx + ax * bw + ay * bz - az * by,
+                aw * by - ax * bz + ay * bw + az * bx,
+                aw * bz + ax * by - ay * bx + az * bw,
+            ],
+            dtype=np.float64,
+        )
+    )
+
+
+def _quat_to_rotvec_wxyz(quat: list[float] | np.ndarray) -> np.ndarray:
+    q = _unit_quat_wxyz(quat)
+    vector = q[1:]
+    sin_half = float(np.linalg.norm(vector))
+    if sin_half <= 1e-9:
+        return np.zeros(3, dtype=np.float64)
+    angle = 2.0 * np.arctan2(sin_half, float(q[0]))
+    if angle > np.pi:
+        angle -= 2.0 * np.pi
+    return vector / sin_half * angle
+
+
 class PalmTargetIkState:
     """Track a bounded palm position target with damped least-squares IK."""
 
@@ -71,6 +115,7 @@ class PalmTargetIkState:
         ik_iterations: int = 4,
         target_workspace_radius_m: float = 0.0,
         joint_limit_margin_rad: float = DEFAULT_JOINT_LIMIT_MARGIN_RAD,
+        orientation_ik_weight: float = 0.35,
     ) -> None:
         if len(initial_arm_joints_rad) != 6:
             raise ValueError("initial_arm_joints_rad must contain 6 values.")
@@ -82,6 +127,7 @@ class PalmTargetIkState:
         self.ik_iterations = max(1, int(ik_iterations))
         self.target_workspace_radius_m = abs(float(target_workspace_radius_m))
         self.joint_limit_margin_rad = abs(float(joint_limit_margin_rad))
+        self.orientation_ik_weight = max(0.0, float(orientation_ik_weight))
 
         self.arm_joint_ids = np.asarray(
             [
@@ -97,6 +143,7 @@ class PalmTargetIkState:
         self.arm_joints_rad = np.asarray(initial_arm_joints_rad, dtype=np.float64)
         self.initial_palm_position_m = np.zeros(3, dtype=np.float64)
         self.target_palm_position_m = np.zeros(3, dtype=np.float64)
+        self.target_palm_quaternion_wxyz: np.ndarray | None = None
         self.target_workspace_limited = False
         self.joint_limit_limited = False
         self.limited_joint_indices_1_based: list[int] = []
@@ -110,6 +157,22 @@ class PalmTargetIkState:
     def target_error_m(self) -> float:
         return float(np.linalg.norm(self.target_palm_position_m - self.current_palm_position_m))
 
+    @property
+    def current_palm_quaternion_wxyz(self) -> np.ndarray:
+        quat = np.zeros(4, dtype=np.float64)
+        mujoco.mju_mat2Quat(quat, self.data.xmat[self.palm_body_id])
+        return _unit_quat_wxyz(quat)
+
+    @property
+    def target_rotation_error_rad(self) -> float | None:
+        if self.target_palm_quaternion_wxyz is None:
+            return None
+        delta = _quat_multiply_wxyz(
+            self.target_palm_quaternion_wxyz,
+            _quat_conjugate_wxyz(self.current_palm_quaternion_wxyz),
+        )
+        return float(np.linalg.norm(_quat_to_rotvec_wxyz(delta)))
+
     def apply(
         self,
         *,
@@ -121,6 +184,7 @@ class PalmTargetIkState:
             raise ValueError("palm_velocity_m_s must contain 3 values.")
         dt = max(0.0, min(float(dt), 0.1))
         self.target_palm_position_m += np.asarray(palm_velocity_m_s, dtype=np.float64) * dt
+        self.target_palm_quaternion_wxyz = None
         self._clip_target_workspace()
         self.arm_joints_rad[5] += float(wrist_roll_velocity_rad_s) * dt
         self._clip_arm_joints()
@@ -147,6 +211,7 @@ class PalmTargetIkState:
         if max_target_offset_m > 0.0 and offset_norm > max_target_offset_m:
             offset *= max_target_offset_m / offset_norm
         self.target_palm_position_m = self.current_palm_position_m + offset
+        self.target_palm_quaternion_wxyz = None
         self._clip_target_workspace()
         self.arm_joints_rad[5] += float(wrist_roll_velocity_rad_s) * dt
         self._clip_arm_joints()
@@ -158,6 +223,7 @@ class PalmTargetIkState:
         self,
         *,
         palm_target_position_m: list[float],
+        palm_target_quaternion_wxyz: list[float] | None = None,
         wrist_roll_velocity_rad_s: float,
         dt: float,
     ) -> None:
@@ -165,6 +231,11 @@ class PalmTargetIkState:
             raise ValueError("palm_target_position_m must contain 3 values.")
         dt = max(0.0, min(float(dt), 0.1))
         self.target_palm_position_m = np.asarray(palm_target_position_m, dtype=np.float64)
+        self.target_palm_quaternion_wxyz = (
+            None
+            if palm_target_quaternion_wxyz is None
+            else _unit_quat_wxyz(palm_target_quaternion_wxyz)
+        )
         self._clip_target_workspace()
         self.arm_joints_rad[5] += float(wrist_roll_velocity_rad_s) * dt
         self._clip_arm_joints()
@@ -174,6 +245,7 @@ class PalmTargetIkState:
 
     def hold_current_target(self) -> None:
         self.target_palm_position_m = self.current_palm_position_m.copy()
+        self.target_palm_quaternion_wxyz = self.current_palm_quaternion_wxyz.copy()
         self.target_workspace_limited = False
 
     def set_arm_joints_rad(self, joints: list[float]) -> None:
@@ -187,6 +259,7 @@ class PalmTargetIkState:
         self.set_arm_joints_rad(joints)
         self.initial_palm_position_m = self.current_palm_position_m.copy()
         self.target_palm_position_m = self.current_palm_position_m.copy()
+        self.target_palm_quaternion_wxyz = None
         self.target_workspace_limited = False
 
     def _required_id(self, object_type: mujoco.mjtObj, name: str) -> int:
@@ -220,14 +293,34 @@ class PalmTargetIkState:
 
     def _solve_position_ik(self) -> None:
         self._forward()
-        error = self.target_palm_position_m - self.current_palm_position_m
-        if np.linalg.norm(error) < 1e-5:
+        pos_error = self.target_palm_position_m - self.current_palm_position_m
+        if self.target_palm_quaternion_wxyz is None or self.orientation_ik_weight <= 0.0:
+            error = pos_error
+            if np.linalg.norm(error) < 1e-5:
+                return
+            jacp = np.zeros((3, self.model.nv), dtype=np.float64)
+            jacr = np.zeros((3, self.model.nv), dtype=np.float64)
+            mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.palm_body_id)
+            arm_jacobian = jacp[:, self.arm_dof_ids]
+            lhs = arm_jacobian @ arm_jacobian.T + (self.ik_damping**2) * np.eye(3)
+            delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
+            self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
+            self._clip_arm_joints()
             return
         jacp = np.zeros((3, self.model.nv), dtype=np.float64)
         jacr = np.zeros((3, self.model.nv), dtype=np.float64)
         mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.palm_body_id)
-        arm_jacobian = jacp[:, self.arm_dof_ids]
-        lhs = arm_jacobian @ arm_jacobian.T + (self.ik_damping**2) * np.eye(3)
+        rot_delta = _quat_multiply_wxyz(
+            self.target_palm_quaternion_wxyz,
+            _quat_conjugate_wxyz(self.current_palm_quaternion_wxyz),
+        )
+        rot_error = _quat_to_rotvec_wxyz(rot_delta)
+        weight = self.orientation_ik_weight
+        error = np.concatenate([pos_error, weight * rot_error])
+        if np.linalg.norm(error) < 1e-5:
+            return
+        arm_jacobian = np.vstack([jacp[:, self.arm_dof_ids], weight * jacr[:, self.arm_dof_ids]])
+        lhs = arm_jacobian @ arm_jacobian.T + (self.ik_damping**2) * np.eye(6)
         delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
         self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
         self._clip_arm_joints()

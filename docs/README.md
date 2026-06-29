@@ -8,6 +8,8 @@
 - [Jetson AGX Thor 集成准备清单](jetson_agx_thor_integration_plan_20260611.md)
 - [teleop_tools README](../src/teleop_tools/README.md)
 - [真实数据采集协议](../real_robot_data_collection_protocol.md)
+- [LeRobot 数据对齐与工作空间标定](lerobot_data_and_workspace_calibration.md)
+- [网球抓取数字孪生计划](tennis_ball_digital_twin_plan.md)
 
 ## 当前工程边界
 

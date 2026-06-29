@@ -2,26 +2,26 @@
   <compiler angle="radian" />
   <option timestep="0.002" gravity="0 0 -9.81" />
   <asset>
-    <mesh name="jaka_Link0" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link0.STL" />
-    <mesh name="jaka_Link1" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link1.STL" />
-    <mesh name="jaka_Link2" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link2.STL" />
-    <mesh name="jaka_Link3" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link3.STL" />
-    <mesh name="jaka_Link4" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link4.STL" />
-    <mesh name="jaka_Link5" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link5.STL" />
-    <mesh name="jaka_Link6" file="/home/w/projects/RoboTwin/robot_sim/assets/jaka_minicobo/meshes/jaka_minicobo_meshes/Link6.STL" />
-    <mesh name="rh56_R_hand_base_link" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_hand_base_link.STL" />
-    <mesh name="rh56_R_index_distal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_index_distal.STL" />
-    <mesh name="rh56_R_index_proximal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_index_proximal.STL" />
-    <mesh name="rh56_R_middle_distal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_middle_distal.STL" />
-    <mesh name="rh56_R_middle_proximal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_middle_proximal.STL" />
-    <mesh name="rh56_R_pinky_distal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_pinky_distal.STL" />
-    <mesh name="rh56_R_pinky_proximal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_pinky_proximal.STL" />
-    <mesh name="rh56_R_ring_distal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_ring_distal.STL" />
-    <mesh name="rh56_R_ring_proximal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_ring_proximal.STL" />
-    <mesh name="rh56_R_thumb_distal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_thumb_distal.STL" />
-    <mesh name="rh56_R_thumb_intermediate" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_thumb_intermediate.STL" />
-    <mesh name="rh56_R_thumb_proximal" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_thumb_proximal.STL" />
-    <mesh name="rh56_R_thumb_proximal_base" file="/home/w/projects/RoboTwin/robot_sim/assets/rh56/meshes/R_thumb_proximal_base.STL" />
+    <mesh name="jaka_Link0" file="meshes/jaka_minicobo_meshes/Link0.STL" />
+    <mesh name="jaka_Link1" file="meshes/jaka_minicobo_meshes/Link1.STL" />
+    <mesh name="jaka_Link2" file="meshes/jaka_minicobo_meshes/Link2.STL" />
+    <mesh name="jaka_Link3" file="meshes/jaka_minicobo_meshes/Link3.STL" />
+    <mesh name="jaka_Link4" file="meshes/jaka_minicobo_meshes/Link4.STL" />
+    <mesh name="jaka_Link5" file="meshes/jaka_minicobo_meshes/Link5.STL" />
+    <mesh name="jaka_Link6" file="meshes/jaka_minicobo_meshes/Link6.STL" />
+    <mesh name="rh56_R_hand_base_link" file="meshes/rh56/R_hand_base_link.STL" />
+    <mesh name="rh56_R_index_distal" file="meshes/rh56/R_index_distal.STL" />
+    <mesh name="rh56_R_index_proximal" file="meshes/rh56/R_index_proximal.STL" />
+    <mesh name="rh56_R_middle_distal" file="meshes/rh56/R_middle_distal.STL" />
+    <mesh name="rh56_R_middle_proximal" file="meshes/rh56/R_middle_proximal.STL" />
+    <mesh name="rh56_R_pinky_distal" file="meshes/rh56/R_pinky_distal.STL" />
+    <mesh name="rh56_R_pinky_proximal" file="meshes/rh56/R_pinky_proximal.STL" />
+    <mesh name="rh56_R_ring_distal" file="meshes/rh56/R_ring_distal.STL" />
+    <mesh name="rh56_R_ring_proximal" file="meshes/rh56/R_ring_proximal.STL" />
+    <mesh name="rh56_R_thumb_distal" file="meshes/rh56/R_thumb_distal.STL" />
+    <mesh name="rh56_R_thumb_intermediate" file="meshes/rh56/R_thumb_intermediate.STL" />
+    <mesh name="rh56_R_thumb_proximal" file="meshes/rh56/R_thumb_proximal.STL" />
+    <mesh name="rh56_R_thumb_proximal_base" file="meshes/rh56/R_thumb_proximal_base.STL" />
   </asset>
   <worldbody>
     <light pos="0 0 1.5" />

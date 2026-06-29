@@ -77,6 +77,16 @@ def _relative_config_from_config(config: dict[str, Any]) -> RelativePoseLagFollo
         reanchor_requires_deadman_release=bool(
             relative_cfg.get("reanchor_requires_deadman_release", False)
         ),
+        orientation_control_enabled=bool(relative_cfg.get("orientation_control_enabled", False)),
+        orientation_mapping_mode=str(relative_cfg.get("orientation_mapping_mode", "relative")),
+        phone_back_camera_axis=tuple(
+            float(v) for v in relative_cfg.get("phone_back_camera_axis", [0.0, 0.0, -1.0])
+        ),
+        phone_quaternion_convention=str(
+            relative_cfg.get("phone_quaternion_convention", "body-to-world")
+        ),
+        orientation_scale=float(relative_cfg.get("orientation_scale", 1.0)),
+        phone_to_robot_orientation_axis_map=direction_cfg.get("phone_to_robot_orientation"),
         phone_to_robot_axis_map=direction_cfg.get("phone_to_robot"),
     )
 
@@ -84,7 +94,7 @@ def _relative_config_from_config(config: dict[str, Any]) -> RelativePoseLagFollo
 def _actual_palm_pose_from_state(state: PalmTargetIkState) -> TcpPose:
     return TcpPose(
         state.current_palm_position_m.astype(float).tolist(),
-        list(IDENTITY_QUAT_WXYZ),
+        state.current_palm_quaternion_wxyz.astype(float).tolist(),
     )
 
 
@@ -92,15 +102,22 @@ def _make_shadow_ik_checker(ik_state: PalmTargetIkState):
     def _check_relative_target_ik(pose: TcpPose, q_current: list[float]) -> IkCheckResult:
         previous_joints = ik_state.arm_joints_rad.copy()
         previous_target = ik_state.target_palm_position_m.copy()
+        previous_target_quat = (
+            None
+            if ik_state.target_palm_quaternion_wxyz is None
+            else ik_state.target_palm_quaternion_wxyz.copy()
+        )
         ik_state.set_arm_joints_rad(q_current)
         ik_state.apply_position_target(
             palm_target_position_m=pose.position_m,
+            palm_target_quaternion_wxyz=pose.quaternion_wxyz,
             wrist_roll_velocity_rad_s=0.0,
             dt=0.0,
         )
         q_cmd = ik_state.arm_joints_rad.tolist()
         ik_state.set_arm_joints_rad(previous_joints.tolist())
         ik_state.target_palm_position_m = previous_target
+        ik_state.target_palm_quaternion_wxyz = previous_target_quat
         if not all(math.isfinite(value) for value in q_cmd):
             return IkCheckResult(False, None, True, "ik_nonfinite_q")
         return IkCheckResult(True, [float(value) for value in q_cmd])
@@ -122,7 +139,7 @@ def run_hebi_rviz_shadow_node(
         from std_msgs.msg import String
         from visualization_msgs.msg import Marker
     except Exception as exc:
-        raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble first.") from exc
+        raise RuntimeError("ROS2 Python packages are required. Source ROS2 first, e.g. scripts/source_ros2.sh.") from exc
 
     config = load_yaml(config_path)
     hebi_cfg = config.get("hebi", {})

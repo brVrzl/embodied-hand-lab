@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
+import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -132,13 +134,17 @@ def _add_debug_world(root: ET.Element, scenario: str, cube_pos: list[float]) -> 
 
 
 def build_debug_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str, collision_mode: str) -> dict[str, Any]:
-    base_xml = Path(base_xml)
+    base_xml = Path(base_xml).resolve()
     out_xml = Path(out_xml)
     out_xml.parent.mkdir(parents=True, exist_ok=True)
     positions = _pregrasp_positions(base_xml)
     cube_pos = positions["cube_in_hand_pos"] if scenario == "cube_in_hand" else positions["table_cube_pos"]
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    compiler = root.find("compiler")
+    if compiler is None:
+        compiler = ET.SubElement(root, "compiler")
+    compiler.set("meshdir", str(base_xml.parent))
     _configure_collision_model(root, collision_mode=collision_mode, include_calibration_markers=False)
     _add_debug_world(root, scenario=scenario, cube_pos=cube_pos)
     tree.write(out_xml, encoding="utf-8", xml_declaration=False)
@@ -242,21 +248,27 @@ def run_debug(
     step_count = 0
     if viewer:
         mujoco_viewer = importlib.import_module("mujoco.viewer")
+        handle = mujoco_viewer.launch_passive(model, data)
+        handle.cam.azimuth = -120
+        handle.cam.elevation = -20
+        handle.cam.distance = 0.55
+        handle.cam.lookat[:] = [-0.52, -0.08, 0.18]
+        wall_start = time.time()
+        duration_limited = duration > 0.0
+        while handle.is_running() and (not duration_limited or data.time < duration):
+            _step_control(model, data, elapsed=data.time, cycle_period=cycle_period)
+            mujoco.mj_step(model, data)
+            if data.time - last_print >= 0.5:
+                _print_status(model, data, data.time)
+                last_print = data.time
+            handle.sync()
+            time.sleep(max(0.0, model.opt.timestep - (time.time() - wall_start - data.time)))
 
-        with mujoco_viewer.launch_passive(model, data) as handle:
-            handle.cam.azimuth = -120
-            handle.cam.elevation = -20
-            handle.cam.distance = 0.55
-            handle.cam.lookat[:] = [-0.52, -0.08, 0.18]
-            wall_start = time.time()
-            while handle.is_running() and data.time < duration:
-                _step_control(model, data, elapsed=data.time, cycle_period=cycle_period)
-                mujoco.mj_step(model, data)
-                if data.time - last_print >= 0.5:
-                    _print_status(model, data, data.time)
-                    last_print = data.time
-                handle.sync()
-                time.sleep(max(0.0, model.opt.timestep - (time.time() - wall_start - data.time)))
+        # On Thor's VNC llvmpipe stack, MuJoCo/GLFW can crash during native viewer teardown.
+        # The interactive viewer has no Python cleanup to preserve, so exit before finalizers run.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(0)
     else:
         while data.time < duration:
             _step_control(model, data, elapsed=data.time, cycle_period=cycle_period)

@@ -34,6 +34,13 @@ JAKA_RH56_CUBE_SPAWN_CENTER = (-0.10, 0.0)
 JAKA_RH56_MAX_GOAL_HEIGHT = 0.15
 JAKA_RH56_LIFT_SUCCESS_HEIGHT = 0.075
 JAKA_RH56_LIFT_STATIC_QVEL = 0.35
+JAKA_RH56_TENNIS_BALL_RADIUS = 0.0335
+JAKA_RH56_TENNIS_BALL_MASS_KG = 0.058
+JAKA_RH56_TENNIS_BALL_SPAWN_HALF_SIZE = 0.04
+JAKA_RH56_TENNIS_BALL_SPAWN_CENTER = (-0.12, 0.0)
+JAKA_RH56_TENNIS_BALL_GOAL_XY = (-0.02, 0.16)
+JAKA_RH56_TENNIS_BALL_GOAL_THRESH = 0.055
+JAKA_RH56_TENNIS_BALL_PLACE_STATIC_QVEL = 0.35
 JAKA_RH56_CAMERA_TARGET = [-0.12, 0.0, 0.05]
 JAKA_RH56_SENSOR_CAM_EYE_POS = [0.24, -0.16, 0.78]
 JAKA_RH56_SENSOR_CAM_TARGET_POS = JAKA_RH56_CAMERA_TARGET
@@ -80,7 +87,11 @@ class PickCubeJakaRH56Env(PickCubeEnv):
         robot_init_qpos_noise: float = 0.0,
         start_pose: str = "zero",
         sensor_camera_preset: str = "default",
+        sensor_camera_eye_pos: list[float] | tuple[float, float, float] | None = None,
+        sensor_camera_target_pos: list[float] | tuple[float, float, float] | None = None,
         sensor_camera_fov: float | None = None,
+        human_camera_eye_pos: list[float] | tuple[float, float, float] | None = None,
+        human_camera_target_pos: list[float] | tuple[float, float, float] | None = None,
         **kwargs,
     ) -> None:
         if start_pose not in {"zero", "pregrasp"}:
@@ -103,8 +114,20 @@ class PickCubeJakaRH56Env(PickCubeEnv):
             self.sensor_cam_eye_pos = JAKA_RH56_SENSOR_CAM_EYE_POS
             self.sensor_cam_target_pos = JAKA_RH56_SENSOR_CAM_TARGET_POS
             self.sensor_camera_fov = float(sensor_camera_fov) if sensor_camera_fov is not None else np.pi / 2
-        self.human_cam_eye_pos = JAKA_RH56_HUMAN_CAM_EYE_POS
-        self.human_cam_target_pos = JAKA_RH56_HUMAN_CAM_TARGET_POS
+        if sensor_camera_eye_pos is not None:
+            self.sensor_cam_eye_pos = [float(value) for value in sensor_camera_eye_pos]
+        if sensor_camera_target_pos is not None:
+            self.sensor_cam_target_pos = [float(value) for value in sensor_camera_target_pos]
+        self.human_cam_eye_pos = (
+            [float(value) for value in human_camera_eye_pos]
+            if human_camera_eye_pos is not None
+            else JAKA_RH56_HUMAN_CAM_EYE_POS
+        )
+        self.human_cam_target_pos = (
+            [float(value) for value in human_camera_target_pos]
+            if human_camera_target_pos is not None
+            else JAKA_RH56_HUMAN_CAM_TARGET_POS
+        )
         BaseEnv.__init__(self, *args, robot_uids=robot_uids, **kwargs)
 
     @property
@@ -304,3 +327,198 @@ class LiftCubeJakaRH56Env(PickCubeJakaRH56Env):
         reward += info["is_robot_static"].float() * info["is_lifted"].float()
         reward[info["success"]] = 5.0
         return reward
+
+
+@register_env("TennisBallPlaceJakaRH56-v1", max_episode_steps=120)
+class TennisBallPlaceJakaRH56Env(PickCubeJakaRH56Env):
+    """Digital-twin task for grasping a tennis ball and placing it at a fixed target.
+
+    The scene uses the same table, camera convention, and JAKA+RH56 agent as the
+    cube tasks, but replaces the cube with a tennis-ball-sized sphere and fixes
+    the placement target on the tabletop. Keep this task as a geometry/action
+    pipeline twin first; real success still has to be measured by replay.
+    """
+
+    cube_spawn_half_size = JAKA_RH56_TENNIS_BALL_SPAWN_HALF_SIZE
+    cube_spawn_center = JAKA_RH56_TENNIS_BALL_SPAWN_CENTER
+    goal_thresh = JAKA_RH56_TENNIS_BALL_GOAL_THRESH
+    place_static_qvel = JAKA_RH56_TENNIS_BALL_PLACE_STATIC_QVEL
+
+    def __init__(
+        self,
+        *args,
+        goal_xy: tuple[float, float] | None = None,
+        ball_spawn_center_xy: tuple[float, float] | list[float] | None = None,
+        ball_spawn_half_size: float | None = None,
+        **kwargs,
+    ) -> None:
+        self.goal_xy = goal_xy or JAKA_RH56_TENNIS_BALL_GOAL_XY
+        super().__init__(*args, **kwargs)
+        self.cube_half_size = JAKA_RH56_TENNIS_BALL_RADIUS
+        self.goal_thresh = JAKA_RH56_TENNIS_BALL_GOAL_THRESH
+        self.cube_spawn_half_size = (
+            float(ball_spawn_half_size) if ball_spawn_half_size is not None else JAKA_RH56_TENNIS_BALL_SPAWN_HALF_SIZE
+        )
+        self.cube_spawn_center = (
+            (float(ball_spawn_center_xy[0]), float(ball_spawn_center_xy[1]))
+            if ball_spawn_center_xy is not None
+            else JAKA_RH56_TENNIS_BALL_SPAWN_CENTER
+        )
+
+    def _load_scene(self, options: dict):
+        builder = self.scene.create_actor_builder()
+        builder.add_box_collision(
+            pose=sapien.Pose(p=[0, 0, -JAKA_RH56_TABLE_THICKNESS / 2]),
+            half_size=[
+                JAKA_RH56_TABLE_LENGTH / 2,
+                JAKA_RH56_TABLE_WIDTH / 2,
+                JAKA_RH56_TABLE_THICKNESS / 2,
+            ],
+        )
+        builder.add_box_visual(
+            pose=sapien.Pose(p=[0, 0, -JAKA_RH56_TABLE_THICKNESS / 2]),
+            half_size=[
+                JAKA_RH56_TABLE_LENGTH / 2,
+                JAKA_RH56_TABLE_WIDTH / 2,
+                JAKA_RH56_TABLE_THICKNESS / 2,
+            ],
+            material=sapien.render.RenderMaterial(base_color=[0.82, 0.76, 0.67, 1.0]),
+        )
+        builder.initial_pose = sapien.Pose(p=[JAKA_RH56_TABLE_CENTER[0], JAKA_RH56_TABLE_CENTER[1], 0.0])
+        self.table = builder.build_kinematic(name="jaka-rh56-worktable")
+        self.ground = build_ground(self.scene, floor_width=5, altitude=-0.75)
+        self.scene_objects = [self.table, self.ground]
+
+        self.cube = actors.build_sphere(
+            self.scene,
+            radius=JAKA_RH56_TENNIS_BALL_RADIUS,
+            color=[0.78, 0.92, 0.18, 1.0],
+            name="tennis_ball",
+            initial_pose=sapien.Pose(p=[0, 0, JAKA_RH56_TENNIS_BALL_RADIUS]),
+        )
+        self.goal_site = actors.build_sphere(
+            self.scene,
+            radius=self.goal_thresh,
+            color=[0.0, 0.45, 1.0, 0.55],
+            name="tennis_ball_goal_site",
+            body_type="kinematic",
+            add_collision=False,
+            initial_pose=sapien.Pose(),
+        )
+        self._hidden_objects.append(self.goal_site)
+
+    def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
+        with torch.device(self.device):
+            b = len(env_idx)
+            self.table.set_pose(sapien.Pose(p=[JAKA_RH56_TABLE_CENTER[0], JAKA_RH56_TABLE_CENTER[1], 0.0]))
+            self._initialize_agent_pose(env_idx)
+
+            xyz = torch.zeros((b, 3))
+            xyz[:, :2] = (
+                torch.rand((b, 2), device=self.device) * self.cube_spawn_half_size * 2
+                - self.cube_spawn_half_size
+            )
+            xyz[:, 0] += self.cube_spawn_center[0]
+            xyz[:, 1] += self.cube_spawn_center[1]
+            xyz[:, 2] = JAKA_RH56_TENNIS_BALL_RADIUS
+            qs = torch.from_numpy(np.tile(np.asarray([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32), (b, 1))).to(
+                self.device
+            )
+            self.cube.set_pose(Pose.create_from_pq(xyz, qs))
+
+            goal_xyz = torch.zeros((b, 3))
+            goal_xyz[:, 0] = float(self.goal_xy[0])
+            goal_xyz[:, 1] = float(self.goal_xy[1])
+            goal_xyz[:, 2] = JAKA_RH56_TENNIS_BALL_RADIUS
+            self.goal_site.set_pose(Pose.create_from_pq(goal_xyz))
+
+    def evaluate(self):
+        ball_xy = self.cube.pose.p[:, :2]
+        goal_xy = self.goal_site.pose.p[:, :2]
+        xy_dist = torch.linalg.norm(ball_xy - goal_xy, axis=1)
+        object_height = self.cube.pose.p[:, 2]
+        near_goal = xy_dist <= self.goal_thresh
+        on_table = object_height <= JAKA_RH56_TENNIS_BALL_RADIUS + 0.025
+        is_robot_static = self.agent.is_static(self.place_static_qvel)
+        return {
+            "success": near_goal & on_table & is_robot_static,
+            "near_goal": near_goal,
+            "on_table": on_table,
+            "is_robot_static": is_robot_static,
+            "object_height": object_height,
+            "goal_xy_dist": xy_dist,
+            "goal_thresh": torch.full_like(xy_dist, float(self.goal_thresh)),
+        }
+
+    def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: dict):
+        tcp_to_obj_dist = torch.linalg.norm(self.cube.pose.p - self.agent.tcp_pose.p, axis=1)
+        reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
+        place_reward = 1 - torch.tanh(8 * info["goal_xy_dist"])
+        lifted_bonus = (self.cube.pose.p[:, 2] > JAKA_RH56_TENNIS_BALL_RADIUS + 0.04).float()
+        reward = reaching_reward + place_reward + lifted_bonus
+        reward[info["success"]] = 6.0
+        return reward
+
+    def get_scene_summary(self) -> dict[str, Any]:
+        summary = super().get_scene_summary()
+        summary["task_object"] = {
+            "type": "tennis_ball",
+            "radius_m": JAKA_RH56_TENNIS_BALL_RADIUS,
+            "mass_kg_nominal": JAKA_RH56_TENNIS_BALL_MASS_KG,
+            "spawn_center_xy_m": list(self.cube_spawn_center),
+            "spawn_half_size_m": float(self.cube_spawn_half_size),
+        }
+        summary["placement_target"] = {
+            "type": "fixed_tabletop_goal",
+            "goal_xy_m": [float(self.goal_xy[0]), float(self.goal_xy[1])],
+            "goal_radius_m": float(self.goal_thresh),
+        }
+        summary["digital_twin_notes"] = [
+            "Measure the real table edges, robot base offset, camera extrinsics, and tennis ball diameter before replay claims.",
+            "Treat simulated RH56 contact as a candidate generator; validate grasp and placement on the real robot.",
+        ]
+        return summary
+
+
+@register_env("TennisBallLiftJakaRH56-v1", max_episode_steps=100)
+class TennisBallLiftJakaRH56Env(TennisBallPlaceJakaRH56Env):
+    """First real-workspace twin task: grasp a tennis ball and lift it."""
+
+    lift_success_height = JAKA_RH56_TENNIS_BALL_RADIUS + 0.08
+    lift_static_qvel = JAKA_RH56_LIFT_STATIC_QVEL
+
+    def evaluate(self):
+        object_height = self.cube.pose.p[:, 2]
+        is_lifted = object_height >= self.lift_success_height
+        is_grasped = self.agent.is_grasping(self.cube)
+        is_robot_static = self.agent.is_static(self.lift_static_qvel)
+        return {
+            "success": is_lifted & is_grasped & is_robot_static,
+            "is_lifted": is_lifted,
+            "is_grasped": is_grasped,
+            "is_robot_static": is_robot_static,
+            "object_height": object_height,
+            "lift_success_height": torch.full_like(object_height, float(self.lift_success_height)),
+        }
+
+    def compute_dense_reward(self, obs: Any, action: torch.Tensor, info: dict):
+        tcp_to_obj_dist = torch.linalg.norm(self.cube.pose.p - self.agent.tcp_pose.p, axis=1)
+        reaching_reward = 1 - torch.tanh(5 * tcp_to_obj_dist)
+        lift_progress = torch.clamp(
+            (self.cube.pose.p[:, 2] - JAKA_RH56_TENNIS_BALL_RADIUS)
+            / max(self.lift_success_height - JAKA_RH56_TENNIS_BALL_RADIUS, 1e-6),
+            0.0,
+            1.0,
+        )
+        reward = reaching_reward + info["is_grasped"].float() + lift_progress
+        reward[info["success"]] = 5.0
+        return reward
+
+    def get_scene_summary(self) -> dict[str, Any]:
+        summary = super().get_scene_summary()
+        summary["task"] = {
+            "type": "grasp_lift",
+            "lift_success_height_m": float(self.lift_success_height),
+            "place_target_unused": True,
+        }
+        return summary

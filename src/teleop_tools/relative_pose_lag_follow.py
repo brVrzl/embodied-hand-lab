@@ -12,6 +12,7 @@ from teleop_tools.hebi_mobile_io import (
     quat_conjugate_wxyz,
     quat_multiply_wxyz,
     quat_to_rotvec_wxyz,
+    rotate_vector_wxyz,
 )
 
 
@@ -69,6 +70,13 @@ class RelativePoseLagFollowConfig:
     target_update_deadband_m: float = 0.0
     target_update_release_m: float = 0.0
     reanchor_requires_deadman_release: bool = False
+    orientation_control_enabled: bool = False
+    orientation_mapping_mode: str = "relative"
+    phone_back_camera_axis: tuple[float, float, float] = (0.0, 0.0, -1.0)
+    phone_quaternion_convention: str = "body-to-world"
+    orientation_scale: float = 1.0
+    orientation_anchor_quaternion_wxyz: tuple[float, float, float, float] | None = None
+    phone_to_robot_orientation_axis_map: dict[str, Any] | None = None
     phone_to_robot_axis_map: dict[str, Any] | None = None
 
 
@@ -84,6 +92,7 @@ class IkCheckResult:
 class RelativePoseLagFollowOutput:
     command_deadman: bool
     palm_target_position_m: list[float] | None
+    palm_target_quaternion_wxyz: list[float] | None
     wrist_roll_velocity_rad_s: float
     log: dict[str, Any]
 
@@ -139,6 +148,146 @@ def _quat_slerp_step(current: list[float], target: list[float], max_step_rad: fl
     return quat_multiply_wxyz(_rotvec_to_quat_wxyz(stepped_rotvec), current_q)
 
 
+def _quat_from_rotation_matrix_wxyz(matrix: np.ndarray) -> np.ndarray:
+    m = np.asarray(matrix, dtype=np.float64)
+    if m.shape != (3, 3):
+        raise ValueError("rotation matrix must be 3x3.")
+    trace = float(np.trace(m))
+    if trace > 0.0:
+        scale = math.sqrt(trace + 1.0) * 2.0
+        quat = np.asarray(
+            [
+                0.25 * scale,
+                (m[2, 1] - m[1, 2]) / scale,
+                (m[0, 2] - m[2, 0]) / scale,
+                (m[1, 0] - m[0, 1]) / scale,
+            ],
+            dtype=np.float64,
+        )
+    else:
+        diagonal = np.diag(m)
+        index = int(np.argmax(diagonal))
+        if index == 0:
+            scale = math.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
+            quat = np.asarray(
+                [
+                    (m[2, 1] - m[1, 2]) / scale,
+                    0.25 * scale,
+                    (m[0, 1] + m[1, 0]) / scale,
+                    (m[0, 2] + m[2, 0]) / scale,
+                ],
+                dtype=np.float64,
+            )
+        elif index == 1:
+            scale = math.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
+            quat = np.asarray(
+                [
+                    (m[0, 2] - m[2, 0]) / scale,
+                    (m[0, 1] + m[1, 0]) / scale,
+                    0.25 * scale,
+                    (m[1, 2] + m[2, 1]) / scale,
+                ],
+                dtype=np.float64,
+            )
+        else:
+            scale = math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
+            quat = np.asarray(
+                [
+                    (m[1, 0] - m[0, 1]) / scale,
+                    (m[0, 2] + m[2, 0]) / scale,
+                    (m[1, 2] + m[2, 1]) / scale,
+                    0.25 * scale,
+                ],
+                dtype=np.float64,
+            )
+    return _unit_quat(quat)
+
+
+def _quat_to_rotation_matrix_wxyz(quat: list[float] | np.ndarray) -> np.ndarray:
+    w, x, y, z = _unit_quat(quat)
+    return np.asarray(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _axis_mapping_matrix(mappings: tuple[Any, ...]) -> np.ndarray:
+    source_indices = {"x": 0, "y": 1, "z": 2}
+    output_indices = {"x": 0, "y": 1, "z": 2}
+    matrix = np.zeros((3, 3), dtype=np.float64)
+    for mapping in mappings:
+        output_index = output_indices.get(str(mapping.output))
+        source_index = source_indices.get(str(mapping.source))
+        if output_index is None or source_index is None:
+            raise ValueError(
+                "axis_mapped_relative orientation requires phone_to_robot sources "
+                "and outputs to be x/y/z."
+            )
+        matrix[output_index, source_index] = float(mapping.sign) * float(mapping.scale)
+    for row_index in range(3):
+        norm = float(np.linalg.norm(matrix[row_index]))
+        if norm <= 1e-9:
+            raise ValueError("axis_mapped_relative orientation has an empty mapped axis.")
+        matrix[row_index] /= norm
+    if abs(abs(float(np.linalg.det(matrix))) - 1.0) > 1e-6:
+        raise ValueError("axis_mapped_relative orientation requires an orthogonal axis map.")
+    return matrix
+
+
+def _map_quaternion_by_axis_map(
+    quat: list[float] | np.ndarray,
+    mappings: tuple[Any, ...],
+) -> np.ndarray:
+    transform = _axis_mapping_matrix(mappings)
+    mapped_rotation = transform @ _quat_to_rotation_matrix_wxyz(quat) @ transform.T
+    return _quat_from_rotation_matrix_wxyz(mapped_rotation)
+
+
+def _unit_vector(values: list[float] | np.ndarray) -> np.ndarray:
+    vector = np.asarray(values, dtype=np.float64)
+    norm = float(np.linalg.norm(vector))
+    if norm <= 1e-9:
+        raise ValueError("vector norm is too small.")
+    return vector / norm
+
+
+def _palm_quaternion_from_phone_back_camera(
+    phone_quaternion_wxyz: list[float],
+    phone_back_camera_axis: tuple[float, float, float],
+    *,
+    phone_quaternion_convention: str,
+) -> np.ndarray:
+    phone_to_world_quaternion = (
+        quat_conjugate_wxyz(phone_quaternion_wxyz)
+        if phone_quaternion_convention == "world-to-phone"
+        else phone_quaternion_wxyz
+    )
+    camera_direction_world = _unit_vector(
+        rotate_vector_wxyz(phone_to_world_quaternion, phone_back_camera_axis)
+    )
+    phone_up_world = _unit_vector(rotate_vector_wxyz(phone_to_world_quaternion, [0.0, 1.0, 0.0]))
+    palm_z_world = phone_up_world - camera_direction_world * float(
+        np.dot(phone_up_world, camera_direction_world)
+    )
+    if float(np.linalg.norm(palm_z_world)) <= 1e-6:
+        fallback = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
+        if abs(float(np.dot(fallback, camera_direction_world))) > 0.95:
+            fallback = np.asarray([1.0, 0.0, 0.0], dtype=np.float64)
+        palm_z_world = fallback - camera_direction_world * float(
+            np.dot(fallback, camera_direction_world)
+        )
+    palm_z_world = _unit_vector(palm_z_world)
+    palm_y_world = camera_direction_world
+    palm_x_world = _unit_vector(np.cross(palm_y_world, palm_z_world))
+    palm_z_world = _unit_vector(np.cross(palm_x_world, palm_y_world))
+    rotation = np.column_stack([palm_x_world, palm_y_world, palm_z_world])
+    return _quat_from_rotation_matrix_wxyz(rotation)
+
+
 def _warn_ratio(value: float, *, warn: float, pause: float) -> float:
     if pause <= warn:
         return 1.0 if value >= pause else 0.0
@@ -157,10 +306,28 @@ class RelativePoseLagFollower:
         self.config = config or RelativePoseLagFollowConfig()
         if self.config.target_response_mode not in {"lag_follow", "direct"}:
             raise ValueError("target_response_mode must be 'lag_follow' or 'direct'.")
+        if self.config.orientation_mapping_mode not in {
+            "relative",
+            "axis_mapped_relative",
+            "mounted_device",
+            "phone_back_camera",
+        }:
+            raise ValueError(
+                "orientation_mapping_mode must be 'relative', "
+                "'axis_mapped_relative', 'mounted_device', or 'phone_back_camera'."
+            )
+        if self.config.phone_quaternion_convention not in {"body-to-world", "world-to-phone"}:
+            raise ValueError(
+                "phone_quaternion_convention must be 'body-to-world' or 'world-to-phone'."
+            )
         self.ik_checker = ik_checker
         self.phone_to_robot_axis_map = parse_vector_axis_map(
             self.config.phone_to_robot_axis_map,
             default=DEFAULT_PHONE_TO_ROBOT_TRANSLATION_MAP,
+        )
+        self.phone_to_robot_orientation_axis_map = parse_vector_axis_map(
+            self.config.phone_to_robot_orientation_axis_map,
+            default=self.phone_to_robot_axis_map,
         )
         self.phone_anchor_pose: TcpPose | None = None
         self.robot_anchor_pose: TcpPose | None = None
@@ -203,7 +370,7 @@ class RelativePoseLagFollower:
             self.reset()
             self.waiting_for_deadman_release_after_reject = False
             log.update({"command_deadman": False, "reason": snapshot.reason})
-            return RelativePoseLagFollowOutput(False, None, 0.0, log)
+            return RelativePoseLagFollowOutput(False, None, None, 0.0, log)
         if self.waiting_for_deadman_release_after_reject:
             log.update(
                 {
@@ -212,7 +379,7 @@ class RelativePoseLagFollower:
                     "reanchor_requires_deadman_release": True,
                 }
             )
-            return RelativePoseLagFollowOutput(False, None, 0.0, log)
+            return RelativePoseLagFollowOutput(False, None, None, 0.0, log)
         if self.phone_anchor_pose is None or self.robot_anchor_pose is None:
             self._anchor(phone_pose, actual_tcp_pose)
         assert self.phone_anchor_pose is not None
@@ -238,12 +405,13 @@ class RelativePoseLagFollower:
                     "reanchor_requires_deadman_release": self.config.reanchor_requires_deadman_release,
                 }
             )
-            return RelativePoseLagFollowOutput(False, None, 0.0, log)
+            return RelativePoseLagFollowOutput(False, None, None, 0.0, log)
 
         phone_delta_pose = self._phone_delta(phone_pose)
         mapped_delta = self._map_phone_delta_to_robot(phone_delta_pose.position_m)
         desired_position = _as_position(self.robot_anchor_pose.position_m) + mapped_delta * self.config.position_scale
-        desired_raw = TcpPose(desired_position.astype(float).tolist(), self.robot_anchor_pose.quaternion_wxyz)
+        desired_quaternion = self._desired_robot_quaternion(phone_pose, phone_delta_pose)
+        desired_raw = TcpPose(desired_position.astype(float).tolist(), desired_quaternion.astype(float).tolist())
         raw_target_jump_rejected = self._raw_target_jump_rejected(desired_raw)
         if raw_target_jump_rejected:
             self.reset()
@@ -254,7 +422,7 @@ class RelativePoseLagFollower:
                     "desired_tcp_pose_raw": desired_raw.to_dict(),
                 }
             )
-            return RelativePoseLagFollowOutput(False, None, 0.0, log)
+            return RelativePoseLagFollowOutput(False, None, None, 0.0, log)
 
         desired_workspace_bounded = self._workspace_bounded_target(desired_raw)
         phone_still_now = self._phone_still(phone_step_translation_m, phone_step_rotation_rad)
@@ -337,13 +505,22 @@ class RelativePoseLagFollower:
         return RelativePoseLagFollowOutput(
             command_deadman=command_deadman,
             palm_target_position_m=desired_bounded.position_m if command_deadman else None,
+            palm_target_quaternion_wxyz=desired_bounded.quaternion_wxyz
+            if command_deadman and self.config.orientation_control_enabled
+            else None,
             wrist_roll_velocity_rad_s=0.0,
             log=log,
         )
 
     def _anchor(self, phone_pose: TcpPose, actual_tcp_pose: TcpPose) -> None:
         self.phone_anchor_pose = phone_pose
-        self.robot_anchor_pose = actual_tcp_pose
+        if self.config.orientation_anchor_quaternion_wxyz is not None:
+            self.robot_anchor_pose = TcpPose(
+                actual_tcp_pose.position_m,
+                list(self.config.orientation_anchor_quaternion_wxyz),
+            )
+        else:
+            self.robot_anchor_pose = actual_tcp_pose
         self.last_phone_pose = phone_pose
         self.last_target_pose = actual_tcp_pose
         self.last_raw_target_pose = actual_tcp_pose
@@ -393,12 +570,63 @@ class RelativePoseLagFollower:
             quat_multiply_wxyz(phone_pose.quaternion_wxyz, quat_conjugate_wxyz(self.phone_anchor_pose.quaternion_wxyz)).astype(float).tolist(),
         )
 
+    def _phone_to_world_quaternion(self, phone_quaternion_wxyz: list[float]) -> np.ndarray:
+        return (
+            quat_conjugate_wxyz(phone_quaternion_wxyz)
+            if self.config.phone_quaternion_convention == "world-to-phone"
+            else _unit_quat(phone_quaternion_wxyz)
+        )
+
     def _map_phone_delta_to_robot(self, phone_delta_m: list[float] | np.ndarray) -> np.ndarray:
         raw = _as_position(phone_delta_m)
         values = {"x": raw[0], "y": raw[1], "z": raw[2]}
         mapped = apply_vector_axis_map(values, self.phone_to_robot_axis_map)
         mapped[np.abs(mapped) <= self.config.phone_translation_deadband_m] = 0.0
         return mapped
+
+    def _desired_robot_quaternion(self, phone_pose: TcpPose, phone_delta_pose: TcpPose) -> np.ndarray:
+        assert self.robot_anchor_pose is not None
+        if not self.config.orientation_control_enabled:
+            return _unit_quat(self.robot_anchor_pose.quaternion_wxyz)
+        if self.config.orientation_mapping_mode == "phone_back_camera":
+            return _palm_quaternion_from_phone_back_camera(
+                phone_pose.quaternion_wxyz,
+                self.config.phone_back_camera_axis,
+                phone_quaternion_convention=self.config.phone_quaternion_convention,
+            )
+        if self.config.orientation_mapping_mode == "mounted_device":
+            assert self.phone_anchor_pose is not None
+            phone_to_world = self._phone_to_world_quaternion(phone_pose.quaternion_wxyz)
+            phone_anchor_to_world = self._phone_to_world_quaternion(
+                self.phone_anchor_pose.quaternion_wxyz
+            )
+            phone_delta = quat_multiply_wxyz(
+                quat_conjugate_wxyz(phone_anchor_to_world),
+                phone_to_world,
+            )
+            rotvec = quat_to_rotvec_wxyz(phone_delta)
+            angle = float(np.linalg.norm(rotvec))
+            if angle <= self.config.phone_rotation_deadband_rad:
+                mapped_delta = np.asarray(IDENTITY_QUAT_WXYZ, dtype=np.float64)
+            else:
+                scaled_delta = _rotvec_to_quat_wxyz(rotvec * float(self.config.orientation_scale))
+                mapped_delta = _map_quaternion_by_axis_map(
+                    scaled_delta,
+                    self.phone_to_robot_orientation_axis_map,
+                )
+            return quat_multiply_wxyz(self.robot_anchor_pose.quaternion_wxyz, mapped_delta)
+        rotvec = quat_to_rotvec_wxyz(phone_delta_pose.quaternion_wxyz)
+        angle = float(np.linalg.norm(rotvec))
+        if angle <= self.config.phone_rotation_deadband_rad:
+            scaled_delta = np.asarray(IDENTITY_QUAT_WXYZ, dtype=np.float64)
+        else:
+            scaled_delta = _rotvec_to_quat_wxyz(rotvec * float(self.config.orientation_scale))
+        if self.config.orientation_mapping_mode == "axis_mapped_relative":
+            scaled_delta = _map_quaternion_by_axis_map(
+                scaled_delta,
+                self.phone_to_robot_orientation_axis_map,
+            )
+        return quat_multiply_wxyz(scaled_delta, self.robot_anchor_pose.quaternion_wxyz)
 
     def _workspace_bounded_target(self, target: TcpPose) -> TcpPose:
         target_pos = _as_position(target.position_m)

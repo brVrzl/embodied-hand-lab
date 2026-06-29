@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # shellcheck disable=SC1091
-source "$(dirname "$0")/source_ros2_humble.sh"
+source "$(dirname "$0")/source_ros2.sh"
 
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
 if [ ! -x "$PYTHON_BIN" ]; then

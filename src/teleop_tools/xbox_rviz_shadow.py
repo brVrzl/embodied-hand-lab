@@ -106,7 +106,7 @@ def run_xbox_rviz_shadow_node(
         from std_msgs.msg import String  # type: ignore
         from visualization_msgs.msg import Marker  # type: ignore
     except Exception as exc:
-        raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble first.") from exc
+        raise RuntimeError("ROS2 Python packages are required. Source ROS2 first, e.g. scripts/source_ros2.sh.") from exc
 
     config = load_yaml(Path(config_path))
     input_cfg = config.get("input", {})

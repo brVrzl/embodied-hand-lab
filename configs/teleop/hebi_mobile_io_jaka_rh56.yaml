@@ -67,7 +67,7 @@ relative_pose_lag_follow:
 
 shadow:
   mjcf_path: data/sim_assets/jaka_rh56.xml
-  initial_arm_joints_rad: [-1.57079632679, -0.75, 1.10, 0.0, -0.35, 0.0]
+  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
   ik_gain: 0.7
   ik_damping: 0.05
   ik_max_step_rad: 0.08

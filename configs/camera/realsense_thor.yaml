@@ -1,0 +1,37 @@
+mode: real
+device_type: rgbd
+vendor: intel
+model: realsense_d435
+width: 640
+height: 480
+fps: 30
+align_depth_to_color: true
+warmup_frames: 5
+timeout_ms: 5000
+cameras:
+  side:
+    serial: "346222072985"
+    usb_type: "3.2"
+    firmware: "5.15.1.55"
+    frame_id: camera_side_color_optical_frame
+    frames:
+      base: camera_side_link
+      rgb_optical: camera_side_color_optical_frame
+      depth_optical: camera_side_depth_optical_frame
+    topics:
+      rgb: /sensors/camera_side/color/image_raw
+      depth: /sensors/camera_side/depth/image_raw
+      camera_info: /sensors/camera_side/color/camera_info
+  top:
+    serial: "346522072675"
+    usb_type: "3.2"
+    firmware: "5.15.1.55"
+    frame_id: camera_top_color_optical_frame
+    frames:
+      base: camera_top_link
+      rgb_optical: camera_top_color_optical_frame
+      depth_optical: camera_top_depth_optical_frame
+    topics:
+      rgb: /sensors/camera_top/color/image_raw
+      depth: /sensors/camera_top/depth/image_raw
+      camera_info: /sensors/camera_top/color/camera_info

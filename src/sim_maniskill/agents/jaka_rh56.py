@@ -15,9 +15,7 @@ from transforms3d.euler import euler2quat
 
 from sim_maniskill.rh56_collision import patch_rh56_collision_text
 
-SOURCE_XML_PATH = Path("/home/w/projects/RoboTwin/robot_sim/generated/jaka_minicobo_rh56.xml")
-SOURCE_ASSET_ROOT = Path("/home/w/projects/RoboTwin/robot_sim/assets")
-LOCAL_ASSET_ROOT = Path("/home/w/projects/embodied_lab/data/sim_assets")
+LOCAL_ASSET_ROOT = Path(__file__).resolve().parents[3] / "data" / "sim_assets"
 LOCAL_XML_PATH = LOCAL_ASSET_ROOT / "jaka_rh56.xml"
 DESKTOP_ASSET_PREFIX = "/home/w/Desktop/robot_sim/assets"
 HAND_MOUNT_TOKEN = 'pos="0 0 0.009"'
@@ -49,20 +47,16 @@ JAKA_RH56_FULL_REST_QPOS = np.array(
 
 
 def _rewrite_mjcf_text(xml_text: str) -> str:
-    xml_text = xml_text.replace(DESKTOP_ASSET_PREFIX, str(SOURCE_ASSET_ROOT))
     xml_text = xml_text.replace(HAND_MOUNT_TOKEN, HAND_MOUNT_WITH_USER_FLANGE, 1)
     return patch_rh56_collision_text(xml_text)
 
 
 def ensure_local_mjcf() -> Path:
-    if not SOURCE_XML_PATH.exists():
+    if not LOCAL_XML_PATH.exists():
         raise FileNotFoundError(
-            f"Missing JAKA+RH56 source MJCF at {SOURCE_XML_PATH}. "
-            "Expected the local RoboTwin robot_sim assets to be present."
+            f"Missing local JAKA+RH56 MJCF at {LOCAL_XML_PATH}. "
+            "Expected data/sim_assets/jaka_rh56.xml and its local meshes to be present."
         )
-    LOCAL_ASSET_ROOT.mkdir(parents=True, exist_ok=True)
-    xml_text = SOURCE_XML_PATH.read_text(encoding="utf-8")
-    LOCAL_XML_PATH.write_text(_rewrite_mjcf_text(xml_text), encoding="utf-8")
     return LOCAL_XML_PATH
 
 

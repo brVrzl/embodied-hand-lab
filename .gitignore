@@ -11,12 +11,16 @@ data/*
 !data/sim_assets/
 data/sim_assets/*
 !data/sim_assets/jaka_rh56.xml
+!data/sim_assets/README.md
+!data/sim_assets/meshes/
+!data/sim_assets/meshes/**
 papers/
 selected_papers/*.pdf
 Photos/
 URDF/
 RH56DFQ系列最新资料/
 *.log
+MUJOCO_LOG.TXT
 *.mp4
 *.avi
 /*.jpg

@@ -20,7 +20,7 @@ Inspire RH56 最小驱动层，当前以“高级夹爪模式”优先。
 
 - 通讯默认按 `RS485/serial` 抽象
 - `mock_backend.py` 仅用于 bring-up 和 recorder 联调
-- `serial_backend.py` 基于你本地 `灵巧手资料/inspire_hand/rh56.py` 与 `inspire_hand_485_ros2/service_interfaces/*.srv` 整理
+- `serial_backend.py` 基于 `third_party/inspire_hand/rh56/rh56.py` 与 `inspire_hand_485_ros2/service_interfaces/*.srv` 整理
 - `jaka_tool_backend.py` 用于 RH56 通过 JAKA 末端航插口接入：临时切 raw RS485 发送控制帧，切回 Modbus RTU 后重建 6 个角度信号量读取真实反馈
 - 若你最终采用厂家 ROS2 工作空间，可把 `backend_type` 改为 `ros2_services` 并补齐对应 client
 
@@ -57,6 +57,6 @@ JAKA 工具端 RS485 说明：
 
 本地参考资料：
 
-- `/home/w/projects/RoboTwin/灵巧手资料/inspire_hand/rh56.py`
-- `/home/w/projects/RoboTwin/灵巧手资料/inspire_hand/readme.md`
-- `/home/w/projects/RoboTwin/灵巧手资料/RH56DFQ系列最新资料/ROS2/三代手控制程序/inspire_hand_485_ros2/service_interfaces/srv`
+- `third_party/inspire_hand/rh56/rh56.py`
+- `third_party/inspire_hand/rh56/readme.md`
+- `src/rh56_driver/srv`

@@ -234,7 +234,7 @@ def run_ros2_json_node(
         from rclpy.node import Node  # type: ignore
         from std_msgs.msg import String  # type: ignore
     except Exception as exc:
-        raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble and install std_msgs first.") from exc
+        raise RuntimeError("ROS2 Python packages are required. Source ROS2 and install std_msgs first.") from exc
 
     class RH56JsonNode(Node):  # type: ignore[misc]
         def __init__(self) -> None:

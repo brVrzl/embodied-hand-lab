@@ -78,6 +78,7 @@ class PalmTargetJogCommand:
     palm_velocity_m_s: list[float]
     wrist_roll_velocity_rad_s: float
     palm_target_position_m: list[float] | None = None
+    palm_target_quaternion_wxyz: list[float] | None = None
     hold_current: bool = False
 
 
@@ -134,6 +135,12 @@ def parse_palm_target_jog_command(message: Any) -> PalmTargetJogCommand:
             raise ValueError("palm_target_position_m must contain 3 numeric values.")
         if not all(isinstance(value, (int, float)) for value in palm_target_position):
             raise ValueError("palm_target_position_m must contain only numeric values.")
+    palm_target_quaternion = payload.get("palm_target_quaternion_wxyz")
+    if palm_target_quaternion is not None:
+        if not isinstance(palm_target_quaternion, list) or len(palm_target_quaternion) != 4:
+            raise ValueError("palm_target_quaternion_wxyz must contain 4 numeric values.")
+        if not all(isinstance(value, (int, float)) for value in palm_target_quaternion):
+            raise ValueError("palm_target_quaternion_wxyz must contain only numeric values.")
     hold_current = payload.get("hold_current", False)
     if not isinstance(hold_current, bool):
         raise ValueError("hold_current must be a boolean.")
@@ -145,6 +152,11 @@ def parse_palm_target_jog_command(message: Any) -> PalmTargetJogCommand:
             None
             if palm_target_position is None
             else [float(value) for value in palm_target_position]
+        ),
+        palm_target_quaternion_wxyz=(
+            None
+            if palm_target_quaternion is None
+            else [float(value) for value in palm_target_quaternion]
         ),
         hold_current=hold_current,
     )
@@ -725,6 +737,7 @@ class JakaPalmTargetJogController:
                 )
             self.ik_state.apply_position_target(
                 palm_target_position_m=[float(value) for value in target_position],
+                palm_target_quaternion_wxyz=self.command.palm_target_quaternion_wxyz,
                 wrist_roll_velocity_rad_s=wrist_roll_velocity,
                 dt=dt,
             )
@@ -837,6 +850,17 @@ class JakaPalmTargetJogController:
                 "watchdog_reason": self._watchdog_reason,
                 "palm_target_position_m": (
                     None if not self.enabled else self.ik_state.target_palm_position_m.tolist()
+                ),
+                "palm_target_quaternion_wxyz": (
+                    None
+                    if not self.enabled or self.ik_state.target_palm_quaternion_wxyz is None
+                    else self.ik_state.target_palm_quaternion_wxyz.tolist()
+                ),
+                "palm_preview_quaternion_wxyz": (
+                    None if not self.enabled else self.ik_state.current_palm_quaternion_wxyz.tolist()
+                ),
+                "palm_target_rotation_error_rad": (
+                    None if not self.enabled else self.ik_state.target_rotation_error_rad
                 ),
                 "palm_preview_position_m": (
                     None if not self.enabled else self.ik_state.current_palm_position_m.tolist()

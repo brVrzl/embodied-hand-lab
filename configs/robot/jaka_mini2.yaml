@@ -9,7 +9,8 @@ backend_type: mock
 sdk:
   python_module: jkrc
   python_search_paths:
-    - /home/w/projects/RoboTwin/机械臂资料/机械臂/SDK V2.2.7/Linux/python3/x86_64-linux-gnu
+    - third_party/jaka_sdk/v2.2.7/linux/python3/aarch64-linux-gnu
+    - third_party/jaka_sdk/v2.2.7/linux/python3/x86_64-linux-gnu
   auto_power_on: false
   auto_enable_robot: false
   assume_pose_units:

@@ -59,7 +59,7 @@ def main() -> None:
             from rclpy.node import Node  # type: ignore
             from std_msgs.msg import String  # type: ignore
         except Exception as exc:
-            raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble first.") from exc
+            raise RuntimeError("ROS2 Python packages are required. Source ROS2 first, e.g. scripts/source_ros2.sh.") from exc
         rclpy = _rclpy
         rclpy.init()
         node = Node("iphone_mediapipe_rh56_hand_teleop")

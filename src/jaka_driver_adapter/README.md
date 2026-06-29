@@ -4,8 +4,8 @@ JAKA mini2 的统一接口封装层。这里不重写官方驱动，也不伪造
 
 - 已完成：统一接口、mock backend、基于本地官方 `jkrc` Python SDK 的 real backend 骨架
 - 本地参考资料：
-  - `/home/w/projects/RoboTwin/机械臂资料/机械臂/SDK V2.2.7/Linux/python3/x86_64-linux-gnu/jkrc.so`
-  - `/home/w/projects/RoboTwin/机械臂资料/机械臂/SDK V2.2.7/jakarobot/references/C++.html`
+  - `third_party/jaka_sdk/v2.2.7/linux/python3/aarch64-linux-gnu/jkrc.so`
+  - `third_party/jaka_sdk/v2.2.7/linux/python3/x86_64-linux-gnu/jkrc.so`
 
 当前 real backend 直接对接这些已在本地资料中确认过的方法名：
 

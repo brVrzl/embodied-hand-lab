@@ -299,6 +299,7 @@ class ManiSkillRecordingRunner:
                 "seed": episode_seed,
                 "camera_uid": camera_uid,
                 "reset_info": _to_list(reset_info),
+                **dict(recording_cfg.get("dataset_metadata", {})),
             }
             self.recorder.start_episode(
                 task_name=task_name,

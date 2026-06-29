@@ -37,6 +37,10 @@ phone-teleop = [
 gamepad = [
   "pygame>=2.6",
 ]
+sim = [
+  "gymnasium>=1.0",
+  "mani_skill>=3.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

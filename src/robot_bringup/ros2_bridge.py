@@ -306,8 +306,8 @@ def run_real_arm_hand_ros2_node(
         from visualization_msgs.msg import Marker  # type: ignore
     except Exception as exc:
         raise RuntimeError(
-            "ROS2 Python packages are required. Source ROS2 Humble first, e.g. "
-            "`source /opt/ros/humble/setup.bash`."
+            "ROS2 Python packages are required. Source ROS2 first, e.g. "
+            "`source /opt/ros/jazzy/setup.bash` on Thor or use scripts/source_ros2.sh."
         ) from exc
     signal.signal(signal.SIGTERM, lambda _signum, _frame: (_ for _ in ()).throw(KeyboardInterrupt()))
 

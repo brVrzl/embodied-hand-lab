@@ -96,7 +96,7 @@ class HebiMobileIOSnapshot:
     timestamp_sec: float
     position_m: list[float]
     quaternion_wxyz: list[float]
-    raw_inputs: dict[str, float | int | bool] = field(default_factory=dict)
+    raw_inputs: dict[str, Any] = field(default_factory=dict)
     valid: bool = True
     reason: str = "ok"
 
@@ -221,11 +221,12 @@ class HebiMobileIOClient:
             return self._make_stale_snapshot(now, "missing_ar_pose")
         q = np.asarray(orientation, dtype=np.float64)
         if q.shape == (4,):
-            # HEBI Mobile IO exposes xyzw in current hebi-py; store wxyz internally.
-            quaternion_wxyz = [float(q[3]), float(q[0]), float(q[1]), float(q[2])]
+            # HEBI Mobile IO ar_orientation is exposed in wxyz order.
+            quaternion_wxyz = [float(q[0]), float(q[1]), float(q[2]), float(q[3])]
         else:
             quaternion_wxyz = [1.0, 0.0, 0.0, 0.0]
-        raw_inputs: dict[str, float | int | bool] = {}
+        raw_inputs: dict[str, Any] = {}
+        raw_inputs["orientation_raw"] = [float(value) for value in q.tolist()]
         for idx in range(1, 9):
             try:
                 raw_inputs[f"b{idx}"] = bool(self.mobile_io.get_button_state(idx))

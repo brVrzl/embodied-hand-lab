@@ -8,7 +8,7 @@ if [ -z "${DISPLAY:-}" ] && [ -S /tmp/.X11-unix/X1 ]; then
 fi
 
 # shellcheck disable=SC1091
-source scripts/source_ros2_humble.sh
+source scripts/source_ros2.sh
 
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"
 if [ ! -x "$PYTHON_BIN" ]; then

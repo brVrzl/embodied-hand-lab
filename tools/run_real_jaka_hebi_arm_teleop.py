@@ -77,6 +77,16 @@ def _relative_config_from_config(config: dict[str, Any]) -> RelativePoseLagFollo
         reanchor_requires_deadman_release=bool(
             relative_cfg.get("reanchor_requires_deadman_release", False)
         ),
+        orientation_control_enabled=bool(relative_cfg.get("orientation_control_enabled", False)),
+        orientation_mapping_mode=str(relative_cfg.get("orientation_mapping_mode", "relative")),
+        phone_back_camera_axis=tuple(
+            float(v) for v in relative_cfg.get("phone_back_camera_axis", [0.0, 0.0, -1.0])
+        ),
+        phone_quaternion_convention=str(
+            relative_cfg.get("phone_quaternion_convention", "body-to-world")
+        ),
+        orientation_scale=float(relative_cfg.get("orientation_scale", 1.0)),
+        phone_to_robot_orientation_axis_map=direction_cfg.get("phone_to_robot_orientation"),
         phone_to_robot_axis_map=direction_cfg.get("phone_to_robot"),
     )
 
@@ -98,7 +108,7 @@ def run_node(*, config_path: str, jsonl_out: str | None = None) -> None:
         from sensor_msgs.msg import JointState
         from std_msgs.msg import String
     except Exception as exc:
-        raise RuntimeError("ROS2 Python packages are required. Source ROS2 Humble first.") from exc
+        raise RuntimeError("ROS2 Python packages are required. Source ROS2 first, e.g. scripts/source_ros2.sh.") from exc
 
     config = load_yaml(config_path)
     hebi_cfg = config.get("hebi", {})
@@ -192,12 +202,18 @@ def run_node(*, config_path: str, jsonl_out: str | None = None) -> None:
                     if hold_current or not deadman
                     else output.palm_target_position_m
                 )
+                palm_target_quaternion_wxyz = (
+                    None
+                    if hold_current or not deadman
+                    else output.palm_target_quaternion_wxyz
+                )
                 wrist_roll_velocity_rad_s = output.wrist_roll_velocity_rad_s if deadman else 0.0
             else:
                 self.follower.reset()
                 deadman = False
                 hold_current = False
                 palm_target_position_m = None
+                palm_target_quaternion_wxyz = None
                 wrist_roll_velocity_rad_s = 0.0
                 follower_log = {
                     "command_deadman": False,
@@ -215,6 +231,7 @@ def run_node(*, config_path: str, jsonl_out: str | None = None) -> None:
                 "palm_velocity_m_s": [0.0, 0.0, 0.0],
                 "wrist_roll_velocity_rad_s": wrist_roll_velocity_rad_s,
                 "palm_target_position_m": palm_target_position_m,
+                "palm_target_quaternion_wxyz": palm_target_quaternion_wxyz,
             }
             self._publish_json(self.pub, command)
             self._publish_json(

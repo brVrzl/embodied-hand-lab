@@ -66,6 +66,19 @@ def test_parse_palm_target_jog_command_requires_three_velocities() -> None:
     assert target_command.palm_target_position_m == [0.1, -0.2, 0.3]
     assert target_command.hold_current is True
 
+    orientation_command = parse_palm_target_jog_command(
+        {
+            "deadman": True,
+            "palm_velocity_m_s": [0.0, 0.0, 0.0],
+            "wrist_roll_velocity_rad_s": 0.0,
+            "palm_target_position_m": [0.1, -0.2, 0.3],
+            "palm_target_quaternion_wxyz": [0.9238795, 0.0, 0.0, 0.3826834],
+        }
+    )
+    assert orientation_command.palm_target_quaternion_wxyz == pytest.approx(
+        [0.9238795, 0.0, 0.0, 0.3826834]
+    )
+
     with pytest.raises(ValueError, match="3 numeric"):
         parse_palm_target_jog_command({"deadman": True, "palm_velocity_m_s": [0.0]})
     with pytest.raises(ValueError, match="hold_current"):
@@ -82,6 +95,14 @@ def test_parse_palm_target_jog_command_requires_three_velocities() -> None:
                 "deadman": True,
                 "palm_velocity_m_s": [0.0, 0.0, 0.0],
                 "palm_target_position_m": [0.0],
+            }
+        )
+    with pytest.raises(ValueError, match="palm_target_quaternion_wxyz"):
+        parse_palm_target_jog_command(
+            {
+                "deadman": True,
+                "palm_velocity_m_s": [0.0, 0.0, 0.0],
+                "palm_target_quaternion_wxyz": [1.0],
             }
         )
 
@@ -258,11 +279,15 @@ def test_palm_target_jog_accepts_absolute_palm_position_target() -> None:
         palm_velocity_m_s=[0.0, 0.0, 0.0],
         wrist_roll_velocity_rad_s=0.0,
         palm_target_position_m=[float(anchor[0]) + 0.01, float(anchor[1]), float(anchor[2])],
+        palm_target_quaternion_wxyz=[0.999, 0.0, 0.0, 0.0447],
     )
     clock[0] = 1.1
     controller.accept(command)
     assert controller.tick() is True
     assert controller.status()["mode"] == "tcp_position_target_ik_edg_servo_j"
+    assert controller.status()["palm_target_quaternion_wxyz"] == pytest.approx(
+        [0.9990004545453102, 0.0, 0.0, 0.044700020338966376]
+    )
     assert any(abs(value) > 0.0 for value in backend.joints)
 
 
