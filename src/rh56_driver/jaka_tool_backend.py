@@ -9,6 +9,7 @@ from embodiment_core.logger import get_logger
 from embodiment_core.types import HandState
 from jaka_driver_adapter.jaka_sdk_backend import JakaSDKBackend
 
+from .hand_schema import RH56_PROTOCOL_ORDER, canonical_to_raw
 from .interfaces import HandBackend, HandCommand
 from .jaka_tio_signal_client import JakaTioSignalClient
 
@@ -42,6 +43,9 @@ class RH56JakaToolBackend(HandBackend):
         self.hand_id = int(self.transport_cfg.get("hand_id", config.get("serial", {}).get("hand_id", 1)))
         self.command_pause_sec = float(self.transport_cfg.get("command_pause_sec", 0.8))
         self.robot_config_path = Path(self.transport_cfg.get("robot_config_path", "configs/robot/jaka_mini2.yaml"))
+        schema_cfg = config.get("hand_schema", {})
+        self.protocol_order = tuple(schema_cfg.get("protocol_order", RH56_PROTOCOL_ORDER))
+        self.gesture_order = schema_cfg.get("gesture_order", "canonical")
         self.jaka_backend = JakaSDKBackend(self._load_robot_config())
         self.state_feedback_cfg = self.transport_cfg.get("state_feedback", {})
         self.state_feedback_enabled = bool(self.state_feedback_cfg.get("enabled", False))
@@ -164,6 +168,25 @@ class RH56JakaToolBackend(HandBackend):
                     self._ensure_feedback_signals()
                 if self.feedback_settle_sec > 0.0:
                     time.sleep(self.feedback_settle_sec)
+
+    def set_angles(self, values: list[int]) -> bool:
+        self.send_raw_angles(values, mode_name="manual_raw")
+        return True
+
+    def set_canonical_angles(self, values: list[int]) -> bool:
+        protocol_values = [int(round(value)) for value in canonical_to_raw(values, raw_order=self.protocol_order)]
+        self.send_raw_angles(protocol_values, mode_name="manual_canonical")
+        return True
+
+    def set_command_angles(self, values: list[int]) -> bool:
+        if isinstance(self.gesture_order, str):
+            if self.gesture_order == "canonical":
+                return self.set_canonical_angles(values)
+            if self.gesture_order in {"protocol", "raw"}:
+                return self.set_angles(values)
+            raise ValueError(f"Unsupported RH56 gesture_order={self.gesture_order!r}")
+        raw_values = [int(round(value)) for value in canonical_to_raw(values, raw_order=self.gesture_order)]
+        return self.set_angles(raw_values)
 
     def build_open_frame(self) -> bytes:
         return self._build_set_angles_frame(self.config.get("gesture_presets", {}).get("open", [1000] * 6))

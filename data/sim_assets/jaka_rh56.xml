@@ -22,6 +22,18 @@
     <mesh name="rh56_R_thumb_intermediate" file="meshes/rh56/R_thumb_intermediate.STL" />
     <mesh name="rh56_R_thumb_proximal" file="meshes/rh56/R_thumb_proximal.STL" />
     <mesh name="rh56_R_thumb_proximal_base" file="meshes/rh56/R_thumb_proximal_base.STL" />
+    <mesh name="rh56_correll_right_pinky_intermediate" file="correll_rh56dfx/assets/collision/right_pinky_intermediate.stl" />
+    <mesh name="rh56_correll_right_middle_intermediate" file="correll_rh56dfx/assets/collision/right_middle_intermediate.stl" />
+    <mesh name="rh56_correll_right_middle_proximal" file="correll_rh56dfx/assets/collision/right_index_proximal.stl" />
+    <mesh name="rh56_correll_right_index_proximal" file="correll_rh56dfx/assets/collision/right_index_proximal.stl" />
+    <mesh name="rh56_correll_right_thumb_proximal_base" file="correll_rh56dfx/assets/collision/right_thumb_proximal_base.stl" />
+    <mesh name="rh56_correll_right_pinky_proximal" file="correll_rh56dfx/assets/collision/right_index_proximal.stl" />
+    <mesh name="rh56_correll_right_ring_intermediate" file="correll_rh56dfx/assets/collision/right_index_intermediate.stl" />
+    <mesh name="rh56_correll_right_thumb_intermediate" file="correll_rh56dfx/assets/collision/right_thumb_intermediate.stl" />
+    <mesh name="rh56_correll_right_thumb_distal" file="correll_rh56dfx/assets/collision/right_thumb_distal.stl" />
+    <mesh name="rh56_correll_right_index_intermediate" file="correll_rh56dfx/assets/collision/right_index_intermediate.stl" />
+    <mesh name="rh56_correll_right_thumb_proximal" file="correll_rh56dfx/assets/collision/right_thumb_proximal.stl" />
+    <mesh name="rh56_correll_right_ring_proximal" file="correll_rh56dfx/assets/collision/right_index_proximal.stl" />
   </asset>
   <worldbody>
     <light pos="0 0 1.5" />
@@ -58,27 +70,31 @@
                   <body name="rh56_R_hand_base_link" pos="0 0 0.009" quat="4.32978028e-17 0.707106781 0.707106781 -4.32978028e-17">
                     <inertial pos="0 0 -0.06" mass="0.14143" fullinertia="7.6663e-05 8.3832e-05 0.00012281 1.6551e-06 1.7709e-06 -2.1711e-06" />
                     <geom name="rh56_R_hand_base_link_geom_0" type="mesh" mesh="rh56_R_hand_base_link" pos="-0.0781828944 0.248685517 -0.0830575893" quat="7.17966483e-16 2.67948966e-08 1 2.67948966e-08" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                    <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_palm_collision" type="box" pos="-0.002 0 -0.068" size="0.038 0.024 0.060" />
+                    <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_palm_collision" type="box" pos="-0.002 0 -0.068" size="0.038 0.024 0.060" />
                     <body name="rh56_R_thumb_proximal_base" pos="0.020450106 0.016955517 -0.071693589" quat="0.16269034 -0.162688547 0.688132928 -0.688140511">
                       <joint name="rh56_R_thumb_MCP_joint1" type="hinge" axis="0 -1 0" damping="1.0" armature="0.01" range="0 1.1" />
                       <inertial pos="-0.0048772 -0.010163 0.00044069" mass="0.0018869" fullinertia="5.2002e-08 6.7433e-08 8.5319e-08 4.8353e-09 -6.6441e-09 5.4472e-10" />
                       <geom name="rh56_R_thumb_proximal_base_geom_0" type="mesh" mesh="rh56_R_thumb_proximal_base" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                      <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_thumb_base_collision" type="capsule" fromto="-0.004 -0.014 0.001 -0.004 -0.003 0.001" size="0.006" />
+                      <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_thumb_base_collision" type="capsule" fromto="-0.004 -0.014 0.001 -0.004 -0.003 0.001" size="0.006" />
+                      <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_thumb_proximal_base_correll_collision" mesh="rh56_correll_right_thumb_proximal_base" contype="2" conaffinity="3" />
                       <body name="rh56_R_thumb_proximal" pos="-0.0115 -0.011843 0" quat="-0.660498214 0.252468359 -0.66050064 -0.252469287">
                         <joint name="rh56_R_thumb_MCP_joint2" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 0.5" />
                         <inertial pos="-3.8592e-05 0.02533 -0.0017007" mass="0.0066075" fullinertia="2.786e-06 8.9422e-07 2.4097e-06 1.673e-10 -1.3436e-09 -2.1394e-07" />
                         <geom name="rh56_R_thumb_proximal_geom_0" type="mesh" mesh="rh56_R_thumb_proximal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                        <geom contype="2" conaffinity="3" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_thumb_proximal_collision" type="capsule" fromto="0 0.006 -0.001 0 0.055 -0.001" size="0.008" />
+                        <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_thumb_proximal_collision" type="capsule" fromto="0 0.006 -0.001 0 0.055 -0.001" size="0.008" />
+                        <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_thumb_proximal_correll_collision" mesh="rh56_correll_right_thumb_proximal" contype="2" conaffinity="3" />
                         <body name="rh56_R_thumb_intermediate" pos="0 0.055863 0.0039241" quat="0.999816654 -0.0191483297 0 0">
                           <joint name="rh56_R_thumb_PIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1" />
                           <inertial pos="2.8437e-07 0.0072526 -0.0064293" mass="0.0037847" fullinertia="4.6531e-07 2.6858e-07 4.2517e-07 -3.454e-12 3.4344e-12 -6.414e-08" />
                           <geom name="rh56_R_thumb_intermediate_geom_0" type="mesh" mesh="rh56_R_thumb_intermediate" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                          <geom contype="2" conaffinity="3" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_thumb_intermediate_collision" type="capsule" fromto="0 -0.006 -0.005 0 0.020 -0.005" size="0.007" />
+                          <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_thumb_intermediate_collision" type="capsule" fromto="0 -0.006 -0.005 0 0.020 -0.005" size="0.007" />
+                          <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_thumb_intermediate_correll_collision" mesh="rh56_correll_right_thumb_intermediate" contype="2" conaffinity="3" />
                           <body name="rh56_R_thumb_distal" pos="0 0.022558 -0.0020717" quat="0.999983058 -0.00582096713 0 0">
                             <joint name="rh56_R_thumb_DIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.2" />
                             <inertial pos="-3.3054e-06 0.010511 -0.00057863" mass="0.0033441" fullinertia="2.0026e-07 8.711e-08 1.8974e-07 -1.4303e-10 -5.6945e-11 -2.4416e-08" />
                             <geom name="rh56_R_thumb_distal_geom_0" type="mesh" mesh="rh56_R_thumb_distal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                            <geom contype="2" conaffinity="3" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_thumb_distal_collision" type="capsule" fromto="0 0.002 -0.001 0 0.022 -0.001" size="0.0065" />
+                            <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_thumb_distal_collision" type="capsule" fromto="0 0.002 -0.001 0 0.022 -0.001" size="0.0065" />
+                            <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_thumb_distal_correll_collision" mesh="rh56_correll_right_thumb_distal" contype="2" conaffinity="3" />
                           </body>
                         </body>
                       </body>
@@ -87,48 +103,56 @@
                       <joint name="rh56_R_index_MCP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.7" />
                       <inertial pos="0.0099008 0.011884 0.0016958" mass="0.0042403" fullinertia="6.9398e-07 2.3039e-07 6.434e-07 -4.4846e-12 -3.0248e-12 -9.1779e-08" />
                       <geom name="rh56_R_index_proximal_geom_0" type="mesh" mesh="rh56_R_index_proximal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                      <geom contype="2" conaffinity="3" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_index_proximal_collision" type="capsule" fromto="0.0099 0.002 0.0015 0.0099 0.029 0.0090" size="0.007" />
+                      <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_index_proximal_collision" type="capsule" fromto="0.0099 0.002 0.0015 0.0099 0.029 0.0090" size="0.007" />
+                      <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_index_proximal_correll_collision" mesh="rh56_correll_right_index_proximal" contype="2" conaffinity="3" />
                       <body name="rh56_R_index_distal" pos="0.001575 0.030445 0.010275" quat="0.999754832 0.0221421903 0 0">
                         <joint name="rh56_R_index_DIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.6" />
                         <inertial pos="0.0083258 0.019591 0.0019565" mass="0.0045683" fullinertia="7.8179e-07 1.5635e-07 7.0084e-07 9.0022e-13 5.6729e-13 -2.1007e-07" />
                         <geom name="rh56_R_index_distal_geom_0" type="mesh" mesh="rh56_R_index_distal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                        <geom contype="2" conaffinity="3" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_index_distal_collision" type="capsule" fromto="0.0083 0.002 0.0015 0.0083 0.040 0.0015" size="0.0065" />
+                        <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_index_distal_collision" type="capsule" fromto="0.0083 0.002 0.0015 0.0083 0.040 0.0015" size="0.0065" />
+                        <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_index_distal_correll_collision" mesh="rh56_correll_right_index_intermediate" contype="2" conaffinity="3" />
                       </body>
                     </body>
                     <body name="rh56_R_middle_proximal" pos="-0.001114894 -0.000284483 -0.137099589" quat="-0.613435701 0.789744668 0 -0">
                       <joint name="rh56_R_middle_MCP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.68" />
                       <inertial pos="0.008065 0.011884 0.0016958" mass="0.0042403" fullinertia="6.9397e-07 2.3039e-07 6.4339e-07 -6.0276e-12 -3.3971e-12 -9.1777e-08" />
                       <geom name="rh56_R_middle_proximal_geom_0" type="mesh" mesh="rh56_R_middle_proximal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                      <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_middle_proximal_collision" type="capsule" fromto="0.0081 0.002 0.0015 0.0081 0.029 0.0090" size="0.007" />
+                      <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_middle_proximal_collision" type="capsule" fromto="0.0081 0.002 0.0015 0.0081 0.029 0.0090" size="0.007" />
+                      <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_middle_proximal_correll_collision" mesh="rh56_correll_right_middle_proximal" contype="4" conaffinity="1" />
                       <body name="rh56_R_middle_distal" pos="0.0016673 0.030445 0.010275" quat="0.999362591 0.0356989131 0 0">
                         <joint name="rh56_R_middle_DIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.6" />
                         <inertial pos="0.0063978 0.020807 0.0018039" mass="0.0050396" fullinertia="9.8384e-07 1.7328e-07 8.914e-07 5.3828e-12 3.4908e-12 -2.5594e-07" />
                         <geom name="rh56_R_middle_distal_geom_0" type="mesh" mesh="rh56_R_middle_distal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                        <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_middle_distal_collision" type="capsule" fromto="0.0064 0.002 0.0015 0.0064 0.044 0.0015" size="0.0065" />
+                        <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_middle_distal_collision" type="capsule" fromto="0.0064 0.002 0.0015 0.0064 0.044 0.0015" size="0.0065" />
+                        <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_middle_distal_correll_collision" mesh="rh56_correll_right_middle_intermediate" contype="4" conaffinity="1" />
                       </body>
                     </body>
                     <body name="rh56_R_ring_proximal" pos="-0.020288894 -0.000284483 -0.136176589" quat="-0.613225491 0.789474041 -0.0160579122 -0.0206731537">
                       <joint name="rh56_R_ring_MCP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.7" />
                       <inertial pos="0.0080207 0.011884 0.0016959" mass="0.0042403" fullinertia="6.9397e-07 2.3039e-07 6.4339e-07 -6.088e-12 -3.1846e-12 -9.1776e-08" />
                       <geom name="rh56_R_ring_proximal_geom_0" type="mesh" mesh="rh56_R_ring_proximal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                      <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_ring_proximal_collision" type="capsule" fromto="0.0080 0.002 0.0015 0.0080 0.029 0.0090" size="0.007" />
+                      <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_ring_proximal_collision" type="capsule" fromto="0.0080 0.002 0.0015 0.0080 0.029 0.0090" size="0.007" />
+                      <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_ring_proximal_correll_collision" mesh="rh56_correll_right_ring_proximal" contype="4" conaffinity="1" />
                       <body name="rh56_R_ring_distal" pos="0 0.030445 0.010275" quat="0.999802519 0.0198726917 0 0">
                         <joint name="rh56_R_ring_DIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.6" />
                         <inertial pos="0.0080209 0.019591 0.0019565" mass="0.0045683" fullinertia="7.8177e-07 1.5635e-07 7.0082e-07 4.448e-13 7.2441e-13 -2.1007e-07" />
                         <geom name="rh56_R_ring_distal_geom_0" type="mesh" mesh="rh56_R_ring_distal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                        <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_ring_distal_collision" type="capsule" fromto="0.0080 0.002 0.0015 0.0080 0.040 0.0015" size="0.0065" />
+                        <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_ring_distal_collision" type="capsule" fromto="0.0080 0.002 0.0015 0.0080 0.040 0.0015" size="0.0065" />
+                        <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_ring_distal_correll_collision" mesh="rh56_correll_right_ring_intermediate" contype="4" conaffinity="1" />
                       </body>
                     </body>
                     <body name="rh56_R_pinky_proximal" pos="-0.039300894 -2.8483e-05 -0.134262589" quat="-0.612595004 0.788662346 -0.032104819 -0.041332139">
                       <joint name="rh56_R_pinky_MCP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.7" />
                       <inertial pos="0.0078887 0.011884 0.0016959" mass="0.0042403" fullinertia="6.9397e-07 2.3039e-07 6.4339e-07 -6.2993e-12 -3.3535e-12 -9.1776e-08" />
                       <geom name="rh56_R_pinky_proximal_geom_0" type="mesh" mesh="rh56_R_pinky_proximal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                      <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_pinky_proximal_collision" type="capsule" fromto="0.0079 0.002 0.0015 0.0079 0.029 0.0090" size="0.0068" />
+                      <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_pinky_proximal_collision" type="capsule" fromto="0.0079 0.002 0.0015 0.0079 0.029 0.0090" size="0.0068" />
+                      <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_pinky_proximal_correll_collision" mesh="rh56_correll_right_pinky_proximal" contype="4" conaffinity="1" />
                       <body name="rh56_R_pinky_distal" pos="0 0.030445 0.010275" quat="0.999822429 -0.0188443845 0 0">
                         <joint name="rh56_R_pinky_DIP_joint" type="hinge" axis="1 0 0" damping="1.0" armature="0.01" range="0 1.6" />
                         <inertial pos="0.0078857 0.016239 0.0022243" mass="0.0035996" fullinertia="4.4867e-07 1.2248e-07 3.8689e-07 6.675e-11 -1.9009e-11 -1.3511e-07" />
                         <geom name="rh56_R_pinky_distal_geom_0" type="mesh" mesh="rh56_R_pinky_distal" pos="0 0 0" quat="1 0 0 0" rgba="0.95 0.95 0.95 1" contype="0" conaffinity="0" group="1" />
-                        <geom contype="4" conaffinity="1" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="3" name="rh56_R_pinky_distal_collision" type="capsule" fromto="0.0079 0.002 0.0016 0.0079 0.034 0.0016" size="0.0062" />
+                        <geom contype="0" conaffinity="0" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.28" group="1" name="rh56_R_pinky_distal_collision" type="capsule" fromto="0.0079 0.002 0.0016 0.0079 0.034 0.0016" size="0.0062" />
+                        <geom type="mesh" condim="4" priority="2" friction="1.8 0.08 0.004" solref="0.004 1" solimp="0.92 0.98 0.002" rgba="0.05 0.85 0.80 0.38" group="3" name="rh56_R_pinky_distal_correll_collision" mesh="rh56_correll_right_pinky_intermediate" contype="4" conaffinity="1" />
                       </body>
                     </body>
                   </body>

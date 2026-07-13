@@ -154,6 +154,12 @@ def retarget_mediapipe_landmarks_to_rh56(
     thumb_lateral_legacy_linear = float(np.clip(1.0 - thumb_index_mcp_dist / 0.90, 0.0, 1.0))
     thumb_lateral_legacy = _smoothstep(thumb_lateral_legacy_linear)
     thumb_lateral_base = _smoothstep(thumb_lateral_linear)
+    thumb_bend_close_norm = _smoothstep(float(np.clip((thumb_joint_curl - 0.08) / 0.35, 0.0, 1.0)))
+    thumb_pinch_close_norm = _smoothstep(thumb_pinch)
+    thumb_base_inverted_lateral_linear = float(np.clip((-thumb_mcp_side - 0.45) / 0.45, 0.0, 1.0))
+    thumb_base_inverted_lateral = _smoothstep(thumb_base_inverted_lateral_linear)
+    thumb_base_lateral_linear = float(np.clip((thumb_mcp_side + 0.95) / 0.45, 0.0, 1.0))
+    thumb_base_lateral = _smoothstep(thumb_base_lateral_linear)
 
     if thumb_mode == "legacy":
         thumb_close_raw = thumb_close_legacy
@@ -161,6 +167,18 @@ def retarget_mediapipe_landmarks_to_rh56(
     elif thumb_mode == "rh56_task":
         thumb_close_raw = max(thumb_axis_fold_curl, 0.35 * thumb_close_legacy)
         thumb_lateral = max(thumb_lateral_base, 0.30 * thumb_lateral_legacy)
+    elif thumb_mode == "rh56_thumb_decoupled":
+        thumb_close_norm = max(thumb_bend_close_norm, 0.65 * thumb_pinch_close_norm)
+        thumb_close_raw = 0.10 + 0.75 * thumb_close_norm
+        thumb_lateral = thumb_lateral_legacy
+    elif thumb_mode == "rh56_thumb_base_inverted":
+        thumb_close_norm = max(thumb_bend_close_norm, 0.65 * thumb_pinch_close_norm)
+        thumb_close_raw = 0.10 + 0.75 * thumb_close_norm
+        thumb_lateral = thumb_base_inverted_lateral
+    elif thumb_mode == "rh56_thumb_base":
+        thumb_close_norm = max(thumb_bend_close_norm, 0.65 * thumb_pinch_close_norm)
+        thumb_close_raw = 0.10 + 0.75 * thumb_close_norm
+        thumb_lateral = thumb_base_lateral
     else:
         raise ValueError(f"Unsupported thumb_mode={thumb_mode!r}")
 
@@ -195,6 +213,12 @@ def retarget_mediapipe_landmarks_to_rh56(
         "thumb_lateral_legacy_linear": thumb_lateral_legacy_linear,
         "thumb_lateral_legacy": thumb_lateral_legacy,
         "thumb_lateral_base": thumb_lateral_base,
+        "thumb_bend_close_norm": thumb_bend_close_norm,
+        "thumb_pinch_close_norm": thumb_pinch_close_norm,
+        "thumb_base_inverted_lateral_linear": thumb_base_inverted_lateral_linear,
+        "thumb_base_inverted_lateral": thumb_base_inverted_lateral,
+        "thumb_base_lateral_linear": thumb_base_lateral_linear,
+        "thumb_base_lateral": thumb_base_lateral,
         "thumb_extension_ratio": thumb_extension_ratio,
         "thumb_extension_curl": thumb_extension_curl,
         "thumb_proximal_projection": thumb_proximal_projection,

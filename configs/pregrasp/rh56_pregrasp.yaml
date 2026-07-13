@@ -1,0 +1,59 @@
+hand: inspire_rh56
+canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+version: rh56_pregrasp_codebook_v0.1
+primitives:
+  - name: power_envelope
+    task_modes: [pick, hold]
+    hand_command: [0.62, 0.68, 0.72, 0.72, 0.70, 0.42]
+    wrist_offset_xyz_m: [-0.055, 0.0, 0.018]
+    approach_axis_xyz: [1.0, 0.0, -0.15]
+    contact_strategy: palm_envelope
+    shape_tags: [round, box, elongated]
+    min_object_width_m: 0.030
+    max_object_width_m: 0.095
+    expected_contacts: [thumb_close, index, middle, ring, pinky, palm]
+    notes: Default robust RH56 grasp for ball-sized or box-like objects.
+  - name: tripod_support
+    task_modes: [pick, hold]
+    hand_command: [0.55, 0.56, 0.28, 0.22, 0.62, 0.52]
+    wrist_offset_xyz_m: [-0.045, -0.006, 0.010]
+    approach_axis_xyz: [1.0, -0.10, -0.05]
+    contact_strategy: thumb_index_middle
+    shape_tags: [box, round]
+    min_object_width_m: 0.018
+    max_object_width_m: 0.060
+    expected_contacts: [thumb_close, index, middle]
+    notes: Smaller-object grasp that avoids over-relying on coupled ring/pinky closure.
+  - name: lateral_clamp
+    task_modes: [pick, hold, pre_align]
+    hand_command: [0.42, 0.45, 0.38, 0.32, 0.48, 0.70]
+    wrist_offset_xyz_m: [-0.042, 0.018, 0.008]
+    approach_axis_xyz: [1.0, 0.25, -0.05]
+    contact_strategy: side_clamp
+    shape_tags: [flat, box, elongated]
+    min_object_width_m: 0.010
+    max_object_width_m: 0.055
+    expected_contacts: [thumb_lateral, index, middle]
+    notes: For thin or side-clamped objects; useful after pushing to expose an edge.
+  - name: palm_push
+    task_modes: [push, pre_align]
+    hand_command: [0.18, 0.18, 0.18, 0.18, 0.20, 0.38]
+    wrist_offset_xyz_m: [-0.065, 0.0, 0.012]
+    approach_axis_xyz: [1.0, 0.0, 0.0]
+    contact_strategy: open_palm_push
+    shape_tags: [round, box, flat, elongated]
+    min_object_width_m: 0.010
+    max_object_width_m: 0.140
+    expected_contacts: [palm]
+    notes: Nonprehensile pre-alignment primitive before attempting closure.
+  - name: hook_pull
+    task_modes: [pull, pre_align]
+    hand_command: [0.72, 0.70, 0.62, 0.55, 0.30, 0.36]
+    wrist_offset_xyz_m: [0.035, 0.0, 0.014]
+    approach_axis_xyz: [-1.0, 0.0, 0.0]
+    contact_strategy: finger_hook
+    shape_tags: [box, elongated, flat]
+    min_object_width_m: 0.012
+    max_object_width_m: 0.090
+    expected_contacts: [index, middle, ring]
+    notes: Repositioning primitive for pulling an object into the reachable grasp zone.

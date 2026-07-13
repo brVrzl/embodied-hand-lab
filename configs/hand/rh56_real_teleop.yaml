@@ -1,0 +1,43 @@
+mode: real
+device_name: inspire_rh56
+transport: jaka_tool_rs485
+backend_type: jaka_tool_rs485
+serial:
+  hand_id: 1
+jaka_tool_rs485:
+  robot_config_path: configs/robot/jaka_mini2_real.yaml
+  channel_id: 1
+  hand_id: 1
+  command_pause_sec: 0.0
+  switch_mode_for_commands: false
+  mode_switch_transport: tcp
+  command_send_transport: tcp
+  command_channel_mode: 1
+  feedback_channel_mode: 0
+  state_feedback:
+    enabled: true
+    host: 192.168.71.50
+    port: 10001
+    timeout_sec: 0.2
+    terminator: none
+  prepare_tio:
+    enable_vout: true
+    vout_enable: 1
+    vout_vol: 0
+    set_ai_pin_mode: true
+    ai_pin_mode: 1
+    set_channel_mode: true
+    channel_mode: 1
+hand_schema:
+  version: inspire6_v1
+  canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  protocol_order: [pinky, ring, middle, index, thumb_close, thumb_lateral]
+  gesture_order: canonical
+  hand_delta_limit: 0.05
+safety:
+  max_close_strength: 0.5
+gesture_presets:
+  open: [1000, 1000, 1000, 1000, 1000, 1000]
+  close: [0, 0, 0, 0, 0, 0]
+  pinch: [400, 400, 500, 200, 200, 500]

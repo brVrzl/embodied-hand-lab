@@ -12,10 +12,11 @@ import mujoco
 import numpy as np
 import yaml
 
+from sim_maniskill.rh56_collision import patch_rh56_correll_collision_model, patch_rh56_visual_coacd_collision_model
 
 BASE_XML = Path("data/sim_assets/jaka_rh56.xml")
 OUT_DIR = Path("data/mujoco_grasp_benchmark")
-COLLISION_MODES = ("proxy", "mesh", "mesh_proxy", "unifuc_pad_proxy")
+COLLISION_MODES = ("correll_mesh", "visual_coacd", "proxy", "mesh", "mesh_proxy", "unifuc_pad_proxy")
 
 ARM_ACTUATOR_NAMES = [f"jaka_joint_{idx}_act" for idx in range(1, 7)]
 HAND_ACTUATOR_NAMES = [
@@ -96,6 +97,88 @@ def _geom_pos(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.ndarr
     if geom_id < 0:
         raise KeyError(f"Missing geom {name}")
     return np.asarray(data.geom_xpos[geom_id], dtype=np.float64).copy()
+
+
+SEMANTIC_CONTACT_BODIES = {
+    "thumb": (
+        "rh56_R_thumb_distal",
+        "rh56_R_thumb_intermediate",
+        "rh56_R_thumb_proximal",
+    ),
+    "index": (
+        "rh56_R_index_distal",
+        "rh56_R_index_proximal",
+    ),
+    "middle": (
+        "rh56_R_middle_distal",
+        "rh56_R_middle_proximal",
+    ),
+    "ring_pinky": (
+        "rh56_R_ring_distal",
+        "rh56_R_ring_proximal",
+        "rh56_R_pinky_distal",
+        "rh56_R_pinky_proximal",
+    ),
+}
+
+
+def _geom_name(model: mujoco.MjModel, geom_id: int) -> str:
+    return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(geom_id)) or ""
+
+
+def _geom_body_name(model: mujoco.MjModel, geom_id: int) -> str:
+    body_id = int(model.geom_bodyid[int(geom_id)])
+    return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+
+
+def _semantic_contact_group(model: mujoco.MjModel, geom_id: int) -> str:
+    name = _geom_name(model, geom_id)
+    body_name = _geom_body_name(model, geom_id)
+    if name in {"bench_object", "bench_table", "floor"}:
+        return name
+    if "pad_proxy" in name:
+        if "thumb" in name:
+            return "thumb"
+        if "index" in name:
+            return "index"
+        if "middle" in name:
+            return "middle"
+        if "ring" in name or "pinky" in name:
+            return "ring_pinky"
+    for group, bodies in SEMANTIC_CONTACT_BODIES.items():
+        if body_name in bodies:
+            return group
+    if body_name.startswith("rh56_R_"):
+        return "hand_other"
+    if body_name.startswith("jaka_"):
+        return "arm"
+    return ""
+
+
+def _active_semantic_geom_positions(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    group: str,
+) -> np.ndarray:
+    bodies = set(SEMANTIC_CONTACT_BODIES[group])
+    positions: list[np.ndarray] = []
+    for geom_id in range(model.ngeom):
+        if not (model.geom_contype[geom_id] or model.geom_conaffinity[geom_id]):
+            continue
+        if _geom_body_name(model, geom_id) not in bodies:
+            continue
+        positions.append(np.asarray(data.geom_xpos[geom_id], dtype=np.float64).copy())
+    if positions:
+        return np.asarray(positions, dtype=np.float64)
+    body_positions = [_body_pos(model, data, body_name) for body_name in bodies if mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name) >= 0]
+    if not body_positions:
+        raise KeyError(f"Missing semantic contact group {group!r}")
+    return np.asarray(body_positions, dtype=np.float64)
+
+
+def _semantic_contact_center(model: mujoco.MjModel, data: mujoco.MjData, group: str) -> np.ndarray:
+    positions = _active_semantic_geom_positions(model, data, group)
+    return np.mean(positions, axis=0)
 
 
 def _physical_norm_to_mujoco_ctrl(values: list[float]) -> np.ndarray:
@@ -250,7 +333,11 @@ def _disable_robot_mesh_collisions(root: ET.Element) -> None:
 def _configure_collision_model(root: ET.Element, *, collision_mode: str, include_calibration_markers: bool = False) -> None:
     if collision_mode not in COLLISION_MODES:
         raise ValueError(f"Unknown collision_mode={collision_mode}; choices={COLLISION_MODES}")
-    if collision_mode == "proxy":
+    if collision_mode == "correll_mesh":
+        patch_rh56_correll_collision_model(root)
+    elif collision_mode == "visual_coacd":
+        patch_rh56_visual_coacd_collision_model(root)
+    elif collision_mode == "proxy":
         _disable_robot_mesh_collisions(root)
         _add_fingertip_collision_proxies(root, include_calibration_markers=include_calibration_markers)
     elif collision_mode == "unifuc_pad_proxy":
@@ -258,6 +345,14 @@ def _configure_collision_model(root: ET.Element, *, collision_mode: str, include
         _add_unifuc_pad_collision_proxies(root, include_calibration_markers=include_calibration_markers)
     elif collision_mode == "mesh_proxy":
         _add_fingertip_collision_proxies(root, include_calibration_markers=include_calibration_markers)
+
+
+def _set_compiler_meshdir(root: ET.Element, base_xml: Path) -> None:
+    compiler = root.find("compiler")
+    if compiler is None:
+        compiler = ET.Element("compiler")
+        root.insert(0, compiler)
+    compiler.set("meshdir", str(base_xml.resolve().parent))
 
 
 def _tune_actuators_for_grasp_benchmark(root: ET.Element) -> None:
@@ -478,6 +573,7 @@ def _build_scene_xml(
     out_xml.parent.mkdir(parents=True, exist_ok=True)
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    _set_compiler_meshdir(root, base_xml)
     _tune_actuators_for_grasp_benchmark(root)
     _configure_collision_model(root, collision_mode=collision_mode)
     _add_table_object_camera(root, spec=spec, object_pos=object_pos, table_top_z=table_top_z)
@@ -495,13 +591,14 @@ def _estimate_nominal_object_pos(
 ) -> np.ndarray:
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    _set_compiler_meshdir(root, base_xml)
     _configure_collision_model(root, collision_mode=collision_mode)
     model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
     data = mujoco.MjData(model)
     _set_kinematic_pose(model, data, grasp_q, close_ctrl)
-    thumb = _geom_pos(model, data, "thumb_pad_proxy")
-    index = _geom_pos(model, data, "index_pad_proxy")
-    middle = _geom_pos(model, data, "middle_pad_proxy")
+    thumb = _semantic_contact_center(model, data, "thumb")
+    index = _semantic_contact_center(model, data, "index")
+    middle = _semantic_contact_center(model, data, "middle")
     center = 0.45 * thumb + 0.35 * index + 0.20 * middle
     center[2] = max(center[2], spec.half_height + 0.026)
     return center
@@ -574,27 +671,36 @@ def _contact_summary(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, in
         "object_ring_pinky": 0,
         "object_table": 0,
         "hand_table": 0,
+        "hand_self": 0,
+        "max_penetration_mm": 0,
         "total": int(data.ncon),
     }
+    max_penetration_m = 0.0
     for idx in range(data.ncon):
         contact = data.contact[idx]
-        names = [
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom1)) or "",
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom2)) or "",
+        names = [_geom_name(model, int(contact.geom1)), _geom_name(model, int(contact.geom2))]
+        groups = [
+            _semantic_contact_group(model, int(contact.geom1)),
+            _semantic_contact_group(model, int(contact.geom2)),
         ]
         joined = " ".join(names)
-        if "bench_object" in joined and "thumb" in joined:
+        if contact.dist < 0.0:
+            max_penetration_m = max(max_penetration_m, abs(float(contact.dist)))
+        if "bench_object" in groups and "thumb" in groups:
             counts["object_thumb"] += 1
-        elif "bench_object" in joined and "index" in joined:
+        elif "bench_object" in groups and "index" in groups:
             counts["object_index"] += 1
-        elif "bench_object" in joined and "middle" in joined:
+        elif "bench_object" in groups and "middle" in groups:
             counts["object_middle"] += 1
-        elif "bench_object" in joined and ("ring" in joined or "pinky" in joined):
+        elif "bench_object" in groups and "ring_pinky" in groups:
             counts["object_ring_pinky"] += 1
-        if "bench_object" in joined and "bench_table" in joined:
+        if "bench_object" in groups and "bench_table" in groups:
             counts["object_table"] += 1
-        if ("pad_proxy" in joined or "rh56_R_" in joined) and "bench_table" in joined:
+        if any(group in {"thumb", "index", "middle", "ring_pinky", "hand_other"} for group in groups) and "bench_table" in groups:
             counts["hand_table"] += 1
+        if all(group in {"thumb", "index", "middle", "ring_pinky", "hand_other"} for group in groups):
+            counts["hand_self"] += 1
+    counts["max_penetration_mm"] = int(round(max_penetration_m * 1000.0))
     return counts
 
 
@@ -632,7 +738,9 @@ def _run_candidate(
     initial_z = float(data.xpos[object_body][2])
     initial_contacts = _contact_summary(model, data)
     initial_penetration = bool(
-        initial_contacts["hand_table"] > 0 or _object_hand_contact_count(initial_contacts) > 0
+        initial_contacts["hand_table"] > 0
+        or initial_contacts["hand_self"] > 0
+        or _object_hand_contact_count(initial_contacts) > 0
     )
 
     dt = model.opt.timestep
@@ -676,6 +784,7 @@ def _run_candidate(
         lift_m >= success_lift_m
         and opposing_contact
         and contacts["object_table"] == 0
+        and contacts["hand_self"] == 0
         and not initial_penetration
     )
     score = (
@@ -686,6 +795,8 @@ def _run_candidate(
         + contacts["object_ring_pinky"]
         - 2.0 * contacts["object_table"]
         - contacts["hand_table"]
+        - 3.0 * contacts["hand_self"]
+        - 0.5 * contacts["max_penetration_mm"]
         - (25.0 if initial_penetration else 0.0)
     )
     return {
@@ -811,7 +922,7 @@ def main() -> None:
     parser.add_argument("--success-lift", type=float, default=0.020)
     parser.add_argument("--point-count", type=int, default=768)
     parser.add_argument("--max-candidates", type=int, default=72)
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="correll_mesh")
     args = parser.parse_args()
 
     summary = run_benchmark(args)

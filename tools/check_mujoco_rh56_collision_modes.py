@@ -8,7 +8,14 @@ from typing import Any
 import mujoco
 import numpy as np
 
-from mujoco_rh56_grasp_benchmark import ARM_ACTUATOR_NAMES, HAND_ACTUATOR_NAMES, _ids, _load_yaml, _physical_norm_to_mujoco_ctrl
+from mujoco_rh56_grasp_benchmark import (
+    ARM_ACTUATOR_NAMES,
+    COLLISION_MODES,
+    HAND_ACTUATOR_NAMES,
+    _ids,
+    _load_yaml,
+    _physical_norm_to_mujoco_ctrl,
+)
 from view_mujoco_rh56_pose_contact import PHYSICAL_POSES, _build_pose_xml, _set_hand_qpos_from_ctrl
 
 
@@ -107,8 +114,8 @@ def main() -> None:
     parser.add_argument(
         "--collision-modes",
         nargs="+",
-        choices=["proxy", "mesh", "mesh_proxy", "unifuc_pad_proxy"],
-        default=["proxy", "mesh", "mesh_proxy", "unifuc_pad_proxy"],
+        choices=COLLISION_MODES,
+        default=list(COLLISION_MODES),
     )
     parser.add_argument("--out-dir", default="data/collision_diagnostics/pose_modes")
     parser.add_argument("--max-pairs", type=int, default=20)

@@ -24,6 +24,7 @@ from mujoco_rh56_grasp_benchmark import (
     _ids,
     _load_yaml,
     _physical_norm_to_mujoco_ctrl,
+    _set_compiler_meshdir,
     _set_thumb_mimic_coupling,
     _solve_hand_base_lift_q,
     _tune_actuators_for_grasp_benchmark,
@@ -69,6 +70,7 @@ def _build_pose_xml(
     out_xml.parent.mkdir(parents=True, exist_ok=True)
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    _set_compiler_meshdir(root, base_xml)
     pip_multiplier, dip_multiplier = THUMB_COUPLINGS[thumb_coupling]
     _set_thumb_mimic_coupling(root, pip_multiplier=pip_multiplier, dip_multiplier=dip_multiplier)
     _tune_actuators_for_grasp_benchmark(root)
@@ -205,7 +207,10 @@ def run_pose_view(args: argparse.Namespace) -> None:
     pose_items = list(PHYSICAL_POSES.items())
     viewer = importlib.import_module("mujoco.viewer")
     print("Pose viewer:")
-    if args.collision_mode == "mesh":
+    if args.collision_mode == "correll_mesh":
+        print("  当前使用 Correll RH56DFX collision mesh 作为 mounted hand 碰撞体。")
+        print("  原项目 analytic proxy 已禁用；视觉 STL 只作为外形参考。")
+    elif args.collision_mode == "mesh":
         print("  当前基础模型仍保留 RH56 analytic collision proxy；STL mesh 只用于视觉。")
     elif args.collision_mode == "unifuc_pad_proxy":
         print("  观察已有 UniFuc-style cyan rectangular pad proxy 是否落在真实 distal 指腹附近。")
@@ -415,7 +420,7 @@ def main() -> None:
     parser.add_argument("--out-xml", default=str(POSE_XML))
     parser.add_argument("--pose-period", type=float, default=2.5)
     parser.add_argument("--thumb-coupling", choices=sorted(THUMB_COUPLINGS), default="urdf")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="correll_mesh")
     object_choices = sorted(
         [
             "004_sugar_box",

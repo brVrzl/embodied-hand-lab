@@ -1,23 +1,75 @@
 # Embodied Lab
 
-面向 `JAKA mini2 + Inspire RH56` 的真实机器人遥操作、数据采集和灵巧抓取研究仓库。
+`embodied_lab` 是一个正在重建中的 `JAKA mini2 + Inspire RH56` 操作栈仓库。当前仓库同时包含真实机器人 bring-up、遥操作、数据记录、仿真资产和预抓取工具。由于早期仿真内容曾被误删，当前项目应被视为恢复和重新规划中的工作区，而不是完成版数字孪生。
 
-当前原则：保留已经调通的实机链路，删除早期探索材料时不得影响遥操作、硬件 bring-up、ROS2 bridge、RViz shadow、RH56 PC direct 和支撑 IK/预览的 MuJoCo 资产。
+## 当前状态
 
-## 保留主线
+当前可用内容：
 
-- `iPhone / HEBI Mobile I/O`：已调通的手机 ARKit 相对位姿遥操作链路，必须保留。
-- `Xbox / RViz shadow`：手柄遥操作、实机命令镜像和 RViz 预览链路，必须保留。
-- `JAKA mini2`：连接检查、preset、EDG servo 安全桥、掌心目标 IK。
-- `Inspire RH56`：PC direct USB-RS485 主链路、ROS2 JSON bridge、基础 safety gate。
-- `MuJoCo JAKA+RH56 asset`：`data/sim_assets/jaka_rh56.xml` 是遥操作 IK/RViz shadow 的依赖，必须保留。
-- `文献与实验计划`：只保留当前论文主线和近期可信文献索引，旧探索材料不再作为入口。
+- JAKA mini2 配置、preset motion 辅助脚本、mock backend、servo-jog 安全控制工具。
+- Inspire RH56 命令 schema、mock/serial backend、ROS2 JSON bridge、手指顺序和命令映射。
+- Xbox、HEBI Mobile I/O、iPhone camera、RViz shadow 等遥操作实验工具。
+- 当前 JAKA-mounted MuJoCo 文件 `data/sim_assets/jaka_rh56.xml`，仍被 IK、预览、benchmark、ManiSkill 等路径引用。
+- Correll RH56DFX 参考 MuJoCo 手部资产 `data/sim_assets/correll_rh56dfx/`，用于浮动手 FK 规划和指尖 force/torque scene 验证。
+- `src/pregrasp` 中的确定性 geometry-based RH56 预抓取候选生成流程。
 
-## 快速环境
+关键说明：
+
+`data/sim_assets/jaka_rh56.xml` 需要保留，是因为当前项目仍依赖它作为恢复锚点和 mounted-arm 集成模型。这不表示该模型完整、已标定或是最终真值。它需要继续审计和改进，不能把它当作已经验证过的 RH56 数字孪生。
+
+## 目录结构
+
+```text
+configs/          机器人、手、相机、遥操作、仿真和工作空间配置
+data/sim_assets/  当前 IK、预览、规划和测试使用的 MuJoCo 资产
+docs/             项目说明、协议和文献/资产审计
+launch/           ROS2 launch 文件
+scripts/          面向人的 shell 入口
+src/              Python 包源码
+tests/            回归和 smoke 测试
+third_party/      vendor 或外部代码快照
+tools/            脚本和实验调用的 Python 工具
+```
+
+核心模块：
+
+- `src/rh56_driver`：RH56 command schema、backend adapter、ROS2 bridge helper。
+- `src/jaka_driver_adapter`：JAKA SDK/mock、掌心目标 IK、servo-jog 安全逻辑。
+- `src/teleop_tools`：Xbox、HEBI/iPhone、RViz shadow、relative-pose teleop。
+- `src/robot_bringup`：真实机械臂和手的 bridge 编排。
+- `src/pregrasp`：物体几何、RH56 预抓取 primitives、Correll FK adapter、触觉/力反馈修正。
+- `src/sim_maniskill`：使用当前 JAKA+RH56 资产的 ManiSkill task 和 agent。
+- `src/data_recorder`：episode 记录工具。
+- `src/vision_interface`：相机 adapter 和 mock。
+
+关键文档：
+
+- `docs/project_rebuild_status.md`：当前项目重建状态、验证等级和优先级。
+- `docs/rh56dfx_correll_integration_assessment.md`：Correll RH56DFX 资产与原项目资产的对比和整合结论。
+- `data/sim_assets/README.md`：当前仿真资产角色边界。
+
+## 仿真资产边界
+
+当前有两类 RH56 资产角色：
+
+- `data/sim_assets/jaka_rh56.xml`
+  - 当前 JAKA+RH56 mounted model。
+  - 被 palm-target IK、RViz/teleop 预览、MuJoCo benchmark、ManiSkill 集成使用。
+  - runtime hand collision 默认注入 Correll RH56DFX collision mesh，旧 analytic proxy 仅作为对比/回退模式。
+  - 仍需要继续审计。不要把它理解为完整硬件表征模型。
+
+- `data/sim_assets/correll_rh56dfx/`
+  - 来自 Correll Robotics Lab RH56DFX 工作的参考资产。
+  - 用作浮动手 FK 规划和指尖 force/torque sensor scene 的参考模型。
+  - 通过 `pregrasp.correll_rh56dfx` 暴露给项目代码，并通过 `sim_maniskill.rh56_collision` 作为 mounted hand 的默认 collision mesh 来源。
+
+不要随意合并这两类角色。用 Correll 浮动手模型替换 JAKA-mounted 模型，需要单独迁移 mount frame、joint/body name、actuator order 和下游测试。
+
+## 环境
 
 ```bash
 cd /home/thor/projects/embodied_lab
-/usr/bin/python3.10 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
@@ -25,98 +77,94 @@ pip install -e ".[dev]"
 可选依赖：
 
 ```bash
-pip install -e ".[gamepad]"        # Xbox
+pip install -e ".[gamepad]"        # Xbox / pygame
 pip install -e ".[phone-teleop]"   # HEBI Mobile I/O
-pip install -e ".[vision-teleop]"  # iPhone camera + MediaPipe hand tracking
+pip install -e ".[vision-teleop]"  # MediaPipe / OpenCV hand tracking
+pip install -e ".[sim]"            # ManiSkill stack，需要匹配本机 Python 环境
 ```
 
-## 实机检查
+ROS2 Humble 路径可能还需要系统 ROS 包，不完全由 Python venv 管理。
+
+## 基础验证
+
+修改机器人控制、RH56 schema 或仿真资产前，优先跑这些聚焦测试：
+
+```bash
+.venv/bin/python -m pytest \
+  tests/test_rh56_hand_schema.py \
+  tests/test_rh56_ros2_bridge.py \
+  tests/test_rh56_serial_backend.py \
+  tests/test_jaka_servo_jog.py \
+  tests/test_correll_rh56dfx_assets.py \
+  tests/test_mujoco_rh56_collision_modes.py \
+  tests/test_pregrasp_prediction.py
+```
+
+只验证新引入的 Correll RH56DFX 参考资产：
+
+```bash
+.venv/bin/python -m pytest tests/test_correll_rh56dfx_assets.py
+```
+
+该测试会确认 XML 能被 MuJoCo 编译、预期 actuator/site/sensor 存在、width-based FK planner 能输出可用命令。
+
+## 硬件入口
+
+使用真实硬件脚本前，先检查对应配置、IP 和串口路径。
+
+JAKA：
 
 ```bash
 ./scripts/check_jaka_connection.sh --ip 192.168.1.100
 ./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
 ./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
+```
+
+RH56：
+
+```bash
 ./scripts/check_rh56_connection.sh --port /dev/ttyUSB0
 ./scripts/rh56_pc_direct_bringup.sh --config configs/hand/rh56_real.yaml --port /dev/ttyUSB0 --polls 20
 ```
 
-默认检查命令只读状态或做无运动检查；只有脚本参数显式带 `--execute` / `--enable-*` 时才会下发运动或手指命令。
-
-## iPhone / HEBI 遥操作
-
-HEBI Mobile I/O 是已调通链路。iPhone 与 PC 需在同一 WiFi；HEBI app 中 `Family=HEBI`、`Name=mobileIO`，并允许相机权限。
-
-```bash
-./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
-./scripts/record_hebi_mobile_io.sh --duration-sec 20
-./scripts/run_hebi_rviz_shadow.sh
-```
-
-实机 arm-only 入口：
-
-```bash
-./scripts/run_real_jaka_hebi_arm_teleop.sh \
-  --enable-motion \
-  --teleop-mode relative_pose_lag_follow \
-  --teleop-profile practical \
-  --jsonl-out logs/teleop/hebi_real_arm_$(date +%Y%m%d_%H%M%S).jsonl
-```
-
-MediaPipe 手部跟踪入口：
-
-```bash
-./scripts/check_iphone_camera_stream.sh --url http://IPHONE_IP:PORT/video
-./scripts/run_iphone_mediapipe_hand_teleop.sh --url http://IPHONE_IP:PORT/video
-./scripts/run_iphone_rh56_safety_gate.sh --url http://IPHONE_IP:PORT/video --ros2
-```
-
-## Xbox / RViz 遥操作
+遥操作和预览：
 
 ```bash
 ./scripts/run_jaka_rh56_rviz.sh
 ./scripts/run_xbox_rviz_shadow.sh
-./scripts/run_xbox_ros2_teleop.sh
+./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
 ```
 
-实机推荐从一键入口开始，它会启动 real bridge、Xbox intent publisher、RViz 和 shadow mirror：
+会移动硬件的脚本应要求显式 enable/execute 参数。使用前先看帮助：
 
 ```bash
-./scripts/run_xbox_real_arm_with_rviz_shadow.sh --hand-port /dev/ttyUSB0
+./scripts/<script-name>.sh --help
 ```
 
-核心安全约定：`RB` 是机械臂死人开关；短 horizon TCP velocity IK、关节限幅、命令超时和 saturation watchdog 不应删除。
+## 预抓取流程
 
-## 结构
-
-```text
-configs/              当前硬件、手、遥操作、RViz 配置
-data/sim_assets/      遥操作 IK 和预览需要的 JAKA+RH56 MuJoCo 资产
-docs/                 当前文档入口和近期可信文献索引
-scripts/              人直接运行的入口
-src/                  Python 包源码
-tests/                保留链路的回归测试
-tools/                scripts 调用的实现工具
-```
-
-关键模块：
-
-- `src/teleop_tools`：Xbox、iPhone/HEBI、RViz shadow、相对位姿跟随。
-- `src/jaka_driver_adapter`：JAKA SDK/mock、掌心目标 IK、servo jog 安全解析。
-- `src/rh56_driver`：RH56 schema、serial backend、ROS2 bridge。
-- `src/robot_bringup`：实机 ROS2 bridge 和 RViz joint-state bridge。
-- `src/sim_maniskill`：仅保留必要仿真/预览支持，不作为当前实机抓取成功率证据。
-
-## 验证
+当前预抓取路径是确定性的 geometry-first 流程：
 
 ```bash
-.venv/bin/python -m pytest \
-  tests/test_xbox_ros2_teleop.py \
-  tests/test_xbox_rviz_shadow.py \
-  tests/test_rviz_shadow_sync.py \
-  tests/test_jaka_servo_jog.py \
-  tests/test_robot_bringup_ros2_bridge.py \
-  tests/test_rh56_ros2_bridge.py \
-  tests/test_rh56_serial_backend.py
+.venv/bin/python tools/predict_rh56_pregrasp.py \
+  --geometry-json path/to/object_geometry.json \
+  --top-k 3
 ```
 
-当前项目精简后，新增或删除内容前先确认上述遥操作回归测试仍通过。
+相关文件：
+
+- `configs/pregrasp/rh56_pregrasp.yaml`
+- `src/pregrasp/primitives.py`
+- `src/pregrasp/predictor.py`
+- `src/pregrasp/correll_rh56dfx.py`
+- `tools/generate_rh56_pregrasp_dataset.py`
+
+Correll FK planner 会在适合的物体宽度下生成额外的 `correll_line_width` 候选。这是规划辅助，不替代真实 RH56 接触验证。
+
+## 开发约定
+
+- 外部资产要按来源和用途分目录，并保留 license。
+- 替换仿真文件前，先补验证测试。
+- 在所有依赖路径迁移完成前，不要删除 `data/sim_assets/jaka_rh56.xml`。
+- 没有真实 replay 数据时，不要把仿真抓取成功率写成真实机器人性能。
+- 如果某个资产只是临时恢复锚点，要在文档和配置注释中明确说明。

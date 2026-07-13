@@ -41,6 +41,11 @@ sim = [
   "gymnasium>=1.0",
   "mani_skill>=3.0",
 ]
+asset-tools = [
+  "trimesh>=4.0",
+  "coacd>=1.0",
+  "scipy>=1.10",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

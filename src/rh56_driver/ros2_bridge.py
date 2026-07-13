@@ -289,7 +289,7 @@ def run_ros2_json_node(
             try:
                 callback(message)
             except Exception as exc:
-                self.get_logger().error("%s command failed: %s", label, exc)
+                self.get_logger().error(f"{label} command failed: {exc}")
 
         def _on_angles(self, message: Any) -> None:
             self._handle_command(lambda msg: apply_angle_command(self.backend, parse_angle_command(msg)), message, "angle")
