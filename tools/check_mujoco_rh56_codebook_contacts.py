@@ -122,7 +122,7 @@ def main() -> None:
     parser.add_argument("--arm-preset", default="pinch_grasp_box_v2")
     parser.add_argument("--out-xml", default=str(POSE_XML))
     parser.add_argument("--thumb-coupling", choices=sorted(THUMB_COUPLINGS), default="urdf")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
     parser.add_argument("--output", default="data/collision_diagnostics/rh56_codebook_contacts.json")
     args = parser.parse_args()
 

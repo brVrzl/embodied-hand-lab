@@ -8,7 +8,7 @@
 - iPhone camera / MediaPipe RH56 hand teleop：`src/teleop_tools/iphone_hand.py`、`src/teleop_tools/hand_depth.py`、`tools/iphone_*`、`scripts/*iphone*`。
 - Xbox / RViz shadow：`src/teleop_tools/xbox_ros2.py`、`src/teleop_tools/xbox_rviz_shadow.py`、`src/teleop_tools/rviz_shadow_sync.py`、`tools/run_xbox_*`、`scripts/run_xbox_*`、`configs/teleop/xbox_jaka_rh56.yaml`。
 - JAKA/RH56 real bridge：`src/jaka_driver_adapter`、`src/rh56_driver`、`src/robot_bringup` 中的 ROS2 bridge、servo jog、serial backend。
-- `data/sim_assets/jaka_rh56.xml`：遥操作 IK/RViz shadow 依赖。
+- `data/sim_assets/jaka_rh56_visual_coacd.xml`：遥操作 IK/RViz shadow 的默认 runtime asset；`jaka_rh56.xml` 作为 collision comparison 派生源同样保留。
 
 ## 当前项目边界
 

@@ -14,7 +14,7 @@ direction_calibration:
   wrist_roll: {source: right_x, sign: 1.0, scale: 1.0}
 shadow:
   initial_arm_joints_rad: [-1.57079632679, -0.75, 1.10, 0.0, -0.35, 0.0]
-  mjcf_path: data/sim_assets/jaka_rh56.xml
+  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
   max_translation_velocity_m_s: 0.10
   max_wrist_roll_velocity_rad_s: 0.6
   ik_gain: 0.65

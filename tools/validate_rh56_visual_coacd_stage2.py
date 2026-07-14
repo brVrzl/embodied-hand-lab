@@ -20,6 +20,7 @@ from sim_maniskill.rh56_collision_validation import (  # noqa: E402
     CANONICAL_PHYSICAL_POSES,
     CommandProfile,
     canonical_target_ctrl,
+    classify_representation_comparison,
     default_command_profiles,
     run_trajectory_validation,
     write_trajectory_artifacts,
@@ -36,31 +37,48 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return yaml.safe_load(handle)
 
 
-def _add_stage2_object(root: ET.Element) -> None:
+def _add_stage2_object(
+    root: ET.Element,
+    *,
+    object_name: str = "round_ball",
+    object_pos: tuple[float, float, float] = (-0.11, -0.50, 0.050),
+    include_table: bool = True,
+    gravity_compensated: bool = False,
+    table_top_z: float = 0.024,
+    table_half_size_xy: tuple[float, float] = (0.18, 0.16),
+) -> None:
     worldbody = root.find("worldbody")
     if worldbody is None:
         raise RuntimeError("Missing worldbody.")
     if any(geom.get("name") == "stage2_table" for geom in root.iter("geom")):
         return
-    ET.SubElement(
-        worldbody,
-        "geom",
-        {
-            "name": "stage2_table",
-            "type": "box",
-            "pos": "-0.11 -0.50 0.012",
-            "size": "0.18 0.16 0.012",
-            "friction": "1.4 0.05 0.003",
-            "condim": "4",
-            "rgba": "0.72 0.66 0.56 1",
-        },
-    )
+    if include_table:
+        ET.SubElement(
+            worldbody,
+            "geom",
+            {
+                "name": "stage2_table",
+                "type": "box",
+                "pos": f"{object_pos[0]:.6f} {object_pos[1]:.6f} {table_top_z - 0.006:.6f}",
+                "size": f"{table_half_size_xy[0]:.6f} {table_half_size_xy[1]:.6f} 0.006",
+                "friction": "1.4 0.05 0.003",
+                "condim": "4",
+                "rgba": "0.72 0.66 0.56 1",
+            },
+        )
+    specs = {
+        "round_ball": {"type": "sphere", "size": "0.022", "mass": "0.030", "rgba": "0.25 0.68 0.36 1"},
+        "foam_cube": {"type": "box", "size": "0.018 0.018 0.018", "mass": "0.018", "rgba": "0.85 0.30 0.18 1"},
+    }
+    if object_name not in specs:
+        raise ValueError(f"Unknown Stage 2 object {object_name!r}; choices={sorted(specs)}")
     obj = ET.SubElement(
         worldbody,
         "body",
         {
             "name": "stage2_object_body",
-            "pos": "-0.11 -0.50 0.050",
+            "pos": " ".join(f"{value:.9f}" for value in object_pos),
+            **({"gravcomp": "1"} if gravity_compensated else {}),
         },
     )
     ET.SubElement(obj, "freejoint", {"name": "stage2_object_freejoint"})
@@ -69,13 +87,13 @@ def _add_stage2_object(root: ET.Element) -> None:
         "geom",
         {
             "name": "stage2_object",
-            "type": "sphere",
-            "size": "0.022",
-            "mass": "0.030",
+            "type": specs[object_name]["type"],
+            "size": specs[object_name]["size"],
+            "mass": specs[object_name]["mass"],
             "friction": "1.8 0.08 0.004",
             "condim": "4",
             "priority": "1",
-            "rgba": "0.25 0.68 0.36 1",
+            "rgba": specs[object_name]["rgba"],
         },
     )
 
@@ -86,12 +104,26 @@ def _build_stage2_xml(
     out_xml: Path,
     collision_mode: str,
     include_object: bool,
+    object_name: str = "round_ball",
+    object_pos: tuple[float, float, float] = (-0.11, -0.50, 0.050),
+    include_object_table: bool = True,
+    gravity_compensated_object: bool = False,
+    object_table_top_z: float = 0.024,
+    object_table_half_size_xy: tuple[float, float] = (0.18, 0.16),
 ) -> None:
     _build_pose_xml(base_xml, out_xml, collision_mode=collision_mode)
     if include_object:
         tree = ET.parse(out_xml)
         root = tree.getroot()
-        _add_stage2_object(root)
+        _add_stage2_object(
+            root,
+            object_name=object_name,
+            object_pos=object_pos,
+            include_table=include_object_table,
+            gravity_compensated=gravity_compensated_object,
+            table_top_z=object_table_top_z,
+            table_half_size_xy=object_table_half_size_xy,
+        )
         root.set("model", f"rh56_stage2a_{collision_mode}_object")
         tree.write(out_xml, encoding="utf-8", xml_declaration=False)
 
@@ -117,7 +149,85 @@ def _profile_with_timeout(profile: CommandProfile, timeout_scale: float) -> Comm
         persistent_contact_seconds=profile.persistent_contact_seconds,
         transient_contact_seconds=profile.transient_contact_seconds,
         force_blockage_threshold=profile.force_blockage_threshold,
+        hybrid_slowdown_error_ctrl=profile.hybrid_slowdown_error_ctrl,
+        hybrid_near_contact_scale=profile.hybrid_near_contact_scale,
     )
+
+
+def _is_blocked_or_forbidden(row: dict[str, Any]) -> bool:
+    return bool(row["blocked"] or row["outcome"] == "forbidden_structural_collision")
+
+
+def _reference_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [row for row in rows if row["collision_mode"] in {"correll_mesh", "unifuc_pad_proxy"}]
+
+
+def _annotate_mode_comparison(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    comparisons: list[dict[str, Any]] = []
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for row in results:
+        key = (row["scene"], row["target_name"], row["strategy"])
+        grouped.setdefault(key, []).append(row)
+
+    for (scene, target_name, strategy), rows in grouped.items():
+        by_mode = {row["collision_mode"]: row for row in rows}
+        visual = by_mode.get("visual_coacd")
+        refs = _reference_rows(rows)
+        if visual is None or not refs:
+            continue
+
+        refs_with_self_contact = [
+            row
+            for row in refs
+            if row["first_blocking_pair"] or row["first_forbidden_pair"] or row["max_rh56_self_penetration_m"] > 0.0
+        ]
+        evidence = visual.get("original_visual_diagnostic", {})
+        comparison_semantics = classify_representation_comparison(
+            visual_coacd=visual,
+            references=refs,
+            original_visual_intersects=evidence.get("intersects"),
+            original_visual_gap_m=evidence.get("minimum_surface_distance_m"),
+        )
+        classification = comparison_semantics["classification"]
+        reason = comparison_semantics["reason"]
+
+        comparison = {
+            "scene": scene,
+            "target_name": target_name,
+            "strategy": strategy,
+            "classification": classification,
+            "reason": reason,
+            "root_cause_classification": comparison_semantics.get("root_cause_classification"),
+            "reference_modes_are_ground_truth": False,
+            "visual_coacd": {
+                "outcome": visual["outcome"],
+                "blockage_kind": visual["blockage_kind"],
+                "first_blocking_pair": visual["first_blocking_pair"],
+                "first_forbidden_pair": visual["first_forbidden_pair"],
+                "first_contact_time": visual["first_contact_time"],
+                "max_rh56_self_penetration_m": visual["max_rh56_self_penetration_m"],
+                "final_target_error": visual["final_target_error"],
+            },
+            "references": [
+                {
+                    "collision_mode": row["collision_mode"],
+                    "outcome": row["outcome"],
+                    "blockage_kind": row["blockage_kind"],
+                    "first_blocking_pair": row["first_blocking_pair"],
+                    "first_forbidden_pair": row["first_forbidden_pair"],
+                    "first_contact_time": row["first_contact_time"],
+                    "max_rh56_self_penetration_m": row["max_rh56_self_penetration_m"],
+                    "final_target_error": row["final_target_error"],
+                }
+                for row in refs
+            ],
+            "reference_self_contact_or_penetration_seen": bool(refs_with_self_contact),
+        }
+        comparisons.append(comparison)
+        for row in rows:
+            row["mode_comparison_classification"] = classification
+            row["mode_comparison_reason"] = reason
+    return comparisons
 
 
 def _path_dependent_outcomes(results: list[dict[str, Any]]) -> None:
@@ -194,15 +304,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             "arm_actuator_names": list(ARM_ACTUATOR_NAMES),
                             "visual_mesh_intersection": {
                                 "status": "not_evaluated_stage2a",
-                                "reason": "This smoke validator compares collision modes on identical dynamic trajectories; exact vendor visual mesh triangle intersection remains a separate diagnostic.",
+                                "reason": (
+                                    "This smoke validator compares collision modes on identical dynamic "
+                                    "trajectories; exact vendor visual mesh triangle intersection remains "
+                                    "a separate diagnostic."
+                                ),
                             },
                         }
                     )
                     results.append(row)
 
     _path_dependent_outcomes(results)
+    mode_comparisons = _annotate_mode_comparison(results)
     report = {
-        "schema": "rh56_visual_coacd_stage2a_dynamic_validation_v0.1",
+        "schema": "rh56_visual_coacd_stage2a_dynamic_validation_v0.2",
         "base_xml": str(args.base_xml),
         "robot_config": str(args.robot_config),
         "arm_preset": args.arm_preset,
@@ -217,12 +332,31 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "hold_seconds": profile.hold_seconds,
             "timeout_seconds": profile.timeout_seconds,
             "error_tolerance_ctrl": profile.error_tolerance_ctrl,
+            "hybrid_slowdown_error_ctrl": profile.hybrid_slowdown_error_ctrl,
+            "hybrid_near_contact_scale": profile.hybrid_near_contact_scale,
         },
         "known_speed_mapping": {
-            "hardware_raw_speed_units": "available as RH56 SPEED_SET registers and config defaults such as 500 or 800",
+            "hardware_raw_speed_units": (
+                "available as RH56 SPEED_SET registers and config defaults such as 500 or 800"
+            ),
             "raw_speed_to_rad_s": "unavailable in repository; this validator does not invent it",
-            "nominal_profile_basis": "teleop delta_limit=0.05 normalized units at command_hz=15 mapped to MuJoCo actuator ranges",
+            "nominal_profile_basis": (
+                "teleop delta_limit=0.05 normalized units at command_hz=15 mapped to MuJoCo "
+                "actuator ranges"
+            ),
         },
+        "mode_comparisons": mode_comparisons,
+        "stage2a_limitations": [
+            (
+                "Exact vendor visual-mesh triangle intersection is still reported as a diagnostic "
+                "placeholder, not as a CI gate."
+            ),
+            (
+                "A blocked command order is not treated as a collision-mesh defect when another "
+                "reviewed order reaches the same target."
+            ),
+            "Final Stage 2B CI gates remain intentionally unimplemented.",
+        ],
         "results": results,
     }
     (out_dir / "stage2a_summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -257,6 +391,7 @@ def main() -> None:
             "max_penetration_m": row["max_penetration_m"],
             "max_rh56_self_penetration_m": row["max_rh56_self_penetration_m"],
             "final_target_error": row["final_target_error"],
+            "mode_comparison_classification": row.get("mode_comparison_classification"),
             "artifact_dir": row["artifact_dir"],
         }
         for row in report["results"]

@@ -12,7 +12,11 @@ import mujoco
 import numpy as np
 import yaml
 
-from sim_maniskill.rh56_collision import patch_rh56_correll_collision_model, patch_rh56_visual_coacd_collision_model
+from sim_maniskill.rh56_collision import (
+    DEFAULT_RH56_COLLISION_MODE,
+    patch_rh56_correll_collision_model,
+    patch_rh56_visual_coacd_collision_model,
+)
 
 BASE_XML = Path("data/sim_assets/jaka_rh56.xml")
 OUT_DIR = Path("data/mujoco_grasp_benchmark")
@@ -922,7 +926,7 @@ def main() -> None:
     parser.add_argument("--success-lift", type=float, default=0.020)
     parser.add_argument("--point-count", type=int, default=768)
     parser.add_argument("--max-candidates", type=int, default=72)
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="correll_mesh")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default=DEFAULT_RH56_COLLISION_MODE)
     args = parser.parse_args()
 
     summary = run_benchmark(args)

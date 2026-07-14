@@ -294,7 +294,7 @@ def main() -> None:
     parser.add_argument("--base-xml", default=str(BASE_XML))
     parser.add_argument("--out-xml", default=str(DEBUG_DIR / "jaka_rh56_debug.xml"))
     parser.add_argument("--scenario", choices=["hand_close", "cube_in_hand", "table_cube"], default="cube_in_hand")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
     parser.add_argument("--duration", type=float, default=6.0)
     parser.add_argument("--cycle-period", type=float, default=3.0)
     parser.add_argument("--viewer", action="store_true")

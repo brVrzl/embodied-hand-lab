@@ -463,7 +463,7 @@ def build_workspace_xml(config: dict[str, Any]) -> dict[str, Any]:
     _ensure_compiler_meshdir(root, base_xml)
     _ensure_visual_environment(root)
     _tune_actuators(root)
-    _configure_collision_model(root, collision_mode=str(config.get("collision_mode", "unifuc_pad_proxy")))
+    _configure_collision_model(root, collision_mode=str(config.get("collision_mode", "visual_coacd")))
     _add_workspace_scene(root, config)
     camera_names = _add_cameras(root, config)
     root.set("model", "jaka_rh56_tennis_ball_lift_workspace")
@@ -473,7 +473,7 @@ def build_workspace_xml(config: dict[str, Any]) -> dict[str, Any]:
         "out_xml": str(out_xml),
         "camera_names": camera_names,
         "workspace_config": config.get("workspace_config"),
-        "collision_mode": config.get("collision_mode", "unifuc_pad_proxy"),
+        "collision_mode": config.get("collision_mode", "visual_coacd"),
     }
     (out_xml.parent / "tennis_ball_lift_workspace_summary.json").write_text(
         json.dumps(summary, indent=2),

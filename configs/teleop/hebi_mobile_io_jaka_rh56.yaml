@@ -66,7 +66,7 @@ relative_pose_lag_follow:
   reanchor_requires_deadman_release: true
 
 shadow:
-  mjcf_path: data/sim_assets/jaka_rh56.xml
+  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
   initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
   ik_gain: 0.7
   ik_damping: 0.05

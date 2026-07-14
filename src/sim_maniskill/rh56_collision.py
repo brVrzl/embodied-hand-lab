@@ -215,6 +215,7 @@ CORRELL_THUMB_INDEX_MESH_GEOMS = {
 }
 
 VISUAL_COACD_ASSET_DIR = Path("meshes/rh56_collision_visual_coacd")
+DEFAULT_RH56_COLLISION_MODE = "visual_coacd"
 
 VISUAL_COACD_SOURCE_STEMS: dict[str, str] = {
     "rh56_R_hand_base_link": "R_hand_base_link",
@@ -321,6 +322,51 @@ def _disable_existing_hand_collision_geoms(root: ET.Element, *, keep_correll: bo
             geom.attrib.update(DISABLED_COLLISION_ATTRS)
 
 
+def _is_vendor_visual_geom(body_name: str, geom: ET.Element) -> bool:
+    return (
+        geom.get("name") == f"{body_name}_geom_0"
+        and geom.get("type") == "mesh"
+        and geom.get("mesh") == body_name
+    )
+
+
+def _remove_visual_coacd_reference_geoms(root: ET.Element) -> None:
+    """Keep only vendor visuals and CoACD parts on RH56 bodies.
+
+    The source model intentionally contains legacy analytic and Correll geometry
+    for isolated comparison modes. The visual_coacd runtime derivation must not
+    carry those geoms, even as collision-disabled renderable references.
+    """
+
+    for body in root.iter("body"):
+        body_name = body.get("name", "")
+        if body_name not in VISUAL_COACD_SOURCE_STEMS:
+            continue
+        for geom in list(body.findall("geom")):
+            name = geom.get("name", "")
+            if _is_vendor_visual_geom(body_name, geom):
+                geom.attrib.update(VISUAL_ONLY_ATTRS)
+                continue
+            if name.startswith(f"{body_name}_visual_coacd_collision_"):
+                continue
+            body.remove(geom)
+
+
+def _prune_unreferenced_correll_mesh_assets(root: ET.Element) -> None:
+    asset = root.find("asset")
+    if asset is None:
+        return
+    referenced_meshes = {
+        geom.get("mesh")
+        for geom in root.iter("geom")
+        if geom.get("mesh") is not None
+    }
+    correll_meshes = {mesh_name for mesh_name, _ in CORRELL_COLLISION_MESHES.values()}
+    for mesh in list(asset.findall("mesh")):
+        if mesh.get("name") in correll_meshes and mesh.get("name") not in referenced_meshes:
+            asset.remove(mesh)
+
+
 def _add_reviewed_internal_exclusions(root: ET.Element) -> None:
     contact = _ensure_contact(root)
     existing = {
@@ -375,7 +421,7 @@ def patch_rh56_correll_collision_model(root: ET.Element) -> None:
 
 
 def patch_rh56_visual_coacd_collision_model(root: ET.Element, *, asset_root: str | Path = "data/sim_assets") -> None:
-    """Use CoACD convex parts generated from the mounted RH56 visual STL files."""
+    """Derive the RH56 runtime model using only vendor visuals and CoACD parts."""
 
     asset_root = Path(asset_root)
     collision_dir = asset_root / VISUAL_COACD_ASSET_DIR
@@ -387,7 +433,7 @@ def patch_rh56_visual_coacd_collision_model(root: ET.Element, *, asset_root: str
     asset = _ensure_asset(root)
     existing_meshes = {mesh.get("name") for mesh in asset.findall("mesh")}
 
-    _disable_existing_hand_collision_geoms(root, keep_correll=False)
+    _remove_visual_coacd_reference_geoms(root)
 
     for body_name, source_stem in VISUAL_COACD_SOURCE_STEMS.items():
         body = _find_body(root, body_name)
@@ -424,12 +470,13 @@ def patch_rh56_visual_coacd_collision_model(root: ET.Element, *, asset_root: str
                 continue
             _insert_body_geom(body, attrs)
     _add_reviewed_internal_exclusions(root)
+    _prune_unreferenced_correll_mesh_assets(root)
 
 
 def patch_rh56_collision_model(root: ET.Element) -> None:
-    """Use Correll RH56DFX collision meshes and keep mounted visual meshes visual-only."""
+    """Apply the reviewed default RH56 collision representation."""
 
-    patch_rh56_correll_collision_model(root)
+    patch_rh56_visual_coacd_collision_model(root)
 
 
 def patch_rh56_proxy_collision_model(root: ET.Element) -> None:

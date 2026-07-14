@@ -11,6 +11,8 @@ data/*
 !data/sim_assets/
 data/sim_assets/*
 !data/sim_assets/jaka_rh56.xml
+!data/sim_assets/jaka_rh56_visual_coacd.xml
+!data/sim_assets/jaka_rh56_visual_coacd.manifest.json
 !data/sim_assets/README.md
 !data/sim_assets/meshes/
 !data/sim_assets/meshes/**

@@ -13,10 +13,8 @@ from mani_skill.utils import sapien_utils
 from mani_skill.utils.structs.actor import Actor
 from transforms3d.euler import euler2quat
 
-from sim_maniskill.rh56_collision import patch_rh56_collision_text
-
 LOCAL_ASSET_ROOT = Path(__file__).resolve().parents[3] / "data" / "sim_assets"
-LOCAL_XML_PATH = LOCAL_ASSET_ROOT / "jaka_rh56.xml"
+LOCAL_XML_PATH = LOCAL_ASSET_ROOT / "jaka_rh56_visual_coacd.xml"
 DESKTOP_ASSET_PREFIX = "/home/w/Desktop/robot_sim/assets"
 HAND_MOUNT_TOKEN = 'pos="0 0 0.009"'
 HAND_MOUNT_WITH_USER_FLANGE = 'pos="0 0 0.009"'
@@ -47,15 +45,14 @@ JAKA_RH56_FULL_REST_QPOS = np.array(
 
 
 def _rewrite_mjcf_text(xml_text: str) -> str:
-    xml_text = xml_text.replace(HAND_MOUNT_TOKEN, HAND_MOUNT_WITH_USER_FLANGE, 1)
-    return patch_rh56_collision_text(xml_text)
+    return xml_text.replace(HAND_MOUNT_TOKEN, HAND_MOUNT_WITH_USER_FLANGE, 1)
 
 
 def ensure_local_mjcf() -> Path:
     if not LOCAL_XML_PATH.exists():
         raise FileNotFoundError(
             f"Missing local JAKA+RH56 MJCF at {LOCAL_XML_PATH}. "
-            "Expected data/sim_assets/jaka_rh56.xml and its local meshes to be present."
+            "Expected data/sim_assets/jaka_rh56_visual_coacd.xml and its local meshes to be present."
         )
     return LOCAL_XML_PATH
 

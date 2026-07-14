@@ -1,7 +1,7 @@
 workspace_config: configs/workspace/tennis_ball_lift_current.yaml
 base_xml: data/sim_assets/jaka_rh56.xml
 out_xml: data/mujoco_debug/tennis_ball_lift_workspace.xml
-collision_mode: unifuc_pad_proxy
+collision_mode: visual_coacd
 
 scene:
   floor:

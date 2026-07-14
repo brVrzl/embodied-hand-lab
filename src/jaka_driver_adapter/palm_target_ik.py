@@ -6,7 +6,7 @@ import mujoco
 import numpy as np
 
 
-DEFAULT_MJCF = Path("data/sim_assets/jaka_rh56.xml")
+DEFAULT_MJCF = Path("data/sim_assets/jaka_rh56_visual_coacd.xml")
 MJCF_ARM_JOINT_NAMES = [f"jaka_joint_{index}" for index in range(1, 7)]
 PALM_BODY_NAME = "rh56_R_hand_base_link"
 JAKA_MINI2_JOINT_LIMITS_RAD = [

@@ -1,0 +1,62 @@
+schema: rh56_stage2_trajectory_manifest_v0.1
+actuator_space: physical_normalized
+physical_order: [pinky, ring, middle, index, thumb_close, thumb_lateral]
+hard_ci_assertions: false
+trajectories:
+  open:
+    initial_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    motion_orders: [simultaneous]
+    speed_profiles: [slow_validation, nominal, hybrid]
+    target_semantics: free_space_target
+    expected_terminal_condition: target_reached_without_unreviewed_self_contact
+    allowed_semantic_contact_regions: []
+    forbidden_structural_regions: [proximal_segment, middle_segment, thumb_base_joint_region, palm]
+    validation_status: manifest_only
+    evidence: ".venv/bin/python tools/validate_rh56_visual_coacd_stage2.py --targets open"
+  thumb_rotate:
+    initial_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_command: [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    motion_orders: [simultaneous]
+    speed_profiles: [slow_validation, nominal, hybrid]
+    target_semantics: free_space_target
+    expected_terminal_condition: target_reached_without_unreviewed_self_contact
+    allowed_semantic_contact_regions: []
+    forbidden_structural_regions: [proximal_segment, middle_segment, thumb_base_joint_region, palm]
+    validation_status: prior_stage2a_smoke_only
+    evidence: PROJECT_HANDOFF.md
+  real_pinch_v4:
+    initial_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_command: [0.0, 0.0, 0.12, 0.15, 0.40, 1.0]
+    motion_orders: [thumb_first, simultaneous, iterative_incremental]
+    speed_profiles: [slow_validation, nominal, hybrid]
+    target_semantics: object_required_target
+    expected_terminal_condition: bilateral_object_contact_or_reviewed_distal_terminal_contact
+    allowed_semantic_contact_regions: [fingertip_pad]
+    forbidden_structural_regions: [proximal_segment, middle_segment, thumb_base_joint_region, palm]
+    validation_status: hardware_object_use_documented_dynamic_object_validation_pending
+    evidence: configs/hand/rh56_real.yaml
+  sim_best_pinch:
+    initial_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_command: [0.10, 0.10, 0.55, 0.60, 0.68, 1.0]
+    motion_orders: [simultaneous, thumb_first, finger_first, iterative_incremental]
+    speed_profiles: [slow_validation, nominal, hybrid]
+    target_semantics: diagnostic_only
+    semantics_assumption: repository_usage_does_not_establish_free_space_or_object_required_intent
+    expected_terminal_condition: report_reach_blockage_or_reviewed_distal_terminal_contact_without_ci_assertion
+    allowed_semantic_contact_regions: [fingertip_pad]
+    forbidden_structural_regions: [proximal_segment, middle_segment, thumb_base_joint_region, palm]
+    validation_status: stage2a_shared_visual_or_kinematic_intersection_object_mediated_closure_failed_report_only
+    evidence: ".venv/bin/python tools/investigate_rh56_visual_coacd_stage2a.py --out-dir /tmp/rh56_visual_coacd_stage2a_closeout_final --profiles slow_validation nominal hybrid --timeout-scale 2 --seed 0"
+  power_close:
+    initial_command: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    target_command: [0.75, 0.75, 0.80, 0.80, 0.55, 0.65]
+    motion_orders: [simultaneous, thumb_first, finger_first, iterative_incremental]
+    speed_profiles: [slow_validation, nominal, hybrid]
+    target_semantics: diagnostic_only
+    semantics_assumption: close_command_name_suggests_object_use_but_exact_canonical_target_intent_is_not_documented
+    expected_terminal_condition: report_reach_blockage_or_object_contact_without_ci_assertion
+    allowed_semantic_contact_regions: [fingertip_pad]
+    forbidden_structural_regions: [proximal_segment, middle_segment, thumb_base_joint_region, palm]
+    validation_status: shortened_smoke_only
+    evidence: PROJECT_HANDOFF.md

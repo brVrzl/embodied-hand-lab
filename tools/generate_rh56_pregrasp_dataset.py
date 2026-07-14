@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mujoco_rh56_grasp_benchmark import (  # noqa: E402
     BASE_XML,
+    COLLISION_MODES,
     OBJECTS,
     ObjectSpec,
     _build_scene_xml,
@@ -231,7 +232,7 @@ def main() -> None:
     parser.add_argument("--primitive-config", default="configs/pregrasp/rh56_pregrasp.yaml")
     parser.add_argument("--objects", nargs="+", default=["all"])
     parser.add_argument("--out-dir", default="data/rh56_pregrasp_dataset_v0")
-    parser.add_argument("--collision-mode", default="unifuc_pad_proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
     parser.add_argument("--point-count", type=int, default=768)
     parser.add_argument("--offset-radius-m", type=float, default=0.010)
     parser.add_argument("--offsets-per-primitive", type=int, default=5)

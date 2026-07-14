@@ -9,13 +9,13 @@
 - JAKA mini2 配置、preset motion 辅助脚本、mock backend、servo-jog 安全控制工具。
 - Inspire RH56 命令 schema、mock/serial backend、ROS2 JSON bridge、手指顺序和命令映射。
 - Xbox、HEBI Mobile I/O、iPhone camera、RViz shadow 等遥操作实验工具。
-- 当前 JAKA-mounted MuJoCo 文件 `data/sim_assets/jaka_rh56.xml`，仍被 IK、预览、benchmark、ManiSkill 等路径引用。
+- 默认 JAKA-mounted MuJoCo runtime asset `data/sim_assets/jaka_rh56_visual_coacd.xml`，使用固定的 148-hull `visual_coacd` collision baseline。
 - Correll RH56DFX 参考 MuJoCo 手部资产 `data/sim_assets/correll_rh56dfx/`，用于浮动手 FK 规划和指尖 force/torque scene 验证。
 - `src/pregrasp` 中的确定性 geometry-based RH56 预抓取候选生成流程。
 
 关键说明：
 
-`data/sim_assets/jaka_rh56.xml` 需要保留，是因为当前项目仍依赖它作为恢复锚点和 mounted-arm 集成模型。这不表示该模型完整、已标定或是最终真值。它需要继续审计和改进，不能把它当作已经验证过的 RH56 数字孪生。
+`data/sim_assets/jaka_rh56.xml` 继续保留为 mounted-arm 派生源，用于显式构建 Correll/proxy 比较模式。普通 runtime 使用 `jaka_rh56_visual_coacd.xml`；这不表示整机动力学或真实抓取性能已经完成标定。
 
 ## 目录结构
 
@@ -50,18 +50,21 @@ tools/            脚本和实验调用的 Python 工具
 
 ## 仿真资产边界
 
-当前有两类 RH56 资产角色：
+当前有三类 RH56 资产角色：
+
+- `data/sim_assets/jaka_rh56_visual_coacd.xml`
+  - 默认 JAKA+RH56 mounted runtime model。
+  - 13 个 vendor visual geoms 仅渲染，148 个 CoACD hulls 是唯一 active RH56 collision geometry。
+  - `jaka_rh56_visual_coacd.manifest.json` 固定资产清单与 SHA-256。
 
 - `data/sim_assets/jaka_rh56.xml`
-  - 当前 JAKA+RH56 mounted model。
-  - 被 palm-target IK、RViz/teleop 预览、MuJoCo benchmark、ManiSkill 集成使用。
-  - runtime hand collision 默认注入 Correll RH56DFX collision mesh，旧 analytic proxy 仅作为对比/回退模式。
-  - 仍需要继续审计。不要把它理解为完整硬件表征模型。
+  - mounted integration/derivation source。
+  - 保留 legacy、Correll 和 proxy 信息以支持隔离比较模式，不作为普通 runtime 默认模型。
 
 - `data/sim_assets/correll_rh56dfx/`
   - 来自 Correll Robotics Lab RH56DFX 工作的参考资产。
   - 用作浮动手 FK 规划和指尖 force/torque sensor scene 的参考模型。
-  - 通过 `pregrasp.correll_rh56dfx` 暴露给项目代码，并通过 `sim_maniskill.rh56_collision` 作为 mounted hand 的默认 collision mesh 来源。
+  - 通过 `pregrasp.correll_rh56dfx` 暴露给项目代码，并通过 `sim_maniskill.rh56_collision` 保留为显式 comparison mode。
 
 不要随意合并这两类角色。用 Correll 浮动手模型替换 JAKA-mounted 模型，需要单独迁移 mount frame、joint/body name、actuator order 和下游测试。
 
@@ -165,6 +168,6 @@ Correll FK planner 会在适合的物体宽度下生成额外的 `correll_line_w
 
 - 外部资产要按来源和用途分目录，并保留 license。
 - 替换仿真文件前，先补验证测试。
-- 在所有依赖路径迁移完成前，不要删除 `data/sim_assets/jaka_rh56.xml`。
+- 不要删除 `data/sim_assets/jaka_rh56.xml`；它仍是隔离 collision comparison modes 的派生源。
 - 没有真实 replay 数据时，不要把仿真抓取成功率写成真实机器人性能。
 - 如果某个资产只是临时恢复锚点，要在文档和配置注释中明确说明。

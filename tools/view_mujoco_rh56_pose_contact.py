@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib
 import json
 import sys
@@ -59,22 +60,107 @@ THUMB_COUPLINGS: dict[str, tuple[float, float]] = {
     "gazebo_plugin": (1.0, 1.0),
 }
 
+REVIEW_GEOMETRY_CHOICES = ("visual_coacd", "coacd_only")
+DISABLED_REFERENCE_CHOICES = ("none", "legacy", "correll", "all")
+
+
+def _capture_disabled_reference_geometry(
+    root: ET.Element,
+    selection: str,
+) -> tuple[dict[str, list[ET.Element]], dict[str, ET.Element]]:
+    if selection not in DISABLED_REFERENCE_CHOICES:
+        raise ValueError(f"Unknown disabled reference selection: {selection}")
+    if selection == "none":
+        return {}, {}
+
+    references: dict[str, list[ET.Element]] = {}
+    mesh_names: set[str] = set()
+    for body in root.iter("body"):
+        body_name = body.get("name", "")
+        if not body_name.startswith("rh56_R_"):
+            continue
+        for geom in body.findall("geom"):
+            name = geom.get("name", "")
+            if name == f"{body_name}_geom_0" or "visual_coacd_collision" in name:
+                continue
+            kind = "correll" if name.endswith("_correll_collision") else "legacy"
+            if selection not in {kind, "all"}:
+                continue
+            reference = copy.deepcopy(geom)
+            reference.set("name", f"review_disabled_{kind}__{name}")
+            reference.set("contype", "0")
+            reference.set("conaffinity", "0")
+            reference.set("group", "4")
+            references.setdefault(body_name, []).append(reference)
+            if reference.get("mesh"):
+                mesh_names.add(str(reference.get("mesh")))
+
+    asset = root.find("asset")
+    meshes = {
+        str(mesh.get("name")): copy.deepcopy(mesh)
+        for mesh in ([] if asset is None else asset.findall("mesh"))
+        if mesh.get("name") in mesh_names
+    }
+    return references, meshes
+
+
+def _append_disabled_reference_geometry(
+    root: ET.Element,
+    references: dict[str, list[ET.Element]],
+    meshes: dict[str, ET.Element],
+) -> None:
+    if not references:
+        return
+    asset = root.find("asset")
+    if asset is None:
+        asset = ET.Element("asset")
+        root.insert(0, asset)
+    existing_meshes = {mesh.get("name") for mesh in asset.findall("mesh")}
+    for mesh_name, mesh in meshes.items():
+        if mesh_name not in existing_meshes:
+            asset.append(mesh)
+
+    bodies = {body.get("name"): body for body in root.iter("body")}
+    for body_name, geoms in references.items():
+        body = bodies.get(body_name)
+        if body is None:
+            continue
+        children = list(body)
+        insert_at = next(
+            (index for index, child in enumerate(children) if child.tag == "body"),
+            len(children),
+        )
+        for geom in geoms:
+            body.insert(insert_at, geom)
+            insert_at += 1
+
 
 def _build_pose_xml(
     base_xml: Path,
     out_xml: Path,
     *,
     thumb_coupling: str = "urdf",
-    collision_mode: str = "proxy",
+    collision_mode: str = "visual_coacd",
+    disabled_reference_geometry: str = "none",
 ) -> None:
     out_xml.parent.mkdir(parents=True, exist_ok=True)
     tree = ET.parse(base_xml)
     root = tree.getroot()
+    references: dict[str, list[ET.Element]] = {}
+    reference_meshes: dict[str, ET.Element] = {}
+    if disabled_reference_geometry != "none":
+        if collision_mode != "visual_coacd":
+            raise ValueError("Disabled reference overlays are only supported with visual_coacd")
+        references, reference_meshes = _capture_disabled_reference_geometry(
+            root,
+            disabled_reference_geometry,
+        )
     _set_compiler_meshdir(root, base_xml)
     pip_multiplier, dip_multiplier = THUMB_COUPLINGS[thumb_coupling]
     _set_thumb_mimic_coupling(root, pip_multiplier=pip_multiplier, dip_multiplier=dip_multiplier)
     _tune_actuators_for_grasp_benchmark(root)
     _configure_collision_model(root, collision_mode=collision_mode, include_calibration_markers=True)
+    _append_disabled_reference_geometry(root, references, reference_meshes)
     worldbody = root.find("worldbody")
     if worldbody is None:
         raise RuntimeError("Missing worldbody.")
@@ -112,11 +198,22 @@ def _set_hand_qpos_from_ctrl(data: mujoco.MjData, ctrl: np.ndarray, *, thumb_cou
     ]
 
 
-def _configure_viewer(handle: Any, *, show_contacts: bool = False, lookat_z: float = 0.09) -> None:
+def _configure_viewer(
+    handle: Any,
+    *,
+    show_contacts: bool = False,
+    lookat_z: float = 0.09,
+    review_geometry: str | None = None,
+    show_disabled_references: bool = False,
+) -> None:
     handle.cam.azimuth = -120
     handle.cam.elevation = -18
     handle.cam.distance = 0.42
     handle.cam.lookat[:] = [-0.04, -0.57, lookat_z]
+    if review_geometry is not None:
+        handle.opt.geomgroup[1] = 1 if review_geometry == "visual_coacd" else 0
+        handle.opt.geomgroup[3] = 1
+        handle.opt.geomgroup[4] = 1 if show_disabled_references else 0
     try:
         value = 1 if show_contacts else 0
         handle.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = value
@@ -196,6 +293,7 @@ def run_pose_view(args: argparse.Namespace) -> None:
         Path(args.out_xml),
         thumb_coupling=args.thumb_coupling,
         collision_mode=args.collision_mode,
+        disabled_reference_geometry=args.disabled_reference_geometry,
     )
     model = mujoco.MjModel.from_xml_path(str(args.out_xml))
     data = mujoco.MjData(model)
@@ -215,6 +313,13 @@ def run_pose_view(args: argparse.Namespace) -> None:
     elif args.collision_mode == "unifuc_pad_proxy":
         print("  观察已有 UniFuc-style cyan rectangular pad proxy 是否落在真实 distal 指腹附近。")
         print("  橙色小球是每块已有矩形 pad 的中心，只可视化、不参与碰撞。")
+    elif args.collision_mode == "visual_coacd":
+        print("  Runtime RH56 geometry contains vendor visuals and 148 active visual_coacd hulls only.")
+        if args.disabled_reference_geometry != "none":
+            print(
+                f"  review_disabled_* group-4 references={args.disabled_reference_geometry}; "
+                "collision is disabled."
+            )
     else:
         print("  观察 cyan capsule/box collision proxy 是否落在真实指腹/指尖附近。")
         print("  黄/橙/红/紫小球是沿 distal link 的候选校准点，只可视化、不参与碰撞。")
@@ -224,7 +329,12 @@ def run_pose_view(args: argparse.Namespace) -> None:
     print("  自动循环: open -> thumb_rotate -> real_pinch_v4 -> sim_best_pinch -> power_close")
     print("  关闭 viewer 即退出。", flush=True)
     with viewer.launch_passive(model, data) as handle:
-        _configure_viewer(handle, show_contacts=args.show_contacts)
+        _configure_viewer(
+            handle,
+            show_contacts=args.show_contacts,
+            review_geometry=args.review_geometry if args.collision_mode == "visual_coacd" else None,
+            show_disabled_references=args.disabled_reference_geometry != "none",
+        )
         start = time.time()
         last_pose_name = ""
         while handle.is_running():
@@ -249,6 +359,7 @@ def run_codebook_view(args: argparse.Namespace) -> None:
         Path(args.out_xml),
         thumb_coupling=args.thumb_coupling,
         collision_mode=args.collision_mode,
+        disabled_reference_geometry=args.disabled_reference_geometry,
     )
     centroids, metadata = _load_codebook(Path(args.codebook))
     if args.codebook_index is not None and not (0 <= args.codebook_index < len(centroids)):
@@ -272,7 +383,12 @@ def run_codebook_view(args: argparse.Namespace) -> None:
     print("  注: physical_norm 会映射到 MuJoCo ctrl=[thumb_lateral, thumb_close, index, middle, ring, pinky]")
     print("  关闭 viewer 即退出。", flush=True)
     with viewer.launch_passive(model, data) as handle:
-        _configure_viewer(handle, show_contacts=args.show_contacts)
+        _configure_viewer(
+            handle,
+            show_contacts=args.show_contacts,
+            review_geometry=args.review_geometry if args.collision_mode == "visual_coacd" else None,
+            show_disabled_references=args.disabled_reference_geometry != "none",
+        )
         start = time.time()
         last_code_idx = -1
         while handle.is_running():
@@ -420,7 +536,19 @@ def main() -> None:
     parser.add_argument("--out-xml", default=str(POSE_XML))
     parser.add_argument("--pose-period", type=float, default=2.5)
     parser.add_argument("--thumb-coupling", choices=sorted(THUMB_COUPLINGS), default="urdf")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="correll_mesh")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
+    parser.add_argument(
+        "--review-geometry",
+        choices=REVIEW_GEOMETRY_CHOICES,
+        default="visual_coacd",
+        help="visual_coacd review display: vendor visual overlay or CoACD hulls only.",
+    )
+    parser.add_argument(
+        "--disabled-reference-geometry",
+        choices=DISABLED_REFERENCE_CHOICES,
+        default="none",
+        help="Explicitly add collision-disabled legacy/Correll group-4 review references.",
+    )
     object_choices = sorted(
         [
             "004_sugar_box",

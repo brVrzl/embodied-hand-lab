@@ -175,7 +175,11 @@ def audit(args: argparse.Namespace) -> dict[str, Any]:
             blockers.append(primitive.name)
         primitive_rows[primitive.name] = row
 
-    missing_proxies = sorted(REQUIRED_PAD_PROXIES - geom_names)
+    missing_proxies = (
+        sorted(REQUIRED_PAD_PROXIES - geom_names)
+        if args.collision_mode == "unifuc_pad_proxy"
+        else []
+    )
     if missing_proxies:
         blockers.append("missing_pad_proxies")
 
@@ -206,7 +210,7 @@ def main() -> None:
     parser.add_argument("--primitive-config", default="configs/pregrasp/rh56_pregrasp.yaml")
     parser.add_argument("--out-xml", default="data/collision_diagnostics/rh56_collision_readiness.xml")
     parser.add_argument("--output", default="data/collision_diagnostics/rh56_collision_readiness.json")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="unifuc_pad_proxy")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
     parser.add_argument("--thumb-coupling", choices=sorted(THUMB_COUPLINGS), default="urdf")
     parser.add_argument("--max-penetration-mm", type=float, default=1.5)
     parser.add_argument("--max-hand-self-contacts", type=int, default=0)

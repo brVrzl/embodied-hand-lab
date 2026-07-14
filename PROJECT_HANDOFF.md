@@ -10,12 +10,12 @@ Start here:
    git branch --show-current
    git status --short
    ```
-   Current branch at handoff: `main`. The worktree is dirty and contains both collision work and unrelated project changes. Do not revert unrelated changes.
+   Integration branch at handoff: `integration/rh56-visual-coacd-default`. The worktree also contains unrelated camera, vision, recorder, documentation, and configuration work. Do not revert unrelated changes.
 3. Run the focused collision tests:
    ```bash
-   .venv/bin/python -m pytest tests/test_correll_rh56dfx_assets.py tests/test_mujoco_rh56_collision_modes.py
+   .venv/bin/python -m pytest tests/test_rh56_visual_coacd_default_asset.py tests/test_correll_rh56dfx_assets.py tests/test_mujoco_rh56_collision_modes.py tests/test_rh56_visual_coacd_stage2.py
    ```
-   Current result at handoff: `11 passed`.
+   Current result at handoff: `33 passed`.
 4. Reproduce the Stage 1 audit:
    ```bash
    .venv/bin/python tools/audit_rh56_visual_coacd_stage1.py \
@@ -24,7 +24,7 @@ Start here:
      --actuator-samples 64 \
      --max-contact-rows 80
    ```
-5. Do not regenerate or retune `data/sim_assets/meshes/rh56_collision_visual_coacd/` before Stage 2 validation is implemented.
+5. Do not regenerate, retune, or modify `data/sim_assets/meshes/rh56_collision_visual_coacd/`; the current 148 hulls are the selected default baseline.
 6. Do not add collision exclusions just to hide thumb/index contacts.
 7. Stage 2 should implement dynamic trajectory validation using actuator commands and `mujoco.mj_step`; teleport/qpos sampling is diagnostic only.
 
@@ -32,7 +32,7 @@ Start here:
 
 `embodied_lab` is a rebuilding workspace for a `JAKA mini2 + Inspire RH56` manipulation stack. It contains real robot bring-up, teleoperation, data recording, MuJoCo/ManiSkill assets, Correll RH56DFX reference assets, and RH56 pregrasp tooling.
 
-The current collision subproject goal is to create and validate a simulation-ready collision model for the articulated RH56DFX hand. The working collision path is:
+The RH56 collision validation project selected the current 148-hull `visual_coacd` set as the default MuJoCo collision baseline. The completed collision path is:
 
 ```text
 vendor RH56 visual STL per rigid link
@@ -40,27 +40,39 @@ vendor RH56 visual STL per rigid link
   -> 148 separate convex STL collision components
   -> runtime MuJoCo injection as visual_coacd collision mode
   -> Stage 1 static classification and audit
-  -> Stage 2 dynamic trajectory validation
-  -> Stage 3 optional geometry optimization
+  -> Stage 2A dynamic trajectory validation and manual root-cause review
+  -> selected fixed default runtime baseline
 ```
 
-The collision model is not final. Stage 1 corrected and classified the current model. Stage 2A dynamic trajectory-validation infrastructure now exists, but Stage 2A contact/blockage policy is still preliminary and final CI gates are not implemented.
+Collision geometry work is closed for the current baseline. Do not regenerate CoACD, edit hulls, change actuator mappings, or change the seven exclusions. Stage 2A evidence remains available for diagnostics; it is not a Stage 2B grasp-success CI gate.
 
 ## Current Repository Status
 
-Current branch: `main`.
+Current integration branch: `integration/rh56-visual-coacd-default`.
 
-The repository is dirty. Important collision-related changes include:
+Default runtime assets:
 
-- `pyproject.toml`
+- `data/sim_assets/jaka_rh56_visual_coacd.xml`: committed, directly compilable runtime model.
+- `data/sim_assets/jaka_rh56_visual_coacd.manifest.json`: baseline identity, geometry policy, exclusions, and SHA-256 checksums.
+- `tools/build_rh56_visual_coacd_runtime_asset.py`: deterministic XML/manifest derivation and `--check`; it does not run CoACD.
+- `data/sim_assets/jaka_rh56.xml`: preserved derivation source for isolated comparison modes, not the ordinary runtime default.
+
+Ordinary ManiSkill, IK shadow, teleop shadow, pregrasp, benchmark, readiness, and debug defaults now select `visual_coacd`. Explicit `correll_mesh`, `unifuc_pad_proxy`, and legacy diagnostic modes remain available and are derived from `jaka_rh56.xml`.
+
+Stage 2A files changed in the current session:
+
+- `PROJECT_HANDOFF.md`
 - `src/sim_maniskill/rh56_collision.py`
-- `tools/generate_rh56_visual_coacd_collision.py`
-- `tools/audit_rh56_visual_coacd_stage1.py`
+- `src/sim_maniskill/rh56_collision_validation.py`
+- `src/sim_maniskill/rh56_collision_diagnostics.py` (new)
 - `tools/mujoco_rh56_grasp_benchmark.py`
+- `tools/view_mujoco_rh56_pose_contact.py`
+- `tools/validate_rh56_visual_coacd_stage2.py`
+- `tools/investigate_rh56_visual_coacd_stage2a.py` (new)
 - `tests/test_mujoco_rh56_collision_modes.py`
-- `data/sim_assets/meshes/rh56_collision_visual_coacd/`
+- `tests/test_rh56_visual_coacd_stage2.py`
 
-There are also many unrelated or broader project changes already present in the worktree, including `README.md`, `data/sim_assets/README.md`, `docs/README.md`, `src/rh56_driver/*`, `src/teleop_tools/iphone_hand.py`, and several untracked pregrasp/config/test files. Treat these as user or prior-session work. Do not revert them unless explicitly asked.
+The worktree also contains unrelated camera/vision/recorder/configuration changes that appeared during this session. Treat them as user or concurrent work and do not revert them. No collision geometry, vendor visual mesh, exclusion, actuator mapping, joint limit, or `data/sim_assets/jaka_rh56.xml` change was made during the focused investigation.
 
 ## Current Architecture
 
@@ -81,9 +93,14 @@ Key modules:
   - Static pose/contact comparison across collision modes.
 - `tools/view_mujoco_rh56_pose_contact.py`
   - Viewer/derived XML builder for RH56 pose/contact inspection.
+- `src/sim_maniskill/rh56_collision_diagnostics.py`
+  - Static same-qpos mode comparison, CoACD manifest resolution, and transformed vendor visual-mesh intersection/proximity diagnostics.
+- `tools/investigate_rh56_visual_coacd_stage2a.py`
+  - Focused deterministic root-cause investigation for `sim_best_pinch` + `iterative_incremental`.
 - `data/sim_assets/jaka_rh56.xml`
-  - Current mounted JAKA+RH56 MuJoCo model and integration anchor.
-  - Not a fully validated digital twin.
+  - Mounted JAKA+RH56 derivation source and comparison-mode integration anchor.
+- `data/sim_assets/jaka_rh56_visual_coacd.xml`
+  - Default mounted runtime model with only 13 disabled vendor visual geoms and 148 active CoACD hulls on RH56 bodies.
 - `data/sim_assets/correll_rh56dfx/`
   - Imported Correll RH56DFX reference assets, including floating FK and force/torque scenes.
 
@@ -120,6 +137,9 @@ Runtime mode:
 
 - Collision mode name: `visual_coacd`
 - Implemented by `patch_rh56_visual_coacd_collision_model` in `src/sim_maniskill/rh56_collision.py`.
+- Selected default RH56 collision baseline: the current unchanged set of 148 CoACD hulls, subject only to later human-reviewed local hull refinement.
+- The dedicated runtime derivation contains exactly 13 collision-disabled vendor visual geoms and 148 active CoACD geoms on RH56 bodies. Legacy analytic/proxy and Correll geoms are removed rather than retained disabled, and unreferenced Correll mesh declarations are pruned from that derived XML.
+- Review-only legacy/Correll overlays are opt-in in `tools/view_mujoco_rh56_pose_contact.py`; they are renamed `review_disabled_*`, assigned to group 4, and remain collision-disabled.
 - Available collision modes in `tools/mujoco_rh56_grasp_benchmark.py`:
   - `correll_mesh`
   - `visual_coacd`
@@ -142,12 +162,12 @@ Stage 1 completed:
 - Added `visual_coacd` collision mode.
 - Fixed body-local transform inheritance for `visual_coacd` geoms.
 - Verified `rh56_R_hand_base_link` CoACD geoms inherit the non-identity visual `pos/quat`.
-- Verified Correll collision geoms are disabled when `visual_coacd` is active.
+- Verified legacy analytic/proxy and Correll collision geoms are absent when `visual_coacd` is active.
 - Added reviewed internal structural exclusions.
 - Avoided blanket parent-child exclusion.
 - Rewrote benchmark contact anchoring to semantic contact groups, removing hard dependency on `thumb_pad_proxy`.
 - Added Stage 1 audit script.
-- Added regression tests for compilation, transform inheritance, disabled old proxies/Correll, and reviewed exclusions.
+- Added regression tests for exact runtime geometry inventory, transform inheritance, Correll asset pruning, unchanged hand mass/inertia, review-overlay opt-in behavior, and reviewed exclusions.
 
 ## Important Implementation Decisions
 
@@ -161,6 +181,7 @@ Stage 1 completed:
 - Stage 2 must validate dynamic trajectories with actuator commands and MuJoCo stepping.
 - `data/sim_assets/jaka_rh56.xml` remains the mounted integration anchor; do not replace it casually.
 - Correll assets remain reference/planning assets and a comparison collision mode, not the final mounted hand truth.
+- The current 148-hull set is the default runtime collision baseline. Do not alter individual hulls without a later local refinement backed by human review and the Stage 2 diagnostics.
 
 ## Current Reviewed Exclusion Policy
 
@@ -186,22 +207,34 @@ Current derived `visual_coacd` model has `nexclude = 7`.
 
 ## Current Validation Status
 
-Stage 2A infrastructure status as of 2026-07-10:
+Stage 2A infrastructure status as of 2026-07-13:
 
 - Added `src/sim_maniskill/rh56_collision_validation.py`.
   - Provides reusable MuJoCo contact classification by body/geom names, hand semantic regions, reviewed internal pairs, and severity.
   - Distinguishes fingertip/pad contact, proximal/dorsal structural contact, internal/joint-region contact, finger/palm, hand/object, hand/table, arm contact, object/table, reviewed excluded internal pairs, and unknown/unreviewed pairs.
   - Does not classify all thumb/index contact as forbidden.
   - Drives RH56 position actuators over time with repeated `mujoco.mj_step`; direct `qpos` writes are limited to reset/initial-state setup.
-  - Records controls, measured actuator joint qpos, qpos/qvel, target error, contact bodies/geoms, semantic regions, contact distance/normal/position, contact force, constraint force, actuator force, events, and representative states.
+  - Records controls, measured actuator joint qpos, qpos/qvel, target error, contact bodies/geoms, semantic regions, contact distance/normal/position, contact force, constraint force, actuator force, command sequence, events, and representative states.
   - Implements `slow_validation`, `nominal`, `hybrid`, and `stress` command profiles. The repository exposes RH56 raw hardware speed units and defaults, but no conversion from raw speed units to radians/sec; the `nominal` profile is explicitly inferred from the teleop software policy of `delta_limit=0.05` at `command_hz=15`.
+  - `hybrid` now uses nominal free-space speed and slows near the target or after relevant RH56 contact; the known JAKA Link0/Link1 contact no longer triggers hand slowdown.
+  - Iterative stages now reach and hold their own stage target before advancing. The earlier runner incorrectly tested intermediate-stage completion against the final target.
+  - Contact persistence is consecutive and resets on separation; multiple geom contacts for one body pair no longer multiply persistence time.
+  - Saved dynamic contacts are synchronized to the saved post-step qpos with `mj_forward` after each required `mj_step`.
+  - Reports `slow_progress`, timeout without blockage, stable blockage, reached, and numerical instability separately.
+- Added `src/sim_maniskill/rh56_collision_diagnostics.py`.
+  - Replays saved qpos independently in all three modes for static collision-representation comparison only.
+  - Resolves generated geom names to exact manifest IDs and convex-part STL files.
+  - Loads the original vendor STL meshes and applies mesh scale, geom-local transform, and saved body-world transform.
+  - Uses a deterministic BVH triangle-SAT/distance fallback because `python-fcl` and `rtree` are unavailable; every result reports this limitation.
+  - Confirms transformed raw STL vertices align with MuJoCo's compiled vendor mesh reconstruction within about `9.5e-10 m` maximum.
 - Added `tools/validate_rh56_visual_coacd_stage2.py`.
   - Builds identical dynamic trajectory runs for `visual_coacd`, `correll_mesh`, and `unifuc_pad_proxy`.
   - Supports simultaneous, thumb-first, finger-first, and iterative incremental command orders.
   - Emits per-run `summary.json`, `samples.csv`, `contacts.csv`, and `plots.svg`, plus an aggregate `stage2a_summary.json`.
+  - Emits aggregate `mode_comparisons` with candidate classifications for CoACD-only premature/outward contact, collision tunnelling/missed collision, shared path/kinematic interpenetration, transient grazing, and inconclusive cases.
   - Supports an object-present smoke path, but the deterministic object placement is preliminary and not a grasp-success conclusion.
 - Added `tests/test_rh56_visual_coacd_stage2.py`.
-  - Covers thumb/index fingertip classification, proximal structural classification, reviewed internal pairs, and a short dynamic `mj_step` smoke trajectory.
+  - Also covers same-qpos cross-evaluation, exact manifest-part identification, conservative focused classification, and visual-mesh transform composition.
 
 Focused tests after Stage 2A infrastructure:
 
@@ -211,13 +244,140 @@ Focused tests after Stage 2A infrastructure:
 
 Current result:
 
-- `15 passed`
+- `21 passed`
+
+### Focused `sim_best_pinch` Root-Cause Result
+
+Focused command:
+
+```bash
+.venv/bin/python tools/investigate_rh56_visual_coacd_stage2a.py \
+  --out-dir /tmp/rh56_visual_coacd_stage2a_focused_final \
+  --profiles slow_validation nominal hybrid \
+  --timeout-scale 2 \
+  --seed 0
+```
+
+Conservative classification:
+
+- `shared_visual_or_kinematic_intersection`
+- Do **not** promote the earlier `coacd_only_premature_contact_or_outward_approximation_candidate` to `confirmed_coacd_outward_approximation`.
+
+Dynamic outcomes:
+
+| Profile | `visual_coacd` | `correll_mesh` | `unifuc_pad_proxy` |
+|---|---|---|---|
+| `slow_validation` | blocked at `7.168 s` | reached at `6.520 s` | reached at `6.488 s` |
+| `nominal` | blocked at `4.232 s` | reached at `3.168 s` | reached at `3.150 s` |
+| `hybrid` | blocked at `4.778 s` | reached at `3.504 s` | reached at `3.602 s` |
+
+No focused run timed out, was classified as slow progress, or reported numerical instability. The nominal `visual_coacd` trajectory was repeated independently and matched exactly: identical sample count, outcome, contact/blockage times, aligned qpos, and controls.
+
+First behavioral divergence:
+
+- All three profiles remain dynamically identical or materially aligned until `visual_coacd` first reports thumb distal/index distal contact during `iterative_3`.
+- First contact times are `4.586 s` slow, `2.144 s` nominal, and `2.374 s` hybrid.
+- At those exact qpos, both reference collision modes remain thumb/index contact-free.
+- The original vendor visual meshes are separated only `0.0052-0.0204 mm` one `2 ms` step before CoACD contact, then intersect at the CoACD first-contact state in every profile.
+- Therefore the differential is not explained by insufficient timeout, hybrid slowdown, numerical instability, or dynamic divergence before contact. The reference collision modes permit continued motion after the original vendor visuals begin intersecting.
+
+Exact CoACD components:
+
+- First contact in every profile: `rh56_R_thumb_distal:000` (`R_thumb_distal_part000.stl`) with `rh56_R_index_distal:001` (`R_index_distal_part001.stl`).
+- Maximum penetration in every profile: `rh56_R_thumb_distal:001` (`R_thumb_distal_part001.stl`) with `rh56_R_index_distal:001`.
+- Maximum thumb/index CoACD penetration is about `1.3251 mm`; final target error is about `0.200769` actuator units.
+- The CoACD first-contact point is locally about `0.15-0.17 mm` from the original thumb visual surface and `0.002-0.015 mm` from the index visual surface, so local outward approximation may affect the reported point/timing. It is not the confirmed root cause because the original meshes already intersect at the same saved qpos.
+
+Focused artifacts:
+
+- Markdown report: `/tmp/rh56_visual_coacd_stage2a_focused_final/root_cause_report.md`
+- Focused JSON: `/tmp/rh56_visual_coacd_stage2a_focused_final/focused_root_cause_report.json`
+- Same-qpos replay: `/tmp/rh56_visual_coacd_stage2a_focused_final/same_qpos_cross_evaluation.json`
+- Visual diagnostics: `/tmp/rh56_visual_coacd_stage2a_focused_final/visual_mesh_diagnostics.json`
+- Component aggregation: `/tmp/rh56_visual_coacd_stage2a_focused_final/coacd_component_contacts.json`
+- Per-mode CSV/JSON/SVG: `/tmp/rh56_visual_coacd_stage2a_focused_final/trajectories/`
+- Aligned plots: `/tmp/rh56_visual_coacd_stage2a_focused_final/plots/`
+
+### Stage 2A Controlled Closeout and Object-Mediated Investigation
+
+Closeout command:
+
+```bash
+.venv/bin/python tools/investigate_rh56_visual_coacd_stage2a.py \
+  --out-dir /tmp/rh56_visual_coacd_stage2a_closeout_final \
+  --profiles slow_validation nominal hybrid \
+  --timeout-scale 2 \
+  --seed 0 \
+  --contact-hold-seconds 1.0
+```
+
+Comparison semantics:
+
+- Root cause remains `shared_visual_or_kinematic_intersection`; this is not a confirmed CoACD defect.
+- Representation-level interpretation is `visual_consistent_blocking_reference_modes_permissive` for all three profiles.
+- General comparisons without original visual evidence now remain `inconclusive`; a coarse reference mode reaching is not treated as ground truth.
+- `sim_best_pinch` is `diagnostic_only` in `configs/sim/rh56_stage2_trajectories.yaml`. Repository usage does not establish whether the full command is a free-space or object-required target.
+- Empty-hand distal contact is `terminal_contact_candidate_unresolved_target_semantics`, never successful free-space reach.
+
+Controlled hold-after-contact results:
+
+| Profile | Continuous max | Hold max | Hold settled after 1 s | Settled normal force |
+|---|---:|---:|---:|---:|
+| `slow_validation` | 1.3251 mm | 0.1644 mm | 0.0822 mm | 3.7817 |
+| `nominal` | 1.3251 mm | 0.3088 mm | 0.0901 mm | 3.7496 |
+| `hybrid` | 1.3251 mm | 0.2530 mm | 0.0901 mm | 3.7496 |
+
+In every profile, penetration increased while the controller continued pushing. Holding the actuator target at first persistent distal contact reduced maximum penetration by more than 75% and settled near 0.09 mm. The approximately 1.3251 mm maximum is therefore primarily post-contact continued actuator loading plus soft contact response, not initial collision overlap alone. This is diagnostic; production control was not changed.
+
+Object-mediated `foam_cube` scenario:
+
+- Uses the repository's 36 mm, 18 g foam-cube specification and recorded `pinch_grasp_box_v2` arm pose.
+- The free cube rests on a table. Its deterministic center is the midpoint of transformed original vendor thumb/index closest points at the saved pre-contact hand state.
+- All nine runs established bilateral thumb/object and index/object contact before thumb/index self-contact; none prevented later self-contact.
+- No forbidden structural contact or numerical instability occurred.
+- `visual_coacd` blocked in all profiles with about 1.3252 mm maximum self-penetration.
+- `correll_mesh` reached in all profiles while allowing about 0.5584-0.6366 mm self-penetration.
+- `unifuc_pad_proxy` reached in all profiles while allowing about 3.9770-4.0137 mm self-penetration.
+- Bilateral-contact duration ranged from 0.056-0.214 s for `visual_coacd`, 0.112-0.168 s for `correll_mesh`, and 0.752-1.432 s for `unifuc_pad_proxy`.
+- Cube displacement was about 36.8-55.6 mm. Stable grasp or lift retention is not established.
+- Every object-mediated result is `bilateral_object_contact_then_thumb_index_self_contact`; there is currently no successful object-mediated closeout case.
+
+Stage 2A gate readiness:
+
+- Candidate later Stage 2B gates: manifest schema validity, deterministic replay/state validity, prominent unknown/unreviewed pair reporting, and forbidden structural-contact detection.
+- Must remain report-only: canonical target reachability, empty-hand distal terminal-contact expectations, object retention/grasp success, penetration and force thresholds, and representation-comparison outcomes.
+- No broad Stage 2B thresholds or grasp-success gates were added.
+
+Closeout artifacts:
+
+- Markdown: `/tmp/rh56_visual_coacd_stage2a_closeout_final/stage2a_closeout_report.md`
+- JSON: `/tmp/rh56_visual_coacd_stage2a_closeout_final/stage2a_closeout_report.json`
+- Post-contact response: `/tmp/rh56_visual_coacd_stage2a_closeout_final/post_contact_response.json`
+- Object outcomes: `/tmp/rh56_visual_coacd_stage2a_closeout_final/object_mediated_outcomes.json`
+- Object visual diagnostics: `/tmp/rh56_visual_coacd_stage2a_closeout_final/object_visual_diagnostics.json`
+- Empty-hand CSV/JSON/SVG: `/tmp/rh56_visual_coacd_stage2a_closeout_final/trajectories/`
+- Hold-variant CSV/JSON/SVG: `/tmp/rh56_visual_coacd_stage2a_closeout_final/contact_response_hold/`
+- Object CSV/JSON/SVG: `/tmp/rh56_visual_coacd_stage2a_closeout_final/object_trajectories/`
+- Aligned plots: `/tmp/rh56_visual_coacd_stage2a_closeout_final/plots/`
+
+Focused collision tests after closeout:
+
+```bash
+.venv/bin/python -m pytest -q \
+  tests/test_rh56_visual_coacd_stage2.py \
+  tests/test_correll_rh56dfx_assets.py \
+  tests/test_mujoco_rh56_collision_modes.py
+```
+
+Current result: `26 passed`.
+
+The shortened smoke below predates the stage-local completion and contact-state synchronization fixes. Keep it as historical context, not as the authoritative focused result.
 
 Stage 2A deterministic object-free smoke command:
 
 ```bash
 .venv/bin/python tools/validate_rh56_visual_coacd_stage2.py \
-  --out-dir /tmp/rh56_visual_coacd_stage2a_final_smoke \
+  --out-dir /tmp/rh56_visual_coacd_stage2a_codex_smoke \
   --collision-modes visual_coacd correll_mesh unifuc_pad_proxy \
   --targets sim_best_pinch power_close \
   --strategies simultaneous thumb_first finger_first iterative_incremental \
@@ -234,8 +394,29 @@ Observed smoke behavior:
   - RH56 self-penetration in this smoke was about `0.00031 m` to `0.00193 m` depending on target/order.
 - `correll_mesh` reached `sim_best_pinch` under all four command orders in this smoke, but blocked on `power_close` with thumb intermediate/index distal path-obstruction candidates.
 - `unifuc_pad_proxy` reached both `sim_best_pinch` and `power_close` under all four command orders in this smoke.
+- The new aggregate mode comparison classified `visual_coacd` `sim_best_pinch` + `iterative_incremental` as a `coacd_only_premature_contact_or_outward_approximation_candidate` because both reference modes reached the identical command sequence while `visual_coacd` blocked. Other shortened-smoke comparisons remained inconclusive or path-obstruction candidates.
 - The global max penetration column still includes the known mounted JAKA Link0/Link1 contact, so Stage 2A reports `max_rh56_self_penetration_m` separately.
 - No conclusion is made yet that `visual_coacd` is defective. The current smoke shows thumb/index behavior is path- and collision-mode-dependent and requires deeper review with full-duration slow validation, object-present validation, and visual-mesh intersection diagnostics.
+
+Stage 2A deterministic object-present smoke command:
+
+```bash
+.venv/bin/python tools/validate_rh56_visual_coacd_stage2.py \
+  --out-dir /tmp/rh56_visual_coacd_stage2a_object_smoke \
+  --collision-modes visual_coacd correll_mesh unifuc_pad_proxy \
+  --targets sim_best_pinch \
+  --strategies simultaneous \
+  --profile nominal \
+  --timeout-scale 0.25 \
+  --sample-stride 25 \
+  --include-object
+```
+
+Object-present smoke result:
+
+- `6` runs completed: object-free and object-present scenes for all three collision modes.
+- All runs timed out due to the intentionally short timeout; this is only an infrastructure smoke, not a reachability or grasp-success conclusion.
+- Artifacts were emitted under `/tmp/rh56_visual_coacd_stage2a_object_smoke`.
 
 Focused tests:
 
@@ -308,7 +489,7 @@ Measured with short MuJoCo stepping in the current environment:
 
 | Mode/XML | Geoms | Meshes | Excludes | Contacts at End | Steps/s |
 |---|---:|---:|---:|---:|---:|
-| `rh56_visual_coacd.xml` | 194 | 180 | 7 | 4 | about `20.2k` |
+| `rh56_visual_coacd.xml` | 169 | 168 | 7 | 4 | not remeasured after reference-geometry removal |
 | `pose_collision_correll_mesh.xml` | 46 | 32 | 0 | 4 | about `24.7k` |
 | `pose_collision_unifuc_pad_proxy.xml` | 56 | 32 | 0 | 0 | about `50.2k` |
 
@@ -358,6 +539,7 @@ Collision and Correll asset tests:
 
 - `tests/test_correll_rh56dfx_assets.py`
 - `tests/test_mujoco_rh56_collision_modes.py`
+- `tests/test_rh56_visual_coacd_stage2.py`
 
 RH56/pregrasp tests:
 
@@ -496,12 +678,12 @@ CI must not fail all thumb/index or object-contact cases blindly. It should fail
 
 ## Known Issues
 
-- TODO [HIGH]: Stage 2A dynamic trajectory validation infrastructure exists, but contact/blockage classification thresholds and final policy are not yet reliable enough for CI gates.
+- TODO [HIGH]: Stage 2A infrastructure and the focused pinch classification are reliable enough for investigation, but broader contact/blockage thresholds and final policy are not yet ready for CI gates.
 - TODO [BLOCKER]: Actuator-reachable thumb/index contacts remain. Stage 1 found `242` contact rows in `67` actuator-reachable samples, max penetration about `8.921 mm`.
 - TODO [BLOCKER]: Independent joint-limit thumb/index contacts remain. Stage 1 found `386` contact rows in `35` independent samples, max penetration about `8.875 mm`.
 - TODO [HIGH]: `tools/audit_mujoco_rh56_collision_readiness.py` is not aligned with `visual_coacd`; it still reports legacy `missing_pad_proxies`.
 - TODO [HIGH]: Grasp benchmark has only a smoke run for `visual_coacd`; it is not yet a Stage 2 validation gate.
-- TODO [HIGH]: Contact classification is now centralized in `src/sim_maniskill/rh56_collision_validation.py`, but needs more review against full-duration slow trajectories, object-present cases, and visual-mesh diagnostics.
+- TODO [HIGH]: Contact classification is centralized and the focused full-duration pinch case has visual diagnostics, but `power_close`, other paths, and object-present cases still need equivalent review.
 - TODO [HIGH]: The mounted model still has JAKA Link0/Link1 contacts in mesh modes; these are known non-hand contacts but should be isolated in validation.
 - TODO [MEDIUM]: `data/sim_assets/README.md` and some docs still describe Correll mesh as default runtime collision; update docs after Stage 2 policy is settled.
 - TODO [MEDIUM]: Performance thresholds are not codified in tests.
@@ -510,7 +692,7 @@ CI must not fail all thumb/index or object-contact cases blindly. It should fail
 
 ## Open Questions
 
-- TODO [BLOCKER]: Are the remaining thumb/index contacts a real hardware blocking condition, an invalid commanded hand posture, a kinematic/coupling mismatch, a visual mesh issue, or a CoACD approximation artifact?
+- PARTIAL [BLOCKER]: For `sim_best_pinch` + `iterative_incremental`, original thumb/index vendor visuals intersect at CoACD contact, so this case is not confirmed CoACD outward approximation. Whether the commanded pose or current kinematics/coupling match physical RH56DFX behavior remains unresolved.
 - TODO [HIGH]: What exact trajectory set should define actuator-reachable RH56 validation?
 - TODO [HIGH]: What penetration/contact-force thresholds should fail CI for forbidden self-collision?
 - TODO [HIGH]: Should palm/base CoACD centroid error around `5.987 mm` be acceptable, or should it become a Stage 2 failure threshold?
@@ -524,9 +706,10 @@ Stage 2:
 
 - DONE [INFRA]: Implemented first Stage 2A dynamic trajectory validator using actuator commands and `mj_step`.
 - TODO [HIGH]: Review and tune Stage 2A contact/blockage classification on full-duration slow trajectories before making CI gates.
-- TODO [BLOCKER]: Convert Stage 1 audit checks into repeatable tests/CI gates.
+- PARTIAL [HIGH]: Exact runtime inventory, exclusions, and hand inertials now have regression tests; broader Stage 1 mesh-quality/alignment audit thresholds are not yet CI gates.
 - DONE [INFRA]: Built reusable contact classifier in `src/sim_maniskill/rh56_collision_validation.py`.
 - DONE [INFRA]: Added trajectory-level JSON/CSV/SVG reports with body pair, geom pair, penetration depth, contact force, timestep, qpos/qvel/ctrl, and contact classification.
+- DONE [FOCUSED]: Classified `sim_best_pinch` + `iterative_incremental` as `shared_visual_or_kinematic_intersection` with full slow/nominal/hybrid trajectories, same-qpos replay, original visual-mesh diagnostics, exact CoACD-part IDs, and deterministic repeat evidence.
 - TODO [HIGH]: Add pinch and power-grasp stability checks that use semantic contact groups.
 - TODO [MEDIUM]: Add simulation speed and hull-statistics CI smoke tests.
 
@@ -571,9 +754,11 @@ Stage 3:
   - May need contact classification helpers or carefully reviewed exclusions only.
 - `tests/test_mujoco_rh56_collision_modes.py`
   - Should grow Stage 2 CI tests.
-- New likely files:
+- Stage 2 files now present:
   - `src/sim_maniskill/rh56_collision_validation.py`
+  - `src/sim_maniskill/rh56_collision_diagnostics.py`
   - `tools/validate_rh56_visual_coacd_stage2.py`
+  - `tools/investigate_rh56_visual_coacd_stage2a.py`
   - `tests/test_rh56_visual_coacd_stage2.py`
 
 ## Important Assumptions
@@ -588,7 +773,7 @@ Stage 3:
 ## Things Intentionally NOT Solved Yet
 
 - TODO [HIGH]: Stage 2A dynamic trajectory validator exists, but final contact/blockage policy is not reliable enough for CI gates.
-- TODO [BLOCKER]: Thumb/index contact cause is only preliminarily classified; full slow-validation, object-present, and visual-mesh diagnostics still need review.
+- PARTIAL [BLOCKER]: The focused `sim_best_pinch` iterative case is classified as shared visual/kinematic intersection. Other command orders, `power_close`, object-present arrest, and physical-hand fidelity remain unresolved.
 - TODO [HIGH]: No CI pass/fail policy for forbidden contact vs legitimate grasp contact is implemented.
 - TODO [HIGH]: Contact-force stability is recorded but not yet validated against reviewed thresholds.
 - TODO [HIGH]: Solver warning detection is recorded in trajectory samples but not yet turned into a reviewed validation gate.
@@ -599,11 +784,11 @@ Stage 3:
 
 ## Next Immediate Task
 
-Review Stage 2A outputs before changing collision geometry:
+Continue Stage 2A without changing collision geometry:
 
-1. Run full-duration `slow_validation` trajectories for `sim_best_pinch` and `power_close` across `visual_coacd`, `correll_mesh`, and `unifuc_pad_proxy`.
-2. Inspect `contacts.csv`, `samples.csv`, and `plots.svg` for thumb/index runs that timed out or blocked in `/tmp/rh56_visual_coacd_stage2a_final_smoke`.
-3. Add exact visual-mesh intersection diagnostics for representative first-contact, maximum-penetration, and final states.
-4. Improve object-present target/object placement so object arrest can be distinguished from empty-hand thumb/index self-contact.
-5. Only after contact and blockage classification is reliable, decide which Stage 2B checks should become CI gates.
-6. Do not regenerate CoACD hulls, retune hull parameters, or add new exclusions until the Stage 2A validator shows exactly which remaining thumb/index contacts are forbidden and why.
+1. Determine whether the `sim_best_pinch` command or mounted XML kinematics/coupling should permit the vendor thumb/index visuals to intersect; compare against physical RH56DFX behavior or a trusted kinematic source.
+2. Apply the focused diagnostic workflow to `power_close` before expanding the full scenario matrix.
+3. Improve object-present target/object placement so object arrest can be distinguished from empty-hand thumb/index self-contact.
+4. Review whether the reference modes' continued motion after original visual intersection represents intentional coarseness or missed collision; do not treat their reachability as physical ground truth.
+5. Only after broader contact and blockage classification is reliable, decide which Stage 2B checks should become CI gates.
+6. Do not regenerate CoACD hulls, retune hull parameters, or add new exclusions based on this result.
