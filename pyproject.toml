@@ -34,6 +34,9 @@ realsense = [
 phone-teleop = [
   "hebi-py>=2.13",
 ]
+motion-input-viz = [
+  "matplotlib>=3.8",
+]
 gamepad = [
   "pygame>=2.6",
 ]
