@@ -1,0 +1,32 @@
+cmake_minimum_required(VERSION 3.20)
+project(jaka_zero_motion_probe LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+get_filename_component(REPOSITORY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+set(JAKA_SDK_ROOT "${REPOSITORY_ROOT}/third_party/jaka_sdk/v2.2.7/linux")
+set(JAKA_INCLUDE_DIR "${JAKA_SDK_ROOT}/c_cpp/inc_of_c++")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  set(JAKA_LIBRARY_DIR "${JAKA_SDK_ROOT}/python3/aarch64-linux-gnu")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64)$")
+  set(JAKA_LIBRARY_DIR "${JAKA_SDK_ROOT}/python3/x86_64-linux-gnu")
+else()
+  message(FATAL_ERROR "Unsupported JAKA SDK architecture: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+find_library(JAKA_API_LIBRARY NAMES jakaAPI PATHS "${JAKA_LIBRARY_DIR}" NO_DEFAULT_PATH REQUIRED)
+
+function(configure_probe target)
+  target_include_directories(${target} PRIVATE "${JAKA_INCLUDE_DIR}")
+  target_link_libraries(${target} PRIVATE "${JAKA_API_LIBRARY}")
+  target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  set_target_properties(${target} PROPERTIES BUILD_RPATH "${JAKA_LIBRARY_DIR}")
+endfunction()
+
+add_executable(jaka_zero_motion_probe main.cpp zero_motion_backend.cpp)
+configure_probe(jaka_zero_motion_probe)
+
+add_executable(jaka_edg_entry_exit_probe main.cpp zero_motion_backend.cpp)
+target_compile_definitions(jaka_edg_entry_exit_probe PRIVATE GATE3B_ENTRY_EXIT_ONLY=1)
+configure_probe(jaka_edg_entry_exit_probe)

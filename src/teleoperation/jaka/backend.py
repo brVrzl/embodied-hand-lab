@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from ..contracts import RobotState
+
+
+class JakaBackend(Protocol):
+    """Typed lifecycle used by non-real-time tests and supervision.
+
+    Production EDG ownership belongs exclusively to the native worker.
+    """
+
+    def connect(self) -> None: ...
+    def read_state(self) -> RobotState: ...
+    def enter_edg(self) -> None: ...
+    def command_joints(self, sequence: int, joint_position_rad: tuple[float, ...]) -> None: ...
+    def leave_edg(self) -> None: ...
+    def disconnect(self) -> None: ...
