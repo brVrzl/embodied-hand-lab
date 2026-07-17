@@ -45,6 +45,7 @@ Detailed documents:
 - [UMIP protocol](UMIP_PROTOCOL.md)
 - [Coordinate frames](COORDINATE_FRAMES.md)
 - [Hand Tracking Streamer integration](HAND_TRACKING_STREAMER_INTEGRATION.md)
+- [Quest to JAKA offline MuJoCo integration](QUEST_JAKA_OFFLINE_SIMULATION.md)
 
 ## Usage
 

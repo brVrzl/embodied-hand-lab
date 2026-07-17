@@ -1,0 +1,57 @@
+schema_version: quest_hts_jaka_mini2_offline.v1
+
+input:
+  required_hand: right
+  left_hand_required: false
+  head_pose_required: false
+  stale_after_ms: 250
+  engagement_schedule_s: [0.00, 69.00]
+
+frames:
+  source_frame: quest_world
+  operator_frame: canonical_operator
+  robot_base_frame: future_robot_base
+  tcp_frame: desired_robot_tcp
+
+provisional_calibration:
+  calibration_id: quest_jaka_sim_uncalibrated_v1
+  calibrated: false
+  notes: simulation-only axis hypothesis; not a physical Quest-to-JAKA calibration
+  # Rows are robot-base X/Y/Z, columns are canonical-operator X/Y/Z.
+  # X lateral -> robot X; canonical Z -> robot Y; Y vertical -> robot Z.
+  operator_to_robot_basis:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0]
+    - [0.0, 1.0, 0.0]
+  translation_scale_per_axis: [0.04, 0.03, 0.04]
+  translation_deadband_m: 0.001
+  orientation_enabled: false
+  orientation_scale: 0.0
+  orientation_deadband_deg: 2.0
+  maximum_operator_displacement_m: 0.30
+  maximum_target_displacement_m: 0.015
+
+simulation:
+  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  zero_gravity: true
+  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
+  ik_gain: 0.70
+  ik_damping: 0.05
+  ik_max_step_rad: 0.04
+  ik_iterations: 24
+  ik_position_tolerance_m: 0.0025
+  maximum_jacobian_condition: 40.0
+  minimum_jacobian_singular_value: 0.02
+  maximum_target_jump_m: 0.004
+  maximum_tcp_velocity_m_s: 0.025
+  maximum_tcp_angular_velocity_rad_s: 0.20
+  maximum_joint_velocity_rad_s: 1.2
+  maximum_joint_acceleration_rad_s2: 20.0
+  joint_limit_margin_deg: 5.0
+  reject_action: disengage_and_hold_last_safe_simulated_target
+  collision_policy: reject_new_contacts_relative_to_initial_model_contacts
+
+axis_analysis:
+  right_hand_left_right_s: [71.0, 73.0]
+  right_hand_forward_backward_s: [73.0, 75.0]
+  right_hand_up_down_s: null
