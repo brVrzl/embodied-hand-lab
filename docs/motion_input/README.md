@@ -24,12 +24,19 @@ future teleoperation adapter (not implemented here)
 - `src/motion_input/model.py`: immutable UMIP values and invariants.
 - `src/motion_input/provider.py`: common live/replay provider lifecycle.
 - `src/motion_input/quest.py`: Quest wire parser, UDP source, UMIP translator.
+- `src/motion_input/hts_protocol.py`: strict Hand Tracking Streamer v1.1 CSV schema.
+- `src/motion_input/hts_transport.py`: input-only UDP transport and raw capture/replay.
+- `src/motion_input/hts_canonical.py`: bimanual Quest state and inert future boundary.
+- `src/motion_input/hts_operator.py`: right-hand-only offline validity state machine and relative transform.
+- `src/motion_input/hts_gate.py`: raw-capture replay evaluation for hand-stream loss/recovery.
+- `src/motion_input/hts_telemetry.py`: live/replay stream-health telemetry.
 - `integrations/quest_unity/`: input-only Unity XR Hands publisher.
 - `src/motion_input/recording.py` and `replay.py`: versioned recording and live-equivalent replay.
 - `src/motion_input/visualization.py`: text and optional 3-D hand-frame view.
 - `src/motion_input/diagnostics.py`: rate, drops, ordering, jitter, latency,
   confidence, interruption, and process CPU statistics.
 - `tools/umip_motion_input.py`: operator CLI.
+- `tools/quest_hand_tracking_streamer.py`: bounded HTS inspection/live/replay CLI.
 
 Detailed documents:
 
@@ -37,6 +44,7 @@ Detailed documents:
 - [Quest SDK review](QUEST_SDK_REVIEW.md)
 - [UMIP protocol](UMIP_PROTOCOL.md)
 - [Coordinate frames](COORDINATE_FRAMES.md)
+- [Hand Tracking Streamer integration](HAND_TRACKING_STREAMER_INTEGRATION.md)
 
 ## Usage
 
@@ -74,6 +82,14 @@ ordering, serialization, crash-recoverable recording, replay timing, coordinate
 conversion, diagnostics, visualization state, and 20,000 samples of sustained
 streaming. Unity compilation, Quest 3 runtime behavior, and device rate/latency
 remain explicit hardware validation items.
+
+For the Meta Store Hand Tracking Streamer app, use the dedicated bounded tool;
+it is a different wire format from the repository's custom Unity bridge:
+
+```bash
+PYTHONPATH=src python3 tools/quest_hand_tracking_streamer.py live \
+  --project-ip <HOST_LAN_IP> --port 9000 --duration-sec 120
+```
 
 ## Integration gate
 
