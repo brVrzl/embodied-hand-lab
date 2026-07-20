@@ -80,6 +80,7 @@ class PalmTargetJogCommand:
     palm_target_position_m: list[float] | None = None
     palm_target_quaternion_wxyz: list[float] | None = None
     hold_current: bool = False
+    align_position_target_on_enable: bool = False
 
 
 def parse_joint_jog_command(message: Any) -> JointJogCommand:
@@ -144,6 +145,9 @@ def parse_palm_target_jog_command(message: Any) -> PalmTargetJogCommand:
     hold_current = payload.get("hold_current", False)
     if not isinstance(hold_current, bool):
         raise ValueError("hold_current must be a boolean.")
+    align_position_target_on_enable = payload.get("align_position_target_on_enable", False)
+    if not isinstance(align_position_target_on_enable, bool):
+        raise ValueError("align_position_target_on_enable must be a boolean.")
     return PalmTargetJogCommand(
         deadman=deadman,
         palm_velocity_m_s=[float(value) for value in velocity],
@@ -159,6 +163,7 @@ def parse_palm_target_jog_command(message: Any) -> PalmTargetJogCommand:
             else [float(value) for value in palm_target_quaternion]
         ),
         hold_current=hold_current,
+        align_position_target_on_enable=align_position_target_on_enable,
     )
 
 
@@ -600,6 +605,8 @@ class JakaPalmTargetJogController:
         self._watchdog_active = False
         self._watchdog_reason = ""
         self._hold_current_active = False
+        self._position_target_source_anchor_m: list[float] | None = None
+        self._position_target_alignment_offset_m: list[float] | None = None
 
     @property
     def enabled(self) -> bool:
@@ -610,6 +617,15 @@ class JakaPalmTargetJogController:
         return self.servo.fault_latched
 
     def accept(self, command: PalmTargetJogCommand) -> None:
+        deadman_rising = bool(command.deadman and not (self.command and self.command.deadman))
+        if deadman_rising:
+            self._position_target_source_anchor_m = (
+                None
+                if not command.align_position_target_on_enable
+                or command.palm_target_position_m is None
+                else [float(value) for value in command.palm_target_position_m]
+            )
+            self._position_target_alignment_offset_m = None
         self.command = command
         self.servo.accept(JointJogCommand(deadman=command.deadman, joint_velocity_rad_s=[0.0] * 6))
         if not command.deadman:
@@ -617,6 +633,8 @@ class JakaPalmTargetJogController:
             self._last_position_target_m = None
             self._target_deadband_hold = False
             self._joint_tracking_hold_active = False
+            self._position_target_source_anchor_m = None
+            self._position_target_alignment_offset_m = None
 
     def tick(self) -> bool:
         now = self.now()
@@ -634,6 +652,7 @@ class JakaPalmTargetJogController:
                 self._last_q_cmd = list(self.servo.target_joints)
                 self._reset_motion_watchdogs()
                 self.last_tick_time = now
+                self._initialize_position_target_alignment()
             return streamed
 
         assert self.servo.target_joints is not None
@@ -667,6 +686,7 @@ class JakaPalmTargetJogController:
         target_position = self.command.palm_target_position_m
         if target_position is not None and len(target_position) != 3:
             raise ValueError("palm_target_position_m must contain 3 values.")
+        target_position = self._aligned_position_target(target_position)
         has_position_target = target_position is not None
         if (
             not self.command.hold_current
@@ -833,6 +853,7 @@ class JakaPalmTargetJogController:
                 "joint_error": self._last_joint_error,
                 "raw_ik_error_limited": self._raw_ik_error_limited,
                 "target_deadband_hold": self._target_deadband_hold,
+                "position_target_alignment_offset_m": self._position_target_alignment_offset_m,
                 "joint_tracking_error_rad": self._joint_tracking_error_rad,
                 "joint_tracking_error_indices_1_based": self._joint_tracking_error_indices_1_based,
                 "joint_tracking_error_limited": self._joint_tracking_error_limited,
@@ -879,6 +900,10 @@ class JakaPalmTargetJogController:
                 ),
                 "feedback_closed_loop": True,
                 "hold_current": bool(self.command.hold_current) if self.command is not None else False,
+                "align_position_target_on_enable": bool(
+                    self.command is not None
+                    and self.command.align_position_target_on_enable
+                ),
             }
         )
         return status
@@ -895,6 +920,44 @@ class JakaPalmTargetJogController:
             return [float(value) for value in velocity]
         scale = self.max_palm_velocity_m_s / norm
         return [float(value) * scale for value in velocity]
+
+    def _initialize_position_target_alignment(self) -> None:
+        if (
+            self.command is None
+            or not self.command.align_position_target_on_enable
+        ):
+            return
+        source_anchor = self._position_target_source_anchor_m
+        if source_anchor is None:
+            target = self.command.palm_target_position_m
+            if target is None:
+                return
+            source_anchor = [float(value) for value in target]
+            self._position_target_source_anchor_m = source_anchor
+        model_anchor = self.ik_state.current_palm_position_m.tolist()
+        self._position_target_alignment_offset_m = [
+            float(model) - float(source)
+            for model, source in zip(model_anchor, source_anchor, strict=True)
+        ]
+
+    def _aligned_position_target(
+        self,
+        target_position: list[float] | None,
+    ) -> list[float] | None:
+        if target_position is None:
+            return None
+        target = [float(value) for value in target_position]
+        if self.command is None or not self.command.align_position_target_on_enable:
+            return target
+        if self._position_target_alignment_offset_m is None:
+            self._initialize_position_target_alignment()
+        offset = self._position_target_alignment_offset_m
+        if offset is None:
+            return target
+        return [
+            value + delta
+            for value, delta in zip(target, offset, strict=True)
+        ]
 
     def _clamp_raw_ik_q(
         self,

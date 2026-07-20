@@ -22,6 +22,21 @@ def packet(sequence: int) -> TargetPacket:
                         sequence, now, now, now, now, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0))
 
 
+def relative_packet(sequence: int, *, allow_motion: bool) -> TargetPacket:
+    now = time.monotonic_ns()
+    return TargetPacket(
+        TargetKind.CARTESIAN_POSE,
+        TargetFlags.ALLOW_MOTION if allow_motion else TargetFlags.NONE,
+        FrameId.STARTUP_TCP_RELATIVE,
+        sequence,
+        0,
+        now,
+        now,
+        now,
+        (0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+    )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def build_worker() -> None:
     subprocess.run(["cmake", "-S", str(ROOT / "native/jaka_servo_worker"),
@@ -122,3 +137,75 @@ def test_malformed_command_forces_controlled_exit(tmp_path) -> None:
     payload = json.loads(metrics.read_text())
     assert payload["outcome"] == "invalid_command"
     assert payload["rejected_targets"] == 1
+
+
+def run_new_mode(tmp_path: Path, mode: str, target_packet: TargetPacket) -> tuple[subprocess.CompletedProcess[str], dict]:
+    metrics = tmp_path / f"{mode}.json"
+    target = tmp_path / f"{mode}.sock"
+    process = subprocess.Popen(
+        [str(WORKER), "--mode", mode, "--duration-s", "0.25",
+         "--target-socket", str(target), "--metrics-file", str(metrics)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(target_packet)
+    stdout, stderr = process.communicate(timeout=3)
+    result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    return result, json.loads(metrics.read_text())
+
+
+def test_command_shadow_generates_constrained_ik_without_edg_or_commands(tmp_path) -> None:
+    result, metrics = run_new_mode(
+        tmp_path, "command-shadow-dry-run", relative_packet(1, allow_motion=False)
+    )
+    assert result.returncode == 0
+    assert metrics["mode"] == "command_shadow_fake_no_edg"
+    assert metrics["ik_calls"] == 1
+    assert metrics["maximum_ik_joint_step_rad"] == pytest.approx(0.01)
+    assert metrics["maximum_intentional_command_delta_rad"] == 0.0
+    assert metrics["statistics"]["command_write_duration"]["max_ns"] == 0
+    assert metrics["cleanup_error_code"] == 0
+
+
+def test_bounded_teleop_fake_uses_jerk_limited_joint_commands(tmp_path) -> None:
+    result, metrics = run_new_mode(
+        tmp_path, "bounded-teleop-dry-run", relative_packet(1, allow_motion=True)
+    )
+    assert result.returncode == 0
+    assert metrics["mode"] == "bounded_teleop_fake"
+    assert metrics["ik_calls"] == 1
+    assert metrics["maximum_intentional_command_delta_rad"] > 0.0
+    assert metrics["maximum_joint_velocity_rad_s"] <= 0.03 + 1e-12
+    assert metrics["maximum_joint_acceleration_rad_s2"] <= 0.15 + 1e-12
+    assert metrics["maximum_joint_jerk_rad_s3"] <= 1.5 + 1e-9
+    assert metrics["tracking_hard_crossings"] == 0
+    assert metrics["cleanup_error_code"] == 0
+    assert metrics["outcome"] == "maximum_session_duration"
+    assert abs(metrics["final_joint_velocity_max_rad_s"]) <= 1e-4
+    assert abs(metrics["final_joint_acceleration_max_rad_s2"]) <= 1e-3
+
+
+def test_bounded_mode_rejects_target_without_motion_flag(tmp_path) -> None:
+    result, metrics = run_new_mode(
+        tmp_path, "bounded-teleop-dry-run", relative_packet(1, allow_motion=False)
+    )
+    assert result.returncode == 2
+    assert "motion flag" in metrics["outcome"]
+    assert metrics["maximum_intentional_command_delta_rad"] == 0.0
+
+
+def test_connected_command_shadow_has_distinct_no_edg_acknowledgement() -> None:
+    result = subprocess.run(
+        [str(WORKER), "--mode", "command-shadow", "--hardware",
+         "--robot-ip", "192.0.2.1", "--acknowledgement",
+         "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK"],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 64
+    assert "exact acknowledgement" in result.stderr

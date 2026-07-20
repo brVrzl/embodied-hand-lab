@@ -1,0 +1,72 @@
+schema_version: 1
+units: meter
+component: JAKA Mini-series fixed base installation geometry
+
+source:
+  type: manufacturer_installation_drawing
+  status: dimensions_transcribed_from_user_supplied_drawing_description
+  repository_path: null
+  note: The source drawing image was not present in the repository on 2026-07-15; archive it before treating drawing-only datum labels as independently audited.
+
+fixed_base:
+  outer_diameter_m:
+    value: 0.124
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  mounting_hole_pitch_circle_diameter_m:
+    value: 0.110
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  mounting_holes:
+    count: 4
+    diameter_m: 0.0066
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  auxiliary_locating_holes:
+    diameter_m: 0.005
+    depth_m: 0.0055
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined_drawing_role_not_fully_audited
+  shown_horizontal_offset_m:
+    value: 0.010
+    tolerance_m: 0.00005
+    status: manufacturer_defined_semantic_assignment_unresolved
+  shown_vertical_offsets_m:
+    - value: 0.054
+      tolerance_m: 0.000025
+      status: approximate_transcription_semantic_assignment_unresolved
+    - value: 0.055
+      tolerance_m: 0.000025
+      status: approximate_transcription_semantic_assignment_unresolved
+
+mounting_plane:
+  definition: lowest fixed JAKA base mounting plane shown by the installation drawing
+  status: datum_definition_adopted_for_P
+
+drawing_coordinate_convention:
+  origin: mounting-hole pitch-circle center on the lowest fixed mounting plane
+  z_axis: mounting-plane normal pointing into the robot/upward when installed
+  x_axis: not recoverable from the transcribed dimensions alone
+  y_axis: not recoverable from the transcribed dimensions alone
+
+installed_orientation:
+  relative_to_parallel_aluminium_rails: provisional_45deg_hypothesis_supported_not_verified
+  selected_interpretation: bolt_columns_rotated_45deg_to_rails
+  reconstruction_01_evidence:
+    fitted_rail_centerline_spacing_m: 0.07521535020
+    residual_to_110_over_sqrt2_m: -0.00256639573
+    residual_to_110mm_m: -0.03478464980
+    safely_annotated_bolt_centers_px:
+      - {image: frame_000000.jpg, center: [787, 1061]}
+      - {image: frame_000000.jpg, center: [792, 1248]}
+    confidence: moderate_reconstruction_support_insufficient_four_bolt_visibility
+  hypotheses:
+    - name: bolt_columns_rotated_45deg_to_rails
+      candidate_rail_centerline_spacing_m: 0.07778174593
+      derivation: 0.110 / sqrt(2)
+      status: derived_candidate_requires_visual_verification
+    - name: mounting_holes_aligned_with_rail_normal
+      candidate_rail_centerline_spacing_m: 0.110
+      derivation: mounting-hole PCD
+      status: alternate_candidate_requires_visual_verification
+  warning: Neither candidate may be selected without four reliable bolt centers and rail centerlines in a common plane.

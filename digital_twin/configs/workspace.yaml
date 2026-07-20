@@ -1,0 +1,51 @@
+units: meter
+frame: P
+status: integrated_workspace_operational_provisional
+tabletop:
+  shape: box
+  size_xyz_m: [0.73, 1.38, 0.02]
+  center_xyz_m: [-0.053, -0.545, -0.060]
+  quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  height_above_floor_m: 0.75
+  source: user_approximate_measurement
+  status: provisional
+  uncertainty_m:
+    length: 0.01
+    width: 0.01
+    thickness: 0.003
+    height_above_floor: 0.01
+    pose: 0.02
+  collision: true
+  provisional: true
+  note: Operational P-frame pose from registered table plane and supplied dimensions; collision requires validation before manipulation.
+table_frame:
+  enabled: true
+  profile:
+    cross_section_m: [0.05, 0.05]
+    source: user_confirmed_measurement
+    status: confirmed_dimension
+    uncertainty_m: 0.001
+  identified_members:
+    - {name: rail_positive_y, dimensions_m: [0.40, 0.05, 0.05], center_P_m: [0.08, 0.038890873, -0.025], collision: true, status: operational_provisional}
+    - {name: rail_negative_y, dimensions_m: [0.40, 0.05, 0.05], center_P_m: [0.08, -0.038890873, -0.025], collision: true, status: operational_provisional}
+    - {name: front_transverse_member, dimensions_m: [0.05, 0.40, 0.05], center_P_m: [0.275, -0.115, -0.025], collision: true, status: operational_provisional}
+  unidentified_reference_member:
+    measured_length_m: 0.50
+    uncertainty_m: 0.005
+    source: user_approximate_measurement
+    status: provisional_unidentified_member
+    collision: false
+    note: Do not assign to frame width, depth, or height until the corresponding member is identified in imagery.
+fixed_obstacles: []
+visual_reconstruction:
+  path: artifacts/digital_twin/static_scene/sparse_debug.obj
+  frame: P
+  layer_name: colmap_sparse_debug
+  default_enabled: false
+  representation: compact_sparse_debug_markers
+  collision: false
+  scanned_robot_removed: true
+  calibration_boards_removed: true
+  removable_clutter_removed: true
+  cables_visual_only: true
+  note: No qualified dense or textured permanent-background representation exists yet; sparse markers are debug-only.

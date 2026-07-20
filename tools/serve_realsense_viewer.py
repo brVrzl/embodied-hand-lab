@@ -64,12 +64,19 @@ class RealSenseFrameHub:
             with RealSenseCamera(self.config) as camera:
                 self.camera = camera
                 while not self._stop.is_set():
-                    rgb = camera.get_rgb()
-                    depth = camera.get_depth() if self.config.get("view_mode") == "rgbd" else None
+                    frame = camera.capture()
+                    rgb = frame.rgb
+                    depth = frame.depth_m if self.config.get("view_mode") == "rgbd" else None
                     hand_status: dict[str, Any] = {"enabled": bool(hands is not None), "hand_detected": False}
                     if hands is not None:
                         rgb, hand_status = self._process_hand_overlay(rgb, hands)
-                    panel = _make_preview_panel(rgb, depth, hand_status=hand_status)
+                    panel = _make_preview_panel(
+                        rgb,
+                        depth,
+                        hand_status=hand_status,
+                        depth_min_m=float(self.config.get("depth_min_m", 0.3)),
+                        depth_max_m=float(self.config.get("depth_max_m", 1.5)),
+                    )
                     ok, encoded = cv2.imencode(
                         ".jpg",
                         panel,
@@ -213,20 +220,30 @@ def _draw_hand_landmarks(rgb: np.ndarray, landmarks: list[dict[str, float]]) -> 
     return output
 
 
-def _make_preview_panel(rgb: np.ndarray, depth_m: np.ndarray | None, *, hand_status: dict[str, Any] | None = None) -> np.ndarray:
+def _make_preview_panel(
+    rgb: np.ndarray,
+    depth_m: np.ndarray | None,
+    *,
+    hand_status: dict[str, Any] | None = None,
+    depth_min_m: float = 0.3,
+    depth_max_m: float = 1.5,
+) -> np.ndarray:
     rgb_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     if hand_status:
         _draw_hand_status(rgb_bgr, hand_status)
     if depth_m is None:
         cv2.putText(rgb_bgr, "RGB", (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
         return rgb_bgr
-    finite_depth = depth_m[np.isfinite(depth_m) & (depth_m > 0.0) & (depth_m < 10.0)]
-    if finite_depth.size:
-        max_depth = max(float(np.percentile(finite_depth, 95)), 0.5)
-    else:
-        max_depth = 2.0
-    depth_u8 = np.clip(depth_m / max_depth * 255.0, 0, 255).astype(np.uint8)
+    if not np.isfinite(depth_min_m) or not np.isfinite(depth_max_m) or depth_max_m <= depth_min_m:
+        raise ValueError("Expected finite depth range with depth_max_m > depth_min_m.")
+    valid = np.isfinite(depth_m) & (depth_m >= depth_min_m) & (depth_m <= depth_max_m)
+    normalized = np.zeros_like(depth_m, dtype=np.float32)
+    normalized[valid] = np.clip(
+        (depth_m[valid] - depth_min_m) / (depth_max_m - depth_min_m), 0.0, 1.0
+    )
+    depth_u8 = np.rint((1.0 - normalized) * 255.0).astype(np.uint8)
     depth_color = cv2.applyColorMap(depth_u8, cv2.COLORMAP_TURBO)
+    depth_color[~valid] = 0
     panel = np.hstack([rgb_bgr, depth_color])
     cv2.putText(panel, "RGB", (12, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
     cv2.putText(
@@ -386,15 +403,45 @@ def _pick_port(host: str, preferred_port: int) -> int:
             return int(probe.getsockname()[1])
 
 
+def _viewer_filter_config(profile: str) -> dict[str, object]:
+    if profile not in {"off", "spatial", "static"}:
+        raise ValueError(f"Unknown depth filter profile: {profile!r}.")
+    return {
+        "use_disparity": True,
+        "spatial": {
+            "enabled": profile in {"spatial", "static"},
+            "magnitude": 2,
+            "smooth_alpha": 0.5,
+            "smooth_delta": 20,
+            "hole_fill": 0,
+        },
+        "temporal": {
+            "enabled": profile == "static",
+            "smooth_alpha": 0.4,
+            "smooth_delta": 20,
+            "persistence_control": 3,
+        },
+        "hole_filling": {"enabled": False, "mode": 1},
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Serve a browser-based RealSense RGB-D live viewer.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8090)
-    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument("--width", type=int, default=848)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--serial", default=None)
     parser.add_argument("--view-mode", choices=["rgb", "rgbd"], default="rgbd")
+    parser.add_argument(
+        "--depth-filter-profile",
+        choices=["off", "spatial", "static"],
+        default="spatial",
+        help="static adds temporal smoothing and is not suitable for moving robot/object edges.",
+    )
+    parser.add_argument("--depth-min-m", type=float, default=0.3)
+    parser.add_argument("--depth-max-m", type=float, default=1.5)
     parser.add_argument("--jpeg-quality", type=int, default=85)
     parser.add_argument("--hand-overlay", action="store_true", help="Overlay MediaPipe hand landmarks and RH56 retarget bars.")
     parser.add_argument("--hand-process-every", type=int, default=1)
@@ -414,6 +461,9 @@ def main() -> None:
         "hand_overlay": args.hand_overlay,
         "view_mode": args.view_mode,
         "jpeg_quality": args.jpeg_quality,
+        "depth_min_m": args.depth_min_m,
+        "depth_max_m": args.depth_max_m,
+        "filters": _viewer_filter_config(args.depth_filter_profile),
         "hand_process_every": args.hand_process_every,
         "hand_inference_width": args.hand_inference_width,
         "max_close": args.max_close,

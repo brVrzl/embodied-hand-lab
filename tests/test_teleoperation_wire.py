@@ -35,6 +35,22 @@ def test_wire_round_trip_is_fixed_size_and_crc_protected() -> None:
         decode_target(damaged)
 
 
+def test_startup_tcp_relative_frame_round_trips_explicitly() -> None:
+    value = packet(10)
+    relative = TargetPacket(
+        value.kind,
+        value.flags,
+        FrameId.STARTUP_TCP_RELATIVE,
+        value.sequence,
+        value.source_capture_ns,
+        value.local_receive_ns,
+        value.processing_ns,
+        value.dispatch_ns,
+        value.payload,
+    )
+    assert decode_target(encode_target(relative)).frame_id == FrameId.STARTUP_TCP_RELATIVE
+
+
 def test_publisher_has_no_application_queue_and_drops_absent_consumer(tmp_path) -> None:
     publisher = LatestTargetPublisher(tmp_path / "absent.sock")
     assert not publisher.publish(packet(1))

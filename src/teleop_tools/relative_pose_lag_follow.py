@@ -78,6 +78,11 @@ class RelativePoseLagFollowConfig:
     orientation_anchor_quaternion_wxyz: tuple[float, float, float, float] | None = None
     phone_to_robot_orientation_axis_map: dict[str, Any] | None = None
     phone_to_robot_axis_map: dict[str, Any] | None = None
+    phone_to_robot_rotation_matrix: tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,8 +248,26 @@ def _map_quaternion_by_axis_map(
     mappings: tuple[Any, ...],
 ) -> np.ndarray:
     transform = _axis_mapping_matrix(mappings)
+    return _map_quaternion_by_transform(quat, transform)
+
+
+def _map_quaternion_by_transform(
+    quat: list[float] | np.ndarray,
+    transform: np.ndarray,
+) -> np.ndarray:
     mapped_rotation = transform @ _quat_to_rotation_matrix_wxyz(quat) @ transform.T
     return _quat_from_rotation_matrix_wxyz(mapped_rotation)
+
+
+def _validated_phone_to_robot_rotation_matrix(values: Any) -> np.ndarray:
+    matrix = np.asarray(values, dtype=np.float64)
+    if matrix.shape != (3, 3) or not np.all(np.isfinite(matrix)):
+        raise ValueError("phone_to_robot_rotation_matrix must be a finite 3x3 matrix.")
+    if not np.allclose(matrix.T @ matrix, np.eye(3), atol=2e-3):
+        raise ValueError("phone_to_robot_rotation_matrix must be orthonormal.")
+    if not math.isclose(float(np.linalg.det(matrix)), 1.0, abs_tol=2e-3):
+        raise ValueError("phone_to_robot_rotation_matrix must have determinant +1.")
+    return matrix
 
 
 def _unit_vector(values: list[float] | np.ndarray) -> np.ndarray:
@@ -328,6 +351,13 @@ class RelativePoseLagFollower:
         self.phone_to_robot_orientation_axis_map = parse_vector_axis_map(
             self.config.phone_to_robot_orientation_axis_map,
             default=self.phone_to_robot_axis_map,
+        )
+        self.phone_to_robot_rotation_matrix = (
+            None
+            if self.config.phone_to_robot_rotation_matrix is None
+            else _validated_phone_to_robot_rotation_matrix(
+                self.config.phone_to_robot_rotation_matrix
+            )
         )
         self.phone_anchor_pose: TcpPose | None = None
         self.robot_anchor_pose: TcpPose | None = None
@@ -579,8 +609,11 @@ class RelativePoseLagFollower:
 
     def _map_phone_delta_to_robot(self, phone_delta_m: list[float] | np.ndarray) -> np.ndarray:
         raw = _as_position(phone_delta_m)
-        values = {"x": raw[0], "y": raw[1], "z": raw[2]}
-        mapped = apply_vector_axis_map(values, self.phone_to_robot_axis_map)
+        if self.phone_to_robot_rotation_matrix is not None:
+            mapped = self.phone_to_robot_rotation_matrix @ raw
+        else:
+            values = {"x": raw[0], "y": raw[1], "z": raw[2]}
+            mapped = apply_vector_axis_map(values, self.phone_to_robot_axis_map)
         mapped[np.abs(mapped) <= self.config.phone_translation_deadband_m] = 0.0
         return mapped
 
@@ -610,9 +643,16 @@ class RelativePoseLagFollower:
                 mapped_delta = np.asarray(IDENTITY_QUAT_WXYZ, dtype=np.float64)
             else:
                 scaled_delta = _rotvec_to_quat_wxyz(rotvec * float(self.config.orientation_scale))
-                mapped_delta = _map_quaternion_by_axis_map(
-                    scaled_delta,
-                    self.phone_to_robot_orientation_axis_map,
+                mapped_delta = (
+                    _map_quaternion_by_transform(
+                        scaled_delta,
+                        self.phone_to_robot_rotation_matrix,
+                    )
+                    if self.phone_to_robot_rotation_matrix is not None
+                    else _map_quaternion_by_axis_map(
+                        scaled_delta,
+                        self.phone_to_robot_orientation_axis_map,
+                    )
                 )
             return quat_multiply_wxyz(self.robot_anchor_pose.quaternion_wxyz, mapped_delta)
         rotvec = quat_to_rotvec_wxyz(phone_delta_pose.quaternion_wxyz)
@@ -622,9 +662,16 @@ class RelativePoseLagFollower:
         else:
             scaled_delta = _rotvec_to_quat_wxyz(rotvec * float(self.config.orientation_scale))
         if self.config.orientation_mapping_mode == "axis_mapped_relative":
-            scaled_delta = _map_quaternion_by_axis_map(
-                scaled_delta,
-                self.phone_to_robot_orientation_axis_map,
+            scaled_delta = (
+                _map_quaternion_by_transform(
+                    scaled_delta,
+                    self.phone_to_robot_rotation_matrix,
+                )
+                if self.phone_to_robot_rotation_matrix is not None
+                else _map_quaternion_by_axis_map(
+                    scaled_delta,
+                    self.phone_to_robot_orientation_axis_map,
+                )
             )
         return quat_multiply_wxyz(scaled_delta, self.robot_anchor_pose.quaternion_wxyz)
 
@@ -669,21 +716,32 @@ class RelativePoseLagFollower:
             self.last_target_velocity_m_s = np.zeros(3, dtype=np.float64)
             return actual_tcp_pose, False, False, False, False, False, True
 
-        target, filtered = self._filtered_target(current=last_target, target=desired_workspace_bounded, dt=dt)
+        # Decide whether the operator's target has left the hysteresis band
+        # before shaping the command.  Acceleration limiting intentionally
+        # produces sub-deadband steps at startup; applying the deadband after
+        # that limiter would discard every first step and reset its velocity,
+        # preventing the target from ever moving.
+        target, deadband_hold = self._target_update_deadbanded(
+            current=last_target,
+            target=desired_workspace_bounded,
+        )
+        if deadband_hold:
+            return last_target, True, False, False, False, True, False
+
+        target, filtered = self._filtered_target(current=last_target, target=target, dt=dt)
         target, velocity_limited = self._velocity_limited_target(current=last_target, target=target, dt=dt)
         target, acceleration_limited = self._acceleration_limited_target(
             current=last_target,
             target=target,
             dt=dt,
         )
-        target, deadband_hold = self._target_update_deadbanded(current=last_target, target=target)
         return (
             target,
-            filtered or velocity_limited or acceleration_limited or deadband_hold,
+            filtered or velocity_limited or acceleration_limited,
             filtered,
             velocity_limited,
             acceleration_limited,
-            deadband_hold,
+            False,
             False,
         )
 

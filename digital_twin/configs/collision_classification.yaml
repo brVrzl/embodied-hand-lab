@@ -1,0 +1,75 @@
+schema_version: 1
+scene: models/digital_twin/workspace_scene.xml
+world_frame: P
+purpose: offline_mujoco_collision_characterization_not_hardware_safety_certification
+
+operational_placement:
+  config: digital_twin/configs/robot_operational_placement.yaml
+  required_translation_m: [0.0, 0.0, 0.0]
+  required_yaw_deg: 180.0
+  required_quaternion_xyzw: [0.0, 0.0, 1.0, 0.0]
+  palm_alignment_tolerance_deg: 3.0
+
+baseline_pairs:
+  - name: canonical_Link0_Link1_overlap
+    body_pair: [jaka_Link_0, jaka_Link_1]
+    geom_pair: [jaka_Link_0_geom_0, jaka_Link_1_geom_0]
+    status: BASELINE
+    note: Four manifold contacts exist in the unchanged canonical robot model at zero pose.
+
+environment_geoms:
+  table: [workspace_tabletop]
+  aluminium:
+    - workspace_rail_positive_y
+    - workspace_rail_negative_y
+    - workspace_front_transverse_member
+  floor: [workspace_floor]
+
+noncolliding_layers:
+  forbidden_geom_prefixes: [camera_, colmap_sparse_debug, sparse_, reconstruction_debug]
+  required_camera_sites:
+    - camera_external_placeholder
+    - camera_wrist_placeholder
+    - iphone_reconstruction_camera_placeholder
+
+hand_contact_policy:
+  adjacent_body_contacts: ALLOWED
+  nonadjacent_depth_status: threshold
+  note: Direct parent-child RH56 contacts are mechanically adjacent; they remain reported.
+
+thresholds:
+  proximity_m: 0.010
+  environment_depth_m:
+    review_max: 0.001
+    warn_max: 0.003
+  persistence_s:
+    warn_above: 0.1
+    fail_above: 0.5
+  normal_force_warn_n: 50.0
+  catastrophic_penetration_m: 0.020
+  nonfinite_state: FAIL
+
+sampling:
+  joint_limit_margin_deg: 5.0
+  fractions: [0.0, 0.25, 0.5, 0.75, 1.0]
+  one_joint_at_a_time: true
+  adjacent_pair_fractions: [0.1, 0.5, 0.9]
+  halton_samples: 48
+  halton_skip: 11
+  deterministic_seed: 20260715
+
+dynamic:
+  base_duration_s: 2.0
+  settle_s: 0.25
+  hold_s: 0.15
+  max_arm_velocity_rad_s: 0.75
+  max_arm_acceleration_rad_s2: 1.5
+  max_hand_velocity_rad_s: 0.8
+  max_hand_acceleration_rad_s2: 2.0
+  screenshot_limit: 24
+
+named_pose_sources:
+  robot_presets: configs/robot/jaka_mini2_real.yaml
+  tennis_pregrasp: tools/preview_mujoco_tennis_ball_lift.py
+  hand_open_close: tools/debug_mujoco_jaka_rh56_viewer.py
+  directional_poses: deterministic_sample_set_FK_extrema

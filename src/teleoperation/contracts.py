@@ -39,6 +39,29 @@ class SafetyAction(str, Enum):
     ABORT = "abort"
 
 
+class TrackingState(str, Enum):
+    """Device-neutral source tracking state.
+
+    ``UNKNOWN`` is intentionally distinct from ``VALID``.  TeleDex 0.0.7 does
+    not transmit ARKit tracking quality, so the adapter must not manufacture a
+    quality claim from a well-formed pose packet.
+    """
+
+    UNKNOWN = "unknown"
+    VALID = "valid"
+    LIMITED = "limited"
+    INVALID = "invalid"
+
+
+class DiscontinuityKind(str, Enum):
+    NONE = "none"
+    INITIAL = "initial"
+    RECONNECT = "reconnect"
+    SEQUENCE_RESET = "sequence_reset"
+    TRACKING_RECOVERY = "tracking_recovery"
+    RELOCALIZATION = "relocalization"
+
+
 def _finite(values: tuple[float, ...], *, field_name: str) -> tuple[float, ...]:
     result = tuple(float(value) for value in values)
     if not all(math.isfinite(value) for value in result):
@@ -148,11 +171,32 @@ class ArmPoseSample:
     timestamps: TimestampSet
     tracking_valid: bool = True
     tracking_quality: float | None = None
+    tracking_state: TrackingState = TrackingState.UNKNOWN
+    validity_reason: str = ""
+    sample_age_ns: int = 0
+    connection_epoch: int = 0
+    discontinuity: DiscontinuityKind = DiscontinuityKind.NONE
+    source_sequence: int | None = None
 
     def __post_init__(self) -> None:
         _validate_identity(self.source_id, "source_id")
         _validate_identity(self.frame_id, "frame_id")
         _validate_sequence(self.sequence)
+        if not isinstance(self.tracking_state, TrackingState):
+            object.__setattr__(self, "tracking_state", TrackingState(self.tracking_state))
+        if not isinstance(self.discontinuity, DiscontinuityKind):
+            object.__setattr__(self, "discontinuity", DiscontinuityKind(self.discontinuity))
+        age = _nonnegative_ns(self.sample_age_ns, field_name="sample_age_ns")
+        assert age is not None
+        object.__setattr__(self, "sample_age_ns", age)
+        if not isinstance(self.connection_epoch, int) or isinstance(self.connection_epoch, bool):
+            raise ValueError("connection_epoch must be a non-negative integer")
+        if self.connection_epoch < 0:
+            raise ValueError("connection_epoch must be a non-negative integer")
+        if self.source_sequence is not None:
+            _validate_sequence(self.source_sequence)
+        if not self.tracking_valid and self.tracking_state == TrackingState.VALID:
+            raise ValueError("tracking_state VALID conflicts with tracking_valid=False")
         if self.tracking_quality is not None:
             quality = float(self.tracking_quality)
             if not math.isfinite(quality) or not 0.0 <= quality <= 1.0:
@@ -169,7 +213,103 @@ class ArmPoseSample:
             "timestamps": self.timestamps.to_dict(),
             "tracking_valid": self.tracking_valid,
             "tracking_quality": self.tracking_quality,
+            "tracking_state": self.tracking_state.value,
+            "validity_reason": self.validity_reason,
+            "sample_age_ns": self.sample_age_ns,
+            "connection_epoch": self.connection_epoch,
+            "discontinuity": self.discontinuity.value,
+            "source_sequence": self.source_sequence,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RunGateSample:
+    """Device-neutral hold-to-run input, separate from the pose contract."""
+
+    source_id: str
+    sequence: int
+    local_receive_ns: int
+    engaged: bool
+    valid: bool
+    connection_epoch: int = 0
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        _validate_identity(self.source_id, "source_id")
+        _validate_sequence(self.sequence)
+        received = _nonnegative_ns(self.local_receive_ns, field_name="local_receive_ns")
+        assert received is not None
+        object.__setattr__(self, "local_receive_ns", received)
+        if not isinstance(self.connection_epoch, int) or isinstance(self.connection_epoch, bool):
+            raise ValueError("connection_epoch must be a non-negative integer")
+        if self.connection_epoch < 0:
+            raise ValueError("connection_epoch must be a non-negative integer")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["schema_version"] = SCHEMA_VERSION
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorActionSample:
+    """Device-neutral edge-triggered operator requests outside hold-to-run."""
+
+    source_id: str
+    sequence: int
+    local_receive_ns: int
+    recenter_requested: bool = False
+    stop_requested: bool = False
+    fault_reset_requested: bool = False
+    valid: bool = True
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        _validate_identity(self.source_id, "source_id")
+        _validate_sequence(self.sequence)
+        received = _nonnegative_ns(self.local_receive_ns, field_name="local_receive_ns")
+        assert received is not None
+        object.__setattr__(self, "local_receive_ns", received)
+        if self.fault_reset_requested and not self.valid:
+            raise ValueError("invalid input may not request fault reset")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["schema_version"] = SCHEMA_VERSION
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class JointTarget:
+    """Constrained six-joint target generated from a Cartesian arm target."""
+
+    source_id: str
+    sequence: int
+    generated_monotonic_ns: int
+    joint_position_rad: tuple[float, float, float, float, float, float]
+    joint_velocity_rad_s: tuple[float, float, float, float, float, float]
+    joint_acceleration_rad_s2: tuple[float, float, float, float, float, float]
+    source_age_ns: int
+    anchor_id: int
+
+    def __post_init__(self) -> None:
+        _validate_identity(self.source_id, "source_id")
+        _validate_sequence(self.sequence)
+        for name in ("generated_monotonic_ns", "source_age_ns"):
+            value = _nonnegative_ns(getattr(self, name), field_name=name)
+            assert value is not None
+            object.__setattr__(self, name, value)
+        if not isinstance(self.anchor_id, int) or isinstance(self.anchor_id, bool) or self.anchor_id < 0:
+            raise ValueError("anchor_id must be a non-negative integer")
+        for name in (
+            "joint_position_rad",
+            "joint_velocity_rad_s",
+            "joint_acceleration_rad_s2",
+        ):
+            value = getattr(self, name)
+            if len(value) != 6:
+                raise ValueError(f"{name} must contain 6 values")
+            object.__setattr__(self, name, _finite(value, field_name=name))
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,5 +524,15 @@ def arm_pose_sample_from_dict(payload: Mapping[str, Any]) -> ArmPoseSample:
         tracking_valid=bool(payload.get("tracking_valid", True)),
         tracking_quality=(
             None if payload.get("tracking_quality") is None else float(payload["tracking_quality"])
+        ),
+        tracking_state=TrackingState(payload.get("tracking_state", TrackingState.UNKNOWN.value)),
+        validity_reason=str(payload.get("validity_reason", "")),
+        sample_age_ns=int(payload.get("sample_age_ns", 0)),
+        connection_epoch=int(payload.get("connection_epoch", 0)),
+        discontinuity=DiscontinuityKind(
+            payload.get("discontinuity", DiscontinuityKind.NONE.value)
+        ),
+        source_sequence=(
+            None if payload.get("source_sequence") is None else int(payload["source_sequence"])
         ),
     )

@@ -2,82 +2,140 @@ from __future__ import annotations
 
 import importlib
 import time
+from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
+from embodiment_core.config import load_yaml
 from embodiment_core.types import CameraIntrinsics
 
-from .interfaces import CameraInterface
+from .interfaces import CameraInterface, RGBDFrame
 
 
 class RealSenseCamera(CameraInterface):
-    def __init__(self, config: dict | None = None) -> None:
-        rs = _load_pyrealsense2()
-        self.config = config or {}
-        self.width = int(self.config.get("width", 640))
-        self.height = int(self.config.get("height", 480))
-        self.fps = int(self.config.get("fps", 30))
-        self.frame_id = str(self.config.get("frame_id", "camera_color_optical_frame"))
+    """Intel RealSense RGB-D source with an atomic frameset API."""
+
+    def __init__(self, config: Mapping[str, Any] | None = None) -> None:
+        self.rs = _load_pyrealsense2()
+        self.config = dict(config or {})
+        self.width = _positive_int(self.config.get("width", 640), "width")
+        self.height = _positive_int(self.config.get("height", 480), "height")
+        self.fps = _positive_int(self.config.get("fps", 30), "fps")
         self.align_depth_to_color = bool(self.config.get("align_depth_to_color", True))
         self.serial = self.config.get("serial")
-        self.warmup_frames = int(self.config.get("warmup_frames", 5))
-        self.timeout_ms = int(self.config.get("timeout_ms", 5000))
-        self.rs = rs
+        self.warmup_frames = max(int(self.config.get("warmup_frames", 5)), 0)
+        self.timeout_ms = _positive_int(self.config.get("timeout_ms", 5000), "timeout_ms")
+        max_skew = self.config.get("max_timestamp_skew_ms", 50.0)
+        self.max_timestamp_skew_ms = None if max_skew is None else float(max_skew)
+        if self.max_timestamp_skew_ms is not None and self.max_timestamp_skew_ms < 0.0:
+            raise ValueError("max_timestamp_skew_ms must be non-negative or null.")
+        self.sync_retry_frames = max(int(self.config.get("sync_retry_frames", 30)), 0)
+        frames = self.config.get("frames", {})
+        frames = frames if isinstance(frames, Mapping) else {}
+        self.color_frame_id = str(
+            self.config.get("frame_id", frames.get("rgb_optical", "camera_color_optical_frame"))
+        )
+        self.depth_frame_id = str(frames.get("depth_optical", "camera_depth_optical_frame"))
 
-        self.pipeline = rs.pipeline()
-        pipeline_config = rs.config()
+        self.pipeline = self.rs.pipeline()
+        pipeline_config = self.rs.config()
         if self.serial:
             pipeline_config.enable_device(str(self.serial))
-        pipeline_config.enable_stream(rs.stream.color, self.width, self.height, rs.format.rgb8, self.fps)
-        pipeline_config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+        pipeline_config.enable_stream(
+            self.rs.stream.color, self.width, self.height, self.rs.format.rgb8, self.fps
+        )
+        pipeline_config.enable_stream(
+            self.rs.stream.depth, self.width, self.height, self.rs.format.z16, self.fps
+        )
         self.profile = self.pipeline.start(pipeline_config)
-        self.align = rs.align(rs.stream.color) if self.align_depth_to_color else None
-        self.depth_scale = _get_depth_scale(rs, self.profile)
-        self._intrinsics = _get_color_intrinsics(rs, self.profile, self.frame_id)
-        self._last_rgb: np.ndarray | None = None
-        self._last_depth: np.ndarray | None = None
-        self._last_timestamp = 0.0
+        self.align = self.rs.align(self.rs.stream.color) if self.align_depth_to_color else None
+        self.depth_sensor = self.profile.get_device().first_depth_sensor()
+        _configure_depth_sensor(self.rs, self.depth_sensor, self.config)
+        self.depth_scale = _get_depth_scale(self.depth_sensor)
+        self.depth_filters = _build_depth_filters(self.rs, self.config.get("filters", {}))
+        self._last_frame: RGBDFrame | None = None
+        self._compat_frame: RGBDFrame | None = None
         self._closed = False
 
-        for _ in range(max(0, self.warmup_frames)):
-            self._read_frames()
+        for _ in range(self.warmup_frames):
+            self.capture()
 
-    def _read_frames(self) -> None:
+    @classmethod
+    def from_yaml(
+        cls,
+        path: str | Path,
+        *,
+        camera_name: str | None = None,
+    ) -> RealSenseCamera:
+        return cls(resolve_realsense_config(load_yaml(path), camera_name=camera_name))
+
+    def capture(self) -> RGBDFrame:
         if self._closed:
             raise RuntimeError("RealSenseCamera is closed.")
-        frames = self.pipeline.wait_for_frames(self.timeout_ms)
-        if self.align is not None:
-            frames = self.align.process(frames)
 
-        color_frame = frames.get_color_frame()
-        depth_frame = frames.get_depth_frame()
+        last_frame: RGBDFrame | None = None
+        for _ in range(self.sync_retry_frames + 1):
+            frame = self._capture_once()
+            last_frame = frame
+            if self.max_timestamp_skew_ms is None or not frame.timestamps_comparable:
+                self._last_frame = frame
+                return frame
+            if frame.timestamp_skew_ms <= self.max_timestamp_skew_ms:
+                self._last_frame = frame
+                return frame
+        assert last_frame is not None
+        raise RuntimeError(
+            "RealSense RGB/depth timestamp skew remained above "
+            f"{self.max_timestamp_skew_ms:.3f} ms after {self.sync_retry_frames + 1} frames; "
+            f"last skew was {last_frame.timestamp_skew_ms:.3f} ms."
+        )
+
+    def _capture_once(self) -> RGBDFrame:
+
+        frameset = self.pipeline.wait_for_frames(self.timeout_ms)
+        if self.align is not None:
+            frameset = self.align.process(frameset)
+        color_frame = frameset.get_color_frame()
+        depth_frame = frameset.get_depth_frame()
         if not color_frame or not depth_frame:
             raise RuntimeError("RealSense frameset did not contain both color and depth frames.")
 
-        self._last_rgb = np.asanyarray(color_frame.get_data()).copy()
-        self._last_depth = (np.asanyarray(depth_frame.get_data()).astype(np.float32) * self.depth_scale).copy()
-        self._last_timestamp = time.time()
+        for depth_filter in self.depth_filters:
+            depth_frame = depth_filter.process(depth_frame)
 
-    def get_rgb(self) -> np.ndarray:
-        self._read_frames()
-        if self._last_rgb is None:
-            raise RuntimeError("RealSense RGB frame is unavailable.")
-        return self._last_rgb.copy()
+        rgb = np.asanyarray(color_frame.get_data()).copy()
+        depth_m = (
+            np.asanyarray(depth_frame.get_data()).astype(np.float32) * self.depth_scale
+        ).copy()
+        if rgb.ndim != 3 or rgb.shape[2] != 3:
+            raise RuntimeError(f"Unexpected RealSense RGB shape: {rgb.shape}.")
+        if depth_m.ndim != 2:
+            raise RuntimeError(f"Unexpected RealSense depth shape: {depth_m.shape}.")
 
-    def get_depth(self) -> np.ndarray:
-        if self._last_depth is None:
-            self._read_frames()
-        if self._last_depth is None:
-            raise RuntimeError("RealSense depth frame is unavailable.")
-        return self._last_depth.copy()
+        frame_id = self.color_frame_id if self.align_depth_to_color else self.depth_frame_id
+        intrinsics = _get_frame_intrinsics(depth_frame, frame_id)
+        if depth_m.shape != (intrinsics.height, intrinsics.width):
+            raise RuntimeError(
+                "Depth image shape does not match its intrinsics: "
+                f"image={depth_m.shape}, intrinsics={(intrinsics.height, intrinsics.width)}."
+            )
 
-    def get_intrinsics(self) -> CameraIntrinsics:
-        return self._intrinsics
-
-    def get_timestamp(self) -> float:
-        return self._last_timestamp
+        frame = RGBDFrame(
+            rgb=rgb,
+            depth_m=depth_m,
+            intrinsics=intrinsics,
+            host_timestamp_s=time.time(),
+            color_timestamp_ms=_frame_timestamp_ms(color_frame),
+            depth_timestamp_ms=_frame_timestamp_ms(depth_frame),
+            color_timestamp_domain=_frame_timestamp_domain(color_frame),
+            depth_timestamp_domain=_frame_timestamp_domain(depth_frame),
+            color_frame_number=_frame_number(color_frame),
+            depth_frame_number=_frame_number(depth_frame),
+            depth_aligned_to_color=self.align_depth_to_color,
+        )
+        return frame
 
     def close(self) -> None:
         if not getattr(self, "_closed", True):
@@ -97,6 +155,36 @@ class RealSenseCamera(CameraInterface):
             pass
 
 
+def resolve_realsense_config(
+    config: Mapping[str, Any],
+    *,
+    camera_name: str | None = None,
+) -> dict[str, Any]:
+    """Resolve one device from either a flat or a multi-camera YAML mapping."""
+
+    resolved = {key: value for key, value in config.items() if key != "cameras"}
+    cameras = config.get("cameras")
+    if not isinstance(cameras, Mapping):
+        if camera_name is not None:
+            raise ValueError("camera_name was provided but the config has no 'cameras' mapping.")
+        return resolved
+
+    if camera_name is None:
+        if len(cameras) != 1:
+            names = ", ".join(str(name) for name in cameras)
+            raise ValueError(f"camera_name is required for multi-camera config; available: {names}.")
+        camera_name = str(next(iter(cameras)))
+    if camera_name not in cameras:
+        names = ", ".join(str(name) for name in cameras)
+        raise KeyError(f"Unknown camera {camera_name!r}; available: {names}.")
+    camera_config = cameras[camera_name]
+    if not isinstance(camera_config, Mapping):
+        raise ValueError(f"Camera config {camera_name!r} must be a mapping.")
+    resolved.update(camera_config)
+    resolved["camera_name"] = camera_name
+    return resolved
+
+
 def _load_pyrealsense2() -> ModuleType:
     try:
         return importlib.import_module("pyrealsense2")
@@ -107,16 +195,27 @@ def _load_pyrealsense2() -> ModuleType:
         ) from exc
 
 
-def _get_depth_scale(rs: ModuleType, profile: Any) -> float:
-    device = profile.get_device()
-    depth_sensor = device.first_depth_sensor()
-    return float(depth_sensor.get_depth_scale())
+def _positive_int(value: Any, name: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise ValueError(f"{name} must be positive, got {parsed}.")
+    return parsed
 
 
-def _get_color_intrinsics(rs: ModuleType, profile: Any, frame_id: str) -> CameraIntrinsics:
-    stream_profile = profile.get_stream(rs.stream.color)
-    video_profile = stream_profile.as_video_stream_profile()
+def _get_depth_scale(depth_sensor: Any) -> float:
+    scale = float(depth_sensor.get_depth_scale())
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise RuntimeError(f"Invalid RealSense depth scale: {scale}.")
+    return scale
+
+
+def _get_frame_intrinsics(frame: Any, frame_id: str) -> CameraIntrinsics:
+    profile = frame.get_profile() if hasattr(frame, "get_profile") else frame.profile
+    video_profile = profile.as_video_stream_profile()
     intrinsics = video_profile.get_intrinsics()
+    model = str(getattr(intrinsics, "model", "none"))
+    if "." in model:
+        model = model.rsplit(".", 1)[-1]
     return CameraIntrinsics(
         width=int(intrinsics.width),
         height=int(intrinsics.height),
@@ -125,7 +224,98 @@ def _get_color_intrinsics(rs: ModuleType, profile: Any, frame_id: str) -> Camera
         cx=float(intrinsics.ppx),
         cy=float(intrinsics.ppy),
         frame_id=frame_id,
+        distortion_model=model,
+        distortion_coefficients=[float(value) for value in getattr(intrinsics, "coeffs", [])],
     )
+
+
+def _frame_timestamp_ms(frame: Any) -> float:
+    if hasattr(frame, "get_timestamp"):
+        return float(frame.get_timestamp())
+    return float(frame.timestamp)
+
+
+def _frame_timestamp_domain(frame: Any) -> str:
+    if hasattr(frame, "get_frame_timestamp_domain"):
+        domain = frame.get_frame_timestamp_domain()
+    else:
+        domain = frame.frame_timestamp_domain
+    text = str(domain)
+    return text.rsplit(".", 1)[-1]
+
+
+def _frame_number(frame: Any) -> int:
+    if hasattr(frame, "get_frame_number"):
+        return int(frame.get_frame_number())
+    return int(frame.frame_number)
+
+
+def _build_depth_filters(rs: ModuleType, config: Any) -> list[Any]:
+    if not isinstance(config, Mapping):
+        raise ValueError("filters must be a mapping.")
+    spatial = config.get("spatial", {})
+    temporal = config.get("temporal", {})
+    spatial_enabled = _filter_enabled(spatial)
+    temporal_enabled = _filter_enabled(temporal)
+    use_disparity = bool(config.get("use_disparity", True)) and (
+        spatial_enabled or temporal_enabled
+    )
+    filters: list[Any] = []
+    if use_disparity:
+        filters.append(rs.disparity_transform(True))
+    if spatial_enabled:
+        filters.append(
+            rs.spatial_filter(
+                float(spatial.get("smooth_alpha", 0.5)),
+                float(spatial.get("smooth_delta", 20.0)),
+                int(spatial.get("magnitude", 2)),
+                int(spatial.get("hole_fill", 0)),
+            )
+        )
+    if temporal_enabled:
+        filters.append(
+            rs.temporal_filter(
+                float(temporal.get("smooth_alpha", 0.4)),
+                float(temporal.get("smooth_delta", 20.0)),
+                int(temporal.get("persistence_control", 3)),
+            )
+        )
+    if use_disparity:
+        filters.append(rs.disparity_transform(False))
+    hole_filling = config.get("hole_filling", {})
+    if _filter_enabled(hole_filling):
+        filters.append(rs.hole_filling_filter(int(hole_filling.get("mode", 1))))
+    return filters
+
+
+def _configure_depth_sensor(rs: ModuleType, sensor: Any, config: Mapping[str, Any]) -> None:
+    preset = config.get("visual_preset")
+    if preset is None:
+        return
+    preset_values = {
+        "custom": 0.0,
+        "default": 1.0,
+        "hand": 2.0,
+        "high_accuracy": 3.0,
+        "high_density": 4.0,
+        "medium_density": 5.0,
+    }
+    if isinstance(preset, str):
+        key = preset.strip().lower().replace("-", "_").replace(" ", "_")
+        if key not in preset_values:
+            names = ", ".join(preset_values)
+            raise ValueError(f"Unknown visual_preset {preset!r}; expected one of: {names}.")
+        value = preset_values[key]
+    else:
+        value = float(preset)
+    option = rs.option.visual_preset
+    if hasattr(sensor, "supports") and not sensor.supports(option):
+        raise RuntimeError("The selected RealSense depth sensor does not support visual presets.")
+    sensor.set_option(option, value)
+
+
+def _filter_enabled(config: Any) -> bool:
+    return isinstance(config, Mapping) and bool(config.get("enabled", False))
 
 
 def list_realsense_devices() -> list[dict[str, str]]:
@@ -134,16 +324,16 @@ def list_realsense_devices() -> list[dict[str, str]]:
     for device in rs.context().query_devices():
         devices.append(
             {
-                "name": _device_info(rs, device, rs.camera_info.name),
-                "serial": _device_info(rs, device, rs.camera_info.serial_number),
-                "usb_type": _device_info(rs, device, rs.camera_info.usb_type_descriptor),
-                "firmware": _device_info(rs, device, rs.camera_info.firmware_version),
+                "name": _device_info(device, rs.camera_info.name),
+                "serial": _device_info(device, rs.camera_info.serial_number),
+                "usb_type": _device_info(device, rs.camera_info.usb_type_descriptor),
+                "firmware": _device_info(device, rs.camera_info.firmware_version),
             }
         )
     return devices
 
 
-def _device_info(rs: ModuleType, device: Any, info_key: Any) -> str:
+def _device_info(device: Any, info_key: Any) -> str:
     try:
         return str(device.get_info(info_key))
     except Exception:

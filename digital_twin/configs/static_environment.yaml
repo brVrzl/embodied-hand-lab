@@ -1,0 +1,99 @@
+schema_version: 1
+units: meter
+frame: P
+source_reconstruction: artifacts/digital_twin/reconstruction/02/colmap/sparse_text/1
+registration: artifacts/digital_twin/calibration/T_P_R.json
+
+visual_layers:
+  permanent_background: false
+  sparse_reconstruction_debug: false
+  cables: false
+  calibration_boards: false
+  temporary_clutter: false
+  coordinate_axes: true
+  camera_placeholders: true
+  policy: No clean dense background exists yet; the default scene uses only parameterized geometry and the existing articulated robot.
+
+crop_P:
+  minimum_m: [-1.2, -2.0, -0.9]
+  maximum_m: [1.2, 1.0, 0.75]
+
+segmentation:
+  tabletop:
+    center_P_m: [-0.053, -0.545, -0.060]
+    dimensions_m: [0.73, 1.38, 0.02]
+    source: reconstruction_plane_plus_user_approximate_dimensions_and_edge_offsets
+    status: operational_provisional
+  reconstructed_robot_removal:
+    shape: box
+    minimum_P_m: [-0.65, -0.65, -0.02]
+    maximum_P_m: [0.65, 0.55, 0.75]
+    status: conservative_visual_removal_volume
+    note: Deliberately over-removes the full scanned robot envelope and nearby sparse contamination; the articulated robot and local table/frame primitives come only from MJCF.
+  calibration_boards:
+    method: low-saturation black/white points on the tabletop plane
+    available_as_optional_segment: true
+    include_in_active_visual: false
+  cables:
+    method: dark elevated table-region points outside the robot removal volume
+    available_as_optional_segment: true
+    include_in_active_visual: false
+    visual_only: true
+    collision: false
+  removable_clutter:
+    method: remaining points above the operational tabletop within its footprint
+    include_in_visual: false
+    collision: false
+    reviewed_removal_volumes:
+      - name: temporary_cardboard_or_box_at_front_edge
+        minimum_P_m: [-0.08, -1.34, -0.02]
+        maximum_P_m: [0.10, -1.20, 0.16]
+        source: deterministic_review_of_registered_sparse_scene
+        status: provisional_semantic_cleanup
+  permanent_background:
+    collision: false
+    voxel_size_m: 0.035
+    outlier_neighbors: 8
+    outlier_std: 2.5
+    radius_outlier_radius_m: 0.09
+    radius_outlier_min_neighbors: 2
+    minimum_component_points: 3
+    minimum_colmap_track_length: 3
+
+visual_mesh:
+  representation: optional_compact_markers_from_cleaned_sparse_points
+  default_enabled: false
+  debug_layer_name: colmap_sparse_debug
+  marker_size_m: 0.006
+  rendering_only: true
+  collision: false
+  warning: Sparse SfM points are a debug overlay, not a background surface or physics mesh.
+
+aluminium_frame:
+  source: reconstruction_01_primitive_fit
+  status: operational_provisional
+  profile_m: [0.05, 0.05]
+  collision: true
+  members:
+    - name: rail_positive_y
+      dimensions_P_xyz_m: [0.40, 0.05, 0.05]
+      center_P_m: [0.08, 0.038890873, -0.025]
+      quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+      source: sparse_fit_extent_expanded_to_cover_fixed_mounting_span
+      uncertainty_m: 0.03
+    - name: rail_negative_y
+      dimensions_P_xyz_m: [0.40, 0.05, 0.05]
+      center_P_m: [0.08, -0.038890873, -0.025]
+      quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+      source: sparse_fit_extent_expanded_to_cover_fixed_mounting_span
+      uncertainty_m: 0.03
+    - name: front_transverse_member
+      dimensions_P_xyz_m: [0.05, 0.40, 0.05]
+      center_P_m: [0.275, -0.115, -0.025]
+      quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+      source: reconstruction_01_observed_extent
+      uncertainty_m: 0.03
+
+robot_visual_policy:
+  reconstructed_robot_included: false
+  active_robot_source: data/sim_assets/jaka_rh56_visual_coacd.xml

@@ -1,0 +1,36 @@
+schema_version: 1
+source_reconstruction: "01"
+image_size_px: [1080, 1920]
+annotation_status: manual_ROI_reviewed_against_source_frames
+notes:
+  - ROIs select semantic regions, not surveyed points; the fitter retains robust residuals and must reject weak geometry.
+  - Cable, clamp, board, and moving-link features inside an ROI are filtered geometrically and by color where possible.
+
+base_outer_surface:
+  - image: frame_000000.jpg
+    polygon_px: [[720, 980], [1079, 980], [1079, 1340], [720, 1340]]
+  - image: frame_000040.jpg
+    polygon_px: [[380, 940], [680, 940], [680, 1285], [380, 1285]]
+  - image: frame_000055.jpg
+    polygon_px: [[490, 670], [720, 670], [720, 970], [490, 970]]
+  - image: frame_000065.jpg
+    polygon_px: [[500, 660], [770, 660], [770, 980], [500, 980]]
+
+parallel_rails:
+  rail_1:
+    - image: frame_000000.jpg
+      polygon_px: [[300, 1050], [720, 1050], [720, 1135], [300, 1135]]
+  rail_2:
+    - image: frame_000000.jpg
+      polygon_px: [[300, 1210], [720, 1210], [720, 1305], [300, 1305]]
+
+front_transverse_member:
+  - image: frame_000000.jpg
+    polygon_px: [[180, 300], [285, 300], [285, 1580], [180, 1580]]
+
+mounting_bolts:
+  visibility_status: partial
+  manually_visible_centers_px:
+    - {image: frame_000000.jpg, label: left_upper_visible_bolt, center_px: [787, 1061], status: provisional_pixel_annotation}
+    - {image: frame_000000.jpg, label: left_lower_visible_bolt, center_px: [792, 1248], status: provisional_pixel_annotation}
+  warning: Four bolt centers are not simultaneously visible; no 110 mm PCD fit is authorized from these two annotations.

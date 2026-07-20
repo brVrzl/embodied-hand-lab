@@ -1,0 +1,99 @@
+teledex:
+  port: 8888
+  show_qr: true
+  debug: false
+  max_stale_feedback_sec: 0.20
+  server_start_timeout_sec: 3.0
+  publish_hz: 30.0
+  # TeleDex Button A is the momentary hold-to-run input. Button B and Toggle
+  # remain unbound during the first arm-only bring-up.
+  deadman_field: button
+  precision_scale: 1.0
+
+deadman:
+  # Button A must be held. Releasing it stops and arms a fresh relative anchor
+  # for the next press. App exit/disconnect and the bridge watchdog also stop.
+  source: teledex_button_a
+  gamepad_index: 0
+  deadzone: 0.12
+
+feedback:
+  timeout_sec: 0.30
+
+topics:
+  arm_palm_target_jog: /jaka/teleop_palm_target_jog
+  jaka_tcp_pose: /jaka/tcp_pose
+  jaka_joint_states: /jaka/joint_states
+  teledex_pose: /teleop/teledex/pose
+  teledex_status: /teleop/teledex/status
+  shadow_joint_states: /teleop/shadow_joint_states
+  shadow_status: /teleop/shadow_status
+  shadow_palm_target: /teleop/shadow_palm_target
+
+calibration:
+  file: configs/teleop/teledex_jaka_arm_calibration.json
+  required_for_real_motion: true
+  # Hand translations identify axis permutation/sign only. Do not fit small
+  # off-axis components caused by an imperfect freehand gesture.
+  mapping_mode: signed_permutation
+
+# Identity is used only for inspecting uncalibrated motion in shadow. A guided
+# calibration file supplies the actual phone-world -> JAKA-base rotation.
+direction_calibration:
+  phone_to_robot:
+    x: {source: x, sign: 1.0, scale: 1.0}
+    y: {source: y, sign: 1.0, scale: 1.0}
+    z: {source: z, sign: 1.0, scale: 1.0}
+  phone_to_robot_orientation:
+    x: {source: rot_x, sign: 1.0, scale: 1.0}
+    y: {source: rot_y, sign: 1.0, scale: 1.0}
+    z: {source: rot_z, sign: 1.0, scale: 1.0}
+
+relative_pose_lag_follow:
+  target_response_mode: direct
+  position_scale: 0.30
+  max_step_position_m: 0.008
+  max_step_rotation_deg: 1.5
+  max_target_lead_m: 0.06
+  workspace_min_m: [-0.14, -0.46, 0.16]
+  workspace_max_m: [0.06, -0.24, 0.46]
+  max_pos_tracking_error_warn_m: 0.035
+  max_pos_tracking_error_pause_m: 0.070
+  max_rot_tracking_error_warn_deg: 8.0
+  max_rot_tracking_error_pause_deg: 18.0
+  max_q_tracking_error_pause_rad: 0.20
+  min_warn_time_scale: 0.25
+  phone_translation_deadband_m: 0.003
+  phone_rotation_deadband_deg: 1.0
+  phone_jump_reject_translation_m: 0.20
+  phone_jump_reject_rotation_deg: 35.0
+  phone_still_translation_m: 0.002
+  phone_still_rotation_deg: 0.6
+  phone_still_min_sec: 0.10
+  freeze_when_phone_still: false
+  target_filter_time_constant_sec: 0.045
+  max_target_velocity_m_s: 0.060
+  max_target_acceleration_m_s2: 0.40
+  max_target_jump_m: 0.035
+  target_update_deadband_m: 0.0004
+  target_update_release_m: 0.0010
+  reanchor_requires_deadman_release: true
+
+  # Stage 1 is translation-only. Enable only after the shadow rotation axes
+  # have been checked one by one with the actual phone orientation.
+  orientation_control_enabled: false
+  orientation_mapping_mode: axis_mapped_relative
+  phone_quaternion_convention: body-to-world
+  orientation_scale: 0.50
+
+shadow:
+  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
+  ik_gain: 0.7
+  ik_damping: 0.05
+  ik_max_step_rad: 0.06
+  ik_iterations: 24
+  target_workspace_radius_m: 0.06
+  # Shadow publishes no hardware commands, so it may preview without an
+  # external clutch. Real motion never uses this override.
+  allow_without_deadman: true

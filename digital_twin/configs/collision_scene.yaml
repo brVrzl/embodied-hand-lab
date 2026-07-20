@@ -1,0 +1,40 @@
+units: meter
+frame: P
+objects:
+  - name: tabletop
+    shape_type: box
+    dimensions: [0.73, 1.38, 0.02]
+    pose_in_P: {translation_m: [-0.053, -0.545, -0.060], quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]}
+    source: reconstruction_plane_plus_user_approximate_dimensions_and_edge_offsets
+    status: operational_provisional
+    uncertainty_m: 0.01
+    collision: true
+    provisional: true
+  - name: rail_positive_y
+    shape_type: box
+    dimensions: [0.40, 0.05, 0.05]
+    pose_in_P: {translation_m: [0.08, 0.038890873, -0.025], quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]}
+    source: reconstruction_01_primitive_fit
+    status: operational_provisional
+    uncertainty_m: 0.03
+    collision: true
+    provisional: true
+  - name: rail_negative_y
+    shape_type: box
+    dimensions: [0.40, 0.05, 0.05]
+    pose_in_P: {translation_m: [0.08, -0.038890873, -0.025], quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]}
+    source: reconstruction_01_primitive_fit
+    status: operational_provisional
+    uncertainty_m: 0.03
+    collision: true
+    provisional: true
+  - name: front_transverse_member
+    shape_type: box
+    dimensions: [0.05, 0.40, 0.05]
+    pose_in_P: {translation_m: [0.275, -0.115, -0.025], quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]}
+    source: reconstruction_01_primitive_fit
+    status: operational_provisional
+    uncertainty_m: 0.03
+    collision: true
+    provisional: true
+# Dense reconstruction remains forbidden as collision input.

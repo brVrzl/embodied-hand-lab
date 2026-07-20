@@ -11,13 +11,16 @@
 - [RH56 预抓取预测协议](rh56_pregrasp_prediction_protocol.md)
 - [真实机器人数据采集协议](../real_robot_data_collection_protocol.md)
 - [LeRobot 数据与工作空间标定](lerobot_data_and_workspace_calibration.md)
+- [D435 深度与点云准备状态](d435_depth_pointcloud_readiness.md)
+- [D435 深度质量评估](d435_depth_quality_assessment_20260713.md)
+- [D435 深度与点云算法选择](d435_algorithm_selection_20260713.md)
 - [网球数字孪生计划](tennis_ball_digital_twin_plan.md)
 - [近期灵巧抓取文献边界](literature/dexterous_grasping_recent_work_20260609.md)
 
 ## 当前工程边界
 
 - 仓库正在从仿真资产误删后的状态中重建。文档必须区分可用代码路径和恢复锚点。
-- `data/sim_assets/jaka_rh56.xml` 是当前 JAKA+RH56 mounted integration model，因为下游工具仍依赖它；它不是最终验证模型。
+- `data/sim_assets/jaka_rh56_visual_coacd.xml` 是默认 mounted runtime collision asset；`jaka_rh56.xml` 只保留为 comparison-mode derivation anchor。
 - `data/sim_assets/correll_rh56dfx/` 是 RH56DFX reference hand asset set，用于浮动手 FK 规划和指尖 force/torque sensor 验证。
 - 真实硬件脚本在没有明确只读说明前，都应按可能产生运动命令处理。
 - 没有真实 replay 数据时，不要把仿真结果描述为真实 RH56 抓取性能。

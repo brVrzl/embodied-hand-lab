@@ -1,0 +1,27 @@
+schema_version: d435_tabletop_v1
+
+depth:
+  min_m: 0.15
+  max_m: 1.50
+  pixel_stride: 1
+
+point_cloud:
+  voxel_size_m: 0.005
+
+tabletop:
+  plane_distance_threshold_m: 0.008
+  plane_max_iterations: 300
+  plane_min_inlier_ratio: 0.20
+  plane_max_tilt_deg: 25.0
+  object_min_height_m: 0.01
+  object_max_height_m: 0.30
+
+coordinates:
+  target_frame_id: jaka_base
+  up_axis: [0.0, 0.0, 1.0]
+  target_from_camera_npy: null
+  calibration_status: uncalibrated
+
+workspace:
+  min_xyz_m: null
+  max_xyz_m: null

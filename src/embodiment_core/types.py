@@ -60,6 +60,8 @@ class CameraIntrinsics:
     cx: float
     cy: float
     frame_id: str
+    distortion_model: str = "none"
+    distortion_coefficients: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -74,4 +76,3 @@ class ActionRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

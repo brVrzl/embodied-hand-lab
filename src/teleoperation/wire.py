@@ -45,6 +45,7 @@ class StatusFlags(enum.IntFlag):
 class FrameId(enum.IntEnum):
     NONE = 0
     ROBOT_BASE = 1
+    STARTUP_TCP_RELATIVE = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,16 +97,38 @@ def decode_target(data: bytes) -> TargetPacket:
 
 def pose_target_packet(target: PoseTarget, *, allow_motion: bool = False) -> TargetPacket:
     ts = target.timestamps
+    frame = {
+        "robot_base": FrameId.ROBOT_BASE,
+        "startup_tcp_relative": FrameId.STARTUP_TCP_RELATIVE,
+    }.get(target.target_frame_id)
+    if frame is None:
+        raise ValueError(f"unsupported target frame: {target.target_frame_id!r}")
     return TargetPacket(
         TargetKind.CARTESIAN_POSE,
         TargetFlags.ALLOW_MOTION if allow_motion else TargetFlags.NONE,
-        FrameId.ROBOT_BASE,
+        frame,
         target.sequence,
         ts.source_capture_ns or 0,
         ts.local_receive_ns,
         ts.processing_ns or 0,
         ts.dispatch_ns or 0,
         (*target.pose.position_m, *target.pose.quaternion_xyzw, 0.0),
+    )
+
+
+def stop_target_packet(*, sequence: int, monotonic_ns: int) -> TargetPacket:
+    if sequence < 0 or monotonic_ns < 0:
+        raise ValueError("stop sequence and timestamp must be non-negative")
+    return TargetPacket(
+        TargetKind.STOP,
+        TargetFlags.NONE,
+        FrameId.NONE,
+        sequence,
+        0,
+        monotonic_ns,
+        monotonic_ns,
+        monotonic_ns,
+        (0.0,) * 8,
     )
 
 

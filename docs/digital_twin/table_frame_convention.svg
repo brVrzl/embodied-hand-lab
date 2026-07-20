@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="620" viewBox="0 0 980 620">
+  <style>
+    text { font-family: sans-serif; fill: #20242a; font-size: 18px; }
+    .small { font-size: 14px; }
+    .table { fill: #e8c995; stroke: #5e4932; stroke-width: 3; }
+    .rail { fill: #cdd4da; stroke: #586069; stroke-width: 2; }
+    .measure { stroke: #8b3fd1; stroke-width: 3; marker-start: url(#arrow); marker-end: url(#arrow); }
+  </style>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto"><path d="M8 0 L0 4 L8 8 z" fill="#8b3fd1"/></marker></defs>
+  <rect x="110" y="75" width="730" height="460" rx="8" class="table"/>
+  <text x="475" y="58" text-anchor="middle">named physical table edge (front/bottom in supplied description; sign not yet verified)</text>
+  <rect x="250" y="260" width="420" height="42" class="rail"/>
+  <rect x="250" y="340" width="420" height="42" class="rail"/>
+  <rect x="225" y="235" width="48" height="172" class="rail"/>
+  <text x="205" y="430" class="small">front transverse member</text>
+  <circle cx="630" cy="321" r="62" fill="#fff" stroke="#333" stroke-width="3"/>
+  <circle cx="630" cy="321" r="4" fill="#111"/>
+  <text x="646" y="316">P: 110 mm PCD center</text>
+  <line x1="630" y1="321" x2="455" y2="321" stroke="#d22" stroke-width="5" marker-end="url(#arrow)"/>
+  <text x="500" y="306" fill="#d22">P +x toward transverse rail</text>
+  <line x1="630" y1="321" x2="630" y2="445" stroke="#16883f" stroke-width="5" marker-end="url(#arrow)"/>
+  <text x="645" y="445" fill="#16883f">P +y (right handed)</text>
+  <line x1="630" y1="245" x2="630" y2="95" class="measure"/>
+  <text x="646" y="175" fill="#8b3fd1">≈312 mm to named edge (conditional)</text>
+  <line x1="700" y1="321" x2="835" y2="321" class="measure"/>
+  <text x="708" y="350" fill="#8b3fd1">≈145 mm to named right edge</text>
+  <text x="105" y="580" class="small">Diagram records landmarks and ambiguity only. It does not select which table edge is +x/+y, so collision remains disabled.</text>
+</svg>

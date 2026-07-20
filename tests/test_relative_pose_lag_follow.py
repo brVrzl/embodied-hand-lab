@@ -170,6 +170,42 @@ def test_direct_mode_limits_target_velocity() -> None:
     assert output.log["target_velocity_limited"] is True
 
 
+def test_calibrated_rotation_matrix_maps_phone_delta_to_robot_base() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            max_pos_tracking_error_pause_m=0.20,
+            phone_jump_reject_translation_m=1.0,
+            phone_to_robot_rotation_matrix=(
+                (0.0, -1.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (0.0, 0.0, 1.0),
+            ),
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    output = follower.step(_snapshot(0.1, [0.10, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert output.command_deadman is True
+    assert output.log["mapped_phone_delta_m"] == pytest.approx([0.0, 0.10, 0.0])
+    assert output.palm_target_position_m == pytest.approx([0.0, 0.10, 0.0])
+
+
+def test_calibrated_rotation_matrix_rejects_reflection() -> None:
+    with pytest.raises(ValueError, match="determinant"):
+        RelativePoseLagFollower(
+            _config(
+                phone_to_robot_rotation_matrix=(
+                    (-1.0, 0.0, 0.0),
+                    (0.0, 1.0, 0.0),
+                    (0.0, 0.0, 1.0),
+                )
+            )
+        )
+
+
 def test_direct_mode_limits_target_acceleration() -> None:
     follower = RelativePoseLagFollower(
         _config(
@@ -187,6 +223,29 @@ def test_direct_mode_limits_target_acceleration() -> None:
     assert output.command_deadman is True
     assert output.palm_target_position_m == pytest.approx([0.001, 0.0, 0.0])
     assert output.log["target_acceleration_limited"] is True
+
+
+def test_direct_mode_deadband_does_not_discard_acceleration_limited_startup_steps() -> None:
+    follower = RelativePoseLagFollower(
+        _config(
+            freeze_when_phone_still=False,
+            max_target_velocity_m_s=10.0,
+            max_target_acceleration_m_s2=0.10,
+            target_update_deadband_m=0.0004,
+            target_update_release_m=0.0010,
+            phone_jump_reject_translation_m=1.0,
+        )
+    )
+    q_current = [0.0] * 6
+
+    follower.step(_snapshot(0.0, [0.0, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    first = follower.step(_snapshot(0.02, [0.020, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+    second = follower.step(_snapshot(0.04, [0.020, 0.0, 0.0]), _actual([0.0, 0.0, 0.0]), q_current)
+
+    assert first.palm_target_position_m == pytest.approx([0.00004, 0.0, 0.0])
+    assert second.palm_target_position_m == pytest.approx([0.00012, 0.0, 0.0])
+    assert first.log["target_acceleration_limited"] is True
+    assert first.log["target_deadband_hold"] is False
 
 
 def test_direct_mode_holds_small_target_updates_until_release_threshold() -> None:

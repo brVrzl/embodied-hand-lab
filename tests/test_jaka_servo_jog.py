@@ -58,6 +58,7 @@ def test_parse_palm_target_jog_command_requires_three_velocities() -> None:
         {
             "deadman": True,
             "hold_current": True,
+            "align_position_target_on_enable": True,
             "palm_velocity_m_s": [0.0, 0.0, 0.0],
             "wrist_roll_velocity_rad_s": 0.0,
             "palm_target_position_m": [0.1, -0.2, 0.3],
@@ -65,6 +66,7 @@ def test_parse_palm_target_jog_command_requires_three_velocities() -> None:
     )
     assert target_command.palm_target_position_m == [0.1, -0.2, 0.3]
     assert target_command.hold_current is True
+    assert target_command.align_position_target_on_enable is True
 
     orientation_command = parse_palm_target_jog_command(
         {
@@ -86,6 +88,14 @@ def test_parse_palm_target_jog_command_requires_three_velocities() -> None:
             {
                 "deadman": True,
                 "hold_current": 1,
+                "palm_velocity_m_s": [0.0, 0.0, 0.0],
+            }
+        )
+    with pytest.raises(ValueError, match="align_position_target_on_enable"):
+        parse_palm_target_jog_command(
+            {
+                "deadman": True,
+                "align_position_target_on_enable": 1,
                 "palm_velocity_m_s": [0.0, 0.0, 0.0],
             }
         )
@@ -288,6 +298,64 @@ def test_palm_target_jog_accepts_absolute_palm_position_target() -> None:
     assert controller.status()["palm_target_quaternion_wxyz"] == pytest.approx(
         [0.9990004545453102, 0.0, 0.0, 0.044700020338966376]
     )
+    assert any(abs(value) > 0.0 for value in backend.joints)
+
+
+def test_palm_target_jog_aligns_external_tcp_origin_and_preserves_relative_motion() -> None:
+    backend = FakeBackend()
+    clock = [1.0]
+    controller = JakaPalmTargetJogController(
+        backend,  # type: ignore[arg-type]
+        state_flags=lambda: {},
+        max_joint_velocity_rad_s=1.0,
+        max_joint_acceleration_rad_s2=100.0,
+        max_joint_tracking_error_rad=0.0,
+        max_joint_tracking_error_fault_rad=0.0,
+        prime_after_enable_ticks=0,
+        now=lambda: clock[0],
+    )
+    source_anchor = [0.10, -0.20, 0.30]
+    controller.accept(
+        PalmTargetJogCommand(
+            True,
+            [0.0, 0.0, 0.0],
+            0.0,
+            source_anchor,
+            align_position_target_on_enable=True,
+        )
+    )
+    assert controller.tick() is True
+    model_anchor = controller.status()["palm_preview_position_m"]
+    assert isinstance(model_anchor, list)
+
+    clock[0] = 1.1
+    controller.accept(
+        PalmTargetJogCommand(
+            True,
+            [0.0, 0.0, 0.0],
+            0.0,
+            source_anchor,
+            align_position_target_on_enable=True,
+        )
+    )
+    assert controller.tick() is True
+    assert controller.status()["palm_target_position_m"] == pytest.approx(model_anchor)
+    assert backend.joints == pytest.approx([0.0] * 6, abs=1e-8)
+
+    moved_source_target = [source_anchor[0] + 0.01, source_anchor[1], source_anchor[2]]
+    clock[0] = 1.2
+    controller.accept(
+        PalmTargetJogCommand(
+            True,
+            [0.0, 0.0, 0.0],
+            0.0,
+            moved_source_target,
+            align_position_target_on_enable=True,
+        )
+    )
+    assert controller.tick() is True
+    expected_model_target = [float(model_anchor[0]) + 0.01, *model_anchor[1:]]
+    assert controller.status()["palm_target_position_m"] == pytest.approx(expected_model_target)
     assert any(abs(value) > 0.0 for value in backend.joints)
 
 

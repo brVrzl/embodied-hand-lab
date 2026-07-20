@@ -1,0 +1,74 @@
+{
+  "schema_version": "teledex_jaka_frame_calibration_v0.1",
+  "created_at": "2026-07-15T17:34:02+08:00",
+  "source": "guided_teledex_signed_axis_capture_with_confirmed_negative_y_relabel",
+  "mapping_mode": "signed_permutation",
+  "phone_to_robot_rotation_matrix": [
+    [
+      0.0,
+      -1.0,
+      0.0
+    ],
+    [
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "raw_phone_displacements_for_robot_positive_axes_m": {
+    "x": [
+      -0.03427819442633237,
+      -0.32052523013506384,
+      0.046012133325299104
+    ],
+    "y": [
+      0.23140077351974453,
+      -0.02273570844379988,
+      0.008336103216569
+    ],
+    "z": [
+      -0.018740723682802267,
+      -0.0012302123949307353,
+      0.23542616490368584
+    ]
+  },
+  "capture_notes": {
+    "x": "Captured physically toward the JAKA heavy-load connector (+X).",
+    "y": "Captured physically toward base -Y due to an incorrect prompt; vector was negated after the heavy-load connector direction and JAKA right-hand convention were confirmed.",
+    "z": "Captured vertically upward (+Z)."
+  },
+  "quality": {
+    "mapping_mode": "signed_permutation",
+    "displacement_m": {
+      "x": 0.3256202299910283,
+      "y": 0.23266439573087858,
+      "z": 0.23617410372000835
+    },
+    "pairwise_unit_axis_dot": {
+      "xy": -0.0034460114141026676,
+      "xz": 0.15433939101129476,
+      "yz": -0.04269592472819349
+    },
+    "raw_basis_determinant": 0.9871119245086514,
+    "fit_angular_error_deg": {
+      "x": 10.148969479383132,
+      "y": 5.974176444428189,
+      "z": 4.561095956500201
+    },
+    "max_fit_angular_error_deg": 10.148969479383132,
+    "signed_axis_alignment_cosine": {
+      "x": 0.984352938218535,
+      "y": 0.9945689059679089,
+      "z": 0.9968331040340933
+    },
+    "signed_assignment_score": 2.9757549482205374,
+    "signed_assignment_margin": 1.7759324764983837
+  },
+  "real_motion_confirmed": false,
+  "confirmation_requirement": "Verify +X/-X/+Y/-Y/+Z/-Z in TeleDex shadow."
+}

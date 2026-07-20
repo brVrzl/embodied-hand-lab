@@ -5,6 +5,7 @@
 ## 当前不可删除内容
 
 - iPhone / HEBI Mobile I/O 遥操作：`src/teleop_tools/hebi_mobile_io.py`、`src/teleop_tools/relative_pose_lag_follow.py`、`src/teleop_tools/hebi_rviz_shadow.py`、`tools/*hebi*`、`scripts/*hebi*`、`configs/teleop/hebi_mobile_io_jaka_rh56.yaml`。
+- iPhone / TeleDex arm 遥操作：`src/teleop_tools/teledex_*`、`src/teleop_tools/pose_teleop_config.py`、`tools/*teledex*`、`scripts/*teledex*`、`configs/teleop/teledex_jaka_arm.yaml`；实机必须有独立 frame calibration confirmation。
 - iPhone camera / MediaPipe RH56 hand teleop：`src/teleop_tools/iphone_hand.py`、`src/teleop_tools/hand_depth.py`、`tools/iphone_*`、`scripts/*iphone*`。
 - Xbox / RViz shadow：`src/teleop_tools/xbox_ros2.py`、`src/teleop_tools/xbox_rviz_shadow.py`、`src/teleop_tools/rviz_shadow_sync.py`、`tools/run_xbox_*`、`scripts/run_xbox_*`、`configs/teleop/xbox_jaka_rh56.yaml`。
 - JAKA/RH56 real bridge：`src/jaka_driver_adapter`、`src/rh56_driver`、`src/robot_bringup` 中的 ROS2 bridge、servo jog、serial backend。

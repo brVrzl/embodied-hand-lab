@@ -12,6 +12,7 @@
 - 默认 JAKA-mounted MuJoCo runtime asset `data/sim_assets/jaka_rh56_visual_coacd.xml`，使用固定的 148-hull `visual_coacd` collision baseline。
 - Correll RH56DFX 参考 MuJoCo 手部资产 `data/sim_assets/correll_rh56dfx/`，用于浮动手 FK 规划和指尖 force/torque scene 验证。
 - `src/pregrasp` 中的确定性 geometry-based RH56 预抓取候选生成流程。
+- P 作为工程世界坐标系的 MuJoCo 集成工作空间：现有 JAKA+RH56、参数化桌面/铝架碰撞、清理后的静态视觉背景、相机占位和可扩展物体层。首轮离线关节空间碰撞扫掠已完成（130 个静态配置、9 条执行器轨迹）；发现 3 条失败轨迹与导轨原语警告，因此成熟度仍为 **Integrated Workspace**，尚未达到 Simulation Ready 或 Manipulation Ready。详见 `docs/digital_twin/DIGITAL_TW.md`。
 
 关键说明：
 
@@ -40,13 +41,15 @@ tools/            脚本和实验调用的 Python 工具
 - `src/pregrasp`：物体几何、RH56 预抓取 primitives、Correll FK adapter、触觉/力反馈修正。
 - `src/sim_maniskill`：使用当前 JAKA+RH56 资产的 ManiSkill task 和 agent。
 - `src/data_recorder`：episode 记录工具。
-- `src/vision_interface`：相机 adapter 和 mock。
+- `src/vision_interface`：原子 RGB-D 帧、RealSense/mock adapter、点云和桌面几何处理。
 
 关键文档：
 
 - `docs/project_rebuild_status.md`：当前项目重建状态、验证等级和优先级。
 - `docs/rh56dfx_correll_integration_assessment.md`：Correll RH56DFX 资产与原项目资产的对比和整合结论。
 - `data/sim_assets/README.md`：当前仿真资产角色边界。
+- `docs/digital_twin/README.md`：P-world 数字孪生的复现命令、坐标约定和验证边界。
+- `docs/digital_twin/DIGITAL_TW.md`：当前集成工作空间交接状态。
 
 ## 仿真资产边界
 

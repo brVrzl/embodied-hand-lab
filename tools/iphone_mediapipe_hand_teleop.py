@@ -118,7 +118,7 @@ def main() -> None:
         with output.open("a", encoding="utf-8") as stream:
             while True:
                 if realsense is not None:
-                    rgb = realsense.get_rgb()
+                    rgb = realsense.capture().rgb
                     image_shape = rgb.shape
                 else:
                     assert cap is not None

@@ -2,12 +2,33 @@ mode: real
 device_type: rgbd
 vendor: intel
 model: realsense_d435
-width: 640
+width: 848
 height: 480
 fps: 30
 align_depth_to_color: true
+visual_preset: default
 warmup_frames: 5
 timeout_ms: 5000
+max_timestamp_skew_ms: 50.0
+sync_retry_frames: 30
+filters:
+  # Stereo filtering is performed in disparity space. Runtime keeps temporal
+  # and global hole filling off to avoid robot/object motion trails and edge leaks.
+  use_disparity: true
+  spatial:
+    enabled: true
+    magnitude: 2
+    smooth_alpha: 0.5
+    smooth_delta: 20
+    hole_fill: 0
+  temporal:
+    enabled: false
+    smooth_alpha: 0.4
+    smooth_delta: 20
+    persistence_control: 3
+  hole_filling:
+    enabled: false
+    mode: 1
 cameras:
   side:
     serial: "346222072985"

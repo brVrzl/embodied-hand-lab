@@ -7,7 +7,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..contracts import PoseTarget
-from ..wire import LatestTargetPublisher, WorkerStatusPacket, WorkerStatusReceiver, pose_target_packet
+from ..wire import (
+    LatestTargetPublisher,
+    WorkerStatusPacket,
+    WorkerStatusReceiver,
+    pose_target_packet,
+    stop_target_packet,
+)
+
+
+BOUNDED_MOTION_DISPATCH_ACK = "I_APPROVE_BOUNDED_TELEOP_TARGET_DISPATCH"
 
 
 class NativeWorkerProcess:
@@ -55,6 +64,14 @@ class ArmOnlyRuntime:
     status_receiver: WorkerStatusReceiver
 
     def dispatch(self, target: PoseTarget) -> bool:
+        return self._dispatch(target, allow_motion=False)
+
+    def dispatch_authorized(self, target: PoseTarget, *, acknowledgement: str) -> bool:
+        if acknowledgement != BOUNDED_MOTION_DISPATCH_ACK:
+            raise RuntimeError("exact bounded-motion dispatch acknowledgement is required")
+        return self._dispatch(target, allow_motion=True)
+
+    def _dispatch(self, target: PoseTarget, *, allow_motion: bool) -> bool:
         stamped = PoseTarget(
             source_id=target.source_id,
             sequence=target.sequence,
@@ -64,10 +81,15 @@ class ArmOnlyRuntime:
             linear_velocity_m_s=target.linear_velocity_m_s,
             angular_velocity_rad_s=target.angular_velocity_rad_s,
         )
-        return self.publisher.publish(pose_target_packet(stamped, allow_motion=False))
+        return self.publisher.publish(pose_target_packet(stamped, allow_motion=allow_motion))
 
     def latest_status(self) -> WorkerStatusPacket | None:
         return self.status_receiver.latest()
+
+    def dispatch_stop(self, *, sequence: int) -> bool:
+        return self.publisher.publish(
+            stop_target_packet(sequence=sequence, monotonic_ns=time.monotonic_ns())
+        )
 
     def close(self) -> None:
         self.publisher.close()

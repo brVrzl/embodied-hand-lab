@@ -4,10 +4,25 @@
 
 保留链路：
 
+- TeleDex / iPhone ARKit arm teleop（新链路，要求独立 frame calibration）。
 - HEBI Mobile I/O / iPhone ARKit 相对位姿 arm teleop。
 - iPhone camera + MediaPipe RH56 hand teleop。
 - Xbox palm-target jog teleop。
 - RViz shadow / real-command mirror。
+
+## TeleDex / iPhone ARKit
+
+TeleDex 不复用旧 HEBI phone→robot 映射数值。先验流、三轴标定和 shadow 六方向确认：
+
+```bash
+./scripts/check_teledex_phone.sh --duration-sec 15
+./scripts/calibrate_teledex_jaka_frame.sh
+./scripts/run_teledex_rviz_shadow.sh
+```
+
+确认步骤和 arm-only 实机命令见
+[`docs/teledex_jaka_arm_teleop.md`](../../docs/teledex_jaka_arm_teleop.md)。默认只启用平移，
+RH56 hand retarget 暂不接入。
 
 ## HEBI Mobile I/O / iPhone ARKit
 

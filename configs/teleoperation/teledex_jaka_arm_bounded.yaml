@@ -1,0 +1,73 @@
+schema_version: teledex_jaka_bounded_arm.v1
+
+input:
+  transport: websocket_json
+  host: 0.0.0.0
+  port: 8888
+  # TeleDex 0.0.7 supplies neither source timestamp nor source sequence.
+  source_timestamp_field: null
+  source_sequence_field: null
+  stale:
+    warning_ms: 40.0
+    hold_ms: 100.0
+    controlled_stop_ms: 500.0
+    fatal_ms: 2000.0
+  discontinuity:
+    translation_m: 0.20
+    rotation_rad: 0.6108652381980153  # 35 deg
+    linear_speed_m_s: 3.0
+    angular_speed_rad_s: 12.566370614359172  # 720 deg/s
+
+frames:
+  source_frame_id: teledex_arkit_session_v0_0_7
+  normalized_frame_id: operator_normalized
+  robot_base_frame_id: robot_base
+  tcp_frame_id: jaka_tool0_tcp
+  # Diagnostic placeholder only. Upstream does not document ARKit axes,
+  # handedness, or pose direction. It must be replaced and confirmed from a
+  # six-direction live diagnostic before any motion configuration is approved.
+  source_to_normalized_basis:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  device_to_operator_control:
+    position_m: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+
+mapping:
+  translation_scale: 0.05
+  rotation_scale: 0.05
+
+cartesian_limits:
+  workspace_half_extent_m: [0.015, 0.015, 0.015]
+  orientation_deviation_rad: 0.06981317007977318  # 4 deg
+  linear_speed_m_s: 0.008
+  linear_acceleration_m_s2: 0.030
+  linear_jerk_m_s3: 0.150
+  angular_speed_rad_s: 0.06981317007977318  # 4 deg/s
+  angular_acceleration_rad_s2: 0.2617993877991494  # 15 deg/s^2
+  angular_jerk_rad_s3: 1.0471975511965976  # 60 deg/s^3
+  maximum_step_dt_s: 0.050
+
+joint_limits:
+  # Repository JAKA mini2 model limits; native startup must verify live state
+  # and retain a 5-degree soft margin.
+  lower_rad: [-6.28, -2.09, -2.27, -6.28, -2.09, -6.28]
+  upper_rad: [6.28, 2.09, 2.27, 6.28, 2.09, 6.28]
+  soft_margin_rad: 0.08726646259971647
+  velocity_rad_s: 0.03
+  acceleration_rad_s2: 0.15
+  jerk_rad_s3: 1.5
+
+session:
+  maximum_duration_s: 10.0
+  automatic_restart: false
+
+calibration:
+  confirmed_for_shadow: false
+  confirmed_for_motion: false
+  source_semantics_confirmed: false
+  notes: >-
+    Identity is a diagnostic placeholder only. Confirm all signed translations
+    and rotations, matrix pose direction, handedness, phone/control extrinsic,
+    tool/user IDs 0/0, and TCP semantics before changing these gates.

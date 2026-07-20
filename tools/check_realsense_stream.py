@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from vision_interface.depth_processing import depth_quality_summary, depth_to_point_cloud
 from vision_interface.realsense_adapter import RealSenseCamera, list_realsense_devices
 
 
@@ -23,10 +24,9 @@ def check_realsense_stream(
     frames = 0
     first_rgb_shape: list[int] | None = None
     first_depth_shape: list[int] | None = None
-    first_depth_m_range: list[float] | None = None
-    last_rgb: np.ndarray | None = None
-    last_depth: np.ndarray | None = None
+    last_frame = None
     intrinsics: dict[str, object] | None = None
+    timestamp_skews_ms: list[float] = []
 
     config: dict[str, object] = {
         "width": width,
@@ -41,29 +41,59 @@ def check_realsense_stream(
         intrinsics = camera.get_intrinsics().to_dict()
         start = time.time()
         while time.time() - start < duration_sec:
-            rgb = camera.get_rgb()
-            depth = camera.get_depth()
+            frame = camera.capture()
             frames += 1
-            last_rgb = rgb
-            last_depth = depth
+            last_frame = frame
+            if np.isfinite(frame.timestamp_skew_ms):
+                timestamp_skews_ms.append(frame.timestamp_skew_ms)
             if first_rgb_shape is None:
-                first_rgb_shape = list(rgb.shape)
-                first_depth_shape = list(depth.shape)
-                valid_depth = depth[depth > 0.0]
-                if valid_depth.size:
-                    first_depth_m_range = [float(valid_depth.min()), float(valid_depth.max())]
+                first_rgb_shape = list(frame.rgb.shape)
+                first_depth_shape = list(frame.depth_m.shape)
+        elapsed = max(time.time() - start, 1e-6)
 
     out_dir = Path(snapshot_dir)
     snapshot_rgb = ""
     snapshot_depth = ""
-    if last_rgb is not None and last_depth is not None:
+    snapshot_cloud = ""
+    snapshot_metadata = ""
+    quality: dict[str, float | int] = {}
+    if last_frame is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
         snapshot_rgb = str((out_dir / "realsense_rgb.npy").resolve())
         snapshot_depth = str((out_dir / "realsense_depth_m.npy").resolve())
-        np.save(snapshot_rgb, last_rgb)
-        np.save(snapshot_depth, last_depth)
+        snapshot_cloud = str((out_dir / "realsense_point_cloud.npz").resolve())
+        snapshot_metadata = str((out_dir / "realsense_frame.json").resolve())
+        np.save(snapshot_rgb, last_frame.rgb)
+        np.save(snapshot_depth, last_frame.depth_m)
+        cloud = depth_to_point_cloud(
+            last_frame.depth_m,
+            last_frame.intrinsics,
+            rgb=last_frame.rgb if last_frame.depth_aligned_to_color else None,
+            min_depth_m=0.15,
+            max_depth_m=3.0,
+        )
+        cloud_payload = {"points_m": cloud.points_m}
+        if cloud.colors_rgb is not None:
+            cloud_payload["colors_rgb"] = cloud.colors_rgb
+        np.savez_compressed(snapshot_cloud, **cloud_payload)
+        quality = depth_quality_summary(last_frame.depth_m, min_depth_m=0.15, max_depth_m=3.0)
+        frame_skew_ms = last_frame.timestamp_skew_ms
+        frame_metadata = {
+            "intrinsics": last_frame.intrinsics.to_dict(),
+            "host_timestamp_s": last_frame.host_timestamp_s,
+            "color_timestamp_ms": last_frame.color_timestamp_ms,
+            "depth_timestamp_ms": last_frame.depth_timestamp_ms,
+            "color_timestamp_domain": last_frame.color_timestamp_domain,
+            "depth_timestamp_domain": last_frame.depth_timestamp_domain,
+            "color_frame_number": last_frame.color_frame_number,
+            "depth_frame_number": last_frame.depth_frame_number,
+            "timestamp_skew_ms": float(frame_skew_ms) if np.isfinite(frame_skew_ms) else None,
+            "depth_aligned_to_color": last_frame.depth_aligned_to_color,
+            "depth_quality": quality,
+            "point_count": len(cloud),
+        }
+        Path(snapshot_metadata).write_text(json.dumps(frame_metadata, indent=2), encoding="utf-8")
 
-    elapsed = max(time.time() - start, 1e-6)
     return {
         "ok": frames > 0,
         "devices": devices,
@@ -72,10 +102,14 @@ def check_realsense_stream(
         "observed_fps": frames / elapsed,
         "rgb_shape": first_rgb_shape,
         "depth_shape": first_depth_shape,
-        "depth_m_range": first_depth_m_range,
+        "depth_quality": quality,
+        "timestamp_skew_ms_mean": float(np.mean(timestamp_skews_ms)) if timestamp_skews_ms else None,
+        "timestamp_skew_ms_max": float(np.max(timestamp_skews_ms)) if timestamp_skews_ms else None,
         "intrinsics": intrinsics,
         "snapshot_rgb": snapshot_rgb,
         "snapshot_depth_m": snapshot_depth,
+        "snapshot_point_cloud": snapshot_cloud,
+        "snapshot_metadata": snapshot_metadata,
         "error": "" if frames > 0 else "no frames captured",
     }
 

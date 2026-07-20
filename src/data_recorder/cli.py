@@ -29,11 +29,12 @@ def main() -> None:
     hand.connect()
 
     recorder.start_episode(task_name=args.task, instruction=args.instruction, operator=args.operator)
+    camera_frame = camera.capture()
     recorder.record_step(
         observation={
-            "rgb": camera.get_rgb(),
-            "depth": camera.get_depth(),
-            "camera_timestamp": camera.get_timestamp(),
+            "rgb": camera_frame.rgb,
+            "depth": camera_frame.depth_m,
+            "camera_timestamp": camera_frame.host_timestamp_s,
             "arm_joint_states": arm.get_joint_state().to_dict(),
             "arm_ee_pose": {
                 "position": [0.35, 0.0, 0.2],

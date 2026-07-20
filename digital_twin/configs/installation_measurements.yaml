@@ -1,0 +1,66 @@
+schema_version: 1
+units: meter
+reference_frame: P where stated; otherwise the named physical landmarks
+
+confirmed:
+  jaka_base_outer_diameter:
+    value_m: 0.124
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  mounting_hole_pcd:
+    value_m: 0.110
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  mounting_holes:
+    count: 4
+    diameter_m: 0.0066
+    source: manufacturer_installation_drawing
+    status: manufacturer_defined
+  aluminium_profile_cross_section:
+    value_m: [0.05, 0.05]
+    source: user_confirmed_measurement
+    status: confirmed
+  video_02_board_inventory:
+    instances: [Board_A3_1, Board_A4_1, Board_A4_2]
+    source: user_confirmed_capture_information
+    status: confirmed
+    note: Board_A4_1 and Board_A4_2 use the same marker IDs and are separate physical sheets.
+
+approximate_installation:
+  base_outer_edge_to_named_front_table_edge:
+    value_m: 0.250
+    uncertainty_m: 0.010
+    source: user_approximate_measurement
+    status: provisional_raw_measurement
+    landmarks: nearest point on the visible 124 mm fixed-base outer edge to the named front/bottom table edge
+  base_center_to_named_front_table_edge_derived:
+    value_m: 0.312
+    uncertainty_m: 0.010
+    source: derived_from_user_approximate_measurement_and_manufacturer_diameter
+    status: provisional_conditional
+    derivation: 0.250 + 0.124 / 2
+    validity_condition: measurement line is perpendicular to the table edge and passes radially through P
+  base_center_to_named_right_table_edge:
+    value_m: 0.145
+    uncertainty_m: 0.0075
+    uncertainty_range_m: [0.005, 0.010]
+    source: user_approximate_measurement
+    status: provisional
+  P_mounting_plane_height_above_tabletop:
+    value_m: 0.050
+    uncertainty_m: 0.0035
+    uncertainty_range_m: [0.002, 0.005]
+    source: user_approximate_measurement
+    status: provisional
+  tabletop:
+    length_m: {value: 1.38, uncertainty_m: 0.01}
+    width_m: {value: 0.73, uncertainty_m: 0.01}
+    thickness_m: {value: 0.02, uncertainty_m: 0.003}
+    height_above_floor_m: {value: 0.75, uncertainty_m: 0.01}
+    source: user_approximate_measurement
+    status: provisional
+
+unresolved_semantics:
+  named_front_edge_physical_orientation: null
+  named_right_edge_physical_orientation: null
+  image_right_and_bottom_are_not_assumed_to_be_P_axes: true

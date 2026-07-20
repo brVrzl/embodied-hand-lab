@@ -1,0 +1,146 @@
+units:
+  length: meter
+  angle: radian
+matrix_convention: column_vector
+transform_naming: T_A_B maps frame B into frame A
+quaternion_order: xyzw
+
+frames:
+  world: W
+  jaka_base: B
+  jaka_flange: F
+  inspire_base: H
+  external_camera: C_ext
+  wrist_camera: C_wrist
+  reconstruction: R
+  reconstruction_01_local: R01
+  reconstruction_02_global: R02
+  iphone_camera: I
+  physical_jaka_base: P
+  board_a3_1: Board_A3_1
+  board_a4_1: Board_A4_1
+  board_a4_2: Board_A4_2
+
+world_definition:
+  coincides_with: P
+  engineering_policy: Workspace geometry and MuJoCo world are expressed in P; B remains the internal robot-model frame.
+  operational_robot_placement: B is placed with T_P_B_operational; this physically constrained scene transform is separate from unresolved calibrated T_B_P.
+
+calibration_policy:
+  nonblocking_future_transforms: [T_B_P, T_B_R]
+  manipulation_readiness_blockers: [T_P_C_ext, T_F_C_wrist, final_robot_world_registration, collision_validation]
+
+reconstruction_definition:
+  R: R02
+  status: selected_global_sparse_model
+  source: artifacts/digital_twin/reconstruction/02/colmap/sparse_text/1
+
+transforms:
+  T_W_B:
+    status: derived_operational_scene_transform_not_calibrated
+    source: T_W_P * T_P_B_operational
+    translation_m: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 1.0, 0.0]
+    note: W=P. Numerical 180-degree yaw is operational placement evidence, not a calibrated inverse of T_B_P.
+  T_W_P:
+    status: fixed
+    source: world_engineering_convention
+    translation_m: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  T_P_B_operational:
+    status: physically_constrained_provisional
+    source: digital_twin/configs/robot_operational_placement.yaml
+    translation_m: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 1.0, 0.0]
+    yaw_deg: 180.0
+    note: All-zero robot pose places both the RH56 palm normal and fixed communication-cable side on P -x; not a substitute for calibrated T_B_P.
+  T_F_H:
+    status: repository_defined_unverified
+    source: data/sim_assets/jaka_rh56_visual_coacd.xml
+    parent_model_body: jaka_Link_6
+    child_model_body: rh56_R_hand_base_link
+    translation_m: [0.0, 0.0, 0.009]
+    quaternion_xyzw: [0.707106781, 0.707106781, 0.0, 0.0]
+    note: Numerically fixed in both mounted MJCF assets; physical adapter datum/CAD verification is missing.
+  T_B_P:
+    status: future_robot_calibration_nonblocking
+    source: model_mesh_supports_center_and_z_plane_but_installed_xy_orientation_is_unverified
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+    note: Link0.STL is centered to sub-millimetre precision, spans 123.79 x 123.86 mm, and has minimum z=0 in B; this supports but does not prove B=P because the model/manufacturer x-y datum and installed rail orientation are undocumented.
+  T_P_R:
+    status: provisional_correlated_primitive_fit_not_final_calibration
+    source: artifacts/digital_twin/calibration/T_P_R.json
+    scale: 0.12724286592060846
+    translation_m: [1.1518015901691083, -0.4240003258453573, 0.6254150437611652]
+    quaternion_xyzw: [-0.5768015189285627, -0.6301099456946795, 0.38021690538943365, 0.3545371192899746]
+    rms_error_m: 0.00016185107960232112
+    note: Residual is artificially small because five circle constraints share one fit and the tabletop point uses the approximate 50 mm height; retain common-mode uncertainty of several millimetres.
+  T_R02_R01:
+    status: provisional_accepted_for_local_to_global_visualization
+    source: artifacts/digital_twin/calibration/T_R02_R01_accepted_provisional.json
+    scale: 0.8330524885445875
+    translation_R02_units: [6.072990804513313, -2.532972308871162, 7.039913887621263]
+    quaternion_xyzw: [-0.47456716614766986, 0.5602542541141335, 0.6505176567349067, 0.1942368498450081]
+    rms_m_using_0p126214_scale: 0.004127
+    note: ChArUco texture was masked; three sampling seeds gave scale 0.83238 to 0.83407. Do not fuse dense geometry yet.
+  T_B_C_ext:
+    status: uncalibrated
+    source: eye_to_hand_calibration
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+  T_F_C_wrist:
+    status: uncalibrated
+    source: eye_in_hand_calibration
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+  T_B_R:
+    status: future_robot_calibration_not_required_for_P_world_scene
+    source: compose_T_B_P_and_T_P_R
+    scale: null
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+    composition: T_B_R = T_B_P * T_P_R
+  T_P_Board_A3_1:
+    status: unestimated
+    source: charuco_pose_plus_scene_registration
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+  T_P_Board_A4_1:
+    status: unestimated
+    source: charuco_pose_plus_scene_registration
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+  T_P_Board_A4_2:
+    status: unestimated
+    source: charuco_pose_plus_scene_registration
+    translation_m: [null, null, null]
+    quaternion_xyzw: [null, null, null, null]
+
+model_frames:
+  B:
+    body: jaka_Link_0
+    imported_root_to_frame:
+      translation_m: [0.0, 0.0, 0.0]
+      quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+    physical_mounting_surface_relation:
+      evidence: Link0.STL minimum z is zero and mesh outer diameter is approximately 124 mm with identity geom transform
+      status: geometry_consistent_but_manufacturer_axis_datum_not_independently_verified
+  F:
+    body: jaka_Link_6
+    coincident_body: jaka_dummy_tcp
+    status: repository_datum_physical_flange_unverified
+  H:
+    body: rh56_R_hand_base_link
+    visual_mesh_has_nonidentity_local_transform: true
+  P:
+    status: formally_defined_physical_datum_registration_pending
+    origin: center of the 110 mm fixed mounting-hole pitch circle
+    origin_plane: lowest fixed JAKA base mounting plane from the manufacturer installation drawing
+    center_estimation: prefer four fixed mounting-hole centers; use a fitted 124 mm fixed-base outer circle only as a center aid
+    z_axis: normal to the mounting plane pointing upward
+    x_axis: along the two parallel aluminium rails from the JAKA base toward the front transverse aluminium member
+    y_axis: completes a right-handed frame
+    excluded_datums: [rotating_shell, upper_white_enclosure, cables, joint_housing]
+    relation_to_B: unresolved
+    warning: the installed sign of the rail axis and its relation to the model x axis require a source drawing/photo or surveyed orientation; do not set T_B_P identity from center agreement alone

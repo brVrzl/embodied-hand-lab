@@ -37,6 +37,9 @@ phone-teleop = [
 motion-input-viz = [
   "matplotlib>=3.8",
 ]
+teledex-teleop = [
+  "teledex>=0.0.6,<0.1",
+]
 gamepad = [
   "pygame>=2.6",
 ]
