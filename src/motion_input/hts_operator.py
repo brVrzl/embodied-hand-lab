@@ -236,13 +236,22 @@ class RightHandOperatorPipeline:
             return self._neutral(now_ns, hand.host_sequence_number, "awaiting_reference_capture")
 
         assert self.reference_pose is not None
-        translation = tuple(
-            (current - reference) * scale
-            for current, reference, scale in zip(
-                hand.wrist_pose.position_m,
-                self.reference_pose.position_m,
-                self.config.translation_scale,
+        # T_operator_delta = inv(T_parent_reference) @ T_parent_current.
+        # Translation is therefore expressed in the captured wrist-reference
+        # frame, not obtained by subtracting parent-frame coordinates alone.
+        parent_delta = tuple(
+            current - reference
+            for current, reference in zip(
+                hand.wrist_pose.position_m, self.reference_pose.position_m
             )
+        )
+        reference_inverse = _quaternion_conjugate(
+            self.reference_pose.orientation_xyzw
+        )
+        local_delta = _rotate_vector(reference_inverse, parent_delta)
+        translation = tuple(
+            value * scale
+            for value, scale in zip(local_delta, self.config.translation_scale)
         )
         if not _inside_workspace(
             translation, self.config.workspace_min_m, self.config.workspace_max_m
@@ -256,8 +265,8 @@ class RightHandOperatorPipeline:
             orientation = (0.0, 0.0, 0.0, 1.0)
         else:
             relative = _quaternion_multiply(
-                hand.wrist_pose.orientation_xyzw,
                 _quaternion_conjugate(self.reference_pose.orientation_xyzw),
+                hand.wrist_pose.orientation_xyzw,
             )
             orientation = _quaternion_scaled(relative, self.config.orientation_scale)
 
@@ -421,6 +430,25 @@ def _quaternion_multiply(
             lw * rz + lx * ry - ly * rx + lz * rw,
             lw * rw - lx * rx - ly * ry - lz * rz,
         )
+    )
+
+
+def _rotate_vector(
+    quaternion: tuple[float, float, float, float],
+    vector: tuple[float, float, float],
+) -> tuple[float, float, float]:
+    """Apply an active xyzw quaternion rotation without treating a vector as a unit quaternion."""
+
+    x, y, z, w = _normalized_quaternion(quaternion)
+    vx, vy, vz = vector
+    # Rodrigues form: v' = v + 2*w*(q_xyz x v) + 2*(q_xyz x (q_xyz x v)).
+    tx = 2.0 * (y * vz - z * vy)
+    ty = 2.0 * (z * vx - x * vz)
+    tz = 2.0 * (x * vy - y * vx)
+    return (
+        vx + w * tx + (y * tz - z * ty),
+        vy + w * ty + (z * tx - x * tz),
+        vz + w * tz + (x * ty - y * tx),
     )
 
 

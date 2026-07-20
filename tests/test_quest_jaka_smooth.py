@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from motion_input import ReceivedHtsDatagram
+from quest_jaka_sim import (
+    AnalogClutchSample,
+    JakaMujocoSimulation,
+    ReplayConfig,
+    SmoothQuestJakaSession,
+)
+from quest_jaka_sim.simulation import build_viewer_mjcf
+
+
+def _payload(sequence: int, *, x: float = 0.0, points=None) -> bytes:
+    landmarks = ",".join(
+        str(value)
+        for point in (points if points is not None else [(0.0, 0.0, 0.0)] * 21)
+        for value in point
+    )
+    return (
+        f"Right wrist | f = {sequence}:, {x},0,0,0,0,0,1\n"
+        f"Right landmarks | f = {sequence}:, {landmarks}"
+    ).encode()
+
+
+def _datagram(sequence: int, timestamp_ns: int, *, x: float = 0.0, points=None) -> ReceivedHtsDatagram:
+    return ReceivedHtsDatagram(
+        _payload(sequence, x=x, points=points), "10.24.0.78", 9000, timestamp_ns, timestamp_ns
+    )
+
+
+def _head_datagram(sequence: int, timestamp_ns: int) -> ReceivedHtsDatagram:
+    payload = f"Head pose | f = {sequence}:, 0,0,0,0,0,0,1".encode()
+    return ReceivedHtsDatagram(payload, "10.24.0.78", 9001, timestamp_ns, timestamp_ns)
+
+
+def _clutches(session: SmoothQuestJakaSession, value: float, sequence: int, timestamp_ns: int) -> None:
+    session.set_clutch_samples(
+        index=AnalogClutchSample(value, timestamp_ns, sequence),
+        grip=AnalogClutchSample(0.0, timestamp_ns, sequence),
+        left_controller_valid=True,
+        provider="deterministic_test",
+    )
+
+
+def _dual_clutches(session, index, grip, sequence, timestamp_ns):
+    session.set_clutch_samples(
+        index=AnalogClutchSample(index, timestamp_ns, sequence),
+        grip=AnalogClutchSample(grip, timestamp_ns, sequence),
+        left_controller_valid=True,
+        provider="deterministic_test",
+    )
+
+
+def _hand_points(fist: bool):
+    points = [(0.0, 0.0, 0.0)] * 21
+    points[1:5] = [(-0.02, 0.01, 0.0), (-0.03, 0.025, 0.0), (-0.04, 0.04, 0.0), (-0.05, 0.055, 0.0)]
+    groups = ((5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20))
+    for x, indices in zip((-0.025, -0.008, 0.010, 0.027), groups, strict=True):
+        values = (
+            [(x, 0.025, 0.0), (x, 0.050, 0.0), (x + 0.020, 0.050, 0.0), (x + 0.020, 0.025, 0.0)]
+            if fist
+            else [(x, depth * 0.025, 0.0) for depth in range(1, 5)]
+        )
+        for joint, value in zip(indices, values, strict=True):
+            points[joint] = value
+    return points
+
+
+def _session(tmp_path: Path) -> SmoothQuestJakaSession:
+    config = replace(
+        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+        engagement_schedule_s=(),
+    )
+    model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
+    simulation = JakaMujocoSimulation(config, mjcf_path=model_path)
+    return SmoothQuestJakaSession(config, simulation)
+
+
+def test_fixed_rate_reference_stale_disengage_and_no_automatic_recovery(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.ingest(_datagram(1, 0))
+    session.ingest(_head_datagram(1, 0))
+    _clutches(session, 0.0, 1, 0)
+    session.control_tick(0)
+    assert session.arm_clutch.state.value == "disengaged"
+
+    session.ingest(_datagram(2, 33_333_333))
+    _clutches(session, 1.0, 2, 33_333_333)
+    session.control_tick(33_333_333)
+    assert session.arm_clutch.state.value == "engaged"
+    assert session.event_records[-1]["operator_delta"]["translation_m"] == (0.0, 0.0, 0.0)
+
+    session.ingest(_datagram(3, 66_666_666, x=0.002))
+    session.control_tick(66_666_666)
+    assert session.accepted_targets >= 2
+
+    session.control_tick(400_000_000)
+    assert session.arm_clutch.state.value == "tracking_fault"
+    assert session.arm_mapper.robot_reference is None
+
+    accepted_before = session.accepted_targets
+    session.ingest(_datagram(4, 433_333_333, x=0.003))
+    _clutches(session, 1.0, 4, 433_333_333)
+    session.control_tick(433_333_333)
+    assert session.arm_clutch.state.value == "tracking_fault"
+    assert session.accepted_targets == accepted_before
+
+
+def test_smooth_session_is_deterministic_for_same_fixed_ticks(tmp_path: Path) -> None:
+    summaries = []
+    for name in ("a", "b"):
+        session = _session(tmp_path / name)
+        for sequence in range(1, 8):
+            timestamp = (sequence - 1) * 33_333_333
+            session.ingest(_datagram(sequence, timestamp, x=max(0, sequence - 2) * 0.0002))
+            if sequence == 1:
+                session.ingest(_head_datagram(1, timestamp))
+            _clutches(session, 0.0 if sequence == 1 else 1.0, sequence, timestamp)
+            session.control_tick(timestamp)
+            session.simulation.step(0.033333333)
+        summaries.append(
+            (
+                session.arm_clutch.state.value,
+                session.accepted_targets,
+                dict(session.rejections),
+                session.simulation.last_safe_joint_target.tolist(),
+            )
+        )
+    assert summaries[0] == summaries[1]
+
+
+def test_hand_freeze_arm_cycles_and_smooth_reacquisition_are_independent(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.ingest(_datagram(1, 0, points=_hand_points(False)))
+    session.ingest(_head_datagram(1, 0))
+    _dual_clutches(session, 0.0, 0.0, 1, 0)
+    session.control_tick(0)
+
+    # Grip press starts exactly one 200 ms reacquisition while arm stays frozen.
+    session.ingest(_datagram(2, 20_000_000, points=_hand_points(False)))
+    _dual_clutches(session, 0.0, 1.0, 2, 20_000_000)
+    before = session.simulation.commanded_hand_target.copy()
+    session.control_tick(20_000_000)
+    assert session.hand_clutch.state.value == "reacquire"
+    assert session.arm_clutch.state.value == "disengaged"
+    assert session.simulation.commanded_hand_target == pytest.approx(before)
+    for sequence in range(3, 15):
+        timestamp = sequence * 20_000_000
+        session.ingest(_datagram(sequence, timestamp, points=_hand_points(False)))
+        _dual_clutches(session, 0.0, 1.0, sequence, timestamp)
+        session.control_tick(timestamp)
+    assert session.hand_clutch.state.value == "engaged"
+    assert session.hand_clutch.cycle_count == 1
+
+    # Release freezes the hand. Finger motion and repeated arm recenter cycles
+    # cannot alter its held command.
+    timestamp = 300_000_000
+    session.ingest(_datagram(15, timestamp, points=_hand_points(True)))
+    _dual_clutches(session, 0.0, 0.0, 15, timestamp)
+    session.control_tick(timestamp)
+    held = session.simulation.commanded_hand_target.copy()
+    for cycle in range(5):
+        low_t = timestamp + (cycle * 2 + 1) * 20_000_000
+        high_t = low_t + 20_000_000
+        session.ingest(_datagram(16 + cycle * 2, low_t, x=cycle * 0.03, points=_hand_points(True)))
+        _dual_clutches(session, 0.0, 0.0, 16 + cycle * 2, low_t)
+        session.control_tick(low_t)
+        session.ingest(_datagram(17 + cycle * 2, high_t, x=-cycle * 0.02, points=_hand_points(True)))
+        session.ingest(_head_datagram(2 + cycle, high_t))
+        _dual_clutches(session, 1.0, 0.0, 17 + cycle * 2, high_t)
+        session.control_tick(high_t)
+        assert session.simulation.commanded_hand_target == pytest.approx(held)
+    assert session.arm_clutch.cycle_count == 5
+
+    # A new grip press begins from the held command, avoiding a first-frame jump.
+    final_t = 520_000_000
+    session.ingest(_datagram(30, final_t, points=_hand_points(True)))
+    _dual_clutches(session, 0.0, 1.0, 30, final_t)
+    session.control_tick(final_t)
+    assert session.simulation.commanded_hand_target == pytest.approx(held)

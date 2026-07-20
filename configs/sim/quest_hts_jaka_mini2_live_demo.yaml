@@ -1,0 +1,135 @@
+schema_version: quest_hts_jaka_mini2_live_demo.v1
+
+# Simulation exploration profile. It is more responsive than the conservative
+# offline gate, but retains finite jump, workspace, IK, singularity, velocity,
+# acceleration, joint-limit, and collision checks.
+input:
+  required_hand: right
+  left_hand_required: false
+  # Head is required only on an arm-clutch press edge. Its gravity-aligned yaw
+  # is latched; translation, pitch, roll, and later head motion are ignored.
+  head_pose_required_at_arm_capture: true
+  stale_after_ms: 250
+  engagement_schedule_s: []
+
+# HTS does not carry these values. A separate reviewed provider must publish
+# timestamped left-controller samples through the provider-independent clutch
+# contract. With no such provider both channels remain frozen.
+clutches:
+  arm_source: left_index_trigger
+  hand_source: left_grip_trigger
+  pressed_at: 0.75
+  released_at: 0.55
+  stale_after_ms: 150
+  hand_reacquisition_ms: 200
+  require_release_before_first_press: true
+
+frames:
+  source_frame: quest_world
+  operator_frame: canonical_operator
+  robot_base_frame: future_robot_base
+  tcp_frame: desired_robot_tcp
+
+provisional_calibration:
+  calibration_id: quest_jaka_live_sim_demo_uncalibrated_v1
+  calibrated: false
+  notes: simulation-viewer-only axis hypothesis; not a physical Quest-to-JAKA calibration
+  # Rows are robot-base X/Y/Z, columns are canonical-operator X/Y/Z.
+  operator_to_robot_basis:
+    - [-1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0]
+    - [0.0, 1.0, 0.0]
+  translation_scale_per_axis: [1.0, 1.0, 1.0]
+  translation_deadband_m: 0.001
+  translation_enabled: true
+  orientation_enabled: true
+  orientation_scale: 1.0
+  orientation_scale_per_axis: [1.0, 1.0, 1.0]
+  rotation_operator_to_robot_basis:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0]
+    - [0.0, 1.0, 0.0]
+  orientation_deadband_deg: 2.0
+  maximum_relative_rotation_deg: 75.0
+  maximum_operator_displacement_m: 0.30
+  maximum_target_displacement_m: 0.20
+
+filter:
+  selected_profile: simulation_exploration
+  profiles:
+    simulation_exploration:
+      translation_min_cutoff: 1.2
+      translation_beta: 18.0
+      translation_derivative_cutoff: 1.0
+      rotation_min_cutoff: 1.5
+      rotation_beta: 4.0
+      rotation_derivative_cutoff: 1.0
+      maximum_filter_dt: 0.050
+    hardware_conservative:
+      translation_min_cutoff: 0.8
+      translation_beta: 8.0
+      translation_derivative_cutoff: 1.0
+      rotation_min_cutoff: 1.0
+      rotation_beta: 2.0
+      rotation_derivative_cutoff: 1.0
+      maximum_filter_dt: 0.030
+
+rates:
+  input_buffer_capacity: 16
+  interpolation_delay_ms: 20
+  target_generation_hz: 60
+  ik_hz: 60
+  mujoco_control_hz: 500
+  viewer_hz: 60
+
+hand_retargeting:
+  enabled: true
+  calibration_path: configs/sim/quest_rh56_retarget.yaml
+  engagement: independent_left_grip_hold_to_run
+
+simulation:
+  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  zero_gravity: true
+  arm_position_kp: 500.0
+  arm_position_kv: 50.0
+  hand_position_kp: 12.0
+  hand_position_kv: 2.0
+  integrator: implicitfast
+  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
+  ik_gain: 0.70
+  ik_damping: 0.05
+  ik_max_step_rad: 0.04
+  ik_iterations: 24
+  ik_position_tolerance_m: 0.0025
+  # Calibrated from the 0.25 m-scaled 6x6 spatial Jacobian in recorded replay:
+  # normal continuous motion ~38-40 / 0.018-0.020; wrist jump ~69 / 0.0109.
+  maximum_jacobian_condition: 60.0
+  minimum_jacobian_singular_value: 0.0125
+  near_singularity_joint_velocity_rad_s: 14.0
+  jacobian_rotation_characteristic_length_m: 0.25
+  maximum_target_jump_m: 0.04
+  maximum_tcp_velocity_m_s: 1.0
+  maximum_tcp_angular_velocity_rad_s: 5.0
+  # These two thresholds detect pathological unsmoothed IK candidates. They are
+  # not actuator commands; target-jump, joint-limit and branch continuity checks
+  # remain active. The command generator below enforces the JAKA-aligned limits.
+  maximum_ik_target_velocity_rad_s: 14.0
+  maximum_ik_target_acceleration_rad_s2: 1000.0
+  command_maximum_joint_velocity_rad_s: 3.1415926536
+  command_maximum_joint_acceleration_rad_s2: 12.5663706144
+  command_maximum_joint_jerk_rad_s3: 62.8318530718
+  command_position_tracking_frequency_rad_s: 10.0
+  joint_limit_margin_deg: 5.0
+  ik_orientation_tolerance_deg: 3.0
+  maximum_target_rotation_jump_deg: 8.0
+  # At 60 Hz this remains below the 14 rad/s IK-candidate guard (0.233 rad),
+  # while the actuator command is independently limited to pi rad/s.
+  maximum_joint_target_jump_rad: 0.22
+  isolated_rejection_hold_count: 2
+  reject_action: hold_last_safe_for_isolated_rejection_then_disengage
+  collision_policy: reject_new_contacts_relative_to_initial_model_contacts
+
+axis_analysis:
+  right_hand_left_right_s: null
+  right_hand_forward_backward_s: null
+  right_hand_up_down_s: null

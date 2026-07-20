@@ -6,6 +6,7 @@ import math
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 from motion_input import (
     OfflineOperatorTarget,
@@ -21,8 +22,15 @@ from quest_jaka_sim import (
     QuestJakaReplaySession,
     ReplayConfig,
 )
-from quest_jaka_sim.simulation import CandidateMetrics, build_viewer_mjcf, classify_candidate
+from quest_jaka_sim.simulation import (
+    CandidateMetrics,
+    CommandTrajectoryLimits,
+    build_viewer_mjcf,
+    classify_candidate,
+    jerk_limited_position_step,
+)
 from motion_input import Pose6D
+from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 
 
 def _mapping(**overrides: object) -> ProvisionalMappingConfig:
@@ -104,6 +112,34 @@ def test_identity_and_90_degree_quaternion_mapping() -> None:
     assert target.orientation_xyzw == pytest.approx((0.0, 0.0, root, root))
 
 
+def test_robot_reference_composes_delta_on_the_right_in_reference_frame() -> None:
+    mapper = ProvisionalOperatorToRobotMapper(
+        _mapping(
+            operator_to_robot_basis=((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+            orientation_enabled=True,
+            orientation_scale=1.0,
+        )
+    )
+    robot_reference_q = rotvec_to_quaternion_xyzw((0.0, 0.0, math.pi / 2.0))
+    mapper.capture_robot_reference(Pose6D((1.0, 2.0, 3.0), robot_reference_q))
+    target = mapper.map(
+        _operator(
+            (0.10, 0.0, 0.0),
+            rotvec_to_quaternion_xyzw((math.pi / 4.0, 0.0, 0.0)),
+        )
+    )
+    # Local +X at the captured TCP points along robot-base +Y.
+    assert target.position_m == pytest.approx((1.0, 2.004, 3.0), abs=1e-9)
+    expected = rotvec_to_quaternion_xyzw((math.pi / 4.0, 0.0, 0.0))
+    # inv(reference) * target recovers the commanded local delta.
+    from quest_jaka_sim.se3 import relative_pose
+
+    assert quaternion_angle_rad(
+        relative_pose(Pose6D((1.0, 2.0, 3.0), robot_reference_q), target).orientation_xyzw,
+        expected,
+    ) < 1e-8
+
+
 def _limits() -> FeasibilityLimits:
     return FeasibilityLimits(
         ik_position_tolerance_m=0.0025,
@@ -116,6 +152,9 @@ def _limits() -> FeasibilityLimits:
         maximum_joint_acceleration_rad_s2=20.0,
         joint_limit_margin_rad=math.radians(5),
         maximum_target_displacement_m=0.015,
+        ik_orientation_tolerance_rad=math.radians(3),
+        maximum_target_rotation_jump_rad=math.radians(8),
+        maximum_joint_target_jump_rad=0.12,
     )
 
 
@@ -124,9 +163,21 @@ def _limits() -> FeasibilityLimits:
     [
         (CandidateMetrics(target_displacement_m=0.02), FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE),
         (CandidateMetrics(target_jump_m=0.005), FeasibilityReason.TARGET_JUMP),
-        (CandidateMetrics(tcp_velocity_m_s=0.03), FeasibilityReason.VELOCITY_LIMIT),
-        (CandidateMetrics(maximum_joint_acceleration_rad_s2=21.0), FeasibilityReason.ACCELERATION_LIMIT),
-        (CandidateMetrics(ik_error_m=0.003), FeasibilityReason.IK_FAILED),
+        (
+            CandidateMetrics(target_rotation_jump_rad=math.radians(9)),
+            FeasibilityReason.TARGET_JUMP,
+        ),
+        (CandidateMetrics(tcp_velocity_m_s=0.03), FeasibilityReason.LINEAR_VELOCITY_LIMIT),
+        (CandidateMetrics(maximum_joint_acceleration_rad_s2=21.0), FeasibilityReason.LINEAR_ACCELERATION_LIMIT),
+        (CandidateMetrics(ik_error_m=0.003), FeasibilityReason.IK_POSITION_FAILED),
+        (
+            CandidateMetrics(ik_orientation_error_rad=math.radians(4.0)),
+            FeasibilityReason.IK_ORIENTATION_FAILED,
+        ),
+        (
+            CandidateMetrics(tcp_angular_velocity_rad_s=0.3),
+            FeasibilityReason.ANGULAR_VELOCITY_LIMIT,
+        ),
         (CandidateMetrics(joint_limit_blockers=("joint_2_above_safe_limit",)), FeasibilityReason.JOINT_LIMIT),
         (CandidateMetrics(jacobian_condition=41.0), FeasibilityReason.NEAR_SINGULARITY),
         (CandidateMetrics(self_collision=True), FeasibilityReason.SELF_COLLISION),
@@ -137,6 +188,27 @@ def test_structured_feasibility_rejections(
     metrics: CandidateMetrics, expected: FeasibilityReason
 ) -> None:
     assert classify_candidate(metrics, _limits()) is expected
+
+
+def test_singularity_gate_requires_excessive_candidate_joint_velocity() -> None:
+    limits = replace(
+        _limits(),
+        maximum_joint_velocity_rad_s=14.0,
+        near_singularity_joint_velocity_rad_s=math.pi,
+    )
+    geometry_only = CandidateMetrics(
+        jacobian_condition=41.0,
+        maximum_joint_velocity_rad_s=2.0,
+    )
+    amplified_velocity = CandidateMetrics(
+        jacobian_condition=41.0,
+        maximum_joint_velocity_rad_s=math.pi + 0.01,
+    )
+    assert classify_candidate(geometry_only, limits) is FeasibilityReason.ACCEPTED
+    assert (
+        classify_candidate(amplified_velocity, limits)
+        is FeasibilityReason.NEAR_SINGULARITY
+    )
 
 
 def _hand_payload(sequence: int, x: float = 0.0) -> bytes:
@@ -189,6 +261,27 @@ def test_deterministic_replay_stale_disengagement_and_no_recovery(tmp_path: Path
     transitions = first["engagement_transitions"]
     assert any(row["reason"] == "right_hand_stale" for row in transitions)
     assert transitions[-1]["current"] == "disengaged"
+
+
+def test_generated_viewer_excludes_only_allowed_adjacent_stiction_pair(tmp_path: Path) -> None:
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    generated = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
+    text = generated.read_text(encoding="utf-8")
+    assert 'body1="jaka_Link_0" body2="jaka_Link_1"' in text
+    simulation = JakaMujocoSimulation(config, mjcf_path=generated)
+    assert simulation.data.ncon == 0
+    simulation.set_hand_actuator_target(
+        {
+            "thumb_lateral": 0.1,
+            "thumb_close": 0.1,
+            "index": 0.2,
+            "middle": 0.2,
+            "ring": 0.2,
+            "pinky": 0.2,
+        }
+    )
+    simulation.step(0.02)
+    assert simulation.data.ctrl[simulation.hand_actuator_ids].max() > 0.0
 
 
 def test_offline_entrypoint_has_no_hardware_backend_imports() -> None:

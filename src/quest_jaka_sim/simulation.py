@@ -44,11 +44,15 @@ class FeasibilityReason(str, Enum):
     OUTSIDE_OPERATOR_ENVELOPE = "OUTSIDE_OPERATOR_ENVELOPE"
     TARGET_JUMP = "TARGET_JUMP"
     OUTSIDE_ROBOT_WORKSPACE = "OUTSIDE_ROBOT_WORKSPACE"
-    IK_FAILED = "IK_FAILED"
+    IK_POSITION_FAILED = "IK_POSITION_FAILED"
+    IK_ORIENTATION_FAILED = "IK_ORIENTATION_FAILED"
+    IK_DISCONTINUITY = "IK_DISCONTINUITY"
     JOINT_LIMIT = "JOINT_LIMIT"
     NEAR_SINGULARITY = "NEAR_SINGULARITY"
-    VELOCITY_LIMIT = "VELOCITY_LIMIT"
-    ACCELERATION_LIMIT = "ACCELERATION_LIMIT"
+    LINEAR_VELOCITY_LIMIT = "LINEAR_VELOCITY_LIMIT"
+    ANGULAR_VELOCITY_LIMIT = "ANGULAR_VELOCITY_LIMIT"
+    LINEAR_ACCELERATION_LIMIT = "LINEAR_ACCELERATION_LIMIT"
+    ANGULAR_ACCELERATION_LIMIT = "ANGULAR_ACCELERATION_LIMIT"
     SELF_COLLISION = "SELF_COLLISION"
     ENVIRONMENT_COLLISION = "ENVIRONMENT_COLLISION"
 
@@ -65,6 +69,10 @@ class FeasibilityLimits:
     maximum_joint_acceleration_rad_s2: float
     joint_limit_margin_rad: float
     maximum_target_displacement_m: float
+    ik_orientation_tolerance_rad: float = math.pi
+    maximum_target_rotation_jump_rad: float = math.pi
+    maximum_joint_target_jump_rad: float = math.pi
+    near_singularity_joint_velocity_rad_s: float = 0.0
 
     @classmethod
     def from_mapping(
@@ -79,22 +87,78 @@ class FeasibilityLimits:
             maximum_tcp_angular_velocity_rad_s=float(
                 values["maximum_tcp_angular_velocity_rad_s"]
             ),
-            maximum_joint_velocity_rad_s=float(values["maximum_joint_velocity_rad_s"]),
+            maximum_joint_velocity_rad_s=float(
+                values["maximum_ik_target_velocity_rad_s"]
+                if "maximum_ik_target_velocity_rad_s" in values
+                else values["maximum_joint_velocity_rad_s"]
+            ),
             maximum_joint_acceleration_rad_s2=float(
-                values["maximum_joint_acceleration_rad_s2"]
+                values["maximum_ik_target_acceleration_rad_s2"]
+                if "maximum_ik_target_acceleration_rad_s2" in values
+                else values["maximum_joint_acceleration_rad_s2"]
             ),
             joint_limit_margin_rad=math.radians(float(values["joint_limit_margin_deg"])),
             maximum_target_displacement_m=maximum_target_displacement_m,
+            ik_orientation_tolerance_rad=math.radians(
+                float(values.get("ik_orientation_tolerance_deg", 180.0))
+            ),
+            maximum_target_rotation_jump_rad=math.radians(
+                float(values.get("maximum_target_rotation_jump_deg", 180.0))
+            ),
+            maximum_joint_target_jump_rad=float(
+                values.get("maximum_joint_target_jump_rad", math.pi)
+            ),
+            near_singularity_joint_velocity_rad_s=float(
+                values.get("near_singularity_joint_velocity_rad_s", 0.0)
+            ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class CommandTrajectoryLimits:
+    """Limits applied to the joint-position references sent to MuJoCo.
+
+    These are deliberately separate from IK feasibility thresholds: the IK target
+    may move ahead of the simulated mechanism, while ``data.ctrl`` must remain a
+    physically plausible, jerk-limited trajectory.
+    """
+
+    maximum_velocity_rad_s: float
+    maximum_acceleration_rad_s2: float
+    maximum_jerk_rad_s3: float
+    position_tracking_frequency_rad_s: float
+
+    @classmethod
+    def from_mapping(cls, values: Mapping[str, Any]) -> "CommandTrajectoryLimits":
+        result = cls(
+            maximum_velocity_rad_s=float(
+                values.get("command_maximum_joint_velocity_rad_s", math.pi)
+            ),
+            maximum_acceleration_rad_s2=float(
+                values.get("command_maximum_joint_acceleration_rad_s2", 4.0 * math.pi)
+            ),
+            maximum_jerk_rad_s3=float(
+                values.get("command_maximum_joint_jerk_rad_s3", 20.0 * math.pi)
+            ),
+            position_tracking_frequency_rad_s=float(
+                values.get("command_position_tracking_frequency_rad_s", 10.0)
+            ),
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in asdict(result).values()):
+            raise ValueError("command trajectory limits must be finite and positive")
+        return result
 
 
 @dataclass(frozen=True, slots=True)
 class CandidateMetrics:
     target_displacement_m: float = 0.0
     target_jump_m: float = 0.0
+    target_rotation_jump_rad: float = 0.0
     tcp_velocity_m_s: float = 0.0
     tcp_angular_velocity_rad_s: float = 0.0
     ik_error_m: float = 0.0
+    ik_orientation_error_rad: float = 0.0
+    maximum_joint_target_jump_rad: float = 0.0
     joint_limit_blockers: tuple[str, ...] = ()
     jacobian_condition: float = 1.0
     minimum_jacobian_singular_value: float = 1.0
@@ -108,25 +172,37 @@ class CandidateMetrics:
 def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> FeasibilityReason:
     if metrics.target_displacement_m > limits.maximum_target_displacement_m:
         return FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
-    if metrics.target_jump_m > limits.maximum_target_jump_m:
-        return FeasibilityReason.TARGET_JUMP
-    if (
-        metrics.tcp_velocity_m_s > limits.maximum_tcp_velocity_m_s
-        or metrics.tcp_angular_velocity_rad_s > limits.maximum_tcp_angular_velocity_rad_s
-        or metrics.maximum_joint_velocity_rad_s > limits.maximum_joint_velocity_rad_s
-    ):
-        return FeasibilityReason.VELOCITY_LIMIT
-    if metrics.maximum_joint_acceleration_rad_s2 > limits.maximum_joint_acceleration_rad_s2:
-        return FeasibilityReason.ACCELERATION_LIMIT
-    if metrics.ik_error_m > limits.ik_position_tolerance_m:
-        return FeasibilityReason.IK_FAILED
-    if metrics.joint_limit_blockers:
-        return FeasibilityReason.JOINT_LIMIT
-    if (
+    near_singularity = (
         metrics.jacobian_condition > limits.maximum_jacobian_condition
-        or metrics.minimum_jacobian_singular_value < limits.minimum_jacobian_singular_value
+        or metrics.minimum_jacobian_singular_value
+        < limits.minimum_jacobian_singular_value
+    )
+    if (
+        near_singularity
+        and metrics.maximum_joint_velocity_rad_s
+        >= limits.near_singularity_joint_velocity_rad_s
     ):
         return FeasibilityReason.NEAR_SINGULARITY
+    if (
+        metrics.target_jump_m > limits.maximum_target_jump_m
+        or metrics.target_rotation_jump_rad > limits.maximum_target_rotation_jump_rad
+        or metrics.maximum_joint_target_jump_rad > limits.maximum_joint_target_jump_rad
+    ):
+        return FeasibilityReason.TARGET_JUMP
+    if metrics.tcp_velocity_m_s > limits.maximum_tcp_velocity_m_s:
+        return FeasibilityReason.LINEAR_VELOCITY_LIMIT
+    if metrics.tcp_angular_velocity_rad_s > limits.maximum_tcp_angular_velocity_rad_s:
+        return FeasibilityReason.ANGULAR_VELOCITY_LIMIT
+    if metrics.maximum_joint_velocity_rad_s > limits.maximum_joint_velocity_rad_s:
+        return FeasibilityReason.IK_DISCONTINUITY
+    if metrics.maximum_joint_acceleration_rad_s2 > limits.maximum_joint_acceleration_rad_s2:
+        return FeasibilityReason.LINEAR_ACCELERATION_LIMIT
+    if metrics.ik_error_m > limits.ik_position_tolerance_m:
+        return FeasibilityReason.IK_POSITION_FAILED
+    if metrics.ik_orientation_error_rad > limits.ik_orientation_tolerance_rad:
+        return FeasibilityReason.IK_ORIENTATION_FAILED
+    if metrics.joint_limit_blockers:
+        return FeasibilityReason.JOINT_LIMIT
     if metrics.self_collision:
         return FeasibilityReason.SELF_COLLISION
     if metrics.environment_collision:
@@ -142,11 +218,70 @@ class FeasibilityResult:
     metrics: CandidateMetrics
 
 
+def jerk_limited_position_step(
+    position: np.ndarray,
+    target: np.ndarray,
+    velocity: np.ndarray,
+    acceleration: np.ndarray,
+    *,
+    dt_s: float,
+    limits: CommandTrajectoryLimits,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Advance a critically damped command trajectory by one fixed-rate step.
+
+    This shapes the actuator *set-point*; MuJoCo's position servo then follows
+    that set-point.  Position, velocity and acceleration stay continuous and the
+    finite-difference jerk is bounded even when an IK target changes abruptly.
+    """
+
+    dt = float(dt_s)
+    if not math.isfinite(dt) or dt <= 0.0:
+        raise ValueError("command trajectory dt_s must be finite and positive")
+    q = np.asarray(position, dtype=float)
+    q_target = np.asarray(target, dtype=float)
+    qd = np.asarray(velocity, dtype=float)
+    qdd = np.asarray(acceleration, dtype=float)
+    if not (q.shape == q_target.shape == qd.shape == qdd.shape):
+        raise ValueError("command trajectory arrays must have identical shapes")
+    if not all(np.all(np.isfinite(value)) for value in (q, q_target, qd, qdd)):
+        raise ValueError("command trajectory arrays must be finite")
+
+    # Critically damped third-order reference model:
+    #   (D + omega)^3 q = omega^3 q_target
+    # Its state is (position, velocity, acceleration), so limiting the commanded
+    # third derivative bounds jerk without discontinuously resetting velocity or
+    # acceleration at the target.
+    omega = limits.position_tracking_frequency_rad_s
+    desired_jerk = (
+        omega**3 * (q_target - q)
+        - 3.0 * omega**2 * qd
+        - 3.0 * omega * qdd
+    )
+    bounded_jerk = np.clip(
+        desired_jerk,
+        -limits.maximum_jerk_rad_s3,
+        limits.maximum_jerk_rad_s3,
+    )
+    next_acceleration = np.clip(
+        qdd + bounded_jerk * dt,
+        -limits.maximum_acceleration_rad_s2,
+        limits.maximum_acceleration_rad_s2,
+    )
+    next_velocity = np.clip(
+        qd + next_acceleration * dt,
+        -limits.maximum_velocity_rad_s,
+        limits.maximum_velocity_rad_s,
+    )
+    next_position = q + next_velocity * dt
+    return next_position, next_velocity, next_acceleration
+
+
 @dataclass(frozen=True, slots=True)
 class ReplayConfig:
     raw: Mapping[str, Any]
     mapping: ProvisionalMappingConfig
     feasibility: FeasibilityLimits
+    command_limits: CommandTrajectoryLimits
     stale_after_s: float
     engagement_schedule_s: tuple[float, ...]
     mjcf_path: Path
@@ -170,6 +305,7 @@ class ReplayConfig:
                 simulation,
                 maximum_target_displacement_m=provisional.maximum_target_displacement_m,
             ),
+            command_limits=CommandTrajectoryLimits.from_mapping(simulation),
             stale_after_s=float(raw["input"]["stale_after_ms"]) / 1000.0,
             engagement_schedule_s=tuple(
                 float(value) for value in raw["input"]["engagement_schedule_s"]
@@ -200,6 +336,25 @@ def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
     world = root.find("worldbody")
     if world is None:
         raise RuntimeError("MuJoCo model has no worldbody")
+    # The committed mesh pair Link_0/Link_1 starts with four duplicate ~3 mm
+    # penetrations at their shared physical joint.  It is already treated as a
+    # baseline-allowed contact by feasibility checks, but leaving contact
+    # response active creates artificial joint-1 stiction in the zero-gravity
+    # viewer plant.  Exclude only this adjacent pair in the generated model;
+    # the source asset and every non-baseline collision pair remain unchanged.
+    contact = root.find("contact")
+    if contact is None:
+        contact = ET.SubElement(root, "contact")
+    if not any(
+        child.tag == "exclude"
+        and {child.get("body1"), child.get("body2")} == {"jaka_Link_0", "jaka_Link_1"}
+        for child in contact
+    ):
+        ET.SubElement(
+            contact,
+            "exclude",
+            {"body1": "jaka_Link_0", "body2": "jaka_Link_1"},
+        )
     for name, size, rgba in (
         (DESIRED_MARKER_BODY, "0.018", "0.05 0.35 1.0 0.90"),
         (ACTUAL_MARKER_BODY, "0.013", "0.05 0.95 0.25 0.90"),
@@ -218,6 +373,27 @@ def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
                 "group": "5",
             },
         )
+        # RGB cylinders expose the complete desired/actual TCP orientation.
+        for axis, position, axis_rgba in (
+            ("x", "0.04 0 0", "1 0.1 0.1 0.95"),
+            ("y", "0 0.04 0", "0.1 1 0.1 0.95"),
+            ("z", "0 0 0.04", "0.1 0.3 1 0.95"),
+        ):
+            attributes = {
+                "name": f"{name}_{axis}_axis",
+                "type": "capsule",
+                "size": "0.003 0.04",
+                "pos": position,
+                "rgba": axis_rgba,
+                "contype": "0",
+                "conaffinity": "0",
+                "group": "5",
+            }
+            if axis == "x":
+                attributes["quat"] = "0.70710678 0 0.70710678 0"
+            elif axis == "y":
+                attributes["quat"] = "0.70710678 -0.70710678 0 0"
+            ET.SubElement(body, "geom", attributes)
     tree.write(output, encoding="utf-8")
     return output
 
@@ -242,6 +418,21 @@ class JakaMujocoSimulation:
         self.model = self.ik.model
         if config.zero_gravity:
             self.model.opt.gravity[:] = 0.0
+        simulation_values = config.raw.get("simulation", {})
+        self.jacobian_rotation_characteristic_length_m = float(
+            simulation_values.get("jacobian_rotation_characteristic_length_m", 0.25)
+        )
+        if not (
+            math.isfinite(self.jacobian_rotation_characteristic_length_m)
+            and self.jacobian_rotation_characteristic_length_m > 0.0
+        ):
+            raise ValueError(
+                "jacobian_rotation_characteristic_length_m must be finite and positive"
+            )
+        integrator = str(simulation_values.get("integrator", "implicitfast")).lower()
+        if integrator != "implicitfast":
+            raise ValueError("Quest/JAKA simulation requires the implicitfast integrator")
+        self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
         self.data = mujoco.MjData(self.model)
         self.arm_joint_ids = self.ik.arm_joint_ids.copy()
         self.arm_qpos_ids = self.ik.arm_qpos_ids.copy()
@@ -253,12 +444,42 @@ class JakaMujocoSimulation:
             ],
             dtype=np.int32,
         )
+        self.hand_actuator_names = (
+            "rh56_R_thumb_MCP_joint1_act",
+            "rh56_R_thumb_MCP_joint2_act",
+            "rh56_R_index_MCP_joint_act",
+            "rh56_R_middle_MCP_joint_act",
+            "rh56_R_ring_MCP_joint_act",
+            "rh56_R_pinky_MCP_joint_act",
+        )
+        self.hand_actuator_ids = np.asarray(
+            [
+                self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+                for name in self.hand_actuator_names
+            ],
+            dtype=np.int32,
+        )
+        self._set_position_actuator_gains(
+            self.arm_actuator_ids,
+            kp=float(simulation_values.get("arm_position_kp", 40.0)),
+            kv=float(simulation_values.get("arm_position_kv", 0.0)),
+        )
+        self._set_position_actuator_gains(
+            self.hand_actuator_ids,
+            kp=float(simulation_values.get("hand_position_kp", 8.0)),
+            kv=float(simulation_values.get("hand_position_kv", 0.0)),
+        )
         self.palm_body_id = self.ik.palm_body_id
         self.data.qpos[self.arm_qpos_ids] = config.initial_arm_joints_rad
         self.data.ctrl[self.arm_actuator_ids] = config.initial_arm_joints_rad
         mujoco.mj_forward(self.model, self.data)
         self.initial_tcp = self.current_tcp_pose
         self.last_safe_joint_target = np.asarray(config.initial_arm_joints_rad, dtype=np.float64)
+        self.commanded_joint_target = self.last_safe_joint_target.copy()
+        self.commanded_joint_velocity = np.zeros(6, dtype=np.float64)
+        self.commanded_joint_acceleration = np.zeros(6, dtype=np.float64)
+        self.commanded_hand_target = np.zeros(6, dtype=np.float64)
+        self.commanded_hand_velocity = np.zeros(6, dtype=np.float64)
         self.last_safe_target = self.initial_tcp
         self.last_safe_joint_velocity = np.zeros(6)
         self._baseline_contacts = self._contact_pairs(self.ik.data)
@@ -272,6 +493,17 @@ class JakaMujocoSimulation:
         if value < 0:
             raise KeyError(name)
         return int(value)
+
+    def _set_position_actuator_gains(
+        self, actuator_ids: np.ndarray, *, kp: float, kv: float
+    ) -> None:
+        if not math.isfinite(kp) or kp <= 0.0:
+            raise ValueError("simulation position-actuator kp must be finite and positive")
+        if not math.isfinite(kv) or kv < 0.0:
+            raise ValueError("simulation position-actuator kv must be finite and non-negative")
+        self.model.actuator_gainprm[actuator_ids, 0] = kp
+        self.model.actuator_biasprm[actuator_ids, 1] = -kp
+        self.model.actuator_biasprm[actuator_ids, 2] = -kv
 
     def _mocap_id(self, body_name: str) -> int:
         body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
@@ -298,6 +530,9 @@ class JakaMujocoSimulation:
         self.last_safe_target = current
         self.last_safe_joint_target = self.arm_joints_rad
         self.last_safe_joint_velocity[:] = 0.0
+        self.commanded_joint_target = self.arm_joints_rad
+        self.commanded_joint_velocity[:] = 0.0
+        self.commanded_joint_acceleration[:] = 0.0
         self.data.ctrl[self.arm_actuator_ids] = self.last_safe_joint_target
         self.tracking_errors_m.clear()
         return current
@@ -305,8 +540,9 @@ class JakaMujocoSimulation:
     def evaluate(self, target: Pose6D, *, dt_s: float) -> FeasibilityResult:
         limits = self.config.feasibility
         dt = max(float(dt_s), 1e-6)
-        current_q = self.arm_joints_rad
-        self.ik.set_arm_joints_rad(current_q.tolist())
+        # Continuation IK: every solve starts on the previous accepted branch,
+        # never on a lagging actuator state or a global/random seed.
+        self.ik.set_arm_joints_rad(self.last_safe_joint_target.tolist())
         self.ik.apply_position_target(
             palm_target_position_m=list(target.position_m),
             palm_target_quaternion_wxyz=(
@@ -318,6 +554,7 @@ class JakaMujocoSimulation:
             dt=dt,
         )
         candidate_q = self.ik.arm_joints_rad.copy()
+        joint_target_jump = candidate_q - self.last_safe_joint_target
         joint_velocity = (candidate_q - self.last_safe_joint_target) / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
         target_delta = np.asarray(target.position_m) - np.asarray(self.last_safe_target.position_m)
@@ -327,7 +564,21 @@ class JakaMujocoSimulation:
         jacp = np.zeros((3, self.model.nv))
         jacr = np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.ik.data, jacp, jacr, self.palm_body_id)
-        singular_values = np.linalg.svd(jacp[:, self.arm_dof_ids], compute_uv=False)
+        position_jacobian = jacp[:, self.arm_dof_ids]
+        if self.config.mapping.orientation_enabled:
+            # Scale radian rows by a characteristic arm length so the complete
+            # 6-D spatial Jacobian has consistent metre-like units.  A
+            # translation-only condition number misses wrist singularities.
+            spatial_jacobian = np.vstack(
+                (
+                    position_jacobian,
+                    self.jacobian_rotation_characteristic_length_m
+                    * jacr[:, self.arm_dof_ids],
+                )
+            )
+        else:
+            spatial_jacobian = position_jacobian
+        singular_values = np.linalg.svd(spatial_jacobian, compute_uv=False)
         condition = float(singular_values[0] / max(singular_values[-1], 1e-12))
         new_contacts = self._contact_pairs(self.ik.data) - self._baseline_contacts
         self_collision = any(self._pair_kind(pair) == "self" for pair in new_contacts)
@@ -350,12 +601,17 @@ class JakaMujocoSimulation:
         metrics = CandidateMetrics(
             target_displacement_m=displacement,
             target_jump_m=float(np.linalg.norm(target_delta)),
+            target_rotation_jump_rad=_quaternion_angle(
+                target.orientation_xyzw, self.last_safe_target.orientation_xyzw
+            ),
             tcp_velocity_m_s=float(np.linalg.norm(target_delta)) / dt,
             tcp_angular_velocity_rad_s=_quaternion_angle(
                 target.orientation_xyzw, self.last_safe_target.orientation_xyzw
             )
             / dt,
             ik_error_m=self.ik.target_error_m,
+            ik_orientation_error_rad=float(self.ik.target_rotation_error_rad or 0.0),
+            maximum_joint_target_jump_rad=float(np.max(np.abs(joint_target_jump))),
             joint_limit_blockers=tuple(limit_blockers),
             jacobian_condition=condition,
             minimum_jacobian_singular_value=float(singular_values[-1]),
@@ -370,14 +626,50 @@ class JakaMujocoSimulation:
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
             self.last_safe_target = target
-            self.data.ctrl[self.arm_actuator_ids] = candidate_q
+            self.commanded_joint_target = candidate_q.copy()
             self.accepted_metrics.append(metrics)
             return FeasibilityResult(True, reason, tuple(float(v) for v in candidate_q), metrics)
         return FeasibilityResult(False, reason, None, metrics)
 
+    def set_hand_actuator_target(self, targets_rad: Mapping[str, float]) -> None:
+        """Set only the six simulated RH56 actuator goals in explicit model order."""
+
+        order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
+        values = np.asarray([float(targets_rad[name]) for name in order], dtype=np.float64)
+        if values.shape != (6,) or not np.all(np.isfinite(values)):
+            raise ValueError("RH56 simulated actuator target must contain six finite values")
+        limits = np.asarray([1.1, 0.5, 1.7, 1.68, 1.7, 1.7], dtype=np.float64)
+        if np.any(values < 0.0) or np.any(values > limits + 1e-9):
+            raise ValueError("RH56 simulated actuator target violates project model limits")
+        self.commanded_hand_target = values
+
     def step(self, dt_s: float) -> None:
         steps = max(0, int(round(max(0.0, dt_s) / self.model.opt.timestep)))
         for _ in range(steps):
+            timestep = float(self.model.opt.timestep)
+            position, velocity, acceleration = jerk_limited_position_step(
+                self.data.ctrl[self.arm_actuator_ids],
+                self.commanded_joint_target,
+                self.commanded_joint_velocity,
+                self.commanded_joint_acceleration,
+                dt_s=timestep,
+                limits=self.config.command_limits,
+            )
+            self.data.ctrl[self.arm_actuator_ids] = position
+            self.commanded_joint_velocity = velocity
+            self.commanded_joint_acceleration = acceleration
+            hand_error = self.commanded_hand_target - self.data.ctrl[self.hand_actuator_ids]
+            desired_hand_velocity = np.clip(hand_error / timestep, -4.0, 4.0)
+            self.commanded_hand_velocity += np.clip(
+                desired_hand_velocity - self.commanded_hand_velocity,
+                -40.0 * timestep,
+                40.0 * timestep,
+            )
+            hand_increment = self.commanded_hand_velocity * timestep
+            hand_increment = np.where(
+                np.abs(hand_increment) > np.abs(hand_error), hand_error, hand_increment
+            )
+            self.data.ctrl[self.hand_actuator_ids] += hand_increment
             mujoco.mj_step(self.model, self.data)
         self.tracking_errors_m.append(
             float(
@@ -393,9 +685,20 @@ class JakaMujocoSimulation:
         actual = self.current_tcp_pose
         if self.actual_marker_mocap_id >= 0:
             self.data.mocap_pos[self.actual_marker_mocap_id] = actual.position_m
+            self.data.mocap_quat[self.actual_marker_mocap_id] = (
+                actual.orientation_xyzw[3],
+                actual.orientation_xyzw[0],
+                actual.orientation_xyzw[1],
+                actual.orientation_xyzw[2],
+            )
         if self.desired_marker_mocap_id >= 0:
-            self.data.mocap_pos[self.desired_marker_mocap_id] = (
-                actual.position_m if desired is None else desired.position_m
+            marker = actual if desired is None else desired
+            self.data.mocap_pos[self.desired_marker_mocap_id] = marker.position_m
+            self.data.mocap_quat[self.desired_marker_mocap_id] = (
+                marker.orientation_xyzw[3],
+                marker.orientation_xyzw[0],
+                marker.orientation_xyzw[1],
+                marker.orientation_xyzw[2],
             )
         mujoco.mj_forward(self.model, self.data)
 

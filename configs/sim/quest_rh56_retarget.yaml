@@ -1,0 +1,24 @@
+schema_version: quest_rh56_retarget.v1
+selected_backend: adaptive
+
+# Simulation-only, not a physical RH56DFX calibration.  The actuator order and
+# mimic ratios match data/sim_assets/jaka_rh56_visual_coacd.xml.
+calibration:
+  calibration_id: quest_rh56_sim_uncalibrated_v1
+  global_scale: 1.0
+  palm_scale: 1.0
+  finger_scale: [1.0, 1.0, 1.0, 1.0]
+  thumb_scale: 1.0
+  key_vector_scale: 1.0
+  pinch_weight: 0.65
+  maximum_normalized_step: 0.08
+  # Precision teleoperation freezes the last valid safe command on release or
+  # tracking loss; automatic safe-open would violate the hand-clutch contract.
+  loss_behavior: hold
+
+model_contract:
+  canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  mujoco_actuator_order: [thumb_lateral, thumb_close, index, middle, ring, pinky]
+  full_joint_count: 12
+  independent_actuator_count: 6
+  mimic_semantics: project_mujoco_equality_constraints
