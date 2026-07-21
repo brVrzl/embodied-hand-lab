@@ -35,6 +35,18 @@ def _fist_points() -> list[tuple[float, float, float]]:
     return points
 
 
+def _mcp_only_flexion_points() -> list[tuple[float, float, float]]:
+    points = _open_points()
+    for x, indices in zip(
+        (-0.025, -0.008, 0.010, 0.027),
+        ((5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20)),
+        strict=True,
+    ):
+        for offset, index in enumerate(indices):
+            points[index] = (x + offset * 0.025, 0.025, 0.0)
+    return points
+
+
 def _skeleton(points: list[tuple[float, float, float]], *, valid: bool = True) -> QuestHandSkeleton:
     return QuestHandSkeleton(1, Side.RIGHT, "right_wrist", HTS_JOINT_NAMES, tuple(points), valid, 1.0)
 
@@ -66,6 +78,60 @@ def test_adaptive_backend_open_fist_and_mimic_semantics() -> None:
     assert fist.joint_targets["rh56_R_index_DIP_joint"] == pytest.approx(
         fist.actuator_targets["index"]
     )
+
+
+def test_adaptive_backend_observes_mcp_only_flexion() -> None:
+    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    opened = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(_open_points())
+    )
+    flexed = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(_mcp_only_flexion_points())
+    )
+    assert all(
+        flexed.actuator_targets[name] > opened.actuator_targets[name]
+        for name in ("index", "middle", "ring", "pinky")
+    )
+
+
+def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
+    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    far = _open_points()
+    thumb_tip = far[4]
+    for index in (8, 12, 16, 20):
+        far[index] = (0.20, 0.20, 0.0)
+    middle_pinch = list(far)
+    middle_pinch[12] = thumb_tip
+
+    far_result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(far)
+    )
+    pinch_result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(middle_pinch)
+    )
+    assert pinch_result.pinch_diagnostics["thumb_index_pinch_strength"] == 0.0
+    assert pinch_result.pinch_diagnostics["thumb_closest_fingertip_pinch_strength"] == 1.0
+    assert (
+        pinch_result.actuator_targets["thumb_close"]
+        > far_result.actuator_targets["thumb_close"] + 0.20
+    )
+
+
+def test_thumb_lateral_calibration_uses_full_actuator_range() -> None:
+    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    toward_pinky = _open_points()
+    toward_pinky[4] = (toward_pinky[1][0] + 0.05, toward_pinky[1][1], 0.0)
+    away_from_pinky = _open_points()
+    away_from_pinky[4] = (away_from_pinky[1][0] - 0.05, away_from_pinky[1][1], 0.0)
+
+    high = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(toward_pinky)
+    )
+    low = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+        _skeleton(away_from_pinky)
+    )
+    assert high.actuator_targets["thumb_lateral"] == pytest.approx(1.10)
+    assert low.actuator_targets["thumb_lateral"] == pytest.approx(0.0)
 
 
 def test_tracking_loss_is_invalid_and_resets_warm_start() -> None:

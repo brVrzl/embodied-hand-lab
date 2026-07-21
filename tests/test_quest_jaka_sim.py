@@ -30,7 +30,13 @@ from quest_jaka_sim.simulation import (
     jerk_limited_position_step,
 )
 from motion_input import Pose6D
-from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
+from quest_jaka_sim.se3 import (
+    compose_pose,
+    quaternion_angle_rad,
+    quaternion_slerp_xyzw,
+    relative_pose,
+    rotvec_to_quaternion_xyzw,
+)
 
 
 def _mapping(**overrides: object) -> ProvisionalMappingConfig:
@@ -209,6 +215,78 @@ def test_singularity_gate_requires_excessive_candidate_joint_velocity() -> None:
         classify_candidate(amplified_velocity, limits)
         is FeasibilityReason.NEAR_SINGULARITY
     )
+
+
+def test_explicit_wrist_singularity_margin_does_not_require_a_velocity_spike() -> None:
+    limits = replace(
+        _limits(),
+        minimum_wrist_bend_rad=math.radians(15.0),
+        near_singularity_joint_velocity_rad_s=14.0,
+    )
+    metrics = CandidateMetrics(
+        wrist_bend_from_singularity_rad=math.radians(14.0),
+        maximum_joint_velocity_rad_s=0.1,
+    )
+    assert classify_candidate(metrics, limits) is FeasibilityReason.NEAR_SINGULARITY
+
+
+def test_recorded_circle_path_stays_on_bounded_wrist_branch(tmp_path: Path) -> None:
+    """Compact regression from arm-clutch cycle 1 of the 2026-07-21 live log.
+
+    With the former 35 degree J5 start, the full 551-frame recording preserved
+    nearly the same TCP orientation while J4/J6 counter-wound +5.52/-5.92 rad.
+    These twelve keyframes retain that path shape without making the test depend
+    on an ignored local recording.
+    """
+
+    recorded_keyframes = (
+        ((-0.0227610331, -0.4603408104, 0.2370831008), (-0.7003653324, 0.0769372049, 0.0068500040, 0.7095929432)),
+        ((0.0115884081, -0.4342531486, 0.2344796541), (-0.6847500007, 0.1680939669, -0.0743721409, 0.7052167323)),
+        ((0.0314699472, -0.4269222016, 0.2287253612), (-0.6650264877, 0.2019184978, -0.1177147797, 0.7093038288)),
+        ((-0.0237109437, -0.4590080836, 0.2312268693), (-0.6869873848, 0.1602562061, -0.0267559674, 0.7082728286)),
+        ((-0.0951401149, -0.4833353161, 0.2338192275), (-0.7026667253, 0.1475501444, 0.0524309898, 0.6940745056)),
+        ((-0.1175140654, -0.4898344113, 0.2409157248), (-0.7130018057, 0.1486561429, 0.1101975874, 0.6763033845)),
+        ((-0.0961488517, -0.4833064224, 0.2229916699), (-0.7062119545, 0.1388209104, 0.0690994180, 0.6908101770)),
+        ((-0.1295931640, -0.4430617953, 0.2238505832), (-0.6792135480, 0.1556769563, 0.0330910447, 0.7164765343)),
+        ((-0.1536497689, -0.3946690101, 0.2130952379), (-0.6371986157, 0.2001998542, 0.0070240752, 0.7442100543)),
+        ((-0.1082179545, -0.3995626843, 0.2140292391), (-0.6432192673, 0.1852373690, -0.0145440217, 0.7427951014)),
+        ((-0.0983849508, -0.4136567102, 0.3087390121), (-0.5521841681, 0.1503628687, 0.0103063932, 0.8199862380)),
+        ((-0.1373385548, -0.4240527338, 0.2174116154), (-0.6702814379, 0.1384352242, 0.1032194514, 0.7217369518)),
+    )
+    recorded = tuple(Pose6D(position, orientation) for position, orientation in recorded_keyframes)
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    model = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
+    simulation = JakaMujocoSimulation(config, mjcf_path=model)
+    robot_reference = simulation.capture_reference()
+    recorded_reference = recorded[0]
+    joints = []
+    for start, end in zip(recorded, recorded[1:]):
+        for sample_index in range(1, 51):
+            fraction = sample_index / 50.0
+            position = tuple(
+                float(value)
+                for value in (
+                    (1.0 - fraction) * np.asarray(start.position_m)
+                    + fraction * np.asarray(end.position_m)
+                )
+            )
+            orientation = quaternion_slerp_xyzw(
+                start.orientation_xyzw, end.orientation_xyzw, fraction
+            )
+            relative = relative_pose(recorded_reference, Pose6D(position, orientation))
+            result = simulation.evaluate(compose_pose(robot_reference, relative), dt_s=1.0 / 60.0)
+            assert result.accepted, result.reason
+            assert result.joint_target_rad is not None
+            joints.append(result.joint_target_rad)
+
+    trajectory = np.asarray(joints)
+    spans = np.ptp(trajectory, axis=0)
+    net = trajectory[-1] - trajectory[0]
+    assert spans[3] < 1.6
+    assert spans[5] < 1.6
+    assert abs(net[3]) < 0.75
+    assert abs(net[5]) < 0.75
+    assert np.min(np.abs(trajectory[:, 4])) > config.feasibility.minimum_wrist_bend_rad
 
 
 def _hand_payload(sequence: int, x: float = 0.0) -> bytes:

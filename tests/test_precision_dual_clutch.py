@@ -23,7 +23,11 @@ from quest_jaka_sim import (
     Se3FilterProfile,
     gravity_aligned_head_yaw,
 )
-from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
+from quest_jaka_sim.se3 import (
+    quaternion_angle_rad,
+    relative_pose,
+    rotvec_to_quaternion_xyzw,
+)
 from quest_jaka_sim.simulation import build_viewer_mjcf
 
 
@@ -220,6 +224,86 @@ def test_full_wrist_pitch_yaw_roll_and_downward_rotation_are_preserved(axis) -> 
     mapper.capture(wrist=identity, robot_tcp=identity, head=identity, timestamp_ns=1)
     target = mapper.target(Pose6D((0.0, 0.0, 0.0), rotvec_to_quaternion_xyzw(axis)), timestamp_ns=1_000_000_001)
     assert quaternion_angle_rad(target.orientation_xyzw, rotvec_to_quaternion_xyzw(axis)) < 1e-5
+
+
+def test_translation_is_robot_base_fixed_and_wrist_roll_is_tcp_local() -> None:
+    mapper = _mapper()
+    wrist = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    tcp = Pose6D(
+        (0.4, -0.2, 0.3),
+        rotvec_to_quaternion_xyzw((0.3, -0.4, 0.8)),
+    )
+    head = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    mapper.capture(wrist=wrist, robot_tcp=tcp, head=head, timestamp_ns=1)
+    target = mapper.target(
+        Pose6D((0.05, 0.0, 0.0), rotvec_to_quaternion_xyzw((0.0, 0.0, 0.1))),
+        timestamp_ns=1_000_000_001,
+    )
+
+    # Robot-base +X remains +X even though the captured TCP is rotated.
+    assert np.asarray(target.position_m) - np.asarray(tcp.position_m) == pytest.approx(
+        (0.05, 0.0, 0.0), abs=1e-8
+    )
+    # Wrist-local Z remains TCP-local Z, the committed model's joint-6 axis.
+    local = relative_pose(tcp, target)
+    assert quaternion_angle_rad(
+        local.orientation_xyzw,
+        rotvec_to_quaternion_xyzw((0.0, 0.0, 0.1)),
+    ) < 1e-7
+
+
+@pytest.mark.parametrize(
+    ("human_axis", "robot_axis"),
+    [
+        ((0.1, 0.0, 0.0), (-0.1, 0.0, 0.0)),
+        ((0.0, 0.1, 0.0), (0.0, -0.1, 0.0)),
+        ((0.0, 0.0, 0.1), (0.0, 0.0, 0.1)),
+    ],
+)
+def test_live_right_wrist_axes_match_rh56_palm_semantics(
+    human_axis: tuple[float, float, float],
+    robot_axis: tuple[float, float, float],
+) -> None:
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    profile = Se3FilterProfile("test", 1e6, 0.0, 1e6, 1e6, 0.0, 1e6, 1.0)
+    mapper = LatchedHeadYawArmMapper(config.mapping, profile)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    mapper.capture(wrist=identity, robot_tcp=identity, head=identity, timestamp_ns=1)
+    target = mapper.target(
+        Pose6D((0.0, 0.0, 0.0), rotvec_to_quaternion_xyzw(human_axis)),
+        timestamp_ns=1_000_000_001,
+    )
+    assert quaternion_angle_rad(
+        target.orientation_xyzw,
+        rotvec_to_quaternion_xyzw(robot_axis),
+    ) < 1e-7
+
+
+def test_wrist_local_roll_is_solved_predominantly_by_jaka_joint_6(
+    tmp_path: Path,
+) -> None:
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
+    simulation = JakaMujocoSimulation(config, mjcf_path=model_path)
+    tcp = simulation.capture_reference()
+    initial_joints = simulation.arm_joints_rad
+    profile = Se3FilterProfile("test", 1e6, 0.0, 1e6, 1e6, 0.0, 1e6, 1.0)
+    mapper = LatchedHeadYawArmMapper(config.mapping, profile)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    mapper.capture(wrist=identity, robot_tcp=tcp, head=identity, timestamp_ns=1)
+    target = mapper.target(
+        Pose6D(
+            (0.0, 0.0, 0.0),
+            rotvec_to_quaternion_xyzw((0.0, 0.0, 0.04)),
+        ),
+        timestamp_ns=1_000_000_001,
+    )
+    result = simulation.evaluate(target, dt_s=1.0 / 60.0)
+
+    assert result.accepted and result.joint_target_rad is not None
+    joint_delta = np.asarray(result.joint_target_rad) - initial_joints
+    assert abs(joint_delta[5]) > 0.035
+    assert abs(joint_delta[5]) > 20.0 * max(np.abs(joint_delta[:5]))
 
 
 def test_quaternion_sign_and_many_recenter_cycles_have_zero_jump_and_no_accumulation() -> None:

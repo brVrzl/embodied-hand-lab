@@ -148,15 +148,41 @@ class LatchedHeadYawArmMapper:
         )
         if not np.allclose(translation_gain, 1.0) or not np.allclose(rotation_gain, 1.0):
             raise ValueError("precision default requires fixed translation and rotation gains of 1.0")
-        robot_translation = np.asarray(self.config.operator_to_robot_basis) @ horizontal_translation
+        # Translation is intentionally spatial: the configured basis is
+        # documented as canonical-operator -> robot-base.  It must therefore
+        # not be passed directly to compose_pose(), which expects a
+        # TCP-reference-local delta.  Doing so rotates the displacement by the
+        # captured TCP orientation a second time and makes forward/up axes
+        # change after every clutch cycle.
+        robot_base_translation = (
+            np.asarray(self.config.operator_to_robot_basis) @ horizontal_translation
+        )
+
+        # Orientation remains a body-relative SE(3) delta. The fixed conjugation
+        # is the semantic wrist-to-RH56-palm coordinate correspondence, not an
+        # arbitrary gain: both local -Z axes point toward the fingers, while a
+        # right human wrist has its thumb on local -X and the RH56 model has its
+        # thumb on local +X. Keeping the delta local makes anatomical wrist roll
+        # map naturally to tool roll instead of turning it into a head-horizontal
+        # spatial rotation that IK distributes across J4-J6.
         rotation_basis = np.asarray(
             self.config.rotation_operator_to_robot_basis
             or self.config.operator_to_robot_basis
         )
-        robot_rotation = rotation_basis @ horizontal_rotation @ rotation_basis.T
+        robot_local_rotation = (
+            rotation_basis
+            @ quaternion_to_matrix(local_delta.orientation_xyzw)
+            @ rotation_basis.T
+        )
+        robot_reference_rotation = quaternion_to_matrix(
+            self.robot_reference.orientation_xyzw
+        )
+        robot_local_translation = (
+            robot_reference_rotation.T @ robot_base_translation
+        )
         robot_delta = Pose6D(
-            tuple(float(v) for v in robot_translation),
-            matrix_to_quaternion_xyzw(robot_rotation),
+            tuple(float(v) for v in robot_local_translation),
+            matrix_to_quaternion_xyzw(robot_local_rotation),
         )
         self.last_telemetry = ArmMappingTelemetry(
             local_delta,

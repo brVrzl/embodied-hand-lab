@@ -73,6 +73,7 @@ class FeasibilityLimits:
     maximum_target_rotation_jump_rad: float = math.pi
     maximum_joint_target_jump_rad: float = math.pi
     near_singularity_joint_velocity_rad_s: float = 0.0
+    minimum_wrist_bend_rad: float = 0.0
 
     @classmethod
     def from_mapping(
@@ -110,6 +111,9 @@ class FeasibilityLimits:
             ),
             near_singularity_joint_velocity_rad_s=float(
                 values.get("near_singularity_joint_velocity_rad_s", 0.0)
+            ),
+            minimum_wrist_bend_rad=math.radians(
+                float(values.get("minimum_wrist_bend_deg", 0.0))
             ),
         )
 
@@ -162,6 +166,7 @@ class CandidateMetrics:
     joint_limit_blockers: tuple[str, ...] = ()
     jacobian_condition: float = 1.0
     minimum_jacobian_singular_value: float = 1.0
+    wrist_bend_from_singularity_rad: float = math.pi
     maximum_joint_velocity_rad_s: float = 0.0
     maximum_joint_acceleration_rad_s2: float = 0.0
     self_collision: bool = False
@@ -172,6 +177,18 @@ class CandidateMetrics:
 def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> FeasibilityReason:
     if metrics.target_displacement_m > limits.maximum_target_displacement_m:
         return FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
+    # JAKA's spherical wrist loses a degree of freedom at J5 ~= 0.  A generic
+    # scaled-Jacobian condition number did not reject the recorded circle soon
+    # enough: continuation IK preserved the TCP while J4/J6 counter-wound by
+    # almost one full turn.  Keep a small explicit bend margin so that branch
+    # cannot become an accepted target; the absolute pose target remains
+    # recoverable by moving back toward the last safe pose.
+    if (
+        limits.minimum_wrist_bend_rad > 0.0
+        and metrics.wrist_bend_from_singularity_rad
+        < limits.minimum_wrist_bend_rad
+    ):
+        return FeasibilityReason.NEAR_SINGULARITY
     near_singularity = (
         metrics.jacobian_condition > limits.maximum_jacobian_condition
         or metrics.minimum_jacobian_singular_value
@@ -615,6 +632,7 @@ class JakaMujocoSimulation:
             joint_limit_blockers=tuple(limit_blockers),
             jacobian_condition=condition,
             minimum_jacobian_singular_value=float(singular_values[-1]),
+            wrist_bend_from_singularity_rad=abs(float(candidate_q[4])),
             maximum_joint_velocity_rad_s=float(np.max(np.abs(joint_velocity))),
             maximum_joint_acceleration_rad_s2=float(np.max(np.abs(joint_acceleration))),
             self_collision=self_collision,

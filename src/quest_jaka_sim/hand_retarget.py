@@ -115,6 +115,12 @@ class HandRetargetCalibration:
     thumb_scale: float
     key_vector_scale: float
     pinch_weight: float
+    thumb_pinch_closed_distance_palm: float
+    thumb_pinch_open_distance_palm: float
+    thumb_lateral_min: float
+    thumb_lateral_max: float
+    mcp_flexion_weight: float
+    mcp_flexion_deadband: float
     maximum_normalized_step: float
     loss_behavior: str
 
@@ -130,6 +136,16 @@ class HandRetargetCalibration:
             thumb_scale=float(calibration["thumb_scale"]),
             key_vector_scale=float(calibration["key_vector_scale"]),
             pinch_weight=float(calibration["pinch_weight"]),
+            thumb_pinch_closed_distance_palm=float(
+                calibration.get("thumb_pinch_closed_distance_palm", 0.0)
+            ),
+            thumb_pinch_open_distance_palm=float(
+                calibration.get("thumb_pinch_open_distance_palm", 0.70)
+            ),
+            thumb_lateral_min=float(calibration.get("thumb_lateral_min", 0.0)),
+            thumb_lateral_max=float(calibration.get("thumb_lateral_max", 1.0)),
+            mcp_flexion_weight=float(calibration.get("mcp_flexion_weight", 0.0)),
+            mcp_flexion_deadband=float(calibration.get("mcp_flexion_deadband", 0.15)),
             maximum_normalized_step=float(calibration["maximum_normalized_step"]),
             loss_behavior=str(calibration.get("loss_behavior", "safe_open")),
         )
@@ -143,6 +159,11 @@ class HandRetargetCalibration:
                 result.key_vector_scale,
             ))
             or not 0 <= result.pinch_weight <= 1
+            or not 0 <= result.thumb_pinch_closed_distance_palm
+            < result.thumb_pinch_open_distance_palm
+            or not 0 <= result.thumb_lateral_min < result.thumb_lateral_max <= 1
+            or not 0 <= result.mcp_flexion_weight <= 1
+            or not 0 <= result.mcp_flexion_deadband < 1
             or not 0 < result.maximum_normalized_step <= 1
             or result.loss_behavior not in {"safe_open", "hold"}
         ):
@@ -198,8 +219,27 @@ class ProjectRh56Retargeter:
                 "NONFINITE_HAND_SKELETON",
             )
         palm = max(float(np.linalg.norm(points[9] - points[0])), 1e-6)
-        thumb_index_distance = float(np.linalg.norm(points[4] - points[8]) / palm)
-        pinch = float(np.clip(1.0 - thumb_index_distance / 0.70, 0.0, 1.0))
+        fingertip_indices = (8, 12, 16, 20)
+        thumb_tip_distances = np.asarray(
+            [np.linalg.norm(points[4] - points[index]) / palm for index in fingertip_indices]
+        )
+        pinch_strengths = np.clip(
+            (
+                self.calibration.thumb_pinch_open_distance_palm
+                - thumb_tip_distances
+            )
+            / (
+                self.calibration.thumb_pinch_open_distance_palm
+                - self.calibration.thumb_pinch_closed_distance_palm
+            ),
+            0.0,
+            1.0,
+        )
+        # AnyDex's adaptive Inspire objective gives the thumb the strongest
+        # pinch alpha from all non-thumb fingertips. RH56 has one coupled thumb
+        # closing actuator, so the project-native equivalent is a single
+        # closest-fingertip strength rather than an index-only special case.
+        pinch = float(np.max(pinch_strengths))
         if self.backend == "adaptive":
             normalized = self._adaptive(points, pinch)
         else:
@@ -235,21 +275,42 @@ class ProjectRh56Retargeter:
             cost,
             skeleton.tracking_confidence,
             {
-                "thumb_index_distance_palm": thumb_index_distance,
-                "thumb_index_pinch_strength": pinch,
-                "thumb_index_pinching": pinch > 0.7,
+                "thumb_index_distance_palm": float(thumb_tip_distances[0]),
+                "thumb_middle_distance_palm": float(thumb_tip_distances[1]),
+                "thumb_ring_distance_palm": float(thumb_tip_distances[2]),
+                "thumb_pinky_distance_palm": float(thumb_tip_distances[3]),
+                "thumb_index_pinch_strength": float(pinch_strengths[0]),
+                "thumb_closest_fingertip_pinch_strength": pinch,
+                "thumb_any_fingertip_pinching": pinch > 0.7,
             },
             violations,
             None,
         )
 
     def _adaptive(self, p: np.ndarray, pinch: float) -> np.ndarray:
+        palm_forward = p[9] - p[0]
         curls = np.asarray(
             [
-                _finger_angle_curl(p, (5, 6, 7, 8)),
-                _finger_angle_curl(p, (9, 10, 11, 12)),
-                _finger_angle_curl(p, (13, 14, 15, 16)),
-                _finger_angle_curl(p, (17, 18, 19, 20)),
+                _finger_full_hand_curl(
+                    p, (5, 6, 7, 8), palm_forward,
+                    weight=self.calibration.mcp_flexion_weight,
+                    deadband=self.calibration.mcp_flexion_deadband,
+                ),
+                _finger_full_hand_curl(
+                    p, (9, 10, 11, 12), palm_forward,
+                    weight=self.calibration.mcp_flexion_weight,
+                    deadband=self.calibration.mcp_flexion_deadband,
+                ),
+                _finger_full_hand_curl(
+                    p, (13, 14, 15, 16), palm_forward,
+                    weight=self.calibration.mcp_flexion_weight,
+                    deadband=self.calibration.mcp_flexion_deadband,
+                ),
+                _finger_full_hand_curl(
+                    p, (17, 18, 19, 20), palm_forward,
+                    weight=self.calibration.mcp_flexion_weight,
+                    deadband=self.calibration.mcp_flexion_deadband,
+                ),
             ]
         ) * np.asarray(self.calibration.finger_scale)
         thumb_bend = _finger_angle_curl(p, (1, 2, 3, 4))
@@ -259,7 +320,9 @@ class ProjectRh56Retargeter:
         ) * self.calibration.thumb_scale
         palm_side = p[17] - p[5]
         thumb_side = p[4] - p[1]
-        lateral = float(np.clip((_cos(thumb_side, palm_side) + 1.0) / 2.0, 0.0, 1.0))
+        lateral = self._calibrate_thumb_lateral(
+            (_cos(thumb_side, palm_side) + 1.0) / 2.0
+        )
         return np.asarray([*curls, thumb_close, lateral])
 
     def _vector(self, p: np.ndarray, pinch: float) -> np.ndarray:
@@ -272,13 +335,53 @@ class ProjectRh56Retargeter:
         index_vector = p[8] - p[5]
         thumb_close = max((1.0 - _cos(thumb_vector, index_vector)) * 0.5, pinch)
         palm_side = p[17] - p[5]
-        lateral = (_cos(thumb_vector, palm_side) + 1.0) * 0.5
+        lateral = self._calibrate_thumb_lateral(
+            (_cos(thumb_vector, palm_side) + 1.0) * 0.5
+        )
         return np.asarray([*curls, thumb_close * self.calibration.thumb_scale, lateral])
+
+    def _calibrate_thumb_lateral(self, raw: float) -> float:
+        return float(
+            np.clip(
+                (raw - self.calibration.thumb_lateral_min)
+                / (
+                    self.calibration.thumb_lateral_max
+                    - self.calibration.thumb_lateral_min
+                ),
+                0.0,
+                1.0,
+            )
+        )
 
 
 def _finger_angle_curl(points: np.ndarray, indices: tuple[int, int, int, int]) -> float:
     a, b, c, d = (points[index] for index in indices)
     return float(np.clip(((math.pi - _angle(a, b, c)) + (math.pi - _angle(b, c, d))) / math.pi, 0.0, 1.0))
+
+
+def _finger_full_hand_curl(
+    points: np.ndarray,
+    indices: tuple[int, int, int, int],
+    palm_forward: np.ndarray,
+    *,
+    weight: float,
+    deadband: float,
+) -> float:
+    """Blend MCP flexion with the established PIP/DIP curl feature.
+
+    The previous project-native feature ignored MCP-only motion because it
+    measured just the two distal bends.  AnyDex's full-hand vector objective
+    also constrains wrist-to-PIP/DIP/tip vectors; this lightweight equivalent
+    preserves the validated distal feature exactly and adds MCP flexion only
+    in its remaining unsaturated range.  It does not introduce an optimizer or
+    change RH56 ordering.
+    """
+
+    a, b, _, _ = (points[index] for index in indices)
+    distal = _finger_angle_curl(points, indices)
+    mcp = float(np.clip(math.acos(_cos(b - a, palm_forward)) / (math.pi / 2.0), 0.0, 1.0))
+    mcp = float(np.clip((mcp - deadband) / (1.0 - deadband), 0.0, 1.0))
+    return float(np.clip(distal + weight * mcp * (1.0 - distal), 0.0, 1.0))
 
 
 def _angle(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:

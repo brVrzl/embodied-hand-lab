@@ -106,9 +106,19 @@ At a valid arm index-trigger press edge:
    current TCP.
 4. Wrist motion is computed as
    `T_hand_delta = inverse(T_quest_hand_ref) * T_quest_hand_current`.
-5. A fixed conjugation expresses that local delta in the latched horizontal
-   frame, followed by the explicit Quest-to-JAKA signed-axis basis.
-6. The target is right-composed as
+5. Translation is expressed in the latched horizontal frame and transformed by
+   the explicit canonical-operator-to-robot-base signed-axis basis. Before
+   right composition it is converted once into captured-TCP-local coordinates;
+   this is algebraically equivalent to adding the displacement in robot-base
+   coordinates and prevents the captured TCP orientation from rotating it a
+   second time.
+6. Orientation remains a body-relative wrist-local delta. Both HTS wrist-local
+   and RH56 palm-local -Z point toward the fingers. Quest right-thumb direction
+   is local -X while RH56 right-thumb direction is local +X, so the fixed proper
+   rotation `diag(-1,-1,+1)` (180 degrees about local Z) maps the semantic hand
+   frames. It preserves wrist roll about -Z as JAKA joint-6/tool roll while
+   correcting the two transverse rotation signs.
+7. The target is right-composed as
    `T_robot_target = T_robot_tcp_ref * T_robot_delta`.
 
 Translation and rotation gains are fixed at 1.0 in the default configuration.
@@ -142,8 +152,142 @@ channels. Recovery never automatically resumes either output.
 
 Workspace/IK rejection retains the last safe target and does not accumulate the
 candidate. Human-reference envelope telemetry warns at 80% without automatic
-clutching or gain changes. Consecutive robot feasibility rejection faults only
-the arm after the configured count.
+clutching or gain changes. The simulation exploration profile permits 30
+consecutive rejected 60 Hz candidates (0.5 s) for an operator to move the
+absolute relative-pose candidate back into the valid region, then faults only
+the arm.
+
+The project-native adaptive RH56 backend retains its established PIP/DIP curl,
+pinch weighting, joint ordering, model limits, warm start, and downstream slew
+limiter. An AnyDex full-hand-vector concept is adapted narrowly as a
+configurable 0.15-weight, 0.15-deadband MCP flexion contribution in the
+remaining unsaturated finger range. No AnyDex optimizer, NLopt, Pinocchio,
+receiver, model, or joint mapping is imported.
+
+## Live mapping correction and offline evidence (2026-07-21)
+
+The first live MuJoCo session recorded 11,149 control frames and 1,431 accepted
+arm targets. Although J6 spanned 2.158 rad, J4/J5/J6 shared wrist motion and the
+operator reported no intuitive tool-roll response. Inspection found the
+robot-base translation basis was passed directly to a TCP-local composition,
+so the captured TCP orientation rotated translation again after every clutch.
+The live log also contained target-jump, joint-limit, and workspace rejections,
+consistent with the reported strange pose and rapid disengagement.
+
+Regression tests now use a rotated non-identity TCP and verify that robot-base
+XYZ remains fixed. A 0.04 rad wrist-local roll is accepted by the committed
+MuJoCo model and is solved predominantly by J6 (greater than 0.035 rad and more
+than 20 times every other joint delta). A replay of all 11,149 recorded hand
+frames kept every RH56 output finite and within model limits. The MCP-aware
+variant retained the same configured maximum per-frame steps and zero
+joint-limit hits; p95 actuator steps changed only from
+`[0.00598, 0.00543, 0.01560, 0.01624, 0.01663, 0.01403]` rad to
+`[0.00598, 0.00543, 0.01605, 0.01676, 0.01663, 0.01363]` rad.
+
+## Circle-motion wrist branch and thumb refinement (2026-07-21)
+
+The follow-up live session is recorded in
+`logs/quest_jaka_sim/quest_jaka_mapping_fix_live_20260721.events.jsonl` (local,
+ignored telemetry). The operator's circle-motion report is visible in the
+joint solution rather than in the desired TCP: in arm cycle 1 the desired TCP
+orientation moved only 23.2 degrees at most from its starting orientation, yet
+J4/J6 changed by +5.52/-5.92 rad. J5 fell to about 14.3 degrees, so the
+continuation solver preserved the end-effector pose by counter-winding the two
+outer spherical-wrist joints. `joint_6_clipped_to_safe_limit` appeared 62 times
+and `joint_4_clipped_to_safe_limit` 13 times across the session.
+
+The default simulation posture now starts J5 at 65 degrees rather than 35
+degrees. Replaying the full 551 accepted cycle-1 targets during diagnosis kept
+all targets feasible and reduced J4/J6 net changes to -0.47/+0.16 rad. A
+committed compact regression interpolates 550 samples through twelve recorded
+keyframes; all are accepted, J4/J6 spans are 1.129/0.544 rad, their net changes
+are -0.468/+0.158 rad, minimum wrist bend is 26.7 degrees, maximum spatial
+Jacobian condition is 19.02, and minimum singular value is 0.0365. An explicit
+15-degree J5 bend margin now reports `NEAR_SINGULARITY` before the solver can
+enter the counter-winding branch, even when no one-frame velocity spike occurs.
+It freezes the last safe absolute target and does not project or accumulate
+unreachable motion.
+
+The public Xiaohongshu reference [VR遥操机械臂 by 1111🉑秋](https://www.xiaohongshu.com/explore/69b709a1000000001b02048b)
+was viewable and was used only as a qualitative smooth end-effector-following
+reference. No code or control constants were derived from the video.
+
+For the thumb, the same 14,422-frame recording showed that the former mapping
+used only 0.356/0.500 rad of thumb flexion and 0.797/1.100 rad of thumb lateral
+travel. The pinned AnyDex Quest3/Inspire configuration computes separate
+thumb-to-index/middle/ring/pinky pinch weights (2--4 cm) and uses complete thumb
+key vectors. The project-native adaptation keeps the existing six-actuator
+RH56 contract but (1) derives the coupled thumb-close pinch signal from the
+closest of all four fingertips, (2) uses palm-normalized closed/open thresholds
+of 0.20/0.55, (3) raises the recorded-data thumb flexion scale to 1.2, and (4)
+linearly calibrates lateral cosine from 0.08--0.74 while retaining headroom.
+
+Offline replay after this change produced thumb lateral/flexion ranges of
+0--1.0738 rad and 0.0233--0.4877 rad, zero model-limit hits, p95 steps of
+0.0080/0.0039 rad, and maximum steps of 0.088/0.040 rad (the unchanged
+normalized per-frame slew bound). Mean/p95/max project-native retarget time was
+0.197/0.204/0.956 ms. Finger actuator outputs outside the thumb are unchanged.
+
+## Exact current arm mapping for audit
+
+All rotations below are active rotation matrices. A pose `T_A_B` maps vectors
+from child frame B into parent frame A. At each valid index-trigger press, the
+filtered Quest wrist `T_Q_H0`, authoritative simulated RH56 palm
+`T_R_P0`, and head yaw are captured. The first target is exactly `T_R_P0`.
+
+Let `R_Q_Y` be the captured gravity-aligned head-yaw frame in Quest world. The
+current filtered wrist is `T_Q_H`. Translation and orientation are deliberately
+expressed in different semantically meaningful bases:
+
+```text
+delta_p_Q = p_Q_H - p_Q_H0
+delta_p_Y = transpose(R_Q_Y) * delta_p_Q
+delta_p_R = B_R_Y * delta_p_Y
+
+delta_R_H = transpose(R_Q_H0) * R_Q_H
+delta_R_P = C_P_H * delta_R_H * transpose(C_P_H)
+
+p_R_target = p_R_P0 + delta_p_R
+R_R_target = R_R_P0 * delta_R_P
+```
+
+The fixed matrices in the default simulation profile are:
+
+```text
+B_R_Y = [ -1  0  0 ]   head-right  -> robot -X
+        [  0  0  1 ]   head-forward(-Z) -> robot -Y
+        [  0  1  0 ]   head-up     -> robot +Z
+
+C_P_H = [ -1  0  0 ]   Quest right-thumb -X -> RH56 thumb +X
+        [  0 -1  0 ]
+        [  0  0  1 ]   fingers/tool and roll axis remain -Z
+```
+
+The former live configuration incorrectly used identity for `C_P_H`. This was
+not a visual preference: all 6,361 right-hand skeletons in the latest capture
+had thumb/index on wrist-local -X, pinky on +X, and fingers toward -Z, while the
+committed RH56 model has thumb/index on palm-local +X, pinky on -X, and fingers
+toward -Z. Identity therefore preserved roll but reversed the semantic pitch
+and side-tilt mapping. The corrected matrix is the unique axis-aligned proper
+rotation that maps those observed/model directions.
+
+Offline re-evaluation of the latest live cycle 1 with the corrected semantic
+rotation accepted all 281 control samples and bounded J4/J6 spans to
+0.864/0.621 rad. The original live solution over the same cycle had accepted
+J4/J6 spans of 2.266/2.051 rad and approached the 15-degree wrist guard. Across
+the complete live session, actual-to-desired TCP error was at most 5.46 mm, so
+the gross perceptual mismatch was upstream frame semantics rather than MuJoCo
+servo tracking.
+
+Two intentional consequences should be explicit during review. First, this is
+relative teleoperation: clutch engagement never jumps the robot to the human's
+absolute pose; it makes subsequent pose changes correspond one-to-one from the
+two captured poses. Absolute pose equality and arbitrary zero-jump recentering
+cannot both hold. Second, `B_R_Y` is still the documented provisional
+operator-to-robot spatial registration, not a measured room-to-robot
+calibration. It is kept because prior live feedback found left/right behavior
+correct; changing the operator's physical stance relative to the robot may
+require a separately measured fixed registration in a later stage.
 
 ## Validation and remaining gap
 
@@ -192,17 +336,19 @@ the requested 150--300 ms range without imposing the longest delay, while the
 existing downstream slew limiter bounds the actual joint motion.
 
 Focused precision, SE(3), hand, session, HTS, provider, and MuJoCo tests pass
-92 cases. A repository-wide run
+162 cases after the semantic wrist-frame correction. A prior repository-wide run
 passed 228 tests and failed nine unrelated existing Correll-asset tests because
 this worktree lacks `data/sim_assets/correll_rh56dfx` meshes/XML. No external
 assets were restored or altered as part of this task.
 
-The unresolved limitation is live left-controller transport. Interactive live
-dual-clutch validation cannot honestly be completed until a reviewed provider
-supplies controller-valid, index, grip, timestamp, and sequence fields while
-right bare-hand tracking remains active. The external HTS app is outside this
-repository and was not modified. Deterministic offline replay is explicitly
-labelled `deterministic_replay_cli` and is not a live substitute.
+The host now accepts a strict, separately versioned `CTRL` sidecar containing
+controller-valid, index, grip, timestamp, session, and sequence fields while
+the original HTS hand/head parser remains unchanged. Interactive MuJoCo testing
+confirmed index-only, grip-only, both, and neither combinations with the right
+bare hand. The Quest application source/install remains outside this repository;
+therefore host support does not claim that controller transport is part of the
+original upstream HTS packet contract. Deterministic offline replay remains
+explicitly labelled `deterministic_replay_cli`.
 
 An optional future hand-backend comparison should replay neutral, open, spread,
 fist, pinch, and transitional recordings through (1) the project baseline, (2)
@@ -210,3 +356,16 @@ an AnyDex-informed project-native adaptive variant, and (3) isolated
 dex-retargeting. Record output jitter, limit-hit rate, pinch/key-vector error,
 clutch-cycle continuity, reacquisition transient, solve time, and failed frames.
 The project-native backend remains the default.
+
+### Final semantic-frame live validation
+
+The operator interactively validated the corrected mapping in the pure MuJoCo
+viewer and reported that it felt correct. The session contained 8,402 Quest
+input frames, eight arm clutch cycles, one hand clutch cycle, and 3,295 accepted
+arm targets. There were no joint-limit or near-singularity rejections; the
+remaining bounded rejections were 60 target jumps, 62 workspace-bound samples,
+and two angular-velocity samples. The spatial Jacobian condition stayed below
+13.01 and its minimum singular value stayed above 0.0577. Mean/p95 IK time was
+2.42/2.70 ms, mean/p95 hand-retarget time was 0.272/0.305 ms, and no receive
+queue packets were dropped. The report explicitly records
+`hardware_connections=false` and `hardware_commands=false`.

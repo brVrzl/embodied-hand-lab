@@ -45,10 +45,15 @@ provisional_calibration:
   orientation_enabled: true
   orientation_scale: 1.0
   orientation_scale_per_axis: [1.0, 1.0, 1.0]
+  # Both frames use local -Z toward the fingers/tool. Their right-hand lateral
+  # axes are opposite: Quest wrist-local thumb is -X, whereas the RH56 model's
+  # thumb is +X. A proper 180 deg rotation about local Z maps X/Y signs while
+  # retaining wrist roll/tool roll. This was verified on all 6,361 hand frames
+  # in the 2026-07-21 live recording and against the committed RH56 body poses.
   rotation_operator_to_robot_basis:
-    - [1.0, 0.0, 0.0]
+    - [-1.0, 0.0, 0.0]
+    - [0.0, -1.0, 0.0]
     - [0.0, 0.0, 1.0]
-    - [0.0, 1.0, 0.0]
   orientation_deadband_deg: 2.0
   maximum_relative_rotation_deg: 75.0
   maximum_operator_displacement_m: 0.30
@@ -95,7 +100,11 @@ simulation:
   hand_position_kp: 12.0
   hand_position_kv: 2.0
   integrator: implicitfast
-  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
+  # J5 starts at 65 deg rather than 35 deg. Recorded circle replay showed the
+  # old posture entering the spherical-wrist J5~=0 branch and counter-winding
+  # J4/J6 by roughly +/-2*pi; 65 deg kept the same 551 targets feasible with
+  # J4/J6 spans of 1.46/1.16 rad and no winding or rejection.
+  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 1.1344640138, -0.2617993878]
   ik_gain: 0.70
   ik_damping: 0.05
   ik_max_step_rad: 0.04
@@ -106,6 +115,9 @@ simulation:
   maximum_jacobian_condition: 60.0
   minimum_jacobian_singular_value: 0.0125
   near_singularity_joint_velocity_rad_s: 14.0
+  # J5=0 is the spherical-wrist singularity. The explicit margin prevents
+  # continuation IK from preserving the TCP by counter-winding J4/J6.
+  minimum_wrist_bend_deg: 15.0
   jacobian_rotation_characteristic_length_m: 0.25
   maximum_target_jump_m: 0.04
   maximum_tcp_velocity_m_s: 1.0
@@ -125,7 +137,10 @@ simulation:
   # At 60 Hz this remains below the 14 rad/s IK-candidate guard (0.233 rad),
   # while the actuator command is independently limited to pi rad/s.
   maximum_joint_target_jump_rad: 0.22
-  isolated_rejection_hold_count: 2
+  # Hold the last safe target for up to 0.5 s at 60 Hz so the operator can move
+  # an absolute relative-pose candidate back into the feasible region. Invalid
+  # candidates are never integrated or made authoritative.
+  isolated_rejection_hold_count: 30
   reject_action: hold_last_safe_for_isolated_rejection_then_disengage
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts
 

@@ -8,9 +8,25 @@ calibration:
   global_scale: 1.0
   palm_scale: 1.0
   finger_scale: [1.0, 1.0, 1.0, 1.0]
-  thumb_scale: 1.0
+  # The 2026-07-21 Quest recording reached only 0.356/0.500 rad with scale 1.0.
+  # 1.2 uses the available model range while the existing normalized slew
+  # limiter still bounds every frame and clutch reacquisition remains separate.
+  thumb_scale: 1.2
   key_vector_scale: 1.0
-  pinch_weight: 0.65
+  pinch_weight: 0.55
+  # AnyDex Quest3/Inspire computes pinch alpha against every fingertip with
+  # closed/open thresholds. Express them palm-normalized so user scale cancels.
+  # The recorded palm was about 9-10 cm, making these approximately 2-5.5 cm.
+  thumb_pinch_closed_distance_palm: 0.20
+  thumb_pinch_open_distance_palm: 0.55
+  # Raw lateral feature occupied roughly 0.061-0.724 in the live recording;
+  # retain a small headroom above the observed maximum to avoid hard saturation.
+  thumb_lateral_min: 0.08
+  thumb_lateral_max: 0.74
+  # AnyDex-inspired full-hand feature: retain the existing PIP/DIP curl and
+  # add only a small, deadbanded MCP contribution in the unsaturated range.
+  mcp_flexion_weight: 0.15
+  mcp_flexion_deadband: 0.15
   maximum_normalized_step: 0.08
   # Precision teleoperation freezes the last valid safe command on release or
   # tracking loss; automatic safe-open would violate the hand-clutch contract.

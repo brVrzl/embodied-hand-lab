@@ -29,6 +29,7 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.se3 import quaternion_angle_rad
+from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 
 
 DEFAULT_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_offline.yaml")
@@ -186,7 +187,11 @@ def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: obje
     arm = getattr(session, "arm_clutch", None)
     hand = getattr(session, "hand_clutch", None)
     latest = session.event_records[-1] if getattr(session, "event_records", None) else {}
-    instruction = "Clutches require an explicit timestamped provider; HTS has no controller inputs"
+    instruction = (
+        "LEFT INDEX=arm hold-to-run; LEFT GRIP=hand hold-to-run"
+        if getattr(session, "clutch_provider", "unavailable") == "quest_ctrl_udp_v1"
+        else "Clutches require an explicit timestamped provider"
+    )
     handle.set_texts(
         (
             None,
@@ -418,6 +423,11 @@ def _live_6dof(args: argparse.Namespace) -> int:
         raise SystemExit("duration must be positive")
     config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
     simulation, session = _make_smooth_session(config)
+    clutch_config = config.raw.get("clutches", {})
+    controller_router = LiveQuestControllerRouter(
+        stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
+        released_at=float(clutch_config.get("released_at", 0.55)),
+    )
     rates = config.raw.get("rates", {})
     target_hz = float(rates.get("target_generation_hz", 60.0))
     viewer_hz = float(rates.get("viewer_hz", 60.0))
@@ -436,7 +446,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
         f"RATES=input~30Hz target={target_hz:g}Hz "
         f"mujoco={1.0/simulation.model.opt.timestep:g}Hz viewer={viewer_hz:g}Hz"
     )
-    print("CONTROL=HTS has no controller state; both clutches remain unavailable and frozen")
+    print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP hand clutch; both are independent hold-to-run")
     print("MODE=filtered relative 6-DoF; BLUE desired frame, GREEN simulated frame")
     print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
     handle = _viewer(simulation, session)
@@ -451,7 +461,10 @@ def _live_6dof(args: argparse.Namespace) -> int:
     viewer_updates = 0
     with HtsRawRecordingWriter(
         capture_path,
-        metadata={"mode": "quest_jaka_live_smooth_6dof_simulation_only"},
+        metadata={
+            "mode": "quest_jaka_live_smooth_6dof_simulation_only",
+            "controller_provider": "quest_ctrl_udp_v1",
+        },
     ) as writer:
         worker = _ReceiveWorker(args, writer)
         worker.start()
@@ -461,7 +474,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
                     raise RuntimeError("Quest receive worker failed") from worker.error
                 while True:
                     try:
-                        session.ingest(worker.queue.get_nowait())
+                        controller_router.ingest(worker.queue.get_nowait(), session)
                     except queue.Empty:
                         break
                 now = time.monotonic()
@@ -476,7 +489,9 @@ def _live_6dof(args: argparse.Namespace) -> int:
                 if now >= next_target:
                     skipped = max(0, int((now - next_target) / target_period))
                     target_skipped_ticks += skipped
-                    session.control_tick(time.monotonic_ns())
+                    control_now_ns = time.monotonic_ns()
+                    controller_router.poll(control_now_ns, session)
+                    session.control_tick(control_now_ns)
                     # Run at most one target/IK update after a stall.  Replaying
                     # expired deadlines back-to-back turns one host pause into a
                     # visible burst of joint targets.
@@ -504,6 +519,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
         viewer_skipped_frames=viewer_skipped_frames,
         viewer_update_count=viewer_updates,
         viewer_rate_hz=(viewer_updates / max(time.monotonic() - started, 1e-9)),
+        **controller_router.telemetry(),
     )
     _write_events(session.event_records, events_path)
     _write_report(report, report_path)
