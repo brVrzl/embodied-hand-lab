@@ -124,7 +124,11 @@ def parse_hts_datagram(payload: bytes, *, max_bytes: int = HTS_MAX_DATAGRAM_BYTE
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines:
         raise SerializationError("HTS datagram contains no non-empty lines")
-    return tuple(parse_hts_line(line) for line in lines)
+    # CTRL is an independent extension sharing the UDP socket.  The legacy HTS
+    # parser does not interpret controller data, but safely skips it so an old
+    # hand/head consumer continues processing later datagrams on port 9000.
+    hand_head_lines = [line for line in lines if not line.startswith("CTRL,")]
+    return tuple(parse_hts_line(line) for line in hand_head_lines)
 
 
 def parse_hts_line(line: str) -> HtsPacket:

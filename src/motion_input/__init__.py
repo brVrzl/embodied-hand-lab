@@ -1,6 +1,35 @@
 """Device-independent Motion Input Platform (UMIP)."""
 
 from .diagnostics import StreamingDiagnostics
+from .clutch import (
+    AnalogClutchSample,
+    AnalogHoldToRun,
+    ArmClutchMachine,
+    ArmClutchState,
+    ClutchAction,
+    HandClutchMachine,
+    HandClutchState,
+)
+from .controller_protocol import (
+    CTRL_FIELD_NAMES,
+    CTRL_PACKET_PREFIX,
+    CTRL_PROTOCOL_VERSION,
+    ControllerPacket,
+    ControllerPacketError,
+    QuestTransportKind,
+    QuestTransportPacket,
+    parse_controller_datagram,
+    parse_controller_line,
+    parse_quest_transport_datagram,
+)
+from .controller_provider import (
+    ControllerClutchAdapter,
+    ControllerClutchFrame,
+    ControllerProvider,
+    ControllerProviderState,
+    TransportClutchMonitor,
+    TransportClutchSnapshot,
+)
 from .errors import (
     MotionInputError,
     ProtocolValidationError,
@@ -75,9 +104,23 @@ from .recording import MotionRecordingReader, MotionRecordingWriter
 from .replay import ReplayMode, ReplayProvider
 
 __all__ = [
+    "AnalogClutchSample",
+    "AnalogHoldToRun",
+    "ArmClutchMachine",
+    "ArmClutchState",
     "CANONICAL_OPERATOR_FRAME",
     "CanonicalQuestState",
+    "ClutchAction",
     "ClutchState",
+    "ControllerClutchAdapter",
+    "ControllerClutchFrame",
+    "ControllerPacket",
+    "ControllerPacketError",
+    "ControllerProvider",
+    "ControllerProviderState",
+    "CTRL_FIELD_NAMES",
+    "CTRL_PACKET_PREFIX",
+    "CTRL_PROTOCOL_VERSION",
     "DeviceDescriptor",
     "FrameDefinition",
     "FrameRegistry",
@@ -99,6 +142,8 @@ __all__ = [
     "HtsTelemetry",
     "HtsUdpReceiver",
     "HtsWristPacket",
+    "HandClutchMachine",
+    "HandClutchState",
     "JointSample",
     "LEFT_WRIST_FRAME",
     "MotionInputError",
@@ -115,6 +160,8 @@ __all__ = [
     "ProviderState",
     "ProviderStateError",
     "QuestMotionProvider",
+    "QuestTransportKind",
+    "QuestTransportPacket",
     "QUEST_HEAD_FRAME",
     "QUEST_WORLD_FRAME",
     "QuestHandObservation",
@@ -132,14 +179,19 @@ __all__ = [
     "SourceSequenceTracker",
     "StreamingDiagnostics",
     "Timestamp",
+    "TransportClutchMonitor",
+    "TransportClutchSnapshot",
     "TrackingState",
     "UMIP_VERSION",
     "UdpQuestSource",
     "evaluate_required_right_hand_recording",
     "inspect_datagram",
     "normalize_quaternion",
+    "parse_controller_datagram",
+    "parse_controller_line",
     "parse_hts_datagram",
     "parse_hts_line",
+    "parse_quest_transport_datagram",
     "prepare_inactive_future_input",
     "replay_datagrams",
 ]
