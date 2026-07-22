@@ -152,6 +152,7 @@ def main() -> int:
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
         stop_reason = "duration_complete"
+        abort_reason: str | None = None
         prior_engaged = False
         started = time.monotonic()
         next_tick = started
@@ -174,6 +175,12 @@ def main() -> int:
                 receiver.start()
                 try:
                     while time.monotonic() - started < args.duration_sec:
+                        if native.process is None or native.process.poll() is not None:
+                            return_code = None if native.process is None else native.process.returncode
+                            abort_reason = f"native_worker_exited:{return_code}"
+                            stop_reason = abort_reason
+                            jaka_adapter.stop()
+                            break
                         receiver.raise_if_failed()
                         for datagram in receiver.drain():
                             router.ingest(datagram, session)
@@ -192,6 +199,13 @@ def main() -> int:
                                 list(status.joint_position_rad)
                             )
                         tick = session.control_tick(now_ns)
+                        dispatch_failed = (
+                            tick.accepted_target is not None and not tick.output_applied
+                        )
+                        if dispatch_failed:
+                            abort_reason = "accepted_target_transport_failure"
+                            stop_reason = abort_reason
+                            jaka_adapter.stop()
                         engaged = session.arm_clutch.state.value == "engaged"
                         disengaged = prior_engaged and not engaged
                         if disengaged:
@@ -212,10 +226,12 @@ def main() -> int:
                                 )
                             ],
                             command_timestamp_ns=None if status is None else status.command_monotonic_ns,
-                            stop_or_abort_reason=stop_reason if disengaged else None,
+                            stop_or_abort_reason=(
+                                stop_reason if disengaged or dispatch_failed else None
+                            ),
                         )
                         log.write(json.dumps(event, sort_keys=True) + "\n")
-                        if disengaged:
+                        if disengaged or dispatch_failed:
                             break
                         skipped = max(0, int((now - next_tick) * target_hz))
                         next_tick += (skipped + 1) / target_hz
@@ -238,6 +254,7 @@ def main() -> int:
         "accepted_targets_dispatched": accepted,
         "adapter_dispatch_count": jaka_adapter.applied_count,
         "native_mode": metrics["mode"],
+        "native_outcome": metrics["outcome"],
         "native_ik_calls": metrics["ik_calls"],
         "native_command_max_ns": metrics["statistics"]["command_write_duration"]["max_ns"],
         "pre_adapter_target_source": "single_shared_immutable_AcceptedArmTarget",
@@ -248,11 +265,12 @@ def main() -> int:
         "shared_continuation_enabled": session.continuation_enabled,
         "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
         "stop_reason": stop_reason,
+        "abort_reason": abort_reason,
         "rh56_commands": 0,
     }
     args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
-    return 0
+    return 2 if abort_reason is not None else 0
 
 
 if __name__ == "__main__":

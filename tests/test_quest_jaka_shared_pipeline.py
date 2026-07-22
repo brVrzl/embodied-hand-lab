@@ -604,6 +604,9 @@ def test_physical_entry_has_no_mujoco_plant_adapter_or_simulation_step() -> None
     assert not hasattr(SharedJakaTargetGenerator, "step")
     assert not hasattr(SharedJakaTargetGenerator, "set_accepted_arm_joint_target")
     assert not hasattr(SharedJakaTargetGenerator, "set_hand_actuator_target")
+    assert "native.process.poll()" in source
+    assert "accepted_target_transport_failure" in source
+    assert 'return 2 if abort_reason is not None else 0' in source
 
 
 def test_invalid_or_communication_failed_target_does_not_count_as_applied() -> None:

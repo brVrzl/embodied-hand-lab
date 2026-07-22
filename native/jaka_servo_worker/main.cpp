@@ -134,6 +134,7 @@ struct Options {
   std::uint64_t fatal_ns = 2'000'000'000;
   std::uint32_t max_consecutive_overruns = 50;
   std::uint64_t fake_connect_delay_ns = 0;
+  std::uint64_t fake_edg_delay_ns = 0;
   std::uint64_t fake_read_delay_ns = 0;
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
@@ -243,6 +244,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--controlled-stop-ms") o.stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--fatal-timeout-ms") o.fatal_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--fake-connect-delay-us") o.fake_connect_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
+    else if (a == "--fake-edg-delay-us") o.fake_edg_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-read-delay-us") o.fake_read_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
@@ -457,7 +459,11 @@ class FakeBackend final : public Backend {
   ~FakeBackend() override { cleanup(); }
   void connect() override { delay(options_.fake_connect_delay_ns); connected_ = true; }
   void verify(int, int) override { if (!connected_) throw std::runtime_error("fake disconnected"); }
-  void enter_edg() override { if (!connected_) throw std::runtime_error("fake disconnected"); edg_ = true; }
+  void enter_edg() override {
+    if (!connected_) throw std::runtime_error("fake disconnected");
+    delay(options_.fake_edg_delay_ns);
+    edg_ = true;
+  }
   void validate_probe(const std::array<double, 6>&, const std::array<double, 6>&) override {}
   void read(std::array<double, 6>& joints) override { delay(options_.fake_read_delay_ns); fail(); joints = joints_; }
   void read_tcp(CartesianState& pose) override { pose = {}; }
@@ -986,6 +992,7 @@ int run(const Options& o) {
       const std::uint64_t start_period = cycle_start - previous;
       const std::uint64_t wake_lateness = cycle_start > deadline ? cycle_start - deadline : 0;
       bool schedule_realign = false;
+      bool timing_rearmed_after_edg = false;
       if (is_stream_mode(o.mode)) {
         if (start_period > 12'000'000 || wake_lateness >= 8'000'000) {
           const std::size_t row = samples.count++;
@@ -1099,6 +1106,19 @@ int run(const Options& o) {
             backend->enter_edg();
             state = State::EdgReady;
             backend->read(observed);
+            double startup_delta = 0.0;
+            for (std::size_t joint = 0; joint < solution.size(); ++joint)
+              startup_delta = std::max(startup_delta, std::abs(solution[joint] - observed[joint]));
+            if (startup_delta > o.startup_alignment_tolerance_rad)
+              throw std::runtime_error("first Quest joint target lost alignment while entering EDG");
+            // EDG activation is a one-time explicitly gated setup operation,
+            // not part of an 8 ms repeat-latest command cycle. Re-arm timing
+            // only after activation and the second startup-alignment check.
+            previous = now_ns();
+            deadline = previous;
+            consecutive_timing_warnings = 0;
+            consecutive_completion_misses = 0;
+            timing_rearmed_after_edg = true;
             state = State::Running;
           }
         }
@@ -1202,7 +1222,8 @@ int run(const Options& o) {
         }
       }
       const std::size_t i = samples.count++;
-      samples.periods[i] = start_period; samples.wakes[i] = wake_lateness; previous = cycle_start;
+      samples.periods[i] = start_period; samples.wakes[i] = wake_lateness;
+      if (!timing_rearmed_after_edg) previous = cycle_start;
       samples.reads[i] = read_end - read_start; samples.writes[i] = write_duration;
       samples.sdk[i] = samples.reads[i] + samples.writes[i];
       samples.target_ages[i] = ever_received ? age : 0;

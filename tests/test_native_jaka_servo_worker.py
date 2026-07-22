@@ -273,6 +273,33 @@ def test_stream_timing_starts_after_connection_setup(tmp_path) -> None:
     assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
 
 
+def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
+    metrics = tmp_path / "delayed-edg.json"
+    target = tmp_path / "delayed-edg.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "0.30",
+            "--fake-edg-delay-us", "50000",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["outcome"] == "command_stream_timeout"
+    assert payload["accepted_targets"] == 1
+    assert payload["hard_timing_misses"] == 0
+    assert payload["maximum_intentional_command_delta_rad"] == 0.0
+    assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
+
+
 def test_quest_joint_teleop_repeats_exact_latest_target_without_shaping(tmp_path) -> None:
     metrics = tmp_path / "joint-teleop.json"
     target = tmp_path / "joint-teleop.sock"
