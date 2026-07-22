@@ -2,5 +2,6 @@
 
 from .backend import JakaBackend
 from .fake_backend import FakeJakaBackend
+from .quest_adapter import JakaAcceptedJointTargetAdapter
 
-__all__ = ["JakaBackend", "FakeJakaBackend"]
+__all__ = ["JakaBackend", "FakeJakaBackend", "JakaAcceptedJointTargetAdapter"]

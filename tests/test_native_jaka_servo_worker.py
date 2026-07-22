@@ -37,6 +37,21 @@ def relative_packet(sequence: int, *, allow_motion: bool) -> TargetPacket:
     )
 
 
+def joint_packet(sequence: int, joints: tuple[float, ...], *, allow_motion: bool) -> TargetPacket:
+    now = time.monotonic_ns()
+    return TargetPacket(
+        TargetKind.JOINT_POSITION,
+        TargetFlags.ALLOW_MOTION if allow_motion else TargetFlags.NONE,
+        FrameId.NONE,
+        sequence,
+        0,
+        now,
+        now,
+        now,
+        (*joints, 0.0, 0.0),
+    )
+
+
 @pytest.fixture(scope="module", autouse=True)
 def build_worker() -> None:
     subprocess.run(["cmake", "-S", str(ROOT / "native/jaka_servo_worker"),
@@ -209,3 +224,64 @@ def test_connected_command_shadow_has_distinct_no_edg_acknowledgement() -> None:
     )
     assert result.returncode == 64
     assert "exact acknowledgement" in result.stderr
+
+
+def test_quest_joint_shadow_accepts_shared_solution_without_ik_edg_or_command(tmp_path) -> None:
+    result, metrics = run_new_mode(
+        tmp_path,
+        "joint-shadow-dry-run",
+        joint_packet(1, (0.1, -0.2, 0.3, -0.4, 0.5, -0.6), allow_motion=False),
+    )
+    assert result.returncode == 0
+    assert metrics["mode"] == "quest_joint_shadow_fake_no_edg"
+    assert metrics["ik_calls"] == 0
+    assert metrics["last_ik_target_rad"] == pytest.approx([0.1, -0.2, 0.3, -0.4, 0.5, -0.6])
+    assert metrics["maximum_intentional_command_delta_rad"] == 0.0
+    assert metrics["statistics"]["command_write_duration"]["max_ns"] == 0
+
+
+def test_quest_joint_teleop_repeats_exact_latest_target_without_shaping(tmp_path) -> None:
+    metrics = tmp_path / "joint-teleop.json"
+    target = tmp_path / "joint-teleop.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "0.35",
+            "--warning-ms", "40",
+            "--hold-ms", "120",
+            "--controlled-stop-ms", "200",
+            "--fatal-timeout-ms", "300",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+        time.sleep(0.025)
+        expected = (0.1, -0.1, 0.08, -0.08, 0.06, -0.06)
+        assert publisher.publish(joint_packet(2, expected, allow_motion=True))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["mode"] == "quest_joint_teleop_fake"
+    assert payload["ik_calls"] == 0
+    assert payload["last_ik_target_rad"] == pytest.approx(expected)
+    assert payload["maximum_intentional_command_delta_rad"] == pytest.approx(0.1)
+    assert payload["maximum_joint_velocity_rad_s"] == 0.0
+    assert payload["maximum_joint_acceleration_rad_s2"] == 0.0
+    assert payload["maximum_joint_jerk_rad_s3"] == 0.0
+    assert payload["outcome"] == "command_stream_timeout"
+
+
+def test_quest_joint_teleop_rejects_nonzero_startup_jump(tmp_path) -> None:
+    result, metrics = run_new_mode(
+        tmp_path,
+        "joint-teleop-dry-run",
+        joint_packet(1, (0.02, 0.0, 0.0, 0.0, 0.0, 0.0), allow_motion=True),
+    )
+    assert result.returncode == 2
+    assert "not aligned" in metrics["outcome"]
+    assert metrics["statistics"]["command_write_duration"]["max_ns"] == 0

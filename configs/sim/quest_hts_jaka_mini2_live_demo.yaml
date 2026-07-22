@@ -84,6 +84,10 @@ rates:
   interpolation_delay_ms: 20
   target_generation_hz: 60
   ik_hz: 60
+  # The accepted target is generated once at 60 Hz for both outputs.  JAKA's
+  # EDG transport repeats the newest unchanged target at its required 8 ms
+  # period; it does not interpolate or reshape it.
+  jaka_transport_hz: 125
   mujoco_control_hz: 500
   viewer_hz: 60
 
@@ -143,6 +147,30 @@ simulation:
   isolated_rejection_hold_count: 30
   reject_action: hold_last_safe_for_isolated_rejection_then_disengage
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts
+
+# This is the only arm teleoperation configuration consumed by both the
+# MuJoCo reference entry point and the Quest-to-JAKA hardware entry point.
+# Values below configure the thin output adapter and hard fault containment;
+# they do not alter a healthy accepted target.
+hardware_adapter:
+  command_mode: edg_servo_j_absolute
+  servo_period_ms: 8.0
+  joint_order: [jaka_joint_1, jaka_joint_2, jaka_joint_3, jaka_joint_4, jaka_joint_5, jaka_joint_6]
+  joint_angle_unit: rad
+  expected_tool_id: 0
+  expected_user_frame_id: 0
+  robot_base_transform: identity_jaka_base
+  tcp_transform: mjcf_rh56_R_hand_base_link_from_jaka_flange
+  command_stream_timeout_ms: 100.0
+  command_stream_warning_ms: 40.0
+  controlled_stop_timeout_ms: 500.0
+  fatal_communication_timeout_ms: 2000.0
+  excessive_tracking_error_abort_rad: 0.35
+  excessive_tracking_error_consecutive_cycles: 2
+  startup_alignment_tolerance_rad: 0.001
+  # Must be changed only after P1/P2 verify the physical installation and the
+  # operator records the calibration evidence.  P4 refuses to start otherwise.
+  physical_mapping_confirmed: false
 
 axis_analysis:
   right_hand_left_right_s: null

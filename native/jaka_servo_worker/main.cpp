@@ -32,12 +32,15 @@ constexpr std::size_t kMaximumSamples = 250'000;
 constexpr const char* kHardwareAck = "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK";
 constexpr const char* kShadowAck = "I_ACKNOWLEDGE_JAKA_COMMAND_SHADOW_NO_EDG";
 constexpr const char* kBoundedTeleopAck = "I_ACKNOWLEDGE_BOUNDED_TELEDEX_JAKA_MOTION";
+constexpr const char* kQuestShadowAck = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW";
+constexpr const char* kQuestMotionAck = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_MOTION";
 constexpr double kProbeMaximumVelocityRadS = 0.005;
 constexpr double kProbeMaximumAccelerationRadS2 = 0.02;
 
 enum class Mode {
   DryRun, StateRead, ZeroMotion, MinimalMotion,
-  CommandShadowDryRun, CommandShadow, BoundedTeleopDryRun, BoundedTeleop
+  CommandShadowDryRun, CommandShadow, BoundedTeleopDryRun, BoundedTeleop,
+  JointShadowDryRun, JointShadow, JointTeleopDryRun, JointTeleop
 };
 enum class State : std::uint16_t {
   Disconnected, Connecting, Connected, Armed, EdgReady, Holding, Running,
@@ -145,6 +148,9 @@ struct Options {
   double joint_soft_margin_rad = 0.08726646259971647;
   double maximum_ik_step_rad = 0.10;
   double maximum_jacobian_condition = 200.0;
+  double excessive_tracking_error_abort_rad = 0.35;
+  std::uint32_t excessive_tracking_error_consecutive_cycles = 2;
+  double startup_alignment_tolerance_rad = 0.001;
 };
 
 bool is_shadow_mode(Mode mode) {
@@ -155,9 +161,26 @@ bool is_bounded_mode(Mode mode) {
   return mode == Mode::BoundedTeleopDryRun || mode == Mode::BoundedTeleop;
 }
 
+bool is_joint_shadow_mode(Mode mode) {
+  return mode == Mode::JointShadowDryRun || mode == Mode::JointShadow;
+}
+
+bool is_joint_teleop_mode(Mode mode) {
+  return mode == Mode::JointTeleopDryRun || mode == Mode::JointTeleop;
+}
+
+bool is_joint_mode(Mode mode) {
+  return is_joint_shadow_mode(mode) || is_joint_teleop_mode(mode);
+}
+
+bool is_stream_mode(Mode mode) {
+  return is_shadow_mode(mode) || is_bounded_mode(mode) || is_joint_mode(mode);
+}
+
 bool uses_fake_backend(Mode mode) {
   return mode == Mode::DryRun || mode == Mode::CommandShadowDryRun ||
-         mode == Mode::BoundedTeleopDryRun;
+         mode == Mode::BoundedTeleopDryRun || mode == Mode::JointShadowDryRun ||
+         mode == Mode::JointTeleopDryRun;
 }
 
 bool is_connected_mode(Mode mode) {
@@ -196,6 +219,10 @@ Options parse_options(int argc, char** argv) {
       else if (v == "command-shadow") o.mode = Mode::CommandShadow;
       else if (v == "bounded-teleop-dry-run") o.mode = Mode::BoundedTeleopDryRun;
       else if (v == "bounded-teleop") o.mode = Mode::BoundedTeleop;
+      else if (v == "joint-shadow-dry-run") o.mode = Mode::JointShadowDryRun;
+      else if (v == "joint-shadow") o.mode = Mode::JointShadow;
+      else if (v == "joint-teleop-dry-run") o.mode = Mode::JointTeleopDryRun;
+      else if (v == "joint-teleop") o.mode = Mode::JointTeleop;
       else throw std::runtime_error("invalid --mode");
     } else if (a == "--robot-ip") o.robot_ip = value_after(i, argc, argv);
     else if (a == "--edg-state-ip") o.edg_state_ip = value_after(i, argc, argv);
@@ -227,8 +254,11 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--joint-soft-margin-rad") o.joint_soft_margin_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--maximum-ik-step-rad") o.maximum_ik_step_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--maximum-jacobian-condition") o.maximum_jacobian_condition = std::stod(value_after(i, argc, argv));
+    else if (a == "--excessive-tracking-error-abort-rad") o.excessive_tracking_error_abort_rad = std::stod(value_after(i, argc, argv));
+    else if (a == "--excessive-tracking-error-consecutive-cycles") o.excessive_tracking_error_consecutive_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
+    else if (a == "--startup-alignment-tolerance-rad") o.startup_alignment_tolerance_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--help") {
-      std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop [options]\n";
+      std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop [options]\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
@@ -236,7 +266,9 @@ Options parse_options(int argc, char** argv) {
   if (!(o.warning_ns < o.hold_ns && o.hold_ns < o.stop_ns && o.stop_ns < o.fatal_ns))
     throw std::runtime_error("stale thresholds must be strictly increasing");
   if (is_connected_mode(o.mode)) {
-    const char* expected_ack = is_shadow_mode(o.mode) ? kShadowAck :
+    const char* expected_ack = is_joint_shadow_mode(o.mode) ? kQuestShadowAck :
+                               is_joint_teleop_mode(o.mode) ? kQuestMotionAck :
+                               is_shadow_mode(o.mode) ? kShadowAck :
                                is_bounded_mode(o.mode) ? kBoundedTeleopAck : kHardwareAck;
     if (!o.hardware || o.acknowledgement != expected_ack || o.robot_ip.empty())
       throw std::runtime_error("connected mode requires --hardware, --robot-ip, and its exact acknowledgement");
@@ -255,6 +287,17 @@ Options parse_options(int argc, char** argv) {
       throw std::runtime_error("bounded joint limits are outside commissioning envelope");
     if (is_bounded_mode(o.mode) && o.duration_s > 10.0)
       throw std::runtime_error("bounded TeleDex session may not exceed 10 seconds");
+  }
+  if (is_joint_mode(o.mode)) {
+    if (!(std::isfinite(o.excessive_tracking_error_abort_rad) &&
+          o.excessive_tracking_error_abort_rad >= 0.25 &&
+          o.excessive_tracking_error_abort_rad <= 1.0 &&
+          o.excessive_tracking_error_consecutive_cycles >= 1 &&
+          o.excessive_tracking_error_consecutive_cycles <= 10 &&
+          std::isfinite(o.startup_alignment_tolerance_rad) &&
+          o.startup_alignment_tolerance_rad > 0.0 &&
+          o.startup_alignment_tolerance_rad <= 0.01))
+      throw std::runtime_error("joint adapter fault-containment settings are invalid");
   }
   if (o.mode == Mode::MinimalMotion) {
     if (o.probe_joint < 0 || o.probe_joint >= 6 || std::abs(o.probe_delta_rad) > 0.002 || std::abs(o.probe_delta_rad) < 1e-9)
@@ -364,6 +407,14 @@ void validate_joint_solution(const std::array<double, 6>& solution,
   }
   if (maximum_step > options.maximum_ik_step_rad)
     throw std::runtime_error("IK solution violates branch-continuity step envelope");
+}
+
+void validate_manufacturer_joint_position_limits(const std::array<double, 6>& target) {
+  for (std::size_t joint = 0; joint < target.size(); ++joint) {
+    if (!std::isfinite(target[joint]) || target[joint] < kJointLower[joint] ||
+        target[joint] > kJointUpper[joint])
+      throw std::runtime_error("joint target violates JAKA manufacturer position limits");
+  }
 }
 
 double rotation_distance(const std::array<double, 3>& left_rpy,
@@ -792,6 +843,10 @@ const char* mode_name(Mode mode) {
     case Mode::CommandShadow: return "command_shadow_connected_no_edg";
     case Mode::BoundedTeleopDryRun: return "bounded_teleop_fake";
     case Mode::BoundedTeleop: return "bounded_teleop_connected";
+    case Mode::JointShadowDryRun: return "quest_joint_shadow_fake_no_edg";
+    case Mode::JointShadow: return "quest_joint_shadow_connected_no_edg";
+    case Mode::JointTeleopDryRun: return "quest_joint_teleop_fake";
+    case Mode::JointTeleop: return "quest_joint_teleop_connected";
   }
   return "unknown";
 }
@@ -884,12 +939,14 @@ int run(const Options& o) {
     if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
       backend->read_tcp(teleop.startup_tcp);
       validate_joint_solution(initial, initial, o);
+    } else if (is_joint_mode(o.mode)) {
+      validate_manufacturer_joint_position_limits(initial);
     }
     if (o.mode == Mode::MinimalMotion) {
       auto endpoint = initial; endpoint[static_cast<std::size_t>(o.probe_joint)] += o.probe_delta_rad;
       backend->validate_probe(initial, endpoint);
     }
-    if (o.mode != Mode::StateRead && !is_shadow_mode(o.mode) && !is_bounded_mode(o.mode)) { backend->enter_edg(); state = State::EdgReady; backend->read(observed);
+    if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) { backend->enter_edg(); state = State::EdgReady; backend->read(observed);
       double delta = 0; for (std::size_t i = 0; i < 6; ++i) delta = std::max(delta, std::abs(observed[i] - initial[i]));
       if (delta > 1e-4) throw std::runtime_error("near-zero initial command delta check failed");
     }
@@ -900,7 +957,11 @@ int run(const Options& o) {
       while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wake, nullptr) == EINTR && !g_stop.load()) {}
       const auto cycle_start = now_ns();
       if (cycle_start - start >= static_cast<std::uint64_t>(o.duration_s * 1e9)) {
-        if (is_bounded_mode(o.mode) && backend->edg_active()) {
+        if (is_joint_teleop_mode(o.mode) && backend->edg_active()) {
+          state = State::ControlledStop;
+          outcome = "maximum_session_duration";
+          break;
+        } else if (is_bounded_mode(o.mode) && backend->edg_active()) {
           if (!stop_requested) {
             stop_requested = true;
             stop_request_ns = cycle_start;
@@ -912,7 +973,7 @@ int run(const Options& o) {
       const std::uint64_t start_period = cycle_start - previous;
       const std::uint64_t wake_lateness = cycle_start > deadline ? cycle_start - deadline : 0;
       bool schedule_realign = false;
-      if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
+      if (is_stream_mode(o.mode)) {
         if (start_period > 12'000'000 || wake_lateness >= 8'000'000) {
           const std::size_t row = samples.count++;
           samples.periods[row] = start_period;
@@ -944,7 +1005,10 @@ int run(const Options& o) {
                                      invalid_command, transport_failure)) {
         latest = packet; last_sequence = packet.sequence; last_dispatch = packet.dispatch_ns; ever_received = true; ++accepted;
         const bool packet_stop = packet.kind == static_cast<std::uint16_t>(TargetKind::Stop);
-        if (packet_stop && is_bounded_mode(o.mode) && backend->edg_active()) {
+        if (packet_stop && is_joint_teleop_mode(o.mode) && backend->edg_active()) {
+          state = State::ControlledStop;
+          outcome = "operator_stop_command";
+        } else if (packet_stop && is_bounded_mode(o.mode) && backend->edg_active()) {
           if (!stop_requested) {
             stop_requested = true;
             stop_request_ns = cycle_start;
@@ -999,6 +1063,31 @@ int run(const Options& o) {
             tracker.reset(observed);
             state = State::Running;
           }
+        } else if (is_joint_mode(o.mode) && state != State::ControlledStop && !packet_stop) {
+          const std::uint32_t expected_flags = is_joint_teleop_mode(o.mode) ? kTargetAllowMotion : 0u;
+          if (packet.flags != expected_flags)
+            throw std::runtime_error("joint target motion flag does not match native execution mode");
+          if (packet.kind != static_cast<std::uint16_t>(TargetKind::JointPosition) || packet.frame_id != 0)
+            throw std::runtime_error("Quest JAKA adapter accepts only absolute J1..J6 joint targets");
+          std::array<double, 6> solution{};
+          std::copy_n(packet.payload, solution.size(), solution.begin());
+          validate_manufacturer_joint_position_limits(solution);
+          if (!has_ik_target && is_joint_teleop_mode(o.mode)) {
+            double startup_delta = 0.0;
+            for (std::size_t joint = 0; joint < solution.size(); ++joint)
+              startup_delta = std::max(startup_delta, std::abs(solution[joint] - observed[joint]));
+            if (startup_delta > o.startup_alignment_tolerance_rad)
+              throw std::runtime_error("first Quest joint target is not aligned with measured startup pose");
+          }
+          ik_target = solution;
+          teleop.last_ik_target = solution;
+          has_ik_target = true;
+          if (is_joint_teleop_mode(o.mode) && !backend->edg_active()) {
+            backend->enter_edg();
+            state = State::EdgReady;
+            backend->read(observed);
+            state = State::Running;
+          }
         }
       }
       if (transport_failure) { state = State::Fault; outcome = "target_transport_failure"; break; }
@@ -1006,6 +1095,11 @@ int run(const Options& o) {
       if (state == State::ControlledStop) { outcome = "operator_stop_command"; break; }
       const auto age = ever_received ? cycle_start - std::min(cycle_start, last_dispatch) : 0;
       if (ever_received && age >= o.warning_ns) ++warning_cycles;
+      if (is_joint_teleop_mode(o.mode) && ever_received && age >= o.hold_ns) {
+        state = State::ControlledStop;
+        outcome = "command_stream_timeout";
+        break;
+      }
       if (!stop_requested && ever_received && age >= o.fatal_ns) { state = State::Fault; outcome = "fatal_target_timeout"; break; }
       if (!stop_requested && ever_received && age >= o.stop_ns) {
         if (is_bounded_mode(o.mode) && backend->edg_active()) {
@@ -1044,7 +1138,30 @@ int run(const Options& o) {
         for (std::size_t joint = 0; joint < 6; ++joint)
           maximum_command_delta_rad = std::max(maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
         const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
-      } else if (o.mode != Mode::StateRead && !is_shadow_mode(o.mode) && !is_bounded_mode(o.mode)) {
+      } else if (is_joint_teleop_mode(o.mode) && backend->edg_active() && has_ik_target) {
+        target = ik_target;
+        bool hard_crossing = false;
+        for (std::size_t joint = 0; joint < target.size(); ++joint) {
+          const double difference = std::abs(target[joint] - observed[joint]);
+          teleop.maximum_tracking_difference_rad = std::max(
+              teleop.maximum_tracking_difference_rad, difference);
+          hard_crossing = hard_crossing || difference > o.excessive_tracking_error_abort_rad;
+          maximum_command_delta_rad = std::max(
+              maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
+        }
+        if (hard_crossing) {
+          ++teleop.tracking_hard_crossings;
+          ++consecutive_tracking_crossings;
+        } else {
+          consecutive_tracking_crossings = 0;
+        }
+        if (consecutive_tracking_crossings >= o.excessive_tracking_error_consecutive_cycles)
+          throw std::runtime_error("clearly excessive measured joint tracking error");
+        const auto write_start = now_ns();
+        backend->command(target);
+        command_time = now_ns();
+        write_duration = command_time - write_start;
+      } else if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) {
         target = initial;
         if (o.mode == Mode::MinimalMotion) {
           const double t = (cycle_start - start) / 1e9, segment = o.probe_motion_s;
@@ -1079,7 +1196,7 @@ int run(const Options& o) {
       samples.command_ages[i] = command_time && last_dispatch ? command_time - std::min(command_time, last_dispatch) : 0;
       if (cycle_end > deadline + kPeriodNs) {
         ++samples.missed;
-        if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
+        if (is_stream_mode(o.mode)) {
           ++samples.timing_warnings;
           ++consecutive_completion_misses;
           schedule_realign = true;
@@ -1098,7 +1215,7 @@ int run(const Options& o) {
         consecutive_overruns = 0;
         consecutive_completion_misses = 0;
       }
-      if (!is_shadow_mode(o.mode) && !is_bounded_mode(o.mode) &&
+      if (!is_stream_mode(o.mode) &&
           consecutive_overruns >= o.max_consecutive_overruns) {
         state = State::Fault; outcome = "control_loop_overrun"; break;
       }

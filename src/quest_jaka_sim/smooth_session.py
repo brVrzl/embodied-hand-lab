@@ -9,14 +9,14 @@ outputs remain frozen and fail disengaged.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 import math
 import time
 from typing import Any
 
 import numpy as np
 
-from motion_input import CanonicalQuestState, HtsCanonicalAssembler, SerializationError, parse_hts_datagram
+from motion_input import CanonicalQuestState, HtsCanonicalAssembler, Pose6D, SerializationError, parse_hts_datagram
 from motion_input.hts_transport import ReceivedHtsDatagram
 
 from .clutch import (
@@ -29,15 +29,39 @@ from .clutch import (
 )
 from .hand_retarget import HandRetargetCalibration, InspireRetargetResult, ProjectRh56Retargeter, QuestHandSkeleton
 from .precision_mapping import LatchedHeadYawArmMapper
+from .output import (
+    AcceptedArmTarget,
+    ArmTargetOutputAdapter,
+    MujocoArmTargetAdapter,
+)
 from .se3 import PoseSampleBuffer, TimedPoseSample, quaternion_angle_rad
-from .simulation import FeasibilityReason, JakaMujocoSimulation, ReplayConfig
+from .simulation import FeasibilityReason, FeasibilityResult, JakaMujocoSimulation, ReplayConfig
 from .smooth_operator import Se3FilterProfile
+
+
+@dataclass(frozen=True, slots=True)
+class ArmControlTickResult:
+    input_sequence: int | None
+    validated_wrist: Pose6D | None
+    relative_hand_transform: Pose6D | None
+    tcp_target: Pose6D | None
+    filtered_tcp_target: Pose6D | None
+    feasibility: FeasibilityResult | None
+    accepted_target: AcceptedArmTarget | None
+    output_applied: bool
+    reason: str
 
 
 class SmoothQuestJakaSession:
     """One coherent fixed-rate session with independent arm and hand clutches."""
 
-    def __init__(self, config: ReplayConfig, simulation: JakaMujocoSimulation) -> None:
+    def __init__(
+        self,
+        config: ReplayConfig,
+        simulation: JakaMujocoSimulation,
+        *,
+        arm_output: ArmTargetOutputAdapter | None = None,
+    ) -> None:
         filter_values = config.raw.get("filter", {})
         profile_name = str(filter_values.get("selected_profile", "simulation_exploration"))
         profiles = filter_values.get("profiles", {})
@@ -46,6 +70,7 @@ class SmoothQuestJakaSession:
         self.profile = Se3FilterProfile.from_mapping(profile_name, profiles[profile_name])
         self.config = config
         self.simulation = simulation
+        self.arm_output = arm_output or MujocoArmTargetAdapter(simulation)
         self.assembler = HtsCanonicalAssembler(stale_after_s=config.stale_after_s)
         rates = config.raw.get("rates", {})
         self.interpolation_delay_ns = int(float(rates.get("interpolation_delay_ms", 20.0)) * 1e6)
@@ -89,6 +114,7 @@ class SmoothQuestJakaSession:
         self.hand_engagement_latencies_ns: list[int] = []
         self.event_records: list[dict[str, Any]] = []
         self.accepted_targets = 0
+        self._accepted_sequence = 0
         self.consecutive_rejections = 0
         self.isolated_rejection_hold_count = int(
             config.raw.get("simulation", {}).get("isolated_rejection_hold_count", 2)
@@ -192,7 +218,7 @@ class SmoothQuestJakaSession:
             return True
         return False
 
-    def control_tick(self, now_ns: int) -> None:
+    def control_tick(self, now_ns: int) -> ArmControlTickResult:
         self.control_timestamps_ns.append(now_ns)
         state = self.assembler.state(now_monotonic_ns=now_ns)
         interpolated = self.buffer.sample(now_ns - self.interpolation_delay_ns)
@@ -251,7 +277,17 @@ class SmoothQuestJakaSession:
         if desired is None:
             record.update(accepted=False, reason=FeasibilityReason.DISENGAGED.value)
             self.event_records.append(record)
-            return
+            return ArmControlTickResult(
+                state.right.host_sequence_number,
+                state.right.wrist_pose if wrist_valid else None,
+                None if self.arm_mapper.last_telemetry is None else self.arm_mapper.last_telemetry.hand_local_delta,
+                None,
+                None,
+                None,
+                None,
+                False,
+                FeasibilityReason.DISENGAGED.value,
+            )
         self.ik_timestamps_ns.append(now_ns)
         started = time.perf_counter_ns()
         result = self.simulation.evaluate(
@@ -264,6 +300,8 @@ class SmoothQuestJakaSession:
         )
         record.update(
             desired_tcp=_pose_dict(desired),
+            mapped_tcp_target=_pose_dict(desired),
+            filtered_tcp_target=_pose_dict(desired),
             metrics=asdict(result.metrics),
             ik_solution_rad=result.joint_target_rad,
             ik_computation_ms=(time.perf_counter_ns() - started) / 1e6,
@@ -272,7 +310,31 @@ class SmoothQuestJakaSession:
             self._handle_rejection(now_ns, result.reason.value)
             record.update(accepted=False, reason=result.reason.value)
             self.event_records.append(record)
-            return
+            return ArmControlTickResult(
+                state.right.host_sequence_number,
+                state.right.wrist_pose,
+                None if self.arm_mapper.last_telemetry is None else self.arm_mapper.last_telemetry.hand_local_delta,
+                desired,
+                desired,
+                result,
+                None,
+                False,
+                result.reason.value,
+            )
+        assert result.joint_target_rad is not None
+        assert state.right.host_sequence_number is not None
+        input_receive_ns = int(state.right.host_receive_monotonic_ns or now_ns)
+        self._accepted_sequence += 1
+        accepted_target = AcceptedArmTarget(
+            sequence_number=self._accepted_sequence,
+            input_sequence_number=state.right.host_sequence_number,
+            input_receive_monotonic_ns=min(input_receive_ns, now_ns),
+            generated_monotonic_ns=now_ns,
+            desired_tcp=desired,
+            filtered_tcp=desired,
+            joint_position_rad=result.joint_target_rad,
+        )
+        output_applied = self.arm_output.apply(accepted_target)
         self.accepted_targets += 1
         self.consecutive_rejections = 0
         self.last_reason = FeasibilityReason.ACCEPTED.value
@@ -283,8 +345,21 @@ class SmoothQuestJakaSession:
             reason=FeasibilityReason.ACCEPTED.value,
             position_error_m=float(np.linalg.norm(np.asarray(desired.position_m) - np.asarray(current.position_m))),
             orientation_error_deg=math.degrees(quaternion_angle_rad(desired.orientation_xyzw, current.orientation_xyzw)),
+            accepted_joint_target_rad=list(accepted_target.joint_position_rad),
+            output_applied=output_applied,
         )
         self.event_records.append(record)
+        return ArmControlTickResult(
+            state.right.host_sequence_number,
+            state.right.wrist_pose,
+            None if self.arm_mapper.last_telemetry is None else self.arm_mapper.last_telemetry.hand_local_delta,
+            desired,
+            desired,
+            result,
+            accepted_target,
+            output_applied,
+            FeasibilityReason.ACCEPTED.value,
+        )
 
     def _arm_target(self, state: CanonicalQuestState, action: ClutchAction, now_ns: int):
         if action is ClutchAction.CAPTURE_ARM_REFERENCE:

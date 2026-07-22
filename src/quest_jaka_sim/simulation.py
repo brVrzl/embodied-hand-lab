@@ -644,10 +644,19 @@ class JakaMujocoSimulation:
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
             self.last_safe_target = target
-            self.commanded_joint_target = candidate_q.copy()
             self.accepted_metrics.append(metrics)
             return FeasibilityResult(True, reason, tuple(float(v) for v in candidate_q), metrics)
         return FeasibilityResult(False, reason, None, metrics)
+
+    def set_accepted_arm_joint_target(self, joints_rad: tuple[float, ...]) -> None:
+        """MuJoCo output boundary; no mapping, filtering, IK, or shaping occurs here."""
+
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("accepted arm target must contain six finite joint radians")
+        if not np.allclose(joints, self.last_safe_joint_target, atol=1e-12, rtol=0.0):
+            raise ValueError("MuJoCo adapter received a target other than the accepted IK solution")
+        self.commanded_joint_target = joints.copy()
 
     def set_hand_actuator_target(self, targets_rad: Mapping[str, float]) -> None:
         """Set only the six simulated RH56 actuator goals in explicit model order."""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import math
 import os
 import socket
 import struct
@@ -113,6 +114,41 @@ def pose_target_packet(target: PoseTarget, *, allow_motion: bool = False) -> Tar
         ts.processing_ns or 0,
         ts.dispatch_ns or 0,
         (*target.pose.position_m, *target.pose.quaternion_xyzw, 0.0),
+    )
+
+
+def joint_position_target_packet(
+    *,
+    sequence: int,
+    joint_position_rad: tuple[float, float, float, float, float, float],
+    local_receive_ns: int,
+    processing_ns: int,
+    dispatch_ns: int,
+    source_capture_ns: int = 0,
+    allow_motion: bool = False,
+) -> TargetPacket:
+    """Encode an already accepted J1..J6 radian target without transforming it."""
+
+    if sequence < 0:
+        raise ValueError("joint target sequence must be non-negative")
+    if not 0 < local_receive_ns <= processing_ns <= dispatch_ns:
+        raise ValueError("joint target host timestamps must be positive and monotonic")
+    if source_capture_ns < 0:
+        raise ValueError("source timestamp must be non-negative")
+    if len(joint_position_rad) != 6:
+        raise ValueError("joint target must contain J1 through J6")
+    if not all(math.isfinite(value) for value in joint_position_rad):
+        raise ValueError("joint target must contain finite radians")
+    return TargetPacket(
+        TargetKind.JOINT_POSITION,
+        TargetFlags.ALLOW_MOTION if allow_motion else TargetFlags.NONE,
+        FrameId.NONE,
+        sequence,
+        source_capture_ns,
+        local_receive_ns,
+        processing_ns,
+        dispatch_ns,
+        (*joint_position_rad, 0.0, 0.0),
     )
 
 

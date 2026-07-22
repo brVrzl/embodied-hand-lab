@@ -1,4 +1,4 @@
-"""Simulation-only Quest right-hand to JAKA Mini2 integration."""
+"""Authoritative Quest right-hand to JAKA target generation and MuJoCo adapter."""
 
 from .mapping import (
     MappingRejection,
@@ -20,7 +20,13 @@ from .simulation import (
     ReplayConfig,
 )
 from .smooth_operator import Se3FilterProfile, SmoothRightHandOperator
-from .smooth_session import SmoothQuestJakaSession
+from .smooth_session import ArmControlTickResult, SmoothQuestJakaSession
+from .output import (
+    AcceptedArmTarget,
+    CompositeArmTargetAdapter,
+    MujocoArmTargetAdapter,
+    RecordingArmTargetAdapter,
+)
 from .clutch import (
     AnalogClutchSample,
     AnalogHoldToRun,
@@ -47,6 +53,11 @@ __all__ = [
     "ReplayConfig",
     "Se3FilterProfile",
     "SmoothQuestJakaSession",
+    "ArmControlTickResult",
+    "AcceptedArmTarget",
+    "CompositeArmTargetAdapter",
+    "MujocoArmTargetAdapter",
+    "RecordingArmTargetAdapter",
     "SmoothRightHandOperator",
     "ProjectRh56Retargeter",
     "AnalogClutchSample",

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..contracts import PoseTarget
 from ..wire import (
+    TargetPacket,
     LatestTargetPublisher,
     WorkerStatusPacket,
     WorkerStatusReceiver,
@@ -82,6 +83,11 @@ class ArmOnlyRuntime:
             angular_velocity_rad_s=target.angular_velocity_rad_s,
         )
         return self.publisher.publish(pose_target_packet(stamped, allow_motion=allow_motion))
+
+    def dispatch_packet(self, packet: TargetPacket) -> bool:
+        """Publish a fully encoded target through the same bounded latest-only transport."""
+
+        return self.publisher.publish(packet)
 
     def latest_status(self) -> WorkerStatusPacket | None:
         return self.status_receiver.latest()
