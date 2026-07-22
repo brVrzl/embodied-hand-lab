@@ -281,15 +281,15 @@ P3, zero-motion servo validation:
   --metrics-file logs/quest_jaka_p3_zero_motion.json
 ```
 
-P4 is prepared but deliberately blocked while
-`hardware_adapter.physical_mapping_confirmed` is false. After P1/P2 evidence
-confirms installation, joint order, and the physical frame calibration, update
-that audited flag and run only with explicit operator approval:
+P4 is prepared and remains operator-gated. The 2026-07-22 P2 direction shadow
+and physical-seed twin review confirmed the relative translation and rotation
+directions, so `hardware_adapter.physical_mapping_confirmed` is true. Run only
+with both exact operator authorization lines and the现场 safety confirmations:
 
 ```bash
 .venv/bin/python tools/quest_jaka_hardware.py p4-live \
   --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
-  --duration-sec 60 --approval I_AUTHORIZE_P4_LIVE_QUEST_JAKA_MOTION \
+  --duration-sec 60 --approval I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION \
   --estop-accessible --workspace-clear --rh56-command-path-absent \
   --log logs/quest_jaka_p4_live.jsonl \
   --summary logs/quest_jaka_p4_summary.json \
@@ -299,9 +299,10 @@ that audited flag and run only with explicit operator approval:
 
 ## Physical-only uncertainties
 
-- The shared mapping is the successful simulation mapping but is still marked
-  as an uncalibrated simulation hypothesis. P1/P2 must confirm the installed
-  robot/base/tool semantics before P4 is unblocked.
+- The shared mapping directions are confirmed, but the fixed model/installation
+  frame discrepancy (about 7.63 mm position and 180 degrees orientation when
+  comparing the SDK TCP with shared-model FK at the same measured joints) still
+  requires later physical kinematic validation; no arbitrary offset is applied.
 - The controller exposes tool/user IDs but did not expose a model identifier in
   prior read-only work. P1 must reconfirm IDs, firmware/SDK observation, joint
   order, units, and current pose.

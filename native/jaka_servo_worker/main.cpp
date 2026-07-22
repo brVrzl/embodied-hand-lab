@@ -33,7 +33,7 @@ constexpr const char* kHardwareAck = "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK";
 constexpr const char* kShadowAck = "I_ACKNOWLEDGE_JAKA_COMMAND_SHADOW_NO_EDG";
 constexpr const char* kBoundedTeleopAck = "I_ACKNOWLEDGE_BOUNDED_TELEDEX_JAKA_MOTION";
 constexpr const char* kQuestShadowAck = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW";
-constexpr const char* kQuestMotionAck = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_MOTION";
+constexpr const char* kQuestMotionAck = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION";
 constexpr double kProbeMaximumVelocityRadS = 0.005;
 constexpr double kProbeMaximumAccelerationRadS2 = 0.02;
 
@@ -133,6 +133,7 @@ struct Options {
   std::uint64_t stop_ns = 500'000'000;
   std::uint64_t fatal_ns = 2'000'000'000;
   std::uint32_t max_consecutive_overruns = 50;
+  std::uint64_t fake_connect_delay_ns = 0;
   std::uint64_t fake_read_delay_ns = 0;
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
@@ -241,6 +242,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--hold-ms") o.hold_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--controlled-stop-ms") o.stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--fatal-timeout-ms") o.fatal_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
+    else if (a == "--fake-connect-delay-us") o.fake_connect_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-read-delay-us") o.fake_read_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
@@ -453,7 +455,7 @@ class FakeBackend final : public Backend {
  public:
   explicit FakeBackend(const Options& o) : options_(o) {}
   ~FakeBackend() override { cleanup(); }
-  void connect() override { connected_ = true; }
+  void connect() override { delay(options_.fake_connect_delay_ns); connected_ = true; }
   void verify(int, int) override { if (!connected_) throw std::runtime_error("fake disconnected"); }
   void enter_edg() override { if (!connected_) throw std::runtime_error("fake disconnected"); edg_ = true; }
   void validate_probe(const std::array<double, 6>&, const std::array<double, 6>&) override {}
@@ -932,7 +934,7 @@ int run(const Options& o) {
   const char* outcome = "completed";
   std::string fault_outcome;
   rusage usage_start{}, usage_end{}; getrusage(RUSAGE_SELF, &usage_start);
-  const auto start = now_ns(); auto previous = start; auto deadline = start;
+  auto start = now_ns(); auto previous = start; auto deadline = start;
   try {
     backend->connect(); state = State::Connected;
     backend->verify(o.expected_tool_id, o.expected_user_frame_id); state = State::Armed;
@@ -956,6 +958,12 @@ int run(const Options& o) {
       if (delta > 1e-4) throw std::runtime_error("near-zero initial command delta check failed");
     }
     state = State::Holding;
+    // Connection, verification, and initial state reads are setup work, not an
+    // 8 ms command-stream cycle. Start deadline monitoring only after setup so
+    // normal SDK/network startup latency cannot cause a false first-cycle abort.
+    start = now_ns();
+    previous = start;
+    deadline = start;
     while (!g_stop.load(std::memory_order_relaxed) && samples.count < kMaximumSamples) {
       deadline += kPeriodNs;
       timespec wake{static_cast<time_t>(deadline / 1'000'000'000), static_cast<long>(deadline % 1'000'000'000)};

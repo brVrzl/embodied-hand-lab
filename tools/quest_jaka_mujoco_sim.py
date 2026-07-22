@@ -22,8 +22,11 @@ from quest_jaka_sim import (
     AnalogClutchSample,
     JakaMujocoSimulation,
     QuestJakaReplaySession,
+    RecordingArmTargetAdapter,
     ReplayConfig,
+    SharedJakaTargetGenerator,
     SmoothQuestJakaSession,
+    build_twin_viewer_mjcf,
 )
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.se3 import quaternion_angle_rad
@@ -85,6 +88,20 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show optional joint/IK/singularity/continuation diagnostics",
     )
+    smooth_live.add_argument(
+        "--physical-seed-metrics",
+        type=Path,
+        help=(
+            "simulation-only twin: initialize a complete orange robot from a saved "
+            "read-only JAKA worker metrics file and feed it the same Quest stream"
+        ),
+    )
+    smooth_live.add_argument(
+        "--twin-offset-m",
+        type=float,
+        default=0.65,
+        help="robot-base X offset for the physical-seed ghost (default: 0.65 m)",
+    )
     smooth_replay = commands.add_parser(
         "replay-6dof", help="deterministic fixed-rate filtered 6-DoF replay"
     )
@@ -143,15 +160,24 @@ def _make_session(config: ReplayConfig) -> tuple[JakaMujocoSimulation, QuestJaka
 
 def _make_smooth_session(
     config: ReplayConfig,
+    *,
+    twin_offset_m: float | None = None,
 ) -> tuple[JakaMujocoSimulation, SmoothQuestJakaSession]:
-    augmented = build_viewer_mjcf(
-        config.mjcf_path, Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
+    output = Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
+    augmented = (
+        build_viewer_mjcf(config.mjcf_path, output)
+        if twin_offset_m is None
+        else build_twin_viewer_mjcf(
+            config.mjcf_path,
+            output,
+            twin_offset_m=twin_offset_m,
+        )
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
     return simulation, SmoothQuestJakaSession(config, simulation)
 
 
-def _viewer(simulation: JakaMujocoSimulation):
+def _viewer(simulation: JakaMujocoSimulation, *, twin_offset_m: float | None = None):
     module = importlib.import_module("mujoco.viewer")
 
     handle = module.launch_passive(
@@ -163,12 +189,62 @@ def _viewer(simulation: JakaMujocoSimulation):
     handle.opt.geomgroup[5] = 1
     handle.cam.azimuth = -130
     handle.cam.elevation = -25
-    handle.cam.distance = 1.25
-    handle.cam.lookat[:] = [-0.05, -0.30, 0.24]
+    handle.cam.distance = 1.25 if twin_offset_m is None else 1.65
+    handle.cam.lookat[:] = (
+        [-0.05, -0.30, 0.24]
+        if twin_offset_m is None
+        else [0.5 * twin_offset_m, -0.05, 0.24]
+    )
     return handle
 
 
-def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: object) -> None:
+def _sync_physical_seed_twin_joints(
+    simulation: JakaMujocoSimulation,
+    twin: SharedJakaTargetGenerator,
+) -> int:
+    """Copy arm target and hand posture into the complete in-model twin."""
+
+    model, data = simulation.model, simulation.data
+    arm_targets = {
+        f"jaka_joint_{index}": float(value)
+        for index, value in enumerate(twin.arm_joints_rad, start=1)
+    }
+    copied = 0
+    for joint_id in range(model.njnt):
+        joint_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, joint_id) or ""
+        if not joint_name or joint_name.startswith("physical_seed_"):
+            continue
+        twin_joint_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_JOINT,
+            f"physical_seed_{joint_name}",
+        )
+        if twin_joint_id < 0:
+            continue
+        source_qpos = int(model.jnt_qposadr[joint_id])
+        twin_qpos = int(model.jnt_qposadr[twin_joint_id])
+        data.qpos[twin_qpos] = arm_targets.get(joint_name, float(data.qpos[source_qpos]))
+        data.qvel[int(model.jnt_dofadr[twin_joint_id])] = 0.0
+        copied += 1
+    mujoco.mj_forward(model, data)
+    return copied
+
+
+def _sync_viewer(
+    handle: object,
+    simulation: JakaMujocoSimulation,
+    session: object,
+    *,
+    physical_seed_twin: SharedJakaTargetGenerator | None = None,
+    physical_seed_session: SmoothQuestJakaSession | None = None,
+    twin_offset_m: float = 0.65,
+) -> None:
+    twin_joint_count = 0
+    if physical_seed_twin is not None:
+        twin_joint_count = _sync_physical_seed_twin_joints(
+            simulation,
+            physical_seed_twin,
+        )
     actual = simulation.current_tcp_pose
     desired = simulation.last_safe_target
     error = float(
@@ -216,11 +292,15 @@ def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: obje
         if getattr(session, "clutch_provider", "unavailable") == "quest_ctrl_udp_v1"
         else "Clutches require an explicit timestamped provider"
     )
-    handle.set_texts(
+    texts = [
         (
             None,
             mujoco.mjtGridPos.mjGRID_TOPLEFT,
-            "Quest -> JAKA SIM ONLY",
+            (
+                "Quest -> JAKA SIM / PHYSICAL-SEED TWIN"
+                if physical_seed_twin is not None
+                else "Quest -> JAKA SIM ONLY"
+            ),
             (
                 f"arm={getattr(getattr(arm, 'state', None), 'value', 'legacy')} "
                 f"hand={getattr(getattr(hand, 'state', None), 'value', 'legacy')}\n"
@@ -244,7 +324,31 @@ def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: obje
                 f"BLUE=desired TCP frame GREEN=simulated TCP frame{debug_text}"
             ),
         )
-    )
+    ]
+    if physical_seed_twin is not None and physical_seed_session is not None:
+        twin_latest = (
+            physical_seed_session.event_records[-1]
+            if physical_seed_session.event_records
+            else {}
+        )
+        texts.append(
+            (
+                None,
+                mujoco.mjtGridPos.mjGRID_TOPRIGHT,
+                "Physical-seed diagnostic twin",
+                (
+                    f"WHITE=successful simulated plant\n"
+                    f"ORANGE=measured-J1..J6 seed + shared mapping/IK, offset +X {twin_offset_m:.2f} m\n"
+                    f"complete twin joints={twin_joint_count} state={physical_seed_session.arm_clutch.state.value}\n"
+                    f"target={physical_seed_session.last_reason} accepted={physical_seed_session.accepted_targets}\n"
+                    f"q_deg={tuple(round(math.degrees(v), 1) for v in physical_seed_twin.arm_joints_rad)}\n"
+                    f"reason={twin_latest.get('reason')} continuation={twin_latest.get('continuation_fraction')} "
+                    f"backtracks={twin_latest.get('continuation_backtracks')}\n"
+                    "DIAGNOSTIC ONLY: saved read-only joints; no live JAKA connection or command"
+                ),
+            )
+        )
+    handle.set_texts(texts)
     handle.sync()
 
 
@@ -356,12 +460,47 @@ def _live_6dof(args: argparse.Namespace) -> int:
     if args.telemetry_hz < 0:
         raise SystemExit("telemetry-hz must be non-negative")
     config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
-    simulation, session = _make_smooth_session(config)
+    if args.physical_seed_metrics is not None and (
+        not math.isfinite(args.twin_offset_m) or abs(args.twin_offset_m) < 0.25
+    ):
+        raise SystemExit("twin-offset-m must be finite and have magnitude >= 0.25")
+    simulation, session = _make_smooth_session(
+        config,
+        twin_offset_m=(
+            args.twin_offset_m if args.physical_seed_metrics is not None else None
+        ),
+    )
+    physical_seed_twin: SharedJakaTargetGenerator | None = None
+    physical_seed_session: SmoothQuestJakaSession | None = None
+    physical_seed_router: LiveQuestControllerRouter | None = None
+    physical_seed_metrics_data: dict[str, object] | None = None
+    if args.physical_seed_metrics is not None:
+        physical_seed_metrics_data = json.loads(
+            args.physical_seed_metrics.read_text(encoding="utf-8")
+        )
+        measured = [
+            float(value)
+            for value in physical_seed_metrics_data["initial_joint_position_rad"]
+        ]
+        if len(measured) != 6 or not all(math.isfinite(value) for value in measured):
+            raise SystemExit("physical-seed metrics must contain six finite joint radians")
+        physical_seed_twin = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
+        physical_seed_twin.synchronize_authoritative_arm_joints(measured)
+        physical_seed_session = SmoothQuestJakaSession(
+            config,
+            physical_seed_twin,
+            arm_output=RecordingArmTargetAdapter(),
+        )
     clutch_config = config.raw.get("clutches", {})
     controller_router = LiveQuestControllerRouter(
         stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
         released_at=float(clutch_config.get("released_at", 0.55)),
     )
+    if physical_seed_session is not None:
+        physical_seed_router = LiveQuestControllerRouter(
+            stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
+            released_at=float(clutch_config.get("released_at", 0.55)),
+        )
     rates = config.raw.get("rates", {})
     target_hz = float(rates.get("target_generation_hz", 60.0))
     viewer_hz = float(rates.get("viewer_hz", 60.0))
@@ -383,6 +522,15 @@ def _live_6dof(args: argparse.Namespace) -> int:
     print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP hand clutch; both are independent hold-to-run")
     print("MODE=filtered relative 6-DoF; BLUE desired frame, GREEN simulated frame")
     print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
+    if physical_seed_twin is not None:
+        print(
+            "TWIN=WHITE successful simulation branch; ORANGE saved physical-J1..J6 "
+            f"seed at +X {args.twin_offset_m:.2f}m; both receive the same Quest datagrams"
+        )
+        print(
+            "TWIN_SAFETY=diagnostic simulation only; metrics are read from disk; "
+            "no JAKA connection, EDG, servo, or command"
+        )
     if args.ik_debug:
         print(
             "IK_DEBUG=enabled; viewer/STATUS show q, dq, tool swing/roll, "
@@ -396,7 +544,14 @@ def _live_6dof(args: argparse.Namespace) -> int:
     print("5. 左手食指扳机先完全释放，再按住以捕获 reference 并进入 engaged。")
     print("6. 按住食指扳机移动/旋转右手；释放即 disengage，下一次按下会重新捕获。")
     print("7. 左手 grip 仅控制仿真 RH56；退出请关闭 viewer 或按 Ctrl-C。")
-    handle = _viewer(simulation) if args.viewer else None
+    handle = (
+        _viewer(
+            simulation,
+            twin_offset_m=(args.twin_offset_m if physical_seed_twin is not None else None),
+        )
+        if args.viewer
+        else None
+    )
     session.ik_debug = bool(args.ik_debug)
     started = time.monotonic()
     sim_period = float(simulation.model.opt.timestep)
@@ -427,6 +582,8 @@ def _live_6dof(args: argparse.Namespace) -> int:
                 worker.raise_if_failed()
                 for datagram in worker.drain():
                     controller_router.ingest(datagram, session)
+                    if physical_seed_router is not None and physical_seed_session is not None:
+                        physical_seed_router.ingest(datagram, physical_seed_session)
                 now = time.monotonic()
                 steps = 0
                 while now >= next_sim and steps < 20:
@@ -442,6 +599,9 @@ def _live_6dof(args: argparse.Namespace) -> int:
                     control_now_ns = time.monotonic_ns()
                     controller_router.poll(control_now_ns, session)
                     session.control_tick(control_now_ns)
+                    if physical_seed_router is not None and physical_seed_session is not None:
+                        physical_seed_router.poll(control_now_ns, physical_seed_session)
+                        physical_seed_session.control_tick(control_now_ns)
                     # Run at most one target/IK update after a stall.  Replaying
                     # expired deadlines back-to-back turns one host pause into a
                     # visible burst of joint targets.
@@ -450,7 +610,14 @@ def _live_6dof(args: argparse.Namespace) -> int:
                     skipped = max(0, int((now - next_viewer) / viewer_period))
                     viewer_skipped_frames += skipped
                     if handle is not None:
-                        _sync_viewer(handle, simulation, session)
+                        _sync_viewer(
+                            handle,
+                            simulation,
+                            session,
+                            physical_seed_twin=physical_seed_twin,
+                            physical_seed_session=physical_seed_session,
+                            twin_offset_m=args.twin_offset_m,
+                        )
                         viewer_updates += 1
                     next_viewer += (skipped + 1) * viewer_period
                 if args.telemetry_hz > 0 and now >= next_telemetry:
@@ -514,6 +681,23 @@ def _live_6dof(args: argparse.Namespace) -> int:
         viewer_rate_hz=(viewer_updates / max(time.monotonic() - started, 1e-9)),
         **controller_router.telemetry(),
     )
+    if physical_seed_session is not None and physical_seed_twin is not None:
+        assert physical_seed_metrics_data is not None
+        twin_events_path = events_path.with_name(f"{events_path.stem}.physical_seed_twin.jsonl")
+        _write_events(physical_seed_session.event_records, twin_events_path)
+        report["physical_seed_twin"] = {
+            "source_metrics": str(args.physical_seed_metrics.resolve()),
+            "initial_joint_position_rad": physical_seed_metrics_data[
+                "initial_joint_position_rad"
+            ],
+            "display_offset_m": [args.twin_offset_m, 0.0, 0.0],
+            "accepted_target_count": physical_seed_session.accepted_targets,
+            "rejection_counts_by_reason": dict(physical_seed_session.rejections),
+            "final_state": physical_seed_session.arm_clutch.state.value,
+            "event_log": str(twin_events_path.resolve()),
+            "hardware_connection": False,
+            "hardware_commands": False,
+        }
     _write_events(session.event_records, events_path)
     _write_report(report, report_path)
     return 0

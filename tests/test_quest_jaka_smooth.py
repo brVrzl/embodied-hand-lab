@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import mujoco
 import pytest
 
 from motion_input import ReceivedHtsDatagram
@@ -10,9 +11,12 @@ from quest_jaka_sim import (
     AnalogClutchSample,
     JakaMujocoSimulation,
     ReplayConfig,
+    SharedJakaTargetGenerator,
     SmoothQuestJakaSession,
 )
 from quest_jaka_sim.simulation import build_viewer_mjcf
+from quest_jaka_sim.simulation import build_twin_viewer_mjcf
+from tools.quest_jaka_mujoco_sim import _sync_physical_seed_twin_joints
 
 
 def _payload(sequence: int, *, x: float = 0.0, points=None) -> bytes:
@@ -79,6 +83,41 @@ def _session(tmp_path: Path) -> SmoothQuestJakaSession:
     model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
     simulation = JakaMujocoSimulation(config, mjcf_path=model_path)
     return SmoothQuestJakaSession(config, simulation)
+
+
+def test_physical_seed_twin_is_a_complete_offset_robot_model(tmp_path: Path) -> None:
+    config = replace(
+        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+        engagement_schedule_s=(),
+    )
+    model_path = build_twin_viewer_mjcf(
+        config.mjcf_path,
+        tmp_path / "twin.xml",
+        twin_offset_m=0.65,
+    )
+    simulation = JakaMujocoSimulation(config, mjcf_path=model_path)
+    twin = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
+    measured = [1.61381268751, 0.101789525116, -1.51445033884,
+                -0.0466143095263, -0.311712070952, 0.0463764459827]
+    twin.synchronize_authoritative_arm_joints(measured)
+    count = _sync_physical_seed_twin_joints(simulation, twin)
+    assert count > 6
+    twin_base = mujoco.mj_name2id(
+        simulation.model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        "physical_seed_jaka_Link_0",
+    )
+    assert twin_base >= 0
+    assert simulation.model.body_pos[twin_base] == pytest.approx((0.65, 0.0, 0.0))
+    for index, expected in enumerate(measured, start=1):
+        joint = mujoco.mj_name2id(
+            simulation.model,
+            mujoco.mjtObj.mjOBJ_JOINT,
+            f"physical_seed_jaka_joint_{index}",
+        )
+        assert joint >= 0
+        assert simulation.data.qpos[simulation.model.jnt_qposadr[joint]] == pytest.approx(expected)
+    assert not hasattr(twin, "step")
 
 
 def test_fixed_rate_reference_stale_disengage_and_no_automatic_recovery(tmp_path: Path) -> None:

@@ -257,7 +257,7 @@ velocity/acceleration/jerk 和 collision 限制；它们不是本次新增。本
 | 类别 | 参数/入口 | 当前状态 | 原因 |
 |---|---|---|---|
 | 真机专用 | YAML `hardware_adapter.*`、`jaka_transport_hz=125` | live-6dof 不消费 | 供独立 hardware entry 使用；simulation adapter 只有 MuJoCo |
-| 真机专用 | `physical_mapping_confirmed=false` | 未连接/未确认 | 明确阻止把 provisional mapping 当物理标定 |
+| 真机专用 | `physical_mapping_confirmed=true` | 2026-07-22 P2 direction shadow + physical-seed twin 人工确认 | 仅记录六方向 mapping 已确认；P4 仍要求精确 live 授权及现场 gates |
 | 离线专用 | `engagement_schedule_s`、`--engage-at-sec`、fake replay cycles | live 强制空 schedule | 只允许 deterministic replay，不能伪装真实 Quest |
 | 历史/旧 mapper | translation/orientation deadband | live-6dof 不消费 | precision mapper 对 filter 后完整相对 SE(3) 做 1:1 映射 |
 | CLI 不存在 | `--log-level` | 不支持 | 当前日志是固定 status + JSON report/events/raw capture |

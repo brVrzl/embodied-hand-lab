@@ -14,6 +14,7 @@ from teleoperation.wire import FrameId, LatestTargetPublisher, TargetFlags, Targ
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
+P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 
 
 def packet(sequence: int) -> TargetPacket:
@@ -90,6 +91,13 @@ def test_connected_modes_are_hardware_gated(tmp_path) -> None:
                             text=True, capture_output=True)
     assert result.returncode == 64
     assert "exact acknowledgement" in result.stderr
+
+
+def test_native_p4_authorization_matches_python_hardware_entry() -> None:
+    native_source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text()
+    hardware_entry = (ROOT / "tools/quest_jaka_hardware.py").read_text()
+    assert f'kQuestMotionAck = "{P4_APPROVAL}"' in native_source
+    assert f'P4_APPROVAL = "{P4_APPROVAL}"' in hardware_entry
 
 
 def test_minimal_motion_requires_explicit_workspace_before_connection() -> None:
@@ -238,6 +246,31 @@ def test_quest_joint_shadow_accepts_shared_solution_without_ik_edg_or_command(tm
     assert metrics["last_ik_target_rad"] == pytest.approx([0.1, -0.2, 0.3, -0.4, 0.5, -0.6])
     assert metrics["maximum_intentional_command_delta_rad"] == 0.0
     assert metrics["statistics"]["command_write_duration"]["max_ns"] == 0
+
+
+def test_stream_timing_starts_after_connection_setup(tmp_path) -> None:
+    metrics = tmp_path / "delayed-connect.json"
+    target = tmp_path / "delayed-connect.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-shadow-dry-run",
+            "--duration-s", "0.20",
+            "--fake-connect-delay-us", "50000",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=False))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["outcome"] == "completed"
+    assert payload["hard_timing_misses"] == 0
+    assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
 
 
 def test_quest_joint_teleop_repeats_exact_latest_target_without_shaping(tmp_path) -> None:

@@ -169,9 +169,12 @@ hardware_adapter:
   excessive_tracking_error_abort_rad: 0.35
   excessive_tracking_error_consecutive_cycles: 2
   startup_alignment_tolerance_rad: 0.001
-  # Must be changed only after P1/P2 verify the physical installation and the
-  # operator records the calibration evidence.  P4 refuses to start otherwise.
-  physical_mapping_confirmed: false
+  # Confirmed by the 2026-07-22 P2 direction shadow plus side-by-side
+  # physical-seed twin review. Translation absolute directions and relative
+  # roll/pitch/yaw directions matched after accounting for the fixed 180 deg
+  # installation/model-base presentation difference. This does not authorize
+  # P4; the live entry still requires its exact approval and operator gates.
+  physical_mapping_confirmed: true
 
 axis_analysis:
   right_hand_left_right_s: null

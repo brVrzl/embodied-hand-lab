@@ -32,7 +32,7 @@ from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusR
 
 
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
-P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_MOTION"
+P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 
 
 def _parser() -> argparse.ArgumentParser:

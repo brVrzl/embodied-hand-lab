@@ -677,7 +677,7 @@ def test_nan_tracking_dropout_stale_input_and_ik_rejection_emit_no_new_target(
     assert len(rejected_recorder.targets) == rejected_baseline
 
 
-def test_p4_entry_is_blocked_before_connection_until_physical_mapping_confirmation(tmp_path: Path) -> None:
+def test_p4_entry_requires_exact_current_authorization_before_connection(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             ".venv/bin/python",
@@ -697,7 +697,28 @@ def test_p4_entry_is_blocked_before_connection_until_physical_mapping_confirmati
         capture_output=True,
     )
     assert result.returncode != 0
-    assert "P4 blocked" in result.stderr
+    assert "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION" in result.stderr
+    assert not (tmp_path / "metrics.json").exists()
+
+
+def test_p4_entry_requires_operator_safety_gates_before_connection(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            ".venv/bin/python",
+            "tools/quest_jaka_hardware.py",
+            "p4-live",
+            "--robot-ip", "192.0.2.1",
+            "--approval", "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION",
+            "--log", str(tmp_path / "log.jsonl"),
+            "--summary", str(tmp_path / "summary.json"),
+            "--metrics", str(tmp_path / "metrics.json"),
+            "--capture", str(tmp_path / "capture.jsonl"),
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert "E-stop, clear-workspace, and no-RH56-command confirmations" in result.stderr
     assert not (tmp_path / "metrics.json").exists()
 
 

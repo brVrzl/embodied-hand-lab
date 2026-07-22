@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import copy
 from dataclasses import asdict, dataclass
 from enum import Enum
 import math
@@ -43,6 +44,7 @@ from .se3 import (
 
 DESIRED_MARKER_BODY = "quest_jaka_desired_tcp_marker"
 ACTUAL_MARKER_BODY = "quest_jaka_actual_tcp_marker"
+PHYSICAL_SEED_TWIN_PREFIX = "physical_seed_"
 
 
 class FeasibilityReason(str, Enum):
@@ -427,6 +429,45 @@ def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
             elif axis == "y":
                 attributes["quat"] = "0.70710678 -0.70710678 0 0"
             ET.SubElement(body, "geom", attributes)
+    tree.write(output, encoding="utf-8")
+    return output
+
+
+def build_twin_viewer_mjcf(
+    base_path: str | Path,
+    output_path: str | Path,
+    *,
+    twin_offset_m: float,
+) -> Path:
+    """Build one viewer model with a complete, non-colliding physical-seed twin."""
+
+    output = build_viewer_mjcf(base_path, output_path)
+    tree = ET.parse(output)
+    root = tree.getroot()
+    world = root.find("worldbody")
+    if world is None:
+        raise RuntimeError("MuJoCo model has no worldbody")
+    source = next(
+        (body for body in world.findall("body") if body.get("name") == "jaka_Link_0"),
+        None,
+    )
+    if source is None:
+        raise RuntimeError("MuJoCo model has no top-level jaka_Link_0 body")
+    twin = copy.deepcopy(source)
+    position = [float(value) for value in twin.get("pos", "0 0 0").split()]
+    if len(position) != 3:
+        raise RuntimeError("top-level JAKA body position must have three elements")
+    position[0] += float(twin_offset_m)
+    twin.set("pos", " ".join(f"{value:.12g}" for value in position))
+    for element in twin.iter():
+        name = element.get("name")
+        if name:
+            element.set("name", f"{PHYSICAL_SEED_TWIN_PREFIX}{name}")
+        if element.tag == "geom":
+            element.set("rgba", "1 0.35 0.05 0.72")
+            element.set("contype", "0")
+            element.set("conaffinity", "0")
+    world.append(twin)
     tree.write(output, encoding="utf-8")
     return output
 
