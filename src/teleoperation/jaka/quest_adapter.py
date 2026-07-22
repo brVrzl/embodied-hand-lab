@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Protocol
 
-from quest_jaka_sim.output import AcceptedArmTarget
+from teleoperation.accepted_target import AcceptedArmTarget
 
 from ..runtime.arm_only import ArmOnlyRuntime
 from ..wire import joint_position_target_packet

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 import math
 from pathlib import Path
 import subprocess
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -18,9 +21,11 @@ from quest_jaka_sim import (
     RecordingArmTargetAdapter,
     ReplayConfig,
     Se3FilterProfile,
+    SharedJakaTargetGenerator,
     SmoothQuestJakaSession,
 )
-from quest_jaka_sim.output import AcceptedArmTarget
+from quest_jaka_sim.output import AcceptedArmTarget, AcceptedTcpPose
+from teleoperation.accepted_target import AcceptedTargetDiagnostics
 from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, FeasibilityResult
@@ -65,7 +70,7 @@ def _sessions(tmp_path: Path):
     sim_model = build_viewer_mjcf(config.mjcf_path, tmp_path / "sim.xml")
     hw_model = build_viewer_mjcf(config.mjcf_path, tmp_path / "hardware.xml")
     sim = JakaMujocoSimulation(config, mjcf_path=sim_model)
-    hardware_shadow = JakaMujocoSimulation(config, mjcf_path=hw_model)
+    hardware_shadow = SharedJakaTargetGenerator(config, mjcf_path=hw_model)
     sim_record = RecordingArmTargetAdapter()
     hw_record = RecordingArmTargetAdapter()
     sim_session = SmoothQuestJakaSession(
@@ -93,6 +98,12 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert hardware["joint_angle_unit"] == "rad"
     assert hardware["command_mode"] == "edg_servo_j_absolute"
     assert hardware["expected_tool_id"] == hardware["expected_user_frame_id"] == 0
+    assert config.raw["shared_target_generation"] == {
+        "continuation_enabled": True,
+        "maximum_backtracks": 5,
+        "minimum_continuation_fraction": 0.03125,
+        "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
+    }
 
 
 def _assert_pose_equal(left: Pose6D | None, right: Pose6D | None) -> None:
@@ -128,10 +139,26 @@ def test_shared_pipeline_simulation_and_hardware_pre_adapter_parity(tmp_path: Pa
         _assert_pose_equal(left.tcp_target, right.tcp_target)
         _assert_pose_equal(left.filtered_tcp_target, right.filtered_tcp_target)
         assert left.reason == right.reason
+        assert sim.arm_clutch.state == hardware.arm_clutch.state
+        assert sim.reference_generation == hardware.reference_generation
+        _assert_pose_equal(sim.arm_mapper.hand_reference, hardware.arm_mapper.hand_reference)
+        _assert_pose_equal(sim.arm_mapper.robot_reference, hardware.arm_mapper.robot_reference)
         assert (left.accepted_target is None) == (right.accepted_target is None)
         if left.accepted_target and right.accepted_target:
+            assert left.accepted_target.sequence_number == right.accepted_target.sequence_number
+            assert left.accepted_target.input_sequence_number == right.accepted_target.input_sequence_number
+            assert left.accepted_target.source_sequence_number == right.accepted_target.source_sequence_number
+            assert left.accepted_target.source_timestamp_ns == right.accepted_target.source_timestamp_ns
+            assert left.accepted_target.reference_generation == right.accepted_target.reference_generation
+            assert left.accepted_target.clutch_generation == right.accepted_target.clutch_generation
+            assert left.accepted_target.diagnostics == right.accepted_target.diagnostics
             assert left.accepted_target.joint_position_rad == pytest.approx(
                 right.accepted_target.joint_position_rad, abs=1e-12
+            )
+            assert left.feasibility is not None and right.feasibility is not None
+            assert left.feasibility.reason == right.feasibility.reason
+            assert left.feasibility.metrics.ik_candidate_rad == pytest.approx(
+                right.feasibility.metrics.ik_candidate_rad, abs=1e-12
             )
         results.append((left, right))
     assert len(sim_targets.targets) == len(hardware_targets.targets) > 0
@@ -141,15 +168,70 @@ def test_shared_pipeline_simulation_and_hardware_pre_adapter_parity(tmp_path: Pa
         assert left.joint_position_rad == pytest.approx(right.joint_position_rad, abs=1e-12)
 
 
-def test_simulation_only_continuation_bounds_full_pose_without_changing_shared_default(
+def test_repeated_and_bursty_samples_preserve_exact_pre_adapter_sequence(tmp_path: Path) -> None:
+    _, simulation, hardware, simulation_targets, hardware_targets = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for session in (simulation, hardware):
+        session.ingest(_hand(1, 10_000_000, identity))
+        session.ingest(_head(1, 10_000_000))
+        _clutch(session, 0.0, 1, 10_000_000)
+        session.control_tick(10_000_000)
+        session.ingest(_hand(2, 20_000_000, identity))
+        _clutch(session, 1.0, 2, 20_000_000)
+        session.control_tick(20_000_000)
+
+    burst = [
+        Pose6D((0.002, 0.0, 0.0), identity.orientation_xyzw),
+        Pose6D((0.004, -0.001, 0.0), identity.orientation_xyzw),
+        Pose6D((0.004, -0.001, 0.0), identity.orientation_xyzw),
+    ]
+    for sequence, pose in enumerate(burst, start=3):
+        receive_ns = 20_000_000 + sequence * 1_000_000
+        for session in (simulation, hardware):
+            session.ingest(_hand(sequence, receive_ns, pose))
+            _clutch(session, 1.0, sequence, receive_ns)
+    for tick_ns in (40_000_000, 56_666_667, 73_333_334):
+        left = simulation.control_tick(tick_ns)
+        right = hardware.control_tick(tick_ns)
+        assert left.reason == right.reason
+        assert left.input_sequence == right.input_sequence
+        if left.accepted_target is not None and right.accepted_target is not None:
+            assert left.accepted_target == right.accepted_target
+
+    assert simulation_targets.targets == hardware_targets.targets
+
+
+def test_quaternion_wraparound_uses_same_shortest_arc_for_both_outputs(tmp_path: Path) -> None:
+    _, simulation, hardware, _, _ = _sessions(tmp_path)
+    q_positive = rotvec_to_quaternion_xyzw((0.0, 0.0, math.radians(179.0)))
+    q_negative = rotvec_to_quaternion_xyzw((0.0, 0.0, math.radians(-179.0)))
+    for session in (simulation, hardware):
+        session.ingest(_hand(1, 20_000_000, Pose6D((0.0, 0.0, 0.0), q_positive)))
+        session.ingest(_head(1, 20_000_000))
+        _clutch(session, 0.0, 1, 20_000_000)
+        session.control_tick(20_000_000)
+        session.ingest(_hand(2, 40_000_000, Pose6D((0.0, 0.0, 0.0), q_positive)))
+        _clutch(session, 1.0, 2, 40_000_000)
+        session.control_tick(40_000_000)
+        session.ingest(_hand(3, 60_000_000, Pose6D((0.0, 0.0, 0.0), q_negative)))
+        _clutch(session, 1.0, 3, 60_000_000)
+    left = simulation.control_tick(60_000_000)
+    right = hardware.control_tick(60_000_000)
+    _assert_pose_equal(left.relative_hand_transform, right.relative_hand_transform)
+    assert left.relative_hand_transform is not None
+    assert quaternion_angle_rad(
+        left.relative_hand_transform.orientation_xyzw, (0.0, 0.0, 0.0, 1.0)
+    ) < math.radians(2.01)
+    assert left.accepted_target == right.accepted_target
+
+
+def test_shared_continuation_bounds_full_pose_for_both_outputs(
     tmp_path: Path,
 ) -> None:
     config = replace(ReplayConfig.load(CONFIG), engagement_schedule_s=())
     sim_model = build_viewer_mjcf(config.mjcf_path, tmp_path / "recovery.xml")
     simulation = JakaMujocoSimulation(config, mjcf_path=sim_model)
-    session = SmoothQuestJakaSession(
-        config, simulation, simulation_only_recovery=True
-    )
+    session = SmoothQuestJakaSession(config, simulation)
     identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
 
     session.ingest(_hand(1, 20_000_000, identity))
@@ -181,23 +263,22 @@ def test_simulation_only_continuation_bounds_full_pose_without_changing_shared_d
         captured.accepted_target.filtered_tcp.orientation_xyzw,
         advanced.accepted_target.filtered_tcp.orientation_xyzw,
     ) <= config.feasibility.maximum_tcp_angular_velocity_rad_s * 0.02 + 1e-9
-    # The shared constructor default remains the hardware-compatible behavior.
-    _, default_sim, default_hardware, _, _ = _sessions(tmp_path / "default")
-    assert default_sim.simulation_only_recovery is False
-    assert default_hardware.simulation_only_recovery is False
+    _, shared_sim, shared_hardware, _, _ = _sessions(tmp_path / "shared")
+    assert shared_sim.continuation_enabled is True
+    assert shared_hardware.continuation_enabled is True
 
 
-def test_simulation_rejection_holds_engaged_for_retreat_but_shared_default_faults(
+def test_shared_rejection_holds_both_outputs_engaged_for_operator_retreat(
     tmp_path: Path,
 ) -> None:
     config = replace(ReplayConfig.load(CONFIG), engagement_schedule_s=())
     sessions = []
-    for name, recovery in (("recovery", True), ("default", False)):
+    for name, generator_type in (("simulation", JakaMujocoSimulation), ("hardware", SharedJakaTargetGenerator)):
         model = build_viewer_mjcf(config.mjcf_path, tmp_path / name / "model.xml")
         session = SmoothQuestJakaSession(
             config,
-            JakaMujocoSimulation(config, mjcf_path=model),
-            simulation_only_recovery=recovery,
+            generator_type(config, mjcf_path=model),
+            arm_output=RecordingArmTargetAdapter() if generator_type is SharedJakaTargetGenerator else None,
         )
         identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
         session.ingest(_hand(1, 20_000_000, identity))
@@ -209,15 +290,36 @@ def test_simulation_rejection_holds_engaged_for_retreat_but_shared_default_fault
         session.control_tick(40_000_000)
         sessions.append(session)
 
-    recovery, default = sessions
+    simulation, hardware = sessions
     for index in range(config.raw["simulation"]["isolated_rejection_hold_count"] + 1):
-        recovery._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
-        default._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
+        simulation._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
+        hardware._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
 
-    assert recovery.arm_clutch.state.value == "engaged"
-    assert recovery.arm_mapper.robot_reference is not None
-    assert default.arm_clutch.state.value == "tracking_fault"
-    assert default.arm_mapper.robot_reference is None
+    assert simulation.arm_clutch.state.value == hardware.arm_clutch.state.value == "engaged"
+    assert simulation.arm_mapper.robot_reference is not None
+    assert hardware.arm_mapper.robot_reference is not None
+
+
+def test_target_envelope_rejection_is_identical_and_holds_last(tmp_path: Path) -> None:
+    config, simulation, hardware, simulation_targets, hardware_targets = _sessions(tmp_path)
+    initial_left = simulation.target_generator.last_safe_target
+    initial_right = hardware.target_generator.last_safe_target
+    _assert_pose_equal(initial_left, initial_right)
+    outside = Pose6D(
+        (
+            initial_left.position_m[0] + config.mapping.maximum_target_displacement_m + 0.01,
+            initial_left.position_m[1],
+            initial_left.position_m[2],
+        ),
+        initial_left.orientation_xyzw,
+    )
+    left = simulation.target_generator.evaluate(outside, dt_s=1.0 / 60.0)
+    right = hardware.target_generator.evaluate(outside, dt_s=1.0 / 60.0)
+    assert left.reason == right.reason == FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
+    assert not left.accepted and not right.accepted
+    _assert_pose_equal(simulation.target_generator.last_safe_target, initial_left)
+    _assert_pose_equal(hardware.target_generator.last_safe_target, initial_right)
+    assert simulation_targets.targets == hardware_targets.targets == []
 
 
 def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_path: Path) -> None:
@@ -262,6 +364,81 @@ def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_pat
     assert len(recorder.targets) == target_count + 1
     assert recaptured.relative_hand_transform is not None
     assert recaptured.relative_hand_transform.position_m == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
+    assert captured.accepted_target.reference_generation == 1
+    assert recaptured.accepted_target.reference_generation == 2
+
+
+def test_tracking_loss_requires_release_then_recaptures_without_jump(tmp_path: Path) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for sequence, clutch in ((1, 0.0), (2, 1.0)):
+        now_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, now_ns, identity))
+        if sequence == 1:
+            session.ingest(_head(1, now_ns))
+        _clutch(session, clutch, sequence, now_ns)
+        session.control_tick(now_ns)
+    baseline = len(recorder.targets)
+    session.control_tick(400_000_000)
+    assert session.arm_clutch.state.value == "tracking_fault"
+
+    session.ingest(_hand(3, 420_000_000, identity))
+    session.ingest(_head(2, 420_000_000))
+    _clutch(session, 1.0, 3, 420_000_000)
+    assert session.control_tick(420_000_000).accepted_target is None
+    assert len(recorder.targets) == baseline
+
+    session.ingest(_hand(4, 440_000_000, identity))
+    _clutch(session, 0.0, 4, 440_000_000)
+    session.control_tick(440_000_000)
+    session.ingest(_hand(5, 460_000_000, identity))
+    _clutch(session, 1.0, 5, 460_000_000)
+    recovered = session.control_tick(460_000_000)
+    assert recovered.accepted_target is not None
+    assert recovered.accepted_target.reference_generation == 2
+    assert recovered.relative_hand_transform is not None
+    assert recovered.relative_hand_transform.position_m == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
+
+
+def test_mujoco_render_or_plant_stall_cannot_block_hardware_target_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, simulation, hardware, _, hardware_targets = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for session in (simulation, hardware):
+        session.ingest(_hand(1, 20_000_000, identity))
+        session.ingest(_head(1, 20_000_000))
+        _clutch(session, 0.0, 1, 20_000_000)
+        session.control_tick(20_000_000)
+        session.ingest(_hand(2, 40_000_000, identity))
+        _clutch(session, 1.0, 2, 40_000_000)
+        session.control_tick(40_000_000)
+
+    stall_entered = threading.Event()
+    release_stall = threading.Event()
+
+    def stalled_step(_dt_s: float) -> None:
+        stall_entered.set()
+        release_stall.wait(timeout=2.0)
+
+    monkeypatch.setattr(simulation.simulation, "step", stalled_step)
+    stalled_thread = threading.Thread(target=simulation.simulation.step, args=(0.1,))
+    stalled_thread.start()
+    assert stall_entered.wait(timeout=1.0)
+    try:
+        moved = Pose6D((0.002, 0.0, 0.0), identity.orientation_xyzw)
+        hardware.ingest(_hand(3, 60_000_000, moved))
+        _clutch(hardware, 1.0, 3, 60_000_000)
+        started = time.perf_counter()
+        result = hardware.control_tick(60_000_000)
+        elapsed = time.perf_counter() - started
+        assert result.accepted_target is not None
+        assert hardware_targets.targets[-1] == result.accepted_target
+        assert elapsed < 0.1
+    finally:
+        release_stall.set()
+        stalled_thread.join(timeout=1.0)
+    assert not stalled_thread.is_alive()
 
 
 def _mapper_from_shared_config() -> LatchedHeadYawArmMapper:
@@ -336,13 +513,28 @@ class _MockRuntime:
 def _accepted(sequence: int = 1) -> AcceptedArmTarget:
     pose = Pose6D((0.1, -0.2, 0.3), (0.0, 0.0, 0.0, 1.0))
     return AcceptedArmTarget(
-        sequence,
-        42,
-        1_000_000,
-        2_000_000,
-        pose,
-        pose,
-        (0.1, -0.2, 0.3, -0.4, 0.5, -0.6),
+        sequence_number=sequence,
+        input_sequence_number=42,
+        source_sequence_number=41,
+        source_timestamp_ns=900_000,
+        input_receive_monotonic_ns=1_000_000,
+        generated_monotonic_ns=2_000_000,
+        reference_generation=1,
+        clutch_generation=1,
+        desired_tcp=AcceptedTcpPose(pose.position_m, pose.orientation_xyzw),
+        filtered_tcp=AcceptedTcpPose(pose.position_m, pose.orientation_xyzw),
+        joint_position_rad=(0.1, -0.2, 0.3, -0.4, 0.5, -0.6),
+        diagnostics=AcceptedTargetDiagnostics(
+            final_reason="ACCEPTED",
+            attempted_reasons=("ACCEPTED",),
+            continuation_fraction=1.0,
+            continuation_backtracks=0,
+            ik_position_error_m=0.0,
+            ik_orientation_error_rad=0.0,
+            jacobian_condition=1.0,
+            minimum_jacobian_singular_value=1.0,
+            nearest_safe_joint_limit_margin_rad=1.0,
+        ),
     )
 
 
@@ -362,6 +554,56 @@ def test_hardware_adapter_contract_has_no_conversion_filter_or_interpolation() -
     assert adapter.stop()
     assert not adapter.apply(_accepted(2))
     assert len(runtime.packets) == 1
+
+
+def test_composite_adapters_receive_the_identical_accepted_target_object() -> None:
+    identities: list[int] = []
+
+    class _IdentityAdapter:
+        def apply(self, target: AcceptedArmTarget) -> bool:
+            identities.append(id(target))
+            return True
+
+    target = _accepted()
+    adapter = CompositeArmTargetAdapter((_IdentityAdapter(), _IdentityAdapter()))
+    assert adapter.apply(target)
+    assert identities == [id(target), id(target)]
+
+
+def test_jaka_adapter_imports_and_operates_when_mujoco_import_is_blocked() -> None:
+    code = r'''
+import builtins
+import sys
+sys.path.insert(0, "src")
+original_import = builtins.__import__
+def blocked_import(name, *args, **kwargs):
+    if name == "mujoco" or name.startswith("mujoco."):
+        raise AssertionError("JAKA adapter imported MuJoCo")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = blocked_import
+from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
+assert JakaAcceptedJointTargetAdapter.__module__ == "teleoperation.jaka.quest_adapter"
+'''
+    result = subprocess.run(
+        [".venv/bin/python", "-c", code], text=True, capture_output=True
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_physical_entry_has_no_mujoco_plant_adapter_or_simulation_step() -> None:
+    source = Path("tools/quest_jaka_hardware.py").read_text(encoding="utf-8")
+    simulation_source = Path("tools/quest_jaka_mujoco_sim.py").read_text(encoding="utf-8")
+    assert "SharedJakaTargetGenerator" in source
+    assert "JakaMujocoSimulation" not in source
+    assert "MujocoArmTargetAdapter" not in source
+    assert "build_viewer_mjcf" not in source
+    assert ".step(" not in source
+    assert "QuestDatagramReceiverWorker" in source
+    assert "QuestDatagramReceiverWorker" in simulation_source
+    assert "class _ReceiveWorker" not in simulation_source
+    assert not hasattr(SharedJakaTargetGenerator, "step")
+    assert not hasattr(SharedJakaTargetGenerator, "set_accepted_arm_joint_target")
+    assert not hasattr(SharedJakaTargetGenerator, "set_hand_actuator_target")
 
 
 def test_invalid_or_communication_failed_target_does_not_count_as_applied() -> None:
@@ -457,3 +699,37 @@ def test_p4_entry_is_blocked_before_connection_until_physical_mapping_confirmati
     assert result.returncode != 0
     assert "P4 blocked" in result.stderr
     assert not (tmp_path / "metrics.json").exists()
+
+
+def test_offline_model_parity_report_separates_target_kinematic_and_dynamic_error(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "p1.json"
+    output = tmp_path / "model-parity.json"
+    metrics.write_text(
+        json.dumps(
+            {
+                "initial_joint_position_rad": [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878],
+                "startup_tcp_mm_rpy_rad": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            ".venv/bin/python",
+            "tools/quest_jaka_model_parity.py",
+            "--worker-metrics", str(metrics),
+            "--output", str(output),
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["physical_commands_sent"] is False
+    assert report["kinematic_model_parity"]["shared_vs_mujoco_fk"]["position_error_mm"] < 1e-9
+    # Matrix-to-quaternion conversion differs only at arccos roundoff scale.
+    assert report["kinematic_model_parity"]["shared_vs_mujoco_fk"]["orientation_error_deg"] < 2e-6
+    assert report["target_parity"].startswith("not evaluated")
+    assert report["dynamic_tracking_parity"].startswith("not evaluated")

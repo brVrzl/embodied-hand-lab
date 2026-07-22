@@ -12,14 +12,12 @@ import ipaddress
 import json
 import math
 from pathlib import Path
-import queue
 import socket
-import threading
 import time
 
 import mujoco
 
-from motion_input import HtsRawRecordingReader, HtsRawRecordingWriter, HtsUdpReceiver
+from motion_input import HtsRawRecordingReader, HtsRawRecordingWriter
 from quest_jaka_sim import (
     AnalogClutchSample,
     JakaMujocoSimulation,
@@ -30,6 +28,7 @@ from quest_jaka_sim import (
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.se3 import quaternion_angle_rad
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
+from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
 
 
 DEFAULT_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_offline.yaml")
@@ -149,9 +148,7 @@ def _make_smooth_session(
         config.mjcf_path, Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
-    return simulation, SmoothQuestJakaSession(
-        config, simulation, simulation_only_recovery=True
-    )
+    return simulation, SmoothQuestJakaSession(config, simulation)
 
 
 def _viewer(simulation: JakaMujocoSimulation):
@@ -353,50 +350,6 @@ def _project_ip(explicit: str | None) -> str:
     return str(address)
 
 
-class _ReceiveWorker:
-    """Quest UDP receive owns its thread and only publishes validated-timestamp datagrams."""
-
-    def __init__(self, args: argparse.Namespace, writer: HtsRawRecordingWriter) -> None:
-        self.args = args
-        self.writer = writer
-        self.queue: queue.Queue[object] = queue.Queue(maxsize=256)
-        self.stop = threading.Event()
-        self.error: BaseException | None = None
-        self.dropped = 0
-        self.thread = threading.Thread(target=self._run, name="quest-hts-receive", daemon=True)
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def close(self) -> None:
-        self.stop.set()
-        self.thread.join(timeout=1.0)
-
-    def _run(self) -> None:
-        try:
-            with HtsUdpReceiver(
-                self.args.bind,
-                self.args.port,
-                allowed_sender=self.args.allowed_sender,
-            ) as receiver:
-                while not self.stop.is_set():
-                    datagram = receiver.receive(timeout_s=0.02)
-                    if datagram is None:
-                        continue
-                    self.writer.write(datagram)
-                    try:
-                        self.queue.put_nowait(datagram)
-                    except queue.Full:
-                        try:
-                            self.queue.get_nowait()
-                        except queue.Empty:
-                            pass
-                        self.dropped += 1
-                        self.queue.put_nowait(datagram)
-        except BaseException as exc:  # surfaced on the main/viewer thread
-            self.error = exc
-
-
 def _live_6dof(args: argparse.Namespace) -> int:
     if args.duration_sec <= 0:
         raise SystemExit("duration must be positive")
@@ -462,17 +415,18 @@ def _live_6dof(args: argparse.Namespace) -> int:
             "controller_provider": "quest_ctrl_udp_v1",
         },
     ) as writer:
-        worker = _ReceiveWorker(args, writer)
+        worker = QuestDatagramReceiverWorker(
+            bind=args.bind,
+            port=args.port,
+            allowed_sender=args.allowed_sender,
+            record=writer.write,
+        )
         worker.start()
         try:
             while (handle is None or handle.is_running()) and time.monotonic() - started < args.duration_sec:
-                if worker.error is not None:
-                    raise RuntimeError("Quest receive worker failed") from worker.error
-                while True:
-                    try:
-                        controller_router.ingest(worker.queue.get_nowait(), session)
-                    except queue.Empty:
-                        break
+                worker.raise_if_failed()
+                for datagram in worker.drain():
+                    controller_router.ingest(datagram, session)
                 now = time.monotonic()
                 steps = 0
                 while now >= next_sim and steps < 20:

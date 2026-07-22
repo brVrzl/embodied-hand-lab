@@ -856,7 +856,8 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
                    double elapsed_s, double cpu_s, double maximum_command_delta_rad,
                    double maximum_observed_delta_rad, int error_code, int cleanup_error_code,
                    const std::string& outcome, const TeleopMetrics& teleop,
-                   const JerkBoundedJointTracker& tracker) {
+                   const JerkBoundedJointTracker& tracker,
+                   const std::array<double, 6>& initial_joint_position_rad) {
   std::ofstream file;
   std::ostream* output = &std::cout;
   if (!o.metrics_file.empty()) { file.open(o.metrics_file); if (!file) throw std::runtime_error("cannot open metrics file"); output = &file; }
@@ -883,6 +884,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"maximum_tracking_difference_rad\":" << teleop.maximum_tracking_difference_rad << ",\n"
       << "  \"tracking_warning_cycles\":" << teleop.tracking_warning_cycles << ",\n"
       << "  \"tracking_hard_crossings\":" << teleop.tracking_hard_crossings << ",\n"
+      << "  \"initial_joint_position_rad\":[" << initial_joint_position_rad[0] << ',' << initial_joint_position_rad[1] << ',' << initial_joint_position_rad[2] << ',' << initial_joint_position_rad[3] << ',' << initial_joint_position_rad[4] << ',' << initial_joint_position_rad[5] << "],\n"
       << "  \"maximum_joint_velocity_rad_s\":" << tracker.maximum_velocity() << ",\n"
       << "  \"maximum_joint_acceleration_rad_s2\":" << tracker.maximum_acceleration() << ",\n"
       << "  \"maximum_joint_jerk_rad_s3\":" << tracker.maximum_jerk() << ",\n"
@@ -936,8 +938,11 @@ int run(const Options& o) {
     backend->verify(o.expected_tool_id, o.expected_user_frame_id); state = State::Armed;
     backend->read(initial); observed = initial; target = initial;
     if (!std::all_of(initial.begin(), initial.end(), [](double v) { return std::isfinite(v) && std::abs(v) <= 2.0 * M_PI; })) throw std::runtime_error("initial joint state failed radians/finiteness check");
-    if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
+    if (o.mode == Mode::StateRead || is_shadow_mode(o.mode) ||
+        is_bounded_mode(o.mode) || is_joint_mode(o.mode)) {
       backend->read_tcp(teleop.startup_tcp);
+    }
+    if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
       validate_joint_solution(initial, initial, o);
     } else if (is_joint_mode(o.mode)) {
       validate_manufacturer_joint_position_limits(initial);
@@ -1259,7 +1264,8 @@ int run(const Options& o) {
   getrusage(RUSAGE_SELF, &usage_end); const auto end = now_ns();
   write_metrics(o, samples, accepted, rejected, warning_cycles, (end - start) / 1e9,
                 cpu_seconds(usage_end) - cpu_seconds(usage_start), maximum_command_delta_rad,
-                maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker);
+                maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker,
+                initial);
   return error_code == 0 ? 0 : 2;
 }
 }  // namespace

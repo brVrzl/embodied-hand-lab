@@ -170,8 +170,8 @@ Reference 的意义是：按下时的过滤后 Quest wrist 为输入参考 `T_Q_
 ## 参数表
 
 “代码默认值”是 parser/dataclass 的 fallback；“无（必填）”表示缺少 YAML 字段会直接
-失败。演示值来自当前 live-demo YAML 或推荐脚本。禁止为现场演示换回
-`hardware_conservative` 或旧的保守缩放。
+失败。演示值来自当前 live-demo YAML 或推荐脚本。共享配置只保留当前已验证的
+`simulation_exploration` filter profile，不再保留物理端候选 profile 或旧的保守缩放。
 
 ### 入口、网络与状态输入
 
@@ -242,9 +242,9 @@ Reference 的意义是：按下时的过滤后 Quest wrist 为输入参考 `T_Q_
 | command tracking frequency | `10` | rad/s | `10` | YAML:137、`jerk_limited_position_step` | 三阶 reference model bandwidth | 更紧跟 IK target | 更柔和/滞后 |
 | `joint_limit_margin_deg` | `5` | deg | 无（必填） | YAML:138、IK | 关节软边界 margin | 可用范围缩小 | 更接近物理极限 |
 | `maximum_joint_target_jump_rad` | `0.22` | rad/tick | `π` | YAML:143、`simulation.py` | continuation branch jump gate | 更宽松 | 更容易 `TARGET_JUMP` |
-| simulation-only SE(3) continuation | enabled | bool（入口固定） | shared session disabled | `tools/quest_jaka_mujoco_sim.py:_make_smooth_session`、`smooth_session.py` | 仅 MuJoCo 正式入口：用一个公共比例插值 XYZ+quaternion，失败最多回退 5 次步长；不放宽任何 gate | 不提供现场调参 | 不提供现场调参 |
-| `isolated_rejection_hold_count` | MuJoCo demo 不用于 feasibility fault；共享/真机兼容值 `30` | ticks | `2` | YAML:147、`smooth_session.py` | MuJoCo 中 feasibility rejection 保持 engaged 以允许退回；硬件/default 仍在 30 次后 fault | 仅影响未启用 simulation recovery 的共享路径 | 同左 |
-| `reject_action` | MuJoCo: hold-last-safe while engaged；共享/default: hold then fault | enum | 行为由 session 固定 | YAML:148、`smooth_session.py` | 无效 candidate 从不积累、不输出；tracking/controller stale 仍立即 fault | 不适用 | 不适用 |
+| shared SE(3) continuation | enabled | bool（共享 YAML） | enabled | `shared_target_generation`、`smooth_session.py` | MuJoCo/JAKA 共用一个比例插值 XYZ+quaternion，失败最多回退 5 次；不放宽任何 gate | 需共同审计后修改 YAML | 同左 |
+| `isolated_rejection_hold_count` | 正常共享 continuation 下不用于 feasibility fault；fallback `30` | ticks | `2` | YAML、`smooth_session.py` | 仅在显式禁用共享 recovery 时生效 | 仅影响禁用 recovery 的 fallback | 同左 |
+| `reject_action` | shared hold-last-safe while engaged | enum | 行为由 session 固定 | YAML、`smooth_session.py` | 无效 candidate 从不积累、不输出；tracking/controller stale 仍立即 fault | 不适用 | 不适用 |
 | collision policy | reject new contacts | enum | 行为由 simulation 固定 | YAML:149、`simulation.py` | 相对初始 contact 拒绝新增 self/environment collision | 不适用 | 不适用 |
 | hand reacquisition | `200` | ms | `200` | YAML:24、`clutch.py` | grip 再按时从 held command blend | 更慢更柔和 | 更快但手指 transient 增 |
 
@@ -398,10 +398,9 @@ command、加速度/jerk 整形与 position actuator 的可见追赶滞后，不
 进程停止是外层 loop 退出，不应把文档示例名称误写成代码状态。
 
 短暂但未超过 stale threshold 的无新帧不会更新 target；超过 250 ms 的右手 stale 或
-超过 150 ms 的 controller stale 会 fault。MuJoCo demo 中任意 feasibility rejection 都只
-hold last safe 并保留 reference，允许同一次 clutch 中退回；tracking/controller fault 才要求
-release + fresh + 再 press。共享/default（包括当前硬件 runner）仍保留 30 次拒绝后 fault，
-本次修改没有改变真机策略。
+超过 150 ms 的 controller stale 会 fault。共享 MuJoCo/JAKA target generator 中任意
+feasibility rejection 都只 hold last safe 并保留 reference，允许同一次 clutch 中退回；
+tracking/controller fault 才要求 release + fresh + 再 press。物理 adapter 不另外改变该策略。
 
 ## 正常现象与验收
 
@@ -522,7 +521,7 @@ Capture tick 的 desired 应等于 current simulated TCP。确认是 index **上
 
 Events 的 `reason/ik_status/metrics` 会区分 `IK_POSITION_FAILED`、
 `IK_ORIENTATION_FAILED`、`NEAR_SINGULARITY`、`TARGET_JUMP`、workspace、velocity、limit、
-collision。MuJoCo feasibility rejection 会保持 engaged/reference；看 `continuation_fraction`、
+collision。共享 feasibility rejection 会保持 engaged/reference；看 `continuation_fraction`、
 `requested_backlog_*`、`singularity_warning`，把手缓慢移回 reference 附近即可恢复。
 只有 stale/invalid 才应进入 `tracking_fault`，此时按 release → fresh → press 恢复。
 `right_wrist_age_s > 0.25` 或 trigger age `>0.15` 就是 stale 根因。

@@ -1,4 +1,4 @@
-"""Deterministic, simulation-only Quest-to-JAKA replay and feasibility checks."""
+"""Shared Quest-to-JAKA kinematic target generation plus optional MuJoCo plant."""
 
 from __future__ import annotations
 
@@ -431,8 +431,14 @@ def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
     return output
 
 
-class JakaMujocoSimulation:
-    """Separate IK scratch state and dynamically stepped position-actuator plant."""
+class SharedJakaTargetGenerator:
+    """Authoritative kinematic IK/acceptance state, independent of either plant.
+
+    The model is used only for deterministic FK, Jacobians, collision queries,
+    and continuation IK.  It owns no simulator control state and never steps
+    physics.  MuJoCo and JAKA plants consume its accepted joint targets through
+    separate adapters.
+    """
 
     def __init__(self, config: ReplayConfig, *, mjcf_path: str | Path | None = None) -> None:
         path = config.mjcf_path if mjcf_path is None else Path(mjcf_path)
@@ -449,8 +455,6 @@ class JakaMujocoSimulation:
             orientation_ik_weight=0.0 if not config.mapping.orientation_enabled else 0.35,
         )
         self.model = self.ik.model
-        if config.zero_gravity:
-            self.model.opt.gravity[:] = 0.0
         simulation_values = config.raw.get("simulation", {})
         self.jacobian_rotation_characteristic_length_m = float(
             simulation_values.get("jacobian_rotation_characteristic_length_m", 0.25)
@@ -462,64 +466,16 @@ class JakaMujocoSimulation:
             raise ValueError(
                 "jacobian_rotation_characteristic_length_m must be finite and positive"
             )
-        integrator = str(simulation_values.get("integrator", "implicitfast")).lower()
-        if integrator != "implicitfast":
-            raise ValueError("Quest/JAKA simulation requires the implicitfast integrator")
-        self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
-        self.data = mujoco.MjData(self.model)
         self.arm_joint_ids = self.ik.arm_joint_ids.copy()
         self.arm_qpos_ids = self.ik.arm_qpos_ids.copy()
         self.arm_dof_ids = self.ik.arm_dof_ids.copy()
-        self.arm_actuator_ids = np.asarray(
-            [
-                self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, f"{name}_act")
-                for name in MJCF_ARM_JOINT_NAMES
-            ],
-            dtype=np.int32,
-        )
-        self.hand_actuator_names = (
-            "rh56_R_thumb_MCP_joint1_act",
-            "rh56_R_thumb_MCP_joint2_act",
-            "rh56_R_index_MCP_joint_act",
-            "rh56_R_middle_MCP_joint_act",
-            "rh56_R_ring_MCP_joint_act",
-            "rh56_R_pinky_MCP_joint_act",
-        )
-        self.hand_actuator_ids = np.asarray(
-            [
-                self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, name)
-                for name in self.hand_actuator_names
-            ],
-            dtype=np.int32,
-        )
-        self._set_position_actuator_gains(
-            self.arm_actuator_ids,
-            kp=float(simulation_values.get("arm_position_kp", 40.0)),
-            kv=float(simulation_values.get("arm_position_kv", 0.0)),
-        )
-        self._set_position_actuator_gains(
-            self.hand_actuator_ids,
-            kp=float(simulation_values.get("hand_position_kp", 8.0)),
-            kv=float(simulation_values.get("hand_position_kv", 0.0)),
-        )
         self.palm_body_id = self.ik.palm_body_id
-        self.data.qpos[self.arm_qpos_ids] = config.initial_arm_joints_rad
-        self.data.ctrl[self.arm_actuator_ids] = config.initial_arm_joints_rad
-        mujoco.mj_forward(self.model, self.data)
-        self.initial_tcp = self.current_tcp_pose
+        self.initial_tcp = self._kinematic_tcp_pose
         self.last_safe_joint_target = np.asarray(config.initial_arm_joints_rad, dtype=np.float64)
-        self.commanded_joint_target = self.last_safe_joint_target.copy()
-        self.commanded_joint_velocity = np.zeros(6, dtype=np.float64)
-        self.commanded_joint_acceleration = np.zeros(6, dtype=np.float64)
-        self.commanded_hand_target = np.zeros(6, dtype=np.float64)
-        self.commanded_hand_velocity = np.zeros(6, dtype=np.float64)
         self.last_safe_target = self.initial_tcp
         self.last_safe_joint_velocity = np.zeros(6)
         self._baseline_contacts = self._contact_pairs(self.ik.data)
         self.accepted_metrics: list[CandidateMetrics] = []
-        self.tracking_errors_m: list[float] = []
-        self.desired_marker_mocap_id = self._mocap_id(DESIRED_MARKER_BODY)
-        self.actual_marker_mocap_id = self._mocap_id(ACTUAL_MARKER_BODY)
 
     def _required_id(self, kind: mujoco.mjtObj, name: str) -> int:
         value = mujoco.mj_name2id(self.model, kind, name)
@@ -527,47 +483,44 @@ class JakaMujocoSimulation:
             raise KeyError(name)
         return int(value)
 
-    def _set_position_actuator_gains(
-        self, actuator_ids: np.ndarray, *, kp: float, kv: float
-    ) -> None:
-        if not math.isfinite(kp) or kp <= 0.0:
-            raise ValueError("simulation position-actuator kp must be finite and positive")
-        if not math.isfinite(kv) or kv < 0.0:
-            raise ValueError("simulation position-actuator kv must be finite and non-negative")
-        self.model.actuator_gainprm[actuator_ids, 0] = kp
-        self.model.actuator_biasprm[actuator_ids, 1] = -kp
-        self.model.actuator_biasprm[actuator_ids, 2] = -kv
-
-    def _mocap_id(self, body_name: str) -> int:
-        body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-        return -1 if body < 0 else int(self.model.body_mocapid[body])
-
     @property
-    def current_tcp_pose(self) -> Pose6D:
-        quat_wxyz = np.zeros(4)
-        mujoco.mju_mat2Quat(quat_wxyz, self.data.xmat[self.palm_body_id])
+    def _kinematic_tcp_pose(self) -> Pose6D:
+        quat_wxyz = self.ik.current_palm_quaternion_wxyz
         return Pose6D(
-            tuple(float(value) for value in self.data.xpos[self.palm_body_id]),
+            tuple(float(value) for value in self.ik.current_palm_position_m),
             (float(quat_wxyz[1]), float(quat_wxyz[2]), float(quat_wxyz[3]), float(quat_wxyz[0])),
         )
 
     @property
+    def current_tcp_pose(self) -> Pose6D:
+        return self._kinematic_tcp_pose
+
+    @property
     def arm_joints_rad(self) -> np.ndarray:
-        return self.data.qpos[self.arm_qpos_ids].copy()
+        return self.ik.arm_joints_rad.copy()
+
+    def synchronize_authoritative_arm_joints(self, joints_rad: list[float]) -> None:
+        """Synchronize from an authoritative plant only while disengaged."""
+
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("authoritative arm state must contain six finite radians")
+        self.ik.set_arm_joints_rad(joints.tolist())
+        current = self._kinematic_tcp_pose
+        self.initial_tcp = current
+        self.last_safe_target = current
+        self.last_safe_joint_target = joints.copy()
+        self.last_safe_joint_velocity[:] = 0.0
+        self._baseline_contacts = self._contact_pairs(self.ik.data)
 
     def capture_reference(self) -> Pose6D:
-        """Capture the current simulated TCP and reset all derivative history."""
+        """Capture the current authoritative FK pose and reset derivative history."""
 
-        current = self.current_tcp_pose
+        current = self._kinematic_tcp_pose
         self.initial_tcp = current
         self.last_safe_target = current
         self.last_safe_joint_target = self.arm_joints_rad
         self.last_safe_joint_velocity[:] = 0.0
-        self.commanded_joint_target = self.arm_joints_rad
-        self.commanded_joint_velocity[:] = 0.0
-        self.commanded_joint_acceleration[:] = 0.0
-        self.data.ctrl[self.arm_actuator_ids] = self.last_safe_joint_target
-        self.tracking_errors_m.clear()
         return current
 
     def evaluate(self, target: Pose6D, *, dt_s: float) -> FeasibilityResult:
@@ -708,6 +661,163 @@ class JakaMujocoSimulation:
             return FeasibilityResult(True, reason, tuple(float(v) for v in candidate_q), metrics)
         return FeasibilityResult(False, reason, None, metrics)
 
+    def metrics_report(self) -> dict[str, Any]:
+        metrics = self.accepted_metrics
+        report = {
+            "ik_success_rate": None,
+            "maximum_jacobian_condition": max((m.jacobian_condition for m in metrics), default=None),
+            "minimum_jacobian_singular_value": min(
+                (m.minimum_jacobian_singular_value for m in metrics), default=None
+            ),
+            "maximum_tcp_displacement_m": max(
+                (m.target_displacement_m for m in metrics), default=0.0
+            ),
+            "maximum_tcp_velocity_m_s": max((m.tcp_velocity_m_s for m in metrics), default=0.0),
+            "maximum_joint_velocity_rad_s": max(
+                (m.maximum_joint_velocity_rad_s for m in metrics), default=0.0
+            ),
+            "maximum_joint_acceleration_rad_s2": max(
+                (m.maximum_joint_acceleration_rad_s2 for m in metrics), default=0.0
+            ),
+            "minimum_collision_distance_m": min(
+                (
+                    m.minimum_new_contact_distance_m
+                    for m in metrics
+                    if m.minimum_new_contact_distance_m is not None
+                ),
+                default=None,
+            ),
+        }
+        if hasattr(self, "tracking_errors_m"):
+            report["maximum_desired_to_simulated_tcp_error_m"] = max(
+                self.tracking_errors_m, default=0.0
+            )
+        return report
+
+    def _contact_pairs(self, data: mujoco.MjData) -> set[tuple[int, int]]:
+        return {self._contact_pair(data, index) for index in range(data.ncon)}
+
+    @staticmethod
+    def _contact_pair(data: mujoco.MjData, index: int) -> tuple[int, int]:
+        contact = data.contact[index]
+        return tuple(sorted((int(contact.geom1), int(contact.geom2))))
+
+    def _pair_kind(self, pair: tuple[int, int]) -> str:
+        robot = [self._is_robot_geom(geom_id) for geom_id in pair]
+        return "self" if all(robot) else "environment"
+
+    def _is_robot_geom(self, geom_id: int) -> bool:
+        body_id = int(self.model.geom_bodyid[geom_id])
+        name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+        return name.startswith("jaka_") or name.startswith("rh56_")
+
+
+class JakaMujocoSimulation(SharedJakaTargetGenerator):
+    """MuJoCo plant adapter layered after shared kinematic target generation."""
+
+    def __init__(self, config: ReplayConfig, *, mjcf_path: str | Path | None = None) -> None:
+        super().__init__(config, mjcf_path=mjcf_path)
+        simulation_values = config.raw.get("simulation", {})
+        if config.zero_gravity:
+            self.model.opt.gravity[:] = 0.0
+        integrator = str(simulation_values.get("integrator", "implicitfast")).lower()
+        if integrator != "implicitfast":
+            raise ValueError("Quest/JAKA simulation requires the implicitfast integrator")
+        self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
+        self.data = mujoco.MjData(self.model)
+        self.arm_actuator_ids = np.asarray(
+            [
+                self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, f"{name}_act")
+                for name in MJCF_ARM_JOINT_NAMES
+            ],
+            dtype=np.int32,
+        )
+        self.hand_actuator_names = (
+            "rh56_R_thumb_MCP_joint1_act",
+            "rh56_R_thumb_MCP_joint2_act",
+            "rh56_R_index_MCP_joint_act",
+            "rh56_R_middle_MCP_joint_act",
+            "rh56_R_ring_MCP_joint_act",
+            "rh56_R_pinky_MCP_joint_act",
+        )
+        self.hand_actuator_ids = np.asarray(
+            [self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, name) for name in self.hand_actuator_names],
+            dtype=np.int32,
+        )
+        self._set_position_actuator_gains(
+            self.arm_actuator_ids,
+            kp=float(simulation_values.get("arm_position_kp", 40.0)),
+            kv=float(simulation_values.get("arm_position_kv", 0.0)),
+        )
+        self._set_position_actuator_gains(
+            self.hand_actuator_ids,
+            kp=float(simulation_values.get("hand_position_kp", 8.0)),
+            kv=float(simulation_values.get("hand_position_kv", 0.0)),
+        )
+        self.data.qpos[self.arm_qpos_ids] = config.initial_arm_joints_rad
+        self.data.ctrl[self.arm_actuator_ids] = config.initial_arm_joints_rad
+        mujoco.mj_forward(self.model, self.data)
+        self.commanded_joint_target = self.last_safe_joint_target.copy()
+        self.commanded_joint_velocity = np.zeros(6, dtype=np.float64)
+        self.commanded_joint_acceleration = np.zeros(6, dtype=np.float64)
+        self.commanded_hand_target = np.zeros(6, dtype=np.float64)
+        self.commanded_hand_velocity = np.zeros(6, dtype=np.float64)
+        self.tracking_errors_m: list[float] = []
+        self.desired_marker_mocap_id = self._mocap_id(DESIRED_MARKER_BODY)
+        self.actual_marker_mocap_id = self._mocap_id(ACTUAL_MARKER_BODY)
+
+    def _set_position_actuator_gains(
+        self, actuator_ids: np.ndarray, *, kp: float, kv: float
+    ) -> None:
+        if not math.isfinite(kp) or kp <= 0.0:
+            raise ValueError("simulation position-actuator kp must be finite and positive")
+        if not math.isfinite(kv) or kv < 0.0:
+            raise ValueError("simulation position-actuator kv must be finite and non-negative")
+        self.model.actuator_gainprm[actuator_ids, 0] = kp
+        self.model.actuator_biasprm[actuator_ids, 1] = -kp
+        self.model.actuator_biasprm[actuator_ids, 2] = -kv
+
+    def _mocap_id(self, body_name: str) -> int:
+        body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        return -1 if body < 0 else int(self.model.body_mocapid[body])
+
+    @property
+    def current_tcp_pose(self) -> Pose6D:
+        quat_wxyz = np.zeros(4)
+        mujoco.mju_mat2Quat(quat_wxyz, self.data.xmat[self.palm_body_id])
+        return Pose6D(
+            tuple(float(value) for value in self.data.xpos[self.palm_body_id]),
+            (float(quat_wxyz[1]), float(quat_wxyz[2]), float(quat_wxyz[3]), float(quat_wxyz[0])),
+        )
+
+    @property
+    def arm_joints_rad(self) -> np.ndarray:
+        return self.data.qpos[self.arm_qpos_ids].copy()
+
+    def synchronize_authoritative_arm_joints(self, joints_rad: list[float]) -> None:
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("authoritative arm state must contain six finite radians")
+        self.data.qpos[self.arm_qpos_ids] = joints
+        self.data.ctrl[self.arm_actuator_ids] = joints
+        mujoco.mj_forward(self.model, self.data)
+        super().synchronize_authoritative_arm_joints(joints.tolist())
+        self.commanded_joint_target = joints.copy()
+        self.commanded_joint_velocity[:] = 0.0
+        self.commanded_joint_acceleration[:] = 0.0
+
+    def capture_reference(self) -> Pose6D:
+        SharedJakaTargetGenerator.synchronize_authoritative_arm_joints(
+            self, self.arm_joints_rad.tolist()
+        )
+        current = SharedJakaTargetGenerator.capture_reference(self)
+        self.commanded_joint_target = self.arm_joints_rad
+        self.commanded_joint_velocity[:] = 0.0
+        self.commanded_joint_acceleration[:] = 0.0
+        self.data.ctrl[self.arm_actuator_ids] = self.commanded_joint_target
+        self.tracking_errors_m.clear()
+        return current
+
     def set_accepted_arm_joint_target(self, joints_rad: tuple[float, ...]) -> None:
         """MuJoCo output boundary; no mapping, filtering, IK, or shaping occurs here."""
 
@@ -788,54 +898,6 @@ class JakaMujocoSimulation:
                 marker.orientation_xyzw[2],
             )
         mujoco.mj_forward(self.model, self.data)
-
-    def metrics_report(self) -> dict[str, Any]:
-        metrics = self.accepted_metrics
-        return {
-            "ik_success_rate": None,
-            "maximum_jacobian_condition": max((m.jacobian_condition for m in metrics), default=None),
-            "minimum_jacobian_singular_value": min(
-                (m.minimum_jacobian_singular_value for m in metrics), default=None
-            ),
-            "maximum_tcp_displacement_m": max(
-                (m.target_displacement_m for m in metrics), default=0.0
-            ),
-            "maximum_tcp_velocity_m_s": max((m.tcp_velocity_m_s for m in metrics), default=0.0),
-            "maximum_joint_velocity_rad_s": max(
-                (m.maximum_joint_velocity_rad_s for m in metrics), default=0.0
-            ),
-            "maximum_joint_acceleration_rad_s2": max(
-                (m.maximum_joint_acceleration_rad_s2 for m in metrics), default=0.0
-            ),
-            "minimum_collision_distance_m": min(
-                (
-                    m.minimum_new_contact_distance_m
-                    for m in metrics
-                    if m.minimum_new_contact_distance_m is not None
-                ),
-                default=None,
-            ),
-            "maximum_desired_to_simulated_tcp_error_m": max(
-                self.tracking_errors_m, default=0.0
-            ),
-        }
-
-    def _contact_pairs(self, data: mujoco.MjData) -> set[tuple[int, int]]:
-        return {self._contact_pair(data, index) for index in range(data.ncon)}
-
-    @staticmethod
-    def _contact_pair(data: mujoco.MjData, index: int) -> tuple[int, int]:
-        contact = data.contact[index]
-        return tuple(sorted((int(contact.geom1), int(contact.geom2))))
-
-    def _pair_kind(self, pair: tuple[int, int]) -> str:
-        robot = [self._is_robot_geom(geom_id) for geom_id in pair]
-        return "self" if all(robot) else "environment"
-
-    def _is_robot_geom(self, geom_id: int) -> bool:
-        body_id = int(self.model.geom_bodyid[geom_id])
-        name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
-        return name.startswith("jaka_") or name.startswith("rh56_")
 
 
 class QuestJakaReplaySession:

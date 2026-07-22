@@ -70,14 +70,6 @@ filter:
       rotation_beta: 4.0
       rotation_derivative_cutoff: 1.0
       maximum_filter_dt: 0.050
-    hardware_conservative:
-      translation_min_cutoff: 0.8
-      translation_beta: 8.0
-      translation_derivative_cutoff: 1.0
-      rotation_min_cutoff: 1.0
-      rotation_beta: 2.0
-      rotation_derivative_cutoff: 1.0
-      maximum_filter_dt: 0.030
 
 rates:
   input_buffer_capacity: 16
@@ -90,6 +82,14 @@ rates:
   jaka_transport_hz: 125
   mujoco_control_hz: 500
   viewer_hz: 60
+
+# Authoritative post-filter target generation. Both the MuJoCo and JAKA
+# adapters consume the result of this policy; neither adapter may override it.
+shared_target_generation:
+  continuation_enabled: true
+  maximum_backtracks: 5
+  minimum_continuation_fraction: 0.03125
+  rejection_policy: hold_last_accepted_and_allow_operator_retreat
 
 hand_retargeting:
   enabled: true
@@ -142,11 +142,9 @@ simulation:
   # At 60 Hz this remains below the 14 rad/s IK-candidate guard (0.233 rad),
   # while the actuator command is independently limited to pi rad/s.
   maximum_joint_target_jump_rad: 0.22
-  # Shared/default (including hardware) fault containment: hold the last safe
-  # target for 0.5 s at 60 Hz before faulting.  The MuJoCo demo entry explicitly
-  # enables simulation-only SE(3) continuation/recovery instead: invalid
-  # candidates remain non-authoritative while the operator may retreat without
-  # losing the captured reference.  The hardware runner does not enable it.
+  # Used only when shared continuation/recovery is explicitly disabled. The
+  # normal shared policy keeps rejected candidates non-authoritative while the
+  # operator retreats toward the last accepted target.
   isolated_rejection_hold_count: 30
   reject_action: hold_last_safe_for_isolated_rejection_then_disengage
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts

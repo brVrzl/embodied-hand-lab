@@ -34,13 +34,20 @@ from .output import (
     ArmTargetOutputAdapter,
     MujocoArmTargetAdapter,
 )
+from teleoperation.accepted_target import AcceptedTargetDiagnostics, AcceptedTcpPose
 from .se3 import (
     PoseSampleBuffer,
     TimedPoseSample,
     bounded_pose_step,
     quaternion_angle_rad,
 )
-from .simulation import FeasibilityReason, FeasibilityResult, JakaMujocoSimulation, ReplayConfig
+from .simulation import (
+    FeasibilityReason,
+    FeasibilityResult,
+    JakaMujocoSimulation,
+    ReplayConfig,
+    SharedJakaTargetGenerator,
+)
 from .smooth_operator import Se3FilterProfile
 
 
@@ -63,10 +70,9 @@ class SmoothQuestJakaSession:
     def __init__(
         self,
         config: ReplayConfig,
-        simulation: JakaMujocoSimulation,
+        target_generator: SharedJakaTargetGenerator,
         *,
         arm_output: ArmTargetOutputAdapter | None = None,
-        simulation_only_recovery: bool = False,
     ) -> None:
         filter_values = config.raw.get("filter", {})
         profile_name = str(filter_values.get("selected_profile", "simulation_exploration"))
@@ -75,13 +81,38 @@ class SmoothQuestJakaSession:
             raise ValueError(f"unknown SE(3) filter profile {profile_name!r}")
         self.profile = Se3FilterProfile.from_mapping(profile_name, profiles[profile_name])
         self.config = config
-        self.simulation = simulation
-        self.arm_output = arm_output or MujocoArmTargetAdapter(simulation)
-        # This policy is deliberately selected by the MuJoCo demo entry point,
-        # not by the shared YAML.  The hardware runner therefore retains its
-        # existing fail-after-N-rejections semantics unless explicitly changed
-        # in a future, separately reviewed hardware task.
-        self.simulation_only_recovery = bool(simulation_only_recovery)
+        self.target_generator = target_generator
+        # Compatibility alias for existing simulation diagnostics/tests. The
+        # physical runner passes a plant-free target generator here.
+        self.simulation = target_generator
+        self.mujoco_plant = (
+            target_generator
+            if isinstance(target_generator, JakaMujocoSimulation)
+            else None
+        )
+        if arm_output is None:
+            if self.mujoco_plant is None:
+                raise ValueError("a plant-free target generator requires an explicit output adapter")
+            arm_output = MujocoArmTargetAdapter(self.mujoco_plant)
+        self.arm_output = arm_output
+        shared_policy = config.raw.get("shared_target_generation", {})
+        self.continuation_enabled = bool(shared_policy.get("continuation_enabled", True))
+        self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 5))
+        self.minimum_continuation_fraction = float(
+            shared_policy.get("minimum_continuation_fraction", 1.0 / 32.0)
+        )
+        self.rejection_policy = str(
+            shared_policy.get(
+                "rejection_policy",
+                "hold_last_accepted_and_allow_operator_retreat",
+            )
+        )
+        if self.maximum_continuation_backtracks < 0:
+            raise ValueError("maximum continuation backtracks must be non-negative")
+        if not 0.0 < self.minimum_continuation_fraction < 1.0:
+            raise ValueError("minimum continuation fraction must be in (0, 1)")
+        if self.rejection_policy != "hold_last_accepted_and_allow_operator_retreat":
+            raise ValueError(f"unsupported shared rejection policy {self.rejection_policy!r}")
         self.assembler = HtsCanonicalAssembler(stale_after_s=config.stale_after_s)
         rates = config.raw.get("rates", {})
         self.interpolation_delay_ns = int(float(rates.get("interpolation_delay_ms", 20.0)) * 1e6)
@@ -109,7 +140,7 @@ class SmoothQuestJakaSession:
         self.arm_mapper = LatchedHeadYawArmMapper(config.mapping, self.profile)
         self.latest_state: CanonicalQuestState | None = None
         self.last_input_sequence: int | None = None
-        self.last_desired = simulation.current_tcp_pose
+        self.last_desired = target_generator.current_tcp_pose
         self.last_reason = FeasibilityReason.DISENGAGED.value
         self.rejections: Counter[str] = Counter()
         self.input_timestamps_ns: list[int] = []
@@ -126,6 +157,7 @@ class SmoothQuestJakaSession:
         self.event_records: list[dict[str, Any]] = []
         self.accepted_targets = 0
         self._accepted_sequence = 0
+        self.reference_generation = 0
         self.consecutive_rejections = 0
         self.continuation_intervention_count = 0
         self.continuation_backtrack_count = 0
@@ -136,14 +168,18 @@ class SmoothQuestJakaSession:
             config.raw.get("simulation", {}).get("isolated_rejection_hold_count", 2)
         )
         hand_values = config.raw.get("hand_retargeting", {})
-        self.hand_enabled = bool(hand_values.get("enabled", False))
+        self.hand_enabled = bool(hand_values.get("enabled", False)) and self.mujoco_plant is not None
         self.hand_retargeter: ProjectRh56Retargeter | None = None
         self.last_hand_result: InspireRetargetResult | None = None
         self.hand_valid_results = 0
         if self.hand_enabled:
             backend, calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
             self.hand_retargeter = ProjectRh56Retargeter(calibration, backend=backend)
-        self._held_hand_command = simulation.commanded_hand_target.copy()
+        self._held_hand_command = (
+            self.mujoco_plant.commanded_hand_target.copy()
+            if self.mujoco_plant is not None
+            else np.zeros(6, dtype=np.float64)
+        )
         self._hand_reacquire_anchor = self._held_hand_command.copy()
         self._hand_press_receive_ns: int | None = None
         self._index_sample = AnalogClutchSample(0.0, 0, 0, valid=False)
@@ -299,7 +335,7 @@ class SmoothQuestJakaSession:
         self.ik_timestamps_ns.append(now_ns)
         started = time.perf_counter_ns()
         dt_s = (
-            self.simulation.model.opt.timestep
+            1.0 / float(self.config.raw.get("rates", {}).get("target_generation_hz", 60.0))
             if len(self.ik_timestamps_ns) < 2
             else (self.ik_timestamps_ns[-1] - self.ik_timestamps_ns[-2]) / 1e9
         )
@@ -307,7 +343,7 @@ class SmoothQuestJakaSession:
         continuation_fraction = 1.0
         continuation_backtracks = 0
         attempted_reasons: list[str] = []
-        if self.simulation_only_recovery:
+        if self.continuation_enabled:
             limits = self.config.feasibility
             # Stay just inside strict ``>`` gates without introducing a new
             # tuning knob.  nextafter only changes the last representable bit.
@@ -320,38 +356,38 @@ class SmoothQuestJakaSession:
                 limits.maximum_tcp_angular_velocity_rad_s * max(dt_s, 1e-6),
             )
             evaluated_target, continuation_fraction = bounded_pose_step(
-                self.simulation.last_safe_target,
+                self.target_generator.last_safe_target,
                 desired,
                 maximum_translation_m=float(np.nextafter(maximum_translation, 0.0)),
                 maximum_rotation_rad=float(np.nextafter(maximum_rotation, 0.0)),
             )
             if continuation_fraction < 1.0:
                 self.continuation_intervention_count += 1
-        result = self.simulation.evaluate(evaluated_target, dt_s=dt_s)
+        result = self.target_generator.evaluate(evaluated_target, dt_s=dt_s)
         attempted_reasons.append(result.reason.value)
         # A rejected trial never becomes authoritative.  Retry smaller points
         # on the same full-pose segment; all hard feasibility gates are run on
         # every trial and remain unchanged.
         while (
-            self.simulation_only_recovery
+            self.continuation_enabled
             and not result.accepted
-            and continuation_fraction > 1.0 / 32.0
-            and continuation_backtracks < 5
+            and continuation_fraction > self.minimum_continuation_fraction
+            and continuation_backtracks < self.maximum_continuation_backtracks
         ):
             continuation_fraction *= 0.5
             evaluated_target, _ = bounded_pose_step(
-                self.simulation.last_safe_target,
+                self.target_generator.last_safe_target,
                 desired,
                 maximum_translation_m=(
                     np.linalg.norm(
                         np.asarray(desired.position_m)
-                        - np.asarray(self.simulation.last_safe_target.position_m)
+                        - np.asarray(self.target_generator.last_safe_target.position_m)
                     )
                     * continuation_fraction
                 ),
                 maximum_rotation_rad=(
                     quaternion_angle_rad(
-                        self.simulation.last_safe_target.orientation_xyzw,
+                        self.target_generator.last_safe_target.orientation_xyzw,
                         desired.orientation_xyzw,
                     )
                     * continuation_fraction
@@ -359,7 +395,7 @@ class SmoothQuestJakaSession:
             )
             continuation_backtracks += 1
             self.continuation_backtrack_count += 1
-            result = self.simulation.evaluate(evaluated_target, dt_s=dt_s)
+            result = self.target_generator.evaluate(evaluated_target, dt_s=dt_s)
             attempted_reasons.append(result.reason.value)
         backlog_m = float(
             np.linalg.norm(
@@ -394,7 +430,7 @@ class SmoothQuestJakaSession:
             desired_tcp=_pose_dict(desired),
             mapped_tcp_target=_pose_dict(desired),
             filtered_tcp_target=_pose_dict(evaluated_target),
-            continuation_enabled=self.simulation_only_recovery,
+            continuation_enabled=self.continuation_enabled,
             continuation_fraction=continuation_fraction,
             continuation_backtracks=continuation_backtracks,
             continuation_attempt_reasons=attempted_reasons,
@@ -429,24 +465,55 @@ class SmoothQuestJakaSession:
         accepted_target = AcceptedArmTarget(
             sequence_number=self._accepted_sequence,
             input_sequence_number=state.right.host_sequence_number,
+            source_sequence_number=state.right.source_sequence_number,
+            source_timestamp_ns=state.right.source_timestamp_ns,
             input_receive_monotonic_ns=min(input_receive_ns, now_ns),
             generated_monotonic_ns=now_ns,
-            desired_tcp=desired,
-            filtered_tcp=evaluated_target,
+            reference_generation=self.reference_generation,
+            clutch_generation=self.arm_clutch.cycle_count,
+            desired_tcp=AcceptedTcpPose(
+                position_m=desired.position_m,
+                orientation_xyzw=desired.orientation_xyzw,
+            ),
+            filtered_tcp=AcceptedTcpPose(
+                position_m=evaluated_target.position_m,
+                orientation_xyzw=evaluated_target.orientation_xyzw,
+            ),
             joint_position_rad=result.joint_target_rad,
+            diagnostics=AcceptedTargetDiagnostics(
+                final_reason=result.reason.value,
+                attempted_reasons=tuple(attempted_reasons),
+                continuation_fraction=continuation_fraction,
+                continuation_backtracks=continuation_backtracks,
+                ik_position_error_m=result.metrics.ik_error_m,
+                ik_orientation_error_rad=result.metrics.ik_orientation_error_rad,
+                jacobian_condition=result.metrics.jacobian_condition,
+                minimum_jacobian_singular_value=result.metrics.minimum_jacobian_singular_value,
+                nearest_safe_joint_limit_margin_rad=result.metrics.nearest_safe_joint_limit_margin_rad,
+            ),
         )
         output_applied = self.arm_output.apply(accepted_target)
         self.accepted_targets += 1
         self.consecutive_rejections = 0
         self.last_reason = FeasibilityReason.ACCEPTED.value
         self.last_desired = evaluated_target
-        current = self.simulation.current_tcp_pose
+        current = (
+            self.mujoco_plant.current_tcp_pose
+            if self.mujoco_plant is not None
+            else self.target_generator.current_tcp_pose
+        )
         record.update(
             accepted=True,
             reason=FeasibilityReason.ACCEPTED.value,
             position_error_m=float(np.linalg.norm(np.asarray(evaluated_target.position_m) - np.asarray(current.position_m))),
             orientation_error_deg=math.degrees(quaternion_angle_rad(evaluated_target.orientation_xyzw, current.orientation_xyzw)),
             accepted_joint_target_rad=list(accepted_target.joint_position_rad),
+            accepted_target_sequence=accepted_target.sequence_number,
+            accepted_source_sequence=accepted_target.source_sequence_number,
+            accepted_source_timestamp_ns=accepted_target.source_timestamp_ns,
+            accepted_reference_generation=accepted_target.reference_generation,
+            accepted_clutch_generation=accepted_target.clutch_generation,
+            accepted_diagnostics=asdict(accepted_target.diagnostics),
             output_applied=output_applied,
         )
         self.event_records.append(record)
@@ -466,7 +533,7 @@ class SmoothQuestJakaSession:
         if action is ClutchAction.CAPTURE_ARM_REFERENCE:
             assert state.right.wrist_pose is not None and state.head is not None
             started = time.perf_counter_ns()
-            authoritative_tcp = self.simulation.capture_reference()
+            authoritative_tcp = self.target_generator.capture_reference()
             desired = self.arm_mapper.capture(
                 wrist=state.right.wrist_pose,
                 robot_tcp=authoritative_tcp,
@@ -474,6 +541,7 @@ class SmoothQuestJakaSession:
                 timestamp_ns=now_ns,
             )
             self.arm_clutch.reference_captured(now_ns)
+            self.reference_generation += 1
             duration = time.perf_counter_ns() - started
             self.arm_capture_durations_ns.append(duration)
             self.arm_engagement_latencies_ns.append(max(0, now_ns - self._index_sample.host_receive_monotonic_ns))
@@ -509,16 +577,27 @@ class SmoothQuestJakaSession:
         if self.hand_clutch.state is HandClutchState.REACQUIRE:
             target = self._hand_reacquire_anchor + fraction * (target - self._hand_reacquire_anchor)
         mapping = dict(zip(order, target.tolist(), strict=True))
-        self.simulation.set_hand_actuator_target(mapping)
+        assert self.mujoco_plant is not None
+        self.mujoco_plant.set_hand_actuator_target(mapping)
         self._held_hand_command = target.copy()
         self._hand_updated_this_tick = True
 
     def _base_record(self, state: CanonicalQuestState, now_ns: int) -> dict[str, Any]:
         mapping = self.arm_mapper.last_telemetry
+        plant = self.mujoco_plant
+        hand_positions = None
+        if plant is not None:
+            hand_positions = plant.data.qpos[
+                plant.model.jnt_qposadr[
+                    plant.model.actuator_trnid[plant.hand_actuator_ids, 0]
+                ]
+            ].tolist()
         return {
             "control_monotonic_ns": now_ns,
-            "mujoco_time_s": float(self.simulation.data.time),
+            "mujoco_time_s": None if plant is None else float(plant.data.time),
             "input_sequence": state.right.host_sequence_number,
+            "source_sequence": state.right.source_sequence_number,
+            "source_timestamp_ns": state.right.source_timestamp_ns,
             "right_wrist_valid": bool(state.right.tracking_valid and state.right.wrist_pose is not None),
             "right_wrist_age_s": state.right.stream_age_s,
             "hand_skeleton_valid": bool(state.right.tracking_valid and len(state.right.joints) == 21),
@@ -533,7 +612,7 @@ class SmoothQuestJakaSession:
             "captured_head_yaw_rad": self.arm_mapper.latched_head_yaw_rad,
             "arm_reference_pose": _pose_dict(self.arm_mapper.robot_reference),
             "operator_reference_wrist": _pose_dict(self.arm_mapper.hand_reference),
-            "current_arm_target": _pose_dict(self.simulation.last_safe_target),
+            "current_arm_target": _pose_dict(self.target_generator.last_safe_target),
             "operator_delta": None if mapping is None else {
                 "translation_m": mapping.horizontal_delta.position_m,
                 "orientation_xyzw": mapping.horizontal_delta.orientation_xyzw,
@@ -547,25 +626,23 @@ class SmoothQuestJakaSession:
             "active_arm_fault": None if self.arm_clutch.active_fault is None else self.arm_clutch.active_fault.reason,
             "active_hand_fault": None if self.hand_clutch.active_fault is None else self.hand_clutch.active_fault.reason,
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
+            "reference_generation": self.reference_generation,
             "hand_clutch_cycle_count": self.hand_clutch.cycle_count,
             "raw_wrist": _pose_dict(self.arm_mapper.raw_wrist),
             "filtered_wrist": _pose_dict(self.arm_mapper.filtered_wrist),
-            "actual_tcp": _pose_dict(self.simulation.current_tcp_pose),
-            "actual_joint_position_rad": self.simulation.arm_joints_rad.tolist(),
-            "simulated_joint_target_rad": self.simulation.commanded_joint_target.tolist(),
-            "commanded_hand_target_rad": self.simulation.commanded_hand_target.tolist(),
-            "actual_hand_actuator_position_rad": self.simulation.data.qpos[
-                self.simulation.model.jnt_qposadr[
-                    self.simulation.model.actuator_trnid[self.simulation.hand_actuator_ids, 0]
-                ]
-            ].tolist(),
+            "shared_model_tcp": _pose_dict(self.target_generator.current_tcp_pose),
+            "actual_tcp": None if plant is None else _pose_dict(plant.current_tcp_pose),
+            "actual_joint_position_rad": None if plant is None else plant.arm_joints_rad.tolist(),
+            "simulated_joint_target_rad": None if plant is None else plant.commanded_joint_target.tolist(),
+            "commanded_hand_target_rad": None if plant is None else plant.commanded_hand_target.tolist(),
+            "actual_hand_actuator_position_rad": hand_positions,
         }
 
     def _handle_rejection(self, timestamp_ns: int, reason: str) -> None:
         self.rejections[reason] += 1
         self.last_reason = reason
         self.consecutive_rejections += 1
-        if self.simulation_only_recovery:
+        if self.continuation_enabled:
             # Candidate rejection already holds the last safe joint target.
             # Keeping the clutch engaged lets the same absolute relative-pose
             # mapping recover as soon as the operator retreats.  Tracking and
@@ -600,7 +677,8 @@ class SmoothQuestJakaSession:
             "final_state": f"arm={self.arm_clutch.state.value},hand={self.hand_clutch.state.value}",
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
             "hand_clutch_cycle_count": self.hand_clutch.cycle_count,
-            "simulation_only_recovery": self.simulation_only_recovery,
+            "shared_continuation_enabled": self.continuation_enabled,
+            "shared_rejection_policy": self.rejection_policy,
             "continuation_intervention_count": self.continuation_intervention_count,
             "continuation_backtrack_count": self.continuation_backtrack_count,
             "singularity_warning_count": self.singularity_warning_count,
@@ -627,7 +705,7 @@ class SmoothQuestJakaSession:
             "hand_transitions": [asdict(item) for item in self.hand_clutch.transitions],
             "hardware_connections": False,
             "hardware_commands": False,
-            **self.simulation.metrics_report(),
+            **self.target_generator.metrics_report(),
         }
 
 

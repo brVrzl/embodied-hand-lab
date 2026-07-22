@@ -2,34 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Protocol, Sequence
 
-import numpy as np
-
-from motion_input import Pose6D
-
-
-@dataclass(frozen=True, slots=True)
-class AcceptedArmTarget:
-    """One authoritative post-IK target shared by simulation and hardware."""
-
-    sequence_number: int
-    input_sequence_number: int
-    input_receive_monotonic_ns: int
-    generated_monotonic_ns: int
-    desired_tcp: Pose6D
-    filtered_tcp: Pose6D
-    joint_position_rad: tuple[float, float, float, float, float, float]
-
-    def __post_init__(self) -> None:
-        if self.sequence_number < 0 or self.input_sequence_number < 0:
-            raise ValueError("accepted target sequence must be non-negative")
-        if not 0 <= self.input_receive_monotonic_ns <= self.generated_monotonic_ns:
-            raise ValueError("accepted target timestamps must be monotonic")
-        joints = np.asarray(self.joint_position_rad, dtype=np.float64)
-        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
-            raise ValueError("accepted target must contain six finite joint radians")
+from teleoperation.accepted_target import AcceptedArmTarget, AcceptedTcpPose
 
 
 class ArmTargetOutputAdapter(Protocol):

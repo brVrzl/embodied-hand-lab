@@ -18,6 +18,7 @@ from .simulation import (
     JakaMujocoSimulation,
     QuestJakaReplaySession,
     ReplayConfig,
+    SharedJakaTargetGenerator,
 )
 from .smooth_operator import Se3FilterProfile, SmoothRightHandOperator
 from .smooth_session import ArmControlTickResult, SmoothQuestJakaSession
@@ -27,6 +28,7 @@ from .output import (
     MujocoArmTargetAdapter,
     RecordingArmTargetAdapter,
 )
+from teleoperation.accepted_target import AcceptedTargetDiagnostics, AcceptedTcpPose
 from .clutch import (
     AnalogClutchSample,
     AnalogHoldToRun,
@@ -42,6 +44,7 @@ __all__ = [
     "FeasibilityLimits",
     "FeasibilityReason",
     "JakaMujocoSimulation",
+    "SharedJakaTargetGenerator",
     "HandRetargetCalibration",
     "HandRetargeter",
     "InspireRetargetResult",
@@ -55,6 +58,8 @@ __all__ = [
     "SmoothQuestJakaSession",
     "ArmControlTickResult",
     "AcceptedArmTarget",
+    "AcceptedTargetDiagnostics",
+    "AcceptedTcpPose",
     "CompositeArmTargetAdapter",
     "MujocoArmTargetAdapter",
     "RecordingArmTargetAdapter",
