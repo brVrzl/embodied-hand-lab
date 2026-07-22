@@ -32,12 +32,13 @@ from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusR
 
 
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
+E2_APPROVAL = "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("p2-shadow", "p4-live"))
+    parser.add_argument("stage", choices=("p2-shadow", "e2-isolated", "p4-live"))
     parser.add_argument("--config", type=Path, default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"))
     parser.add_argument("--worker", type=Path, default=Path("build/jaka_servo_worker/jaka_servo_worker"))
     parser.add_argument("--robot-ip", required=True)
@@ -75,8 +76,10 @@ def main() -> int:
         raise SystemExit("duration must be positive")
     config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
     hardware = config.raw["hardware_adapter"]
-    live = args.stage == "p4-live"
-    expected_approval = P4_APPROVAL if live else P2_APPROVAL
+    live = args.stage in ("e2-isolated", "p4-live")
+    expected_approval = (
+        E2_APPROVAL if args.stage == "e2-isolated" else P4_APPROVAL if live else P2_APPROVAL
+    )
     if args.approval != expected_approval:
         raise SystemExit(f"exact approval required: {expected_approval}")
     if live:
@@ -140,7 +143,10 @@ def main() -> int:
             "--metrics-file", str(args.metrics),
             "--expected-tool-id", str(hardware["expected_tool_id"]),
             "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
-            "--acknowledgement", expected_approval,
+            # E2 is an additional launcher gate around the already-audited
+            # native joint-teleop mode; the native process retains its P4 risk
+            # acknowledgement rather than gaining a second motion mode.
+            "--acknowledgement", P4_APPROVAL if live else expected_approval,
             "--warning-ms", str(hardware["command_stream_warning_ms"]),
             "--hold-ms", str(hardware["command_stream_timeout_ms"]),
             "--controlled-stop-ms", str(hardware["controlled_stop_timeout_ms"]),
@@ -148,6 +154,10 @@ def main() -> int:
             "--excessive-tracking-error-abort-rad", str(hardware["excessive_tracking_error_abort_rad"]),
             "--excessive-tracking-error-consecutive-cycles", str(hardware["excessive_tracking_error_consecutive_cycles"]),
             "--startup-alignment-tolerance-rad", str(hardware["startup_alignment_tolerance_rad"]),
+            # One authority: the EDG pass-through diagnostic consumes the
+            # existing shared command contract rather than hardware-only copies.
+            "--maximum-output-joint-velocity-rad-s", str(config.command_limits.maximum_velocity_rad_s),
+            "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.command_limits.maximum_acceleration_rad_s2),
         ]
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0

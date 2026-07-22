@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -120,6 +121,7 @@ struct Options {
   std::string target_socket = "/tmp/jaka_servo_target.sock";
   std::string status_socket;
   std::string metrics_file;
+  std::string emitted_points_file;
   std::string acknowledgement;
   double duration_s = 5.0;
   int expected_tool_id = 0;
@@ -139,6 +141,7 @@ struct Options {
   std::uint64_t fake_read_delay_ns = 0;
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
+  std::array<double, 6> fake_initial_joints_rad{};
   std::array<double, 3> workspace_min_mm{};
   std::array<double, 3> workspace_max_mm{};
   bool workspace_min_set = false;
@@ -154,6 +157,8 @@ struct Options {
   double excessive_tracking_error_abort_rad = 0.35;
   std::uint32_t excessive_tracking_error_consecutive_cycles = 2;
   double startup_alignment_tolerance_rad = 0.001;
+  double maximum_output_joint_velocity_rad_s = M_PI;
+  double diagnostic_joint_acceleration_boundary_rad_s2 = 4.0 * M_PI;
 };
 
 bool is_shadow_mode(Mode mode) {
@@ -203,6 +208,21 @@ std::array<double, 3> parse_xyz(const std::string& value) {
   return result;
 }
 
+std::array<double, 6> parse_six(const std::string& value, const char* label) {
+  std::array<double, 6> result{};
+  std::size_t start = 0;
+  for (std::size_t i = 0; i < result.size(); ++i) {
+    const auto end = value.find(',', start);
+    if ((i < result.size() - 1 && end == std::string::npos) ||
+        (i == result.size() - 1 && end != std::string::npos))
+      throw std::runtime_error(std::string(label) + " must contain six comma-separated values");
+    result[i] = std::stod(value.substr(start, end - start));
+    if (!std::isfinite(result[i])) throw std::runtime_error(std::string(label) + " must be finite");
+    start = end + 1;
+  }
+  return result;
+}
+
 std::string value_after(int& index, int argc, char** argv) {
   if (++index >= argc) throw std::runtime_error(std::string("missing value after ") + argv[index - 1]);
   return argv[index];
@@ -232,6 +252,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--target-socket") o.target_socket = value_after(i, argc, argv);
     else if (a == "--status-socket") o.status_socket = value_after(i, argc, argv);
     else if (a == "--metrics-file") o.metrics_file = value_after(i, argc, argv);
+    else if (a == "--emitted-points-file") o.emitted_points_file = value_after(i, argc, argv);
     else if (a == "--duration-s") o.duration_s = std::stod(value_after(i, argc, argv));
     else if (a == "--expected-tool-id") o.expected_tool_id = std::stoi(value_after(i, argc, argv));
     else if (a == "--expected-user-frame-id") o.expected_user_frame_id = std::stoi(value_after(i, argc, argv));
@@ -250,6 +271,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--fake-read-delay-us") o.fake_read_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
+    else if (a == "--fake-initial-joints-rad") o.fake_initial_joints_rad = parse_six(value_after(i, argc, argv), "fake initial joints");
     else if (a == "--workspace-min-mm") { o.workspace_min_mm = parse_xyz(value_after(i, argc, argv)); o.workspace_min_set = true; }
     else if (a == "--workspace-max-mm") { o.workspace_max_mm = parse_xyz(value_after(i, argc, argv)); o.workspace_max_set = true; }
     else if (a == "--relative-translation-limit-m") o.relative_translation_limit_m = std::stod(value_after(i, argc, argv));
@@ -263,6 +285,8 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--excessive-tracking-error-abort-rad") o.excessive_tracking_error_abort_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--excessive-tracking-error-consecutive-cycles") o.excessive_tracking_error_consecutive_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--startup-alignment-tolerance-rad") o.startup_alignment_tolerance_rad = std::stod(value_after(i, argc, argv));
+    else if (a == "--maximum-output-joint-velocity-rad-s") o.maximum_output_joint_velocity_rad_s = std::stod(value_after(i, argc, argv));
+    else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop [options]\n";
       std::exit(0);
@@ -302,8 +326,15 @@ Options parse_options(int argc, char** argv) {
           o.excessive_tracking_error_consecutive_cycles <= 10 &&
           std::isfinite(o.startup_alignment_tolerance_rad) &&
           o.startup_alignment_tolerance_rad > 0.0 &&
-          o.startup_alignment_tolerance_rad <= 0.01))
+          o.startup_alignment_tolerance_rad <= 0.01 &&
+          std::isfinite(o.maximum_output_joint_velocity_rad_s) &&
+          o.maximum_output_joint_velocity_rad_s > 0.0 &&
+          o.maximum_output_joint_velocity_rad_s <= 2.0 * M_PI &&
+          std::isfinite(o.diagnostic_joint_acceleration_boundary_rad_s2) &&
+          o.diagnostic_joint_acceleration_boundary_rad_s2 > 0.0))
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
+    if (!o.emitted_points_file.empty() && !uses_fake_backend(o.mode))
+      throw std::runtime_error("emitted point recording is fake-backend/offline only");
   }
   if (o.mode == Mode::MinimalMotion) {
     if (o.probe_joint < 0 || o.probe_joint >= 6 || std::abs(o.probe_delta_rad) > 0.002 || std::abs(o.probe_delta_rad) < 1e-9)
@@ -423,6 +454,245 @@ void validate_manufacturer_joint_position_limits(const std::array<double, 6>& ta
   }
 }
 
+struct ResampledServoPoint {
+  std::array<double, 6> position{};
+  std::uint64_t servo_time_ns = 0;
+  std::uint64_t from_sequence = 0;
+  std::uint64_t to_sequence = 0;
+  std::uint64_t from_accepted_ns = 0;
+  std::uint64_t to_accepted_ns = 0;
+  double alpha = 0.0;
+  bool endpoint = false;
+};
+
+// Causal, bounded transport-only resampling. AcceptedArmTarget.processing_ns is
+// generated from CLOCK_MONOTONIC on this host. It defines each upstream segment
+// duration; actual worker tick time defines where that segment is evaluated.
+// Only the newest destination is retained. A replacement starts at the most
+// recently emitted point/time, so no stale points are queued or replayed.
+class JointServoResampler {
+ public:
+  void initialize(const std::array<double, 6>& measured, std::uint64_t servo_time_ns) {
+    validate_manufacturer_joint_position_limits(measured);
+    if (servo_time_ns == 0) throw std::runtime_error("resampler initialization time is invalid");
+    emitted_ = start_ = destination_ = measured;
+    last_servo_time_ns_ = segment_start_ns_ = segment_end_ns_ = servo_time_ns;
+    initialized_ = true;
+    has_accepted_ = false;
+    active_ = false;
+  }
+
+  void accept(const std::array<double, 6>& destination, std::uint64_t accepted_ns,
+              std::uint64_t sequence) {
+    if (!initialized_) throw std::runtime_error("resampler is not initialized");
+    validate_manufacturer_joint_position_limits(destination);
+    if (accepted_ns == 0 || sequence == 0)
+      throw std::runtime_error("accepted target has an invalid resampling timestamp or sequence");
+    if (!has_accepted_) {
+      last_accepted_ns_ = accepted_ns;
+      from_accepted_ns_ = to_accepted_ns_ = accepted_ns;
+      from_sequence_ = to_sequence_ = sequence;
+      start_ = emitted_;
+      destination_ = destination;
+      segment_start_ns_ = last_servo_time_ns_;
+      segment_end_ns_ = segment_start_ns_ + kPeriodNs;
+      maximum_segment_duration_ns_ = kPeriodNs;
+      has_accepted_ = true;
+      active_ = true;
+      return;
+    }
+    if (accepted_ns <= last_accepted_ns_)
+      throw std::runtime_error("accepted target resampling timestamps are not strictly monotonic");
+    if (sequence <= to_sequence_)
+      throw std::runtime_error("accepted target resampling sequences are not strictly monotonic");
+    if (active_ && last_servo_time_ns_ < segment_end_ns_) ++preemptions_;
+    const std::uint64_t duration_ns = accepted_ns - last_accepted_ns_;
+    maximum_segment_duration_ns_ = std::max(maximum_segment_duration_ns_, duration_ns);
+    start_ = emitted_;
+    destination_ = destination;
+    segment_start_ns_ = last_servo_time_ns_;
+    if (duration_ns > std::numeric_limits<std::uint64_t>::max() - segment_start_ns_)
+      throw std::runtime_error("accepted target segment duration overflows servo time");
+    segment_end_ns_ = segment_start_ns_ + duration_ns;
+    from_sequence_ = to_sequence_;
+    to_sequence_ = sequence;
+    from_accepted_ns_ = last_accepted_ns_;
+    to_accepted_ns_ = accepted_ns;
+    last_accepted_ns_ = accepted_ns;
+    active_ = true;
+    ++destination_switches_;
+  }
+
+  ResampledServoPoint evaluate(std::uint64_t servo_time_ns) const {
+    if (!initialized_ || !has_accepted_)
+      throw std::runtime_error("resampler has no accepted target");
+    if (servo_time_ns < last_servo_time_ns_)
+      throw std::runtime_error("servo evaluation time moved backwards");
+    ResampledServoPoint point{};
+    point.servo_time_ns = servo_time_ns;
+    point.from_sequence = from_sequence_;
+    point.to_sequence = to_sequence_;
+    point.from_accepted_ns = from_accepted_ns_;
+    point.to_accepted_ns = to_accepted_ns_;
+    if (!active_ || segment_end_ns_ <= segment_start_ns_) {
+      point.position = emitted_;
+      point.alpha = active_ ? 1.0 : 0.0;
+      point.endpoint = active_;
+      return point;
+    }
+    point.alpha = std::clamp(
+        static_cast<double>(servo_time_ns - segment_start_ns_) /
+            static_cast<double>(segment_end_ns_ - segment_start_ns_),
+        0.0, 1.0);
+    for (std::size_t joint = 0; joint < point.position.size(); ++joint)
+      point.position[joint] = start_[joint] + point.alpha * (destination_[joint] - start_[joint]);
+    point.endpoint = point.alpha >= 1.0;
+    return point;
+  }
+
+  void commit(const ResampledServoPoint& point, std::uint64_t command_ns) {
+    if (point.servo_time_ns < last_servo_time_ns_)
+      throw std::runtime_error("committed servo point moved backwards in time");
+    bool repeated = true;
+    for (std::size_t joint = 0; joint < emitted_.size(); ++joint)
+      repeated = repeated && point.position[joint] == emitted_[joint];
+    repeated_points_ += repeated ? 1 : 0;
+    emitted_ = point.position;
+    last_servo_time_ns_ = point.servo_time_ns;
+    ++emitted_points_;
+    if (point.endpoint && active_) {
+      active_ = false;
+      ++endpoint_points_;
+      if (command_ns >= to_accepted_ns_)
+        maximum_endpoint_latency_ns_ = std::max(maximum_endpoint_latency_ns_, command_ns - to_accepted_ns_);
+    }
+  }
+
+  const std::array<double, 6>& emitted() const { return emitted_; }
+  std::uint64_t emitted_points() const { return emitted_points_; }
+  std::uint64_t repeated_points() const { return repeated_points_; }
+  std::uint64_t destination_switches() const { return destination_switches_; }
+  std::uint64_t preemptions() const { return preemptions_; }
+  std::uint64_t endpoint_points() const { return endpoint_points_; }
+  std::uint64_t maximum_segment_duration_ns() const { return maximum_segment_duration_ns_; }
+  std::uint64_t maximum_endpoint_latency_ns() const { return maximum_endpoint_latency_ns_; }
+
+ private:
+  std::array<double, 6> emitted_{}, start_{}, destination_{};
+  std::uint64_t last_servo_time_ns_ = 0;
+  std::uint64_t segment_start_ns_ = 0, segment_end_ns_ = 0;
+  std::uint64_t last_accepted_ns_ = 0;
+  std::uint64_t from_accepted_ns_ = 0, to_accepted_ns_ = 0;
+  std::uint64_t from_sequence_ = 0, to_sequence_ = 0;
+  std::uint64_t emitted_points_ = 0, repeated_points_ = 0;
+  std::uint64_t destination_switches_ = 0, preemptions_ = 0, endpoint_points_ = 0;
+  std::uint64_t maximum_segment_duration_ns_ = 0, maximum_endpoint_latency_ns_ = 0;
+  bool initialized_ = false, has_accepted_ = false, active_ = false;
+};
+
+struct OutputMotionSample {
+  std::array<double, 6> velocity{}, acceleration{}, jerk{};
+  std::uint64_t command_ns = 0;
+};
+
+class OutputMotionDiagnostics {
+ public:
+  explicit OutputMotionDiagnostics(const Options& options) : options_(options) {}
+
+  OutputMotionSample check(const ResampledServoPoint& point, std::uint64_t command_ns) {
+    validate_manufacturer_joint_position_limits(point.position);
+    if (command_ns == 0) throw std::runtime_error("output command timestamp is invalid");
+    OutputMotionSample sample{};
+    sample.command_ns = command_ns;
+    if (!initialized_) return sample;
+    if (command_ns <= previous_command_ns_)
+      throw std::runtime_error("output command timestamps are not strictly monotonic");
+    const double dt_s = static_cast<double>(command_ns - previous_command_ns_) / 1e9;
+    for (std::size_t joint = 0; joint < point.position.size(); ++joint) {
+      sample.velocity[joint] = (point.position[joint] - previous_position_[joint]) / dt_s;
+      sample.acceleration[joint] = (sample.velocity[joint] - previous_velocity_[joint]) / dt_s;
+      sample.jerk[joint] = (sample.acceleration[joint] - previous_acceleration_[joint]) / dt_s;
+      if (!std::isfinite(sample.velocity[joint]) || !std::isfinite(sample.acceleration[joint]) ||
+          !std::isfinite(sample.jerk[joint]))
+        throw std::runtime_error("non-finite controller-visible output diagnostic");
+      if (std::abs(sample.velocity[joint]) > options_.maximum_output_joint_velocity_rad_s + 1e-12) {
+        ++speed_boundary_rejections_[joint];
+        throw std::runtime_error(
+            "resampled output exceeds joint-speed boundary before SDK call: J" +
+            std::to_string(joint + 1) + " velocity=" + std::to_string(sample.velocity[joint]) +
+            " rad/s limit=" + std::to_string(options_.maximum_output_joint_velocity_rad_s) +
+            " from_sequence=" + std::to_string(point.from_sequence) +
+            " to_sequence=" + std::to_string(point.to_sequence) +
+            " alpha=" + std::to_string(point.alpha));
+      }
+    }
+    return sample;
+  }
+
+  void commit(const ResampledServoPoint& point, const OutputMotionSample& sample) {
+    if (initialized_) {
+      for (std::size_t joint = 0; joint < point.position.size(); ++joint) {
+        maximum_delta_[joint] = std::max(maximum_delta_[joint], std::abs(point.position[joint] - previous_position_[joint]));
+        maximum_velocity_[joint] = std::max(maximum_velocity_[joint], std::abs(sample.velocity[joint]));
+        maximum_acceleration_[joint] = std::max(maximum_acceleration_[joint], std::abs(sample.acceleration[joint]));
+        maximum_jerk_[joint] = std::max(maximum_jerk_[joint], std::abs(sample.jerk[joint]));
+        if (std::abs(sample.acceleration[joint]) > options_.diagnostic_joint_acceleration_boundary_rad_s2)
+          ++acceleration_boundary_crossings_[joint];
+      }
+    }
+    previous_position_ = point.position;
+    previous_velocity_ = sample.velocity;
+    previous_acceleration_ = sample.acceleration;
+    previous_command_ns_ = sample.command_ns;
+    initialized_ = true;
+  }
+
+  const std::array<double, 6>& maximum_delta() const { return maximum_delta_; }
+  const std::array<double, 6>& maximum_velocity() const { return maximum_velocity_; }
+  const std::array<double, 6>& maximum_acceleration() const { return maximum_acceleration_; }
+  const std::array<double, 6>& maximum_jerk() const { return maximum_jerk_; }
+  const std::array<std::uint64_t, 6>& acceleration_boundary_crossings() const { return acceleration_boundary_crossings_; }
+  const std::array<std::uint64_t, 6>& speed_boundary_rejections() const { return speed_boundary_rejections_; }
+
+ private:
+  const Options& options_;
+  std::array<double, 6> previous_position_{}, previous_velocity_{}, previous_acceleration_{};
+  std::array<double, 6> maximum_delta_{}, maximum_velocity_{}, maximum_acceleration_{}, maximum_jerk_{};
+  std::array<std::uint64_t, 6> acceleration_boundary_crossings_{};
+  std::array<std::uint64_t, 6> speed_boundary_rejections_{};
+  std::uint64_t previous_command_ns_ = 0;
+  bool initialized_ = false;
+};
+
+struct RecordedServoPoint {
+  ResampledServoPoint point;
+  OutputMotionSample motion;
+};
+
+void write_emitted_points(const Options& options, const std::vector<RecordedServoPoint>& points) {
+  if (options.emitted_points_file.empty()) return;
+  std::ofstream out(options.emitted_points_file);
+  if (!out) throw std::runtime_error("cannot open emitted points file");
+  out << std::setprecision(17);
+  for (const auto& row : points) {
+    out << "{\"servo_time_ns\":" << row.point.servo_time_ns
+        << ",\"command_ns\":" << row.motion.command_ns
+        << ",\"from_sequence\":" << row.point.from_sequence
+        << ",\"to_sequence\":" << row.point.to_sequence
+        << ",\"from_accepted_ns\":" << row.point.from_accepted_ns
+        << ",\"to_accepted_ns\":" << row.point.to_accepted_ns
+        << ",\"alpha\":" << row.point.alpha
+        << ",\"endpoint\":" << (row.point.endpoint ? "true" : "false")
+        << ",\"joint_position_rad\":[";
+    for (std::size_t joint = 0; joint < 6; ++joint) out << (joint ? "," : "") << row.point.position[joint];
+    out << "],\"joint_velocity_rad_s\":[";
+    for (std::size_t joint = 0; joint < 6; ++joint) out << (joint ? "," : "") << row.motion.velocity[joint];
+    out << "],\"joint_acceleration_rad_s2\":[";
+    for (std::size_t joint = 0; joint < 6; ++joint) out << (joint ? "," : "") << row.motion.acceleration[joint];
+    out << "]}\n";
+  }
+}
+
 double rotation_distance(const std::array<double, 3>& left_rpy,
                          const std::array<double, 3>& right_rpy) {
   const Matrix3 left = rpy_to_matrix(left_rpy), right = rpy_to_matrix(right_rpy);
@@ -457,7 +727,7 @@ class Backend {
 
 class FakeBackend final : public Backend {
  public:
-  explicit FakeBackend(const Options& o) : options_(o) {}
+  explicit FakeBackend(const Options& o) : options_(o), joints_(o.fake_initial_joints_rad) {}
   ~FakeBackend() override { cleanup(); }
   void connect() override { delay(options_.fake_connect_delay_ns); connected_ = true; }
   void verify(int, int) override { if (!connected_) throw std::runtime_error("fake disconnected"); }
@@ -867,12 +1137,15 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
                    double maximum_observed_delta_rad, int error_code, int cleanup_error_code,
                    const std::string& outcome, const TeleopMetrics& teleop,
                    const JerkBoundedJointTracker& tracker,
-                   const std::array<double, 6>& initial_joint_position_rad) {
+                   const std::array<double, 6>& initial_joint_position_rad,
+                   const JointServoResampler& resampler,
+                   const OutputMotionDiagnostics& output_diagnostics,
+                   const std::array<double, 6>& final_accepted_target_rad) {
   std::ofstream file;
   std::ostream* output = &std::cout;
   if (!o.metrics_file.empty()) { file.open(o.metrics_file); if (!file) throw std::runtime_error("cannot open metrics file"); output = &file; }
   auto& out = *output;
-  out << std::setprecision(12) << "{\n  \"schema_version\":\"jaka_worker_metrics.v1\",\n"
+  out << std::setprecision(12) << "{\n  \"schema_version\":\"jaka_worker_metrics.v2\",\n"
       << "  \"mode\":\"" << mode_name(o.mode) << "\",\n"
       << "  \"outcome\":\"" << outcome << "\",\n  \"requested_period_ns\":" << kPeriodNs << ",\n"
       << "  \"elapsed_s\":" << elapsed_s << ",\n  \"worker_cpu_s\":" << cpu_s << ",\n  \"worker_cpu_percent\":" << (elapsed_s > 0 ? cpu_s / elapsed_s * 100.0 : 0.0) << ",\n"
@@ -895,6 +1168,17 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"tracking_warning_cycles\":" << teleop.tracking_warning_cycles << ",\n"
       << "  \"tracking_hard_crossings\":" << teleop.tracking_hard_crossings << ",\n"
       << "  \"initial_joint_position_rad\":[" << initial_joint_position_rad[0] << ',' << initial_joint_position_rad[1] << ',' << initial_joint_position_rad[2] << ',' << initial_joint_position_rad[3] << ',' << initial_joint_position_rad[4] << ',' << initial_joint_position_rad[5] << "],\n"
+      << "  \"edg_step_num\":1,\n"
+      << "  \"resampler_timestamp_domain\":\"AcceptedArmTarget.generated_monotonic_ns/CLOCK_MONOTONIC\",\n"
+      << "  \"resampler_emitted_points\":" << resampler.emitted_points() << ",\n"
+      << "  \"resampler_repeated_points\":" << resampler.repeated_points() << ",\n"
+      << "  \"resampler_destination_switches\":" << resampler.destination_switches() << ",\n"
+      << "  \"resampler_preemptions\":" << resampler.preemptions() << ",\n"
+      << "  \"resampler_endpoint_points\":" << resampler.endpoint_points() << ",\n"
+      << "  \"resampler_maximum_segment_duration_ns\":" << resampler.maximum_segment_duration_ns() << ",\n"
+      << "  \"resampler_maximum_endpoint_latency_ns\":" << resampler.maximum_endpoint_latency_ns() << ",\n"
+      << "  \"output_joint_velocity_boundary_rad_s\":" << o.maximum_output_joint_velocity_rad_s << ",\n"
+      << "  \"diagnostic_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"maximum_joint_velocity_rad_s\":" << tracker.maximum_velocity() << ",\n"
       << "  \"maximum_joint_acceleration_rad_s2\":" << tracker.maximum_acceleration() << ",\n"
       << "  \"maximum_joint_jerk_rad_s3\":" << tracker.maximum_jerk() << ",\n"
@@ -913,7 +1197,24 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
   metric_json(out, "command_write_duration", s.writes, s.count, true);
   metric_json(out, "transport_age", s.target_ages, s.count, true);
   metric_json(out, "command_age", s.command_ages, s.count, false);
-  out << "  }\n}\n";
+  out << "  },\n";
+  auto write_six = [&out](const char* name, const auto& values, bool comma) {
+    out << "  \"" << name << "\":[";
+    for (std::size_t joint = 0; joint < 6; ++joint) out << (joint ? "," : "") << values[joint];
+    out << "]" << (comma ? "," : "") << "\n";
+  };
+  write_six("output_maximum_adjacent_delta_rad", output_diagnostics.maximum_delta(), true);
+  write_six("output_maximum_velocity_rad_s", output_diagnostics.maximum_velocity(), true);
+  write_six("output_maximum_acceleration_rad_s2", output_diagnostics.maximum_acceleration(), true);
+  write_six("output_maximum_jerk_rad_s3", output_diagnostics.maximum_jerk(), true);
+  write_six("output_speed_boundary_rejections", output_diagnostics.speed_boundary_rejections(), true);
+  write_six("output_acceleration_boundary_crossings", output_diagnostics.acceleration_boundary_crossings(), true);
+  std::array<double, 6> endpoint_error{};
+  if (resampler.emitted_points() > 0)
+    for (std::size_t joint = 0; joint < 6; ++joint)
+      endpoint_error[joint] = resampler.emitted()[joint] - final_accepted_target_rad[joint];
+  write_six("final_resampler_endpoint_error_rad", endpoint_error, false);
+  out << "}\n";
 }
 
 double smoothstep5(double x) { x = std::clamp(x, 0.0, 1.0); return x*x*x*(10.0 + x*(-15.0 + 6.0*x)); }
@@ -925,6 +1226,10 @@ int run(const Options& o) {
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
   JerkBoundedJointTracker tracker(o);
+  JointServoResampler joint_resampler;
+  OutputMotionDiagnostics output_diagnostics(o);
+  std::vector<RecordedServoPoint> recorded_servo_points;
+  if (!o.emitted_points_file.empty()) recorded_servo_points.reserve(4096);
   TeleopMetrics teleop{};
   TargetPacket latest{}; bool ever_received = false;
   std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, consecutive_overruns = 0;
@@ -1129,10 +1434,15 @@ int run(const Options& o) {
             // only after activation and the second startup-alignment check.
             previous = now_ns();
             deadline = previous;
+            joint_resampler.initialize(observed, previous);
+            joint_resampler.accept(solution, packet.processing_ns, packet.sequence);
+            schedule_realign = false;
             consecutive_timing_warnings = 0;
             consecutive_completion_misses = 0;
             timing_rearmed_after_edg = true;
             state = State::Running;
+          } else if (is_joint_teleop_mode(o.mode)) {
+            joint_resampler.accept(solution, packet.processing_ns, packet.sequence);
           }
         }
       }
@@ -1185,7 +1495,13 @@ int run(const Options& o) {
           maximum_command_delta_rad = std::max(maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
         const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
       } else if (is_joint_teleop_mode(o.mode) && backend->edg_active() && has_ik_target) {
-        target = ik_target;
+        // Normal trajectory evaluation stays on the exact 8 ms deadline grid.
+        // A recovered late wake evaluates once at current time and re-arms;
+        // expired historical ticks are never emitted in a catch-up burst.
+        const std::uint64_t servo_evaluation_time = timing_rearmed_after_edg
+            ? previous : (schedule_realign ? cycle_start : deadline);
+        const ResampledServoPoint servo_point = joint_resampler.evaluate(servo_evaluation_time);
+        target = servo_point.position;
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < target.size(); ++joint) {
           const double difference = std::abs(target[joint] - observed[joint]);
@@ -1204,9 +1520,14 @@ int run(const Options& o) {
         if (consecutive_tracking_crossings >= o.excessive_tracking_error_consecutive_cycles)
           throw std::runtime_error("clearly excessive measured joint tracking error");
         const auto write_start = now_ns();
+        const OutputMotionSample motion_sample = output_diagnostics.check(servo_point, write_start);
         backend->command(target);
         command_time = now_ns();
         write_duration = command_time - write_start;
+        output_diagnostics.commit(servo_point, motion_sample);
+        joint_resampler.commit(servo_point, command_time);
+        if (!o.emitted_points_file.empty())
+          recorded_servo_points.push_back(RecordedServoPoint{servo_point, motion_sample});
       } else if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) {
         target = initial;
         if (o.mode == Mode::MinimalMotion) {
@@ -1308,10 +1629,11 @@ int run(const Options& o) {
   std::copy(observed.begin(), observed.end(), final_status.joint_position_rad);
   status_sender.send_status(final_status);
   getrusage(RUSAGE_SELF, &usage_end); const auto end = now_ns();
+  write_emitted_points(o, recorded_servo_points);
   write_metrics(o, samples, accepted, rejected, warning_cycles, (end - start) / 1e9,
                 cpu_seconds(usage_end) - cpu_seconds(usage_start), maximum_command_delta_rad,
                 maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker,
-                initial);
+                initial, joint_resampler, output_diagnostics, ik_target);
   return error_code == 0 ? 0 : 2;
 }
 }  // namespace

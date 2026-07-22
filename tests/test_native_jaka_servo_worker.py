@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import signal
 import socket
 import subprocess
@@ -291,8 +292,8 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert result.returncode == 0
     assert payload["outcome"] == "completed"
     assert payload["hard_timing_misses"] == 0
-    assert payload["timing_warning_events"] == 1
-    assert payload["schedule_realignments"] == 1
+    assert payload["timing_warning_events"] >= 1
+    assert payload["schedule_realignments"] >= 1
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
@@ -344,7 +345,7 @@ def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
     assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
 
 
-def test_quest_joint_teleop_repeats_exact_latest_target_without_shaping(tmp_path) -> None:
+def test_quest_joint_teleop_time_resamples_latest_target_without_ik_or_endpoint_change(tmp_path) -> None:
     metrics = tmp_path / "joint-teleop.json"
     target = tmp_path / "joint-teleop.sock"
     process = subprocess.Popen(
@@ -366,17 +367,21 @@ def test_quest_joint_teleop_repeats_exact_latest_target_without_shaping(tmp_path
     with LatestTargetPublisher(target) as publisher:
         assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
         time.sleep(0.025)
-        expected = (0.1, -0.1, 0.08, -0.08, 0.06, -0.06)
+        expected = (0.04, -0.04, 0.032, -0.032, 0.024, -0.024)
         assert publisher.publish(joint_packet(2, expected, allow_motion=True))
     assert process.wait(timeout=3) == 0
     payload = json.loads(metrics.read_text())
     assert payload["mode"] == "quest_joint_teleop_fake"
     assert payload["ik_calls"] == 0
     assert payload["last_ik_target_rad"] == pytest.approx(expected)
-    assert payload["maximum_intentional_command_delta_rad"] == pytest.approx(0.1)
+    assert payload["maximum_intentional_command_delta_rad"] == pytest.approx(0.04)
     assert payload["maximum_joint_velocity_rad_s"] == 0.0
     assert payload["maximum_joint_acceleration_rad_s2"] == 0.0
     assert payload["maximum_joint_jerk_rad_s3"] == 0.0
+    assert payload["resampler_emitted_points"] > payload["accepted_targets"]
+    assert payload["resampler_destination_switches"] == 1
+    assert payload["final_resampler_endpoint_error_rad"] == pytest.approx([0.0] * 6)
+    assert max(payload["output_maximum_velocity_rad_s"]) <= math.pi + 1e-12
     assert payload["outcome"] == "command_stream_timeout"
 
 

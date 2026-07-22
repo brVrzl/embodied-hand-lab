@@ -1,0 +1,115 @@
+{
+  "accepted_target_count": 55,
+  "arm_clutch_cycle_count": 1,
+  "arm_control_rate_hz": 59.997425003218744,
+  "arm_final_state": "engaged",
+  "arm_reference_capture_ms": {
+    "max": 0.779915,
+    "mean": 0.779915,
+    "p95": 0.779915
+  },
+  "arm_target_latency_ms": {
+    "max": 31.863402,
+    "mean": 9.297079745454544,
+    "p95": 24.111464699999996
+  },
+  "arm_transitions": [
+    {
+      "current": "disengaged",
+      "previous": "armed_waiting_for_release",
+      "reason": "VALID_RELEASE_OBSERVED",
+      "timestamp_monotonic_ns": 610538973733578
+    },
+    {
+      "current": "reference_capture",
+      "previous": "disengaged",
+      "reason": "ARM_PRESS_EDGE",
+      "timestamp_monotonic_ns": 610553607733578
+    },
+    {
+      "current": "engaged",
+      "previous": "reference_capture",
+      "reason": "ARM_REFERENCE_CAPTURED",
+      "timestamp_monotonic_ns": 610553607733578
+    }
+  ],
+  "arm_trigger_to_engagement_ms": {
+    "max": 0.0,
+    "mean": 0.0,
+    "p95": 0.0
+  },
+  "clutch_provider": "deterministic_replay_cli",
+  "continuation_backtrack_count": 0,
+  "continuation_intervention_count": 0,
+  "control_tick_count": 933,
+  "deterministic": true,
+  "event_log": "/tmp/jaka_edg_sim_initial_replay.events.jsonl",
+  "filter_profile": "simulation_exploration",
+  "final_state": "arm=engaged,hand=disengaged",
+  "grip_trigger_sample_age_ms": {
+    "max": 0.0,
+    "mean": 0.0,
+    "p95": 0.0
+  },
+  "grip_trigger_source_rate_hz": 59.997425003218744,
+  "hand_backend": "adaptive",
+  "hand_clutch_cycle_count": 0,
+  "hand_final_state": "disengaged",
+  "hand_reacquisition_configured_ms": 200.0,
+  "hand_retarget_computation_ms": null,
+  "hand_retarget_rate_hz": null,
+  "hand_target_latency_ms": null,
+  "hand_transitions": [
+    {
+      "current": "disengaged",
+      "previous": "armed_waiting_for_release",
+      "reason": "VALID_RELEASE_OBSERVED",
+      "timestamp_monotonic_ns": 610538973733578
+    }
+  ],
+  "hand_trigger_to_engagement_ms": null,
+  "hand_valid_result_count": 0,
+  "hardware_commands": false,
+  "hardware_connections": false,
+  "head_source_rate_hz": 71.81605067901513,
+  "ik_attempt_count": 55,
+  "ik_computation_ms": {
+    "max": 2.970845,
+    "mean": 2.5989686363636357,
+    "p95": 2.8070686
+  },
+  "ik_rate_hz": 60.0,
+  "ik_success_rate": null,
+  "index_trigger_sample_age_ms": {
+    "max": 0.0,
+    "mean": 0.0,
+    "p95": 0.0
+  },
+  "index_trigger_source_rate_hz": 59.997425003218744,
+  "input_frame_count": 1116,
+  "input_rate_hz": 71.8156549795307,
+  "maximum_desired_to_simulated_tcp_error_m": 0.022424925572210257,
+  "maximum_jacobian_condition": 7.009978328400088,
+  "maximum_joint_acceleration_rad_s2": 23.008276516361985,
+  "maximum_joint_velocity_rad_s": 0.7386966829606989,
+  "maximum_requested_backlog_deg": 0.0,
+  "maximum_requested_backlog_m": 0.0,
+  "maximum_tcp_displacement_m": 0.027394130892567023,
+  "maximum_tcp_velocity_m_s": 0.1287711439864837,
+  "minimum_collision_distance_m": null,
+  "minimum_jacobian_singular_value": 0.09914645328637041,
+  "mode": "recorded_smooth_6dof_simulation_only",
+  "rejections": {},
+  "replay_source": "/home/thor/projects/embodied_lab/logs/quest_jaka_p4_first_live_retry2_capture.jsonl",
+  "replay_speed": 1.0,
+  "right_wrist_sample_age_ms": {
+    "max": 111.031222,
+    "mean": 10.853811087888532,
+    "p95": 26.8476544
+  },
+  "schema_version": "quest_jaka_rh56_dual_clutch_precision.v1",
+  "shared_continuation_enabled": true,
+  "shared_rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
+  "singularity_warning_count": 0,
+  "viewer_update_count": 0
+}

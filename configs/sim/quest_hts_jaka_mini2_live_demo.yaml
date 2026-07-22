@@ -76,9 +76,10 @@ rates:
   interpolation_delay_ms: 20
   target_generation_hz: 60
   ik_hz: 60
-  # The accepted target is generated once at 60 Hz for both outputs.  JAKA's
-  # EDG transport repeats the newest unchanged target at its required 8 ms
-  # period; it does not interpolate or reshape it.
+  # The accepted target is generated once at 60 Hz for both outputs. At the
+  # JAKA representation/transport boundary only, adjacent accepted J1..J6
+  # points are time-resampled onto continuous 8 ms ServoJ points. The shared
+  # endpoints, mapping, filtering, continuation and IK remain authoritative.
   jaka_transport_hz: 125
   mujoco_control_hz: 500
   viewer_hz: 60

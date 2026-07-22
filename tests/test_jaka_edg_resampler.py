@@ -1,0 +1,380 @@
+from __future__ import annotations
+
+import json
+import math
+import socket
+import subprocess
+import time
+from pathlib import Path
+
+import pytest
+
+from teleoperation.wire import (
+    FrameId,
+    LatestTargetPublisher,
+    TargetFlags,
+    TargetKind,
+    TargetPacket,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def build_worker() -> None:
+    subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(ROOT / "native/jaka_servo_worker"),
+            "-B",
+            str(ROOT / "build/jaka_servo_worker"),
+            "-DCMAKE_BUILD_TYPE=Release",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ["cmake", "--build", str(ROOT / "build/jaka_servo_worker"), "-j2"],
+        check=True,
+    )
+
+
+def _packet(
+    sequence: int,
+    joints: tuple[float, ...],
+    processing_ns: int,
+    *,
+    stop: bool = False,
+) -> TargetPacket:
+    dispatch_ns = time.monotonic_ns()
+    if stop:
+        return TargetPacket(
+            TargetKind.STOP,
+            TargetFlags.NONE,
+            FrameId.NONE,
+            sequence,
+            0,
+            dispatch_ns,
+            dispatch_ns,
+            dispatch_ns,
+            (0.0,) * 8,
+        )
+    return TargetPacket(
+        TargetKind.JOINT_POSITION,
+        TargetFlags.ALLOW_MOTION,
+        FrameId.NONE,
+        sequence,
+        0,
+        processing_ns,
+        processing_ns,
+        dispatch_ns,
+        (*joints, 0.0, 0.0),
+    )
+
+
+def _read_points(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+
+def _run_stream(
+    tmp_path: Path,
+    samples: list[tuple[float, int, tuple[float, ...]]],
+    *,
+    initial: tuple[float, ...] | None = None,
+    stop_after_s: float | None = None,
+    extra: tuple[str, ...] = (),
+) -> tuple[subprocess.CompletedProcess[str], dict, list[dict]]:
+    metrics = tmp_path / "metrics.json"
+    emitted = tmp_path / "emitted.jsonl"
+    target = tmp_path / "target.sock"
+    initial = initial or samples[0][2]
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode",
+            "joint-teleop-dry-run",
+            "--duration-s",
+            "0.8",
+            "--warning-ms",
+            "80",
+            "--hold-ms",
+            "200",
+            "--controlled-stop-ms",
+            "300",
+            "--fatal-timeout-ms",
+            "500",
+            "--fake-initial-joints-rad",
+            ",".join(str(value) for value in initial),
+            "--target-socket",
+            str(target),
+            "--metrics-file",
+            str(metrics),
+            "--emitted-points-file",
+            str(emitted),
+            *extra,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 2.0
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert target.exists()
+    started = time.monotonic()
+    processing_base = time.monotonic_ns() - 1_000_000_000
+    with LatestTargetPublisher(target) as publisher:
+        for sequence, (delay_s, offset_ns, joints) in enumerate(samples, start=1):
+            while time.monotonic() - started < delay_s:
+                time.sleep(0.0002)
+            assert publisher.publish(
+                _packet(sequence, joints, processing_base + offset_ns)
+            )
+        if stop_after_s is not None:
+            while time.monotonic() - started < stop_after_s:
+                time.sleep(0.0002)
+            assert publisher.publish(
+                _packet(10_000, (0.0,) * 6, processing_base, stop=True)
+            )
+    stdout, stderr = process.communicate(timeout=3)
+    result = subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    return result, json.loads(metrics.read_text()), _read_points(emitted)
+
+
+def _stream_samples(
+    intervals_ns: list[int],
+    values: list[float],
+) -> list[tuple[float, int, tuple[float, ...]]]:
+    assert len(values) == len(intervals_ns) + 1
+    offsets = [0]
+    for interval in intervals_ns:
+        offsets.append(offsets[-1] + interval)
+    return [
+        (offset / 1e9, offset, (value, -value, value / 2, -value / 2, value / 4, -value / 4))
+        for offset, value in zip(offsets, values, strict=True)
+    ]
+
+
+def test_60_hz_targets_become_continuous_exact_8ms_grid_and_reach_endpoint(tmp_path) -> None:
+    samples = _stream_samples([16_666_667] * 3, [0.0, 0.012, 0.024, 0.036])
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    moving = [row for row in points if row["alpha"] > 0.0 and not row["endpoint"]]
+    assert moving
+    servo_times = [row["servo_time_ns"] for row in points]
+    assert all(right > left for left, right in zip(servo_times, servo_times[1:]))
+    intervals = [right - left for left, right in zip(servo_times[1:], servo_times[2:])]
+    non_grid = sum(interval != 8_000_000 for interval in intervals)
+    assert non_grid <= metrics["schedule_realignments"]
+    assert all(interval > 1_000_000 for interval in intervals)  # no catch-up burst
+    assert points[-1]["joint_position_rad"] == pytest.approx(samples[-1][2], abs=1e-15)
+    assert metrics["final_resampler_endpoint_error_rad"] == pytest.approx([0.0] * 6, abs=1e-15)
+    assert metrics["ik_calls"] == 0
+
+
+def test_alternating_16ms_17ms_intervals_preserve_monotonic_continuity(tmp_path) -> None:
+    samples = _stream_samples([16_000_000, 17_000_000, 16_000_000, 17_000_000],
+                              [0.0, 0.01, 0.02, 0.03, 0.04])
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    positions = [row["joint_position_rad"][0] for row in points]
+    assert positions == sorted(positions)
+    assert points[-1]["joint_position_rad"] == pytest.approx(samples[-1][2], abs=1e-15)
+    assert metrics["output_speed_boundary_rejections"] == [0] * 6
+
+
+def test_bursty_arrival_is_latest_only_without_backlog_replay(tmp_path) -> None:
+    samples = [
+        (0.0, 0, (0.0,) * 6),
+        (0.025, 16_000_000, (0.008,) * 6),
+        (0.025, 32_000_000, (0.016,) * 6),
+        (0.025, 48_000_000, (0.024,) * 6),
+    ]
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    assert metrics["accepted_targets"] <= 3
+    assert metrics["resampler_destination_switches"] <= 2
+    assert points[-1]["joint_position_rad"] == pytest.approx((0.024,) * 6, abs=1e-15)
+    assert all(row["to_sequence"] not in (2, 3) for row in points)
+
+
+def test_repeated_identical_targets_emit_only_repeated_positions(tmp_path) -> None:
+    samples = _stream_samples([16_666_667] * 3, [0.0, 0.0, 0.0, 0.0])
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    assert all(row["joint_position_rad"] == [0.0] * 6 for row in points)
+    assert metrics["resampler_repeated_points"] == metrics["resampler_emitted_points"]
+
+
+def test_active_destination_replacement_starts_from_last_emit_without_backward_jump(tmp_path) -> None:
+    samples = [
+        (0.0, 0, (0.0,) * 6),
+        (0.040, 40_000_000, (0.04,) * 6),
+        (0.052, 60_000_000, (0.06,) * 6),
+    ]
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    positions = [row["joint_position_rad"][0] for row in points]
+    assert positions == sorted(positions)
+    assert metrics["resampler_preemptions"] >= 1
+    assert points[-1]["joint_position_rad"] == pytest.approx((0.06,) * 6, abs=1e-15)
+
+
+@pytest.mark.parametrize("reason", ["clutch_release", "tracking_loss"])
+def test_disengagement_stop_cancels_active_segment_without_draining(reason, tmp_path) -> None:
+    del reason  # Both faults use the same STOP packet at the adapter boundary.
+    samples = [(0.0, 0, (0.0,) * 6), (0.050, 50_000_000, (0.05,) * 6)]
+    result, metrics, points = _run_stream(tmp_path, samples, stop_after_s=0.058)
+    assert result.returncode == 0
+    assert metrics["outcome"] == "operator_stop_command"
+    assert points[-1]["joint_position_rad"][0] < 0.05
+    assert not points[-1]["endpoint"]
+
+
+def test_reengagement_process_initializes_first_point_from_current_measured_state(tmp_path) -> None:
+    measured = (0.2, -0.1, 0.3, -0.2, 0.1, -0.3)
+    samples = [(0.0, 0, measured)]
+    result, metrics, points = _run_stream(tmp_path, samples, initial=measured)
+    assert result.returncode == 0
+    assert points[0]["joint_position_rad"] == pytest.approx(measured, abs=1e-15)
+    assert metrics["maximum_intentional_command_delta_rad"] == 0.0
+
+
+def test_aligned_but_not_bit_exact_startup_has_jump_free_first_point_then_exact_endpoint(tmp_path) -> None:
+    measured = (0.0,) * 6
+    aligned = (0.0005, 0.0, 0.0, 0.0, 0.0, 0.0)
+    result, metrics, points = _run_stream(
+        tmp_path, [(0.0, 0, aligned)], initial=measured
+    )
+    assert result.returncode == 0
+    assert points[0]["joint_position_rad"] == pytest.approx(measured, abs=1e-15)
+    assert points[-1]["joint_position_rad"] == pytest.approx(aligned, abs=1e-15)
+    assert metrics["final_resampler_endpoint_error_rad"] == pytest.approx([0.0] * 6, abs=1e-15)
+
+
+def test_nonmonotonic_accepted_generation_timestamp_stops_before_new_sdk_point(tmp_path) -> None:
+    samples = [
+        (0.0, 20_000_000, (0.0,) * 6),
+        (0.020, 10_000_000, (0.01,) * 6),
+    ]
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 2
+    assert "timestamps are not strictly monotonic" in metrics["outcome"]
+    assert all(row["joint_position_rad"] == [0.0] * 6 for row in points)
+
+
+def test_one_5ms_lateness_realigns_once_without_catchup_burst(tmp_path) -> None:
+    samples = _stream_samples([40_000_000], [0.0, 0.02])
+    result, metrics, points = _run_stream(
+        tmp_path, samples, extra=("--fake-start-delay-once-us", "5000")
+    )
+    assert result.returncode == 0
+    assert metrics["hard_timing_misses"] == 0
+    assert metrics["timing_warning_events"] >= 1
+    command_times = [row["command_ns"] for row in points]
+    assert all(right - left > 1_000_000 for left, right in zip(command_times, command_times[1:]))
+
+
+def test_one_9ms_lateness_and_consecutive_completion_lateness_hard_stop_nonzero(tmp_path) -> None:
+    metrics = tmp_path / "late.json"
+    result = subprocess.run(
+        [
+            str(WORKER), "--mode", "joint-shadow-dry-run", "--duration-s", "0.2",
+            "--fake-start-delay-once-us", "9000", "--target-socket", str(tmp_path / "late.sock"),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(metrics.read_text())["outcome"] == "hard_start_timing_miss"
+
+    metrics2 = tmp_path / "consecutive.json"
+    result2 = subprocess.run(
+        [
+            str(WORKER), "--mode", "joint-shadow-dry-run", "--duration-s", "0.2",
+            "--fake-read-delay-us", "9000", "--target-socket", str(tmp_path / "consecutive.sock"),
+            "--metrics-file", str(metrics2),
+        ],
+        check=False,
+    )
+    assert result2.returncode == 2
+    assert json.loads(metrics2.read_text())["hard_timing_misses"] >= 1
+
+
+def test_fake_sdk_gets_j1_to_j6_radians_exactly_and_native_does_no_ik(tmp_path) -> None:
+    final = (0.01, -0.012, 0.014, -0.016, 0.018, -0.02)
+    samples = [(0.0, 0, (0.0,) * 6), (0.020, 20_000_000, final)]
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+    assert points[-1]["joint_position_rad"] == pytest.approx(final, abs=1e-15)
+    assert metrics["ik_calls"] == 0
+    source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text()
+    assert "edg_servo_j(&value, ABS, 1)" in source
+    assert "mujoco" not in source.lower()
+
+
+def test_excessive_output_velocity_is_rejected_before_fake_sdk_call(tmp_path) -> None:
+    samples = [(0.0, 0, (0.0,) * 6), (0.020, 1_000_000, (0.05,) * 6)]
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 2
+    assert "joint-speed boundary before SDK call" in metrics["outcome"]
+    assert sum(metrics["output_speed_boundary_rejections"]) >= 1
+    assert all(row["joint_position_rad"][0] == 0.0 for row in points)
+
+
+def test_nonfinite_output_is_rejected_before_fake_sdk_call(tmp_path) -> None:
+    metrics = tmp_path / "nan-metrics.json"
+    emitted = tmp_path / "nan-emitted.jsonl"
+    target = tmp_path / "nan.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER), "--mode", "joint-teleop-dry-run", "--duration-s", "0.3",
+            "--target-socket", str(target), "--metrics-file", str(metrics),
+            "--emitted-points-file", str(emitted),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    now = time.monotonic_ns()
+    malformed = _packet(1, (math.nan, 0.0, 0.0, 0.0, 0.0, 0.0), now)
+    sender = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    from teleoperation.wire import encode_target
+    sender.sendto(encode_target(malformed), str(target))
+    sender.close()
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["outcome"] == "invalid_command"
+    assert payload["resampler_emitted_points"] == 0
+    assert _read_points(emitted) == []
+
+
+def test_e1_and_e2_require_their_new_exact_separate_authorizations(tmp_path) -> None:
+    e1 = subprocess.run(
+        [
+            str(ROOT / ".venv/bin/python"), str(ROOT / "tools/jaka_edg_e1_zero_motion.py"),
+            "--robot-ip", "192.0.2.1", "--approval", "WRONG",
+            "--metrics", str(tmp_path / "e1.json"),
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert e1.returncode != 0
+    assert "I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER" in e1.stderr
+
+    e2 = subprocess.run(
+        [
+            str(ROOT / ".venv/bin/python"), str(ROOT / "tools/quest_jaka_hardware.py"),
+            "e2-isolated", "--robot-ip", "192.0.2.1", "--approval", "WRONG",
+            "--log", str(tmp_path / "e2.jsonl"), "--summary", str(tmp_path / "e2-summary.json"),
+            "--metrics", str(tmp_path / "e2-metrics.json"), "--capture", str(tmp_path / "e2-capture.jsonl"),
+        ],
+        text=True,
+        capture_output=True,
+    )
+    assert e2.returncode != 0
+    assert "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION" in e2.stderr

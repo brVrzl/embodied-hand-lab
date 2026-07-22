@@ -142,7 +142,7 @@ silently break parity.
 | accepted J1-J6 tuple | yes | no | no | immutable adapter boundary |
 | joint velocity/acceleration/jerk reference model | no | yes | no | deliberately remains after MuJoCo adapter; never reaches JAKA |
 | MuJoCo actuator gains, 500 Hz stepping, hand slew and renderer | no | yes | no | deliberately excluded from command-critical path |
-| repeat latest accepted tuple at 8 ms | no | no | yes | transport requirement only; values are unchanged |
+| time-resample adjacent accepted tuples onto 8 ms points | no | no | yes | representation/transport-only PWL; accepted endpoints are unchanged |
 | finite/CRC/sequence/manufacturer-limit rejection, stale stop, tracking-error abort | no | no | yes | retained pass-through fault containment; no scaling or smoothing |
 | old TeleDex workspace/slew/low-pass/tracking-error shaping | no | no | no | not imported or called by either Quest entry |
 
@@ -150,8 +150,9 @@ The 75 degree relative-rotation and 0.30 m operator values in the precision
 mapper are warning thresholds, not clippers. The 0.20 m target envelope and
 the feasibility jump/velocity limits are part of the current successful shared
 simulation acceptance policy and therefore remain shared; no additional
-physical workspace box, speed limiter, acceleration limiter, jerk limiter,
-interpolator, or low-pass stage exists before the JAKA adapter.
+physical workspace box, speed limiter, acceleration limiter, jerk limiter, or
+low-pass stage exists before the JAKA adapter. The later EDG transport-only
+resampler documented below is after this immutable adapter boundary.
 
 ### Retained physical fault containment
 
@@ -202,7 +203,7 @@ Rejected trials never create an accepted target or reach either adapter.
 |---|---|---|
 | Quest UDP receipt | dedicated thread, bounded 256-datagram FIFO | shared by both entry points; timestamps at receipt |
 | Shared target generation/IK | 60 Hz; expired ticks skipped rather than replayed | no physics/viewer call |
-| JAKA transport | separate native process, 8 ms / 125 Hz repeat-latest | Unix datagram, finite kernel buffer, never waits for Python/MuJoCo |
+| JAKA transport | separate native process, 8 ms / 125 Hz continuous PWL resampling | Unix datagram, finite kernel buffer, never waits for Python/MuJoCo |
 | MuJoCo physics | 500 Hz in simulation entry only | after MuJoCo adapter |
 | Viewer | 60 Hz best effort | simulation entry only |
 
@@ -313,3 +314,181 @@ plant/viewer/step path.
 
 P0 passed. No connected gate was entered, and no JAKA SDK connection, servo
 enable, EDG entry, or physical command occurred.
+
+## 2026-07-22 EDG command-time correction (E0 only)
+
+This follow-up was performed from starting HEAD
+`86e3c3927d554b4d3877dbf89e2c7eb4fae1c70c`. It did not connect to JAKA,
+enter EDG, enable servo mode, clear a fault, or send a physical command. The
+concurrent user change in `tools/teleop_mujoco_jaka_rh56.py` remained untouched
+and is excluded from the checkpoint.
+
+### Confirmed root cause and interface contract
+
+The failed P4 transport was:
+
+```text
+60 Hz AcceptedArmTarget -> 125 Hz repeat latest -> edg_servo_j(ABS, step_num=1)
+q0, q0, q1, q1, q2, ...
+```
+
+The shared target diagnostic divided `q[k]-q[k-1]` by the measured upstream
+interval of about 16.67 ms. The controller instead received the changed point
+as a new `step_num=1` point whose motion period is 8 ms. On the recorded stream,
+this made the old controller-visible J4/J6 peaks 4.835/4.610 rad/s
+(277.0/264.1 deg/s), above the configured and documented pi rad/s (180 deg/s)
+boundary. This is the confirmed defect. It is not attributed to IK, a
+singularity, or J5 being near zero. Payload/mounting uncertainty can amplify an
+alarm but does not explain or replace the discontinuous command timing.
+
+The official JAKA contracts used here are:
+
+- [`edg_servo_j` running period is `step_num * 8 ms`](https://www.jaka.com/docs/en/guide/1.7.2/SDK/cpp.html);
+- [ServoJ points must be continuously supplied every 8 ms and the user program
+  plans the trajectory](https://www.jaka.com/docs/guide/V3/tcpip.html);
+- [J4/J6 position-deviation and torque-feedforward errors explicitly call out
+  command continuity, acceleration, payload and mounting checks](https://www.jaka.com/docs/en/guide/V3/errinfo.html).
+
+The installed C++ SDK defines `JointValue::jVal[6]` in radians and the adapter
+continues to pass J1 through J6 unchanged. The actual native call remains
+`edg_servo_j(&value, ABS, 1)`.
+
+### Selected design
+
+The native transport now uses this bounded causal state:
+
+```text
+latest AcceptedArmTarget q/t (generated_monotonic_ns)
+-> preserve last successfully emitted q and servo time
+-> replace only the current destination (no FIFO/backlog)
+-> PWL evaluation on each 8 ms native deadline
+-> finite/manufacturer-limit/output-speed reject
+-> edg_servo_j(sample, ABS, 1)
+```
+
+`generated_monotonic_ns` is selected because it is the local command-host
+`CLOCK_MONOTONIC` timestamp at accepted-target generation. Source Quest time is
+a different clock, input-receipt time describes transport rather than intended
+target timing, and dispatch time includes adapter scheduling. The accepted
+timestamp difference defines segment duration; the native deadline defines
+execution time. Strictly non-monotonic timestamps abort before an SDK command.
+
+An online interpolator cannot emit intermediate samples toward `q[k]` before
+`q[k]` exists. It therefore incurs one bounded causal segment interval, without
+buffering or replaying a target FIFO. A newly arrived destination preempts the
+active destination from the last emitted point/time. The failed-stream offline
+model measured a 19.997 ms maximum final-endpoint delay; the real-time fake
+worker measured 20.693 ms including scheduling/receipt phase. The delay is
+bounded and does not accumulate: source duration 900.003 ms became 920.000 ms,
+and the final endpoint error was exactly zero.
+
+The first target is still checked against measured startup joints. The first
+emitted point is the measured state; a non-bit-exact but accepted aligned point
+converges over one 8 ms startup segment. STOP, clutch release, tracking loss,
+timeout, worker/SDK fault, or operator stop exits immediately and discards the
+active segment. A future process starts from a new measured state and cannot
+resume an old segment.
+
+The worker computes per-joint `dq`, velocity and acceleration from actual SDK
+call timestamps. Non-finite values and manufacturer position violations reject
+the whole point. The shared `command_maximum_joint_velocity_rad_s` (pi rad/s)
+is the single speed-boundary authority and aborts before the SDK call. The
+shared 4*pi rad/s^2 acceleration value is reported diagnostically only; it is
+not a hardware-only clamp or trajectory shaper. Jerk is diagnostic only.
+
+### Candidate comparison: exact failed-run dispatched target stream
+
+The source contains all 55 immutable targets successfully dispatched by the
+Python adapter before the failed worker stopped (the failed worker had consumed
+49 when its measured tracking-error abort fired). Controller-visible velocity
+and acceleration below use the EDG command period, not 1/60 s.
+
+| Candidate | points | duration | J4/J6 max delta | J4/J6 max velocity | J4/J6 max acceleration | >180 deg/s J4/J6 | repeats | discontinuous switches | endpoint |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A: 125 Hz repeat-latest, step 1 | 114 | 904 ms | 2.216/2.113 deg | 277.0/264.1 deg/s | 34624.8/33017.1 deg/s^2 | 14/14 | 59 | 54 | exact |
+| B: each target once, step 2 | 55 | 864 ms | 2.216/2.113 deg | 138.5/132.1 deg/s | 2330.8/2361.0 deg/s^2 | 0/0 | 0 | 54 | exact |
+| C: 125 Hz PWL resampling, step 1 | 116 | 920 ms | 1.065/1.015 deg | 133.1/126.9 deg/s | 14064.7/13438.0 deg/s^2 | 0/0 | 2 | 0 | exact |
+
+Candidate C is selected. Candidate B remains an offline comparison only:
+`step_num=2` specifies a nominal 16 ms motion period but no stronger official
+evidence establishes interpolation of arbitrary points. Its model is also
+36.003 ms shorter than the recorded intended duration. The implementation does
+not expose B as a live option.
+
+The corrected native fake worker accepted all 55 targets, emitted 137 calls
+(including the post-endpoint healthy repeat until the deliberate 200 ms stream
+timeout), made zero IK calls, had zero speed rejects, reached the exact final
+J1-J6 endpoint, and exited normally on `command_stream_timeout`. Its observed
+J4/J6 peaks were 2.324/2.216 rad/s and 245.9/235.0 rad/s^2; acceleration is
+reported rather than clamped. Evidence is in:
+
+- `docs/measurements/jaka_edg_failed_run_resampling_20260722.json`
+- `docs/measurements/jaka_edg_failed_run_native_fake_20260722/`
+- `docs/measurements/jaka_edg_sim_initial_resampling_20260722.json`
+- `docs/measurements/jaka_edg_sim_initial_native_fake_20260722/`
+
+The same Quest capture was separately replayed from the successful simulation
+initial joints. That run also ended exactly, with no output-speed crossing; it
+is supporting coverage only and is not treated as the transport fix.
+
+### Timing watchdog and isolation
+
+- A single sub-period lateness such as 5 ms emits one point evaluated at current
+  time, realigns the deadline, and never sends catch-up commands.
+- A wake at least one full 8 ms period late, a start interval of at least 16 ms,
+  or consecutive serious warnings hard-stops with a nonzero process exit.
+- Viewer, MuJoCo physics and log writing do not share a lock, queue, event loop,
+  callback or process with the native command deadline. Native joint mode still
+  contains zero IK calls and no MuJoCo import/runtime dependency.
+- The optional emitted-point recorder is rejected in connected modes and exists
+  only to prove the fake SDK contract offline.
+
+### E0 result and prepared gates
+
+E0 passed. Focused resampler, fake SDK, native worker, adapter, parity, complete
+repository, build, compile and whitespace checks passed. No physical gate ran.
+
+E1 is a new, separately gated measured-position-only path through the same
+resampler. It sends no motion target other than the initially measured J1-J6:
+
+```bash
+.venv/bin/python tools/jaka_edg_e1_zero_motion.py \
+  --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
+  --duration-sec 5 \
+  --approval I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER \
+  --estop-accessible --workspace-clear --rh56-command-path-absent \
+  --metrics logs/quest_jaka_e1_resampler_zero_motion.json
+```
+
+Required E1 authorization phrase:
+
+```text
+I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER
+```
+
+Prepared E2 command (do not run until E1 passes and separate authorization is
+given):
+
+```bash
+.venv/bin/python tools/quest_jaka_hardware.py e2-isolated \
+  --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
+  --duration-sec 20 \
+  --approval I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION \
+  --estop-accessible --workspace-clear --rh56-command-path-absent \
+  --log logs/quest_jaka_e2_isolated.jsonl \
+  --summary logs/quest_jaka_e2_isolated_summary.json \
+  --metrics logs/quest_jaka_e2_isolated_worker.json \
+  --capture logs/quest_jaka_e2_isolated_capture.jsonl
+```
+
+E2 is operator-limited to one small TCP translation and return, then clutch
+release; it adds no software scale or trajectory shaping. E3/P4 is not ready to
+run before E1 and E2 pass.
+
+Before E2, read/report the active tool/user IDs and verify in the JAKA App the
+RH56 payload mass and centre of mass plus robot mounting orientation. Tool 0,
+user frame 0, order and radians were historically validated, but the repository
+does not contain an authoritative RH56 payload/COM or mounting-orientation
+record. Controller firmware/SDK interpolation details also remain unverified.
+None of these uncertainties is automatically modified or used to excuse the
+confirmed timing defect.
