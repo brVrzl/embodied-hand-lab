@@ -18,6 +18,7 @@ from jaka_driver_adapter.palm_target_ik import (
     MJCF_ARM_JOINT_NAMES,
     PalmTargetIkState,
     joint_limit_margin_blockers,
+    safe_joint_limits_rad,
 )
 from motion_input import (
     HtsCanonicalAssembler,
@@ -31,6 +32,13 @@ from motion_input import (
 from motion_input.hts_transport import ReceivedHtsDatagram
 
 from .mapping import MappingRejection, ProvisionalMappingConfig, ProvisionalOperatorToRobotMapper
+from .se3 import (
+    quaternion_angle_rad,
+    quaternion_to_matrix,
+    quaternion_to_rotvec,
+    relative_pose,
+    swing_twist_about_local_z,
+)
 
 
 DESIRED_MARKER_BODY = "quest_jaka_desired_tcp_marker"
@@ -72,7 +80,6 @@ class FeasibilityLimits:
     ik_orientation_tolerance_rad: float = math.pi
     maximum_target_rotation_jump_rad: float = math.pi
     maximum_joint_target_jump_rad: float = math.pi
-    near_singularity_joint_velocity_rad_s: float = 0.0
     minimum_wrist_bend_rad: float = 0.0
 
     @classmethod
@@ -108,9 +115,6 @@ class FeasibilityLimits:
             ),
             maximum_joint_target_jump_rad=float(
                 values.get("maximum_joint_target_jump_rad", math.pi)
-            ),
-            near_singularity_joint_velocity_rad_s=float(
-                values.get("near_singularity_joint_velocity_rad_s", 0.0)
             ),
             minimum_wrist_bend_rad=math.radians(
                 float(values.get("minimum_wrist_bend_deg", 0.0))
@@ -172,6 +176,18 @@ class CandidateMetrics:
     self_collision: bool = False
     environment_collision: bool = False
     minimum_new_contact_distance_m: float | None = None
+    target_tool_rotation_vector_rad: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    target_tool_swing_rad: float = 0.0
+    target_tool_axial_roll_rad: float = 0.0
+    ik_seed_rad: tuple[float, ...] = ()
+    ik_candidate_rad: tuple[float, ...] = ()
+    joint_delta_rad: tuple[float, ...] = ()
+    wrist_joint_delta_rad: tuple[float, ...] = ()
+    j6_expected_delta_rad: float = 0.0
+    j6_axial_contribution_rad: float = 0.0
+    j6_axial_contribution_ratio: float | None = None
+    nearest_safe_joint_limit_margin_rad: float = math.pi
+    branch_switch: bool = False
 
 
 def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> FeasibilityReason:
@@ -194,11 +210,11 @@ def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> 
         or metrics.minimum_jacobian_singular_value
         < limits.minimum_jacobian_singular_value
     )
-    if (
-        near_singularity
-        and metrics.maximum_joint_velocity_rad_s
-        >= limits.near_singularity_joint_velocity_rad_s
-    ):
+    # Geometry is unsafe independently of how slowly it was reached.  The old
+    # velocity-qualified gate allowed a gradual trajectory to pass condition
+    # 60, drive J3 through zero, and reach a measured condition number above
+    # one million.  Candidate velocity remains a separate continuity check.
+    if near_singularity:
         return FeasibilityReason.NEAR_SINGULARITY
     if (
         metrics.target_jump_m > limits.maximum_target_jump_m
@@ -559,7 +575,9 @@ class JakaMujocoSimulation:
         dt = max(float(dt_s), 1e-6)
         # Continuation IK: every solve starts on the previous accepted branch,
         # never on a lagging actuator state or a global/random seed.
-        self.ik.set_arm_joints_rad(self.last_safe_joint_target.tolist())
+        ik_seed = self.last_safe_joint_target.copy()
+        previous_target = self.last_safe_target
+        self.ik.set_arm_joints_rad(ik_seed.tolist())
         self.ik.apply_position_target(
             palm_target_position_m=list(target.position_m),
             palm_target_quaternion_wxyz=(
@@ -571,10 +589,18 @@ class JakaMujocoSimulation:
             dt=dt,
         )
         candidate_q = self.ik.arm_joints_rad.copy()
-        joint_target_jump = candidate_q - self.last_safe_joint_target
-        joint_velocity = (candidate_q - self.last_safe_joint_target) / dt
+        joint_target_jump = candidate_q - ik_seed
+        joint_velocity = joint_target_jump / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
-        target_delta = np.asarray(target.position_m) - np.asarray(self.last_safe_target.position_m)
+        target_delta = np.asarray(target.position_m) - np.asarray(previous_target.position_m)
+        target_tool_delta = relative_pose(previous_target, target)
+        target_tool_rotvec = quaternion_to_rotvec(target_tool_delta.orientation_xyzw)
+        target_tool_swing, target_tool_axial_roll = swing_twist_about_local_z(
+            target_tool_delta.orientation_xyzw
+        )
+        target_tool_swing_rad = quaternion_angle_rad(
+            target_tool_swing, (0.0, 0.0, 0.0, 1.0)
+        )
         displacement = float(
             np.linalg.norm(np.asarray(target.position_m) - np.asarray(self.initial_tcp.position_m))
         )
@@ -597,6 +623,28 @@ class JakaMujocoSimulation:
             spatial_jacobian = position_jacobian
         singular_values = np.linalg.svd(spatial_jacobian, compute_uv=False)
         condition = float(singular_values[0] / max(singular_values[-1], 1e-12))
+        previous_rotation = quaternion_to_matrix(previous_target.orientation_xyzw)
+        j6_axis_in_previous_tool = previous_rotation.T @ jacr[:, self.arm_dof_ids[5]]
+        j6_axial_sign = float(j6_axis_in_previous_tool[2])
+        j6_expected_delta = (
+            target_tool_axial_roll / j6_axial_sign
+            if abs(j6_axial_sign) > 1e-9
+            else 0.0
+        )
+        j6_axial_contribution = float(joint_target_jump[5]) * j6_axial_sign
+        j6_contribution_ratio = (
+            abs(j6_axial_contribution / target_tool_axial_roll)
+            # Ratios are not meaningful when the requested twist is only
+            # floating-point/filter noise; retain the signed angles themselves.
+            if abs(target_tool_axial_roll) >= 1e-4
+            else None
+        )
+        nearest_safe_limit_margin = min(
+            min(float(candidate_q[index]) - low, high - float(candidate_q[index]))
+            for index, (low, high) in enumerate(
+                safe_joint_limits_rad(limits.joint_limit_margin_rad)
+            )
+        )
         new_contacts = self._contact_pairs(self.ik.data) - self._baseline_contacts
         self_collision = any(self._pair_kind(pair) == "self" for pair in new_contacts)
         environment_collision = any(
@@ -638,6 +686,18 @@ class JakaMujocoSimulation:
             self_collision=self_collision,
             environment_collision=environment_collision,
             minimum_new_contact_distance_m=min(contact_distances) if contact_distances else None,
+            target_tool_rotation_vector_rad=tuple(float(v) for v in target_tool_rotvec),
+            target_tool_swing_rad=target_tool_swing_rad,
+            target_tool_axial_roll_rad=target_tool_axial_roll,
+            ik_seed_rad=tuple(float(v) for v in ik_seed),
+            ik_candidate_rad=tuple(float(v) for v in candidate_q),
+            joint_delta_rad=tuple(float(v) for v in joint_target_jump),
+            wrist_joint_delta_rad=tuple(float(v) for v in joint_target_jump[3:]),
+            j6_expected_delta_rad=j6_expected_delta,
+            j6_axial_contribution_rad=j6_axial_contribution,
+            j6_axial_contribution_ratio=j6_contribution_ratio,
+            nearest_safe_joint_limit_margin_rad=nearest_safe_limit_margin,
+            branch_switch=bool(np.max(np.abs(joint_target_jump)) >= math.pi / 2.0),
         )
         reason = classify_candidate(metrics, limits)
         if reason is FeasibilityReason.ACCEPTED:
@@ -813,31 +873,8 @@ class QuestJakaReplaySession:
         self.axis_rows: list[tuple[float, tuple[float, ...], tuple[float, ...]]] = []
         self.right_hand_valid = False
         self.last_reason = FeasibilityReason.DISENGAGED.value
-        self._manual_request: str | None = None
         self._scheduled_capture_pending = False
         self.event_records: list[dict[str, Any]] = []
-
-    def request_toggle(self) -> None:
-        """SPACE-key control for live simulation: engage, capture, or disengage."""
-
-        if self.operator.state is OperatorInputState.DISENGAGED:
-            self._manual_request = "engage"
-        elif self.operator.state is OperatorInputState.ARMED_REFERENCE_CAPTURE:
-            self._manual_request = "capture"
-        else:
-            self._manual_request = "disengage"
-
-    def tick(self, now_monotonic_ns: int) -> None:
-        state = self.assembler.state(now_monotonic_ns=now_monotonic_ns)
-        self.right_hand_valid = state.right.tracking_valid
-        before = len(self.operator.transitions)
-        self.operator.step(state)
-        for transition in self.operator.transitions[before:]:
-            if transition.current is OperatorInputState.DISENGAGED:
-                self.mapper.clear_reference()
-                self.invalid_input_events += 1
-                self.rejections[FeasibilityReason.INPUT_INVALID.value] += 1
-                self.last_reason = transition.reason
 
     def process(self, datagram: ReceivedHtsDatagram) -> None:
         if self._first_event_ns is None:
@@ -884,23 +921,7 @@ class QuestJakaReplaySession:
 
         engage = False
         capture = False
-        disengage = False
-        if self._manual_request == "engage" and right.tracking_valid:
-            engage = True
-            self._armed_at_sequence = right.host_sequence_number
-            self._scheduled_capture_pending = False
-            self._manual_request = None
-        elif self._manual_request == "capture" and new_right and right.tracking_valid:
-            capture = True
-            self._manual_request = None
-        elif self._manual_request == "disengage":
-            disengage = True
-            self._manual_request = None
         if (
-            not engage
-            and not capture
-            and not disengage
-            and
             self._next_engagement < len(self.config.engagement_schedule_s)
             and elapsed >= self.config.engagement_schedule_s[self._next_engagement]
             and self.operator.state is OperatorInputState.DISENGAGED
@@ -925,7 +946,6 @@ class QuestJakaReplaySession:
             state,
             engage_request=engage,
             capture_reference_request=capture,
-            disengage_request=disengage,
         )
         new_transitions = self.operator.transitions[transitions_before:]
         for transition in new_transitions:

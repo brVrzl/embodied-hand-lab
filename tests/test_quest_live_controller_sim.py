@@ -134,3 +134,13 @@ def test_live_ctrl_engages_real_sim_session_and_stale_faults_arm(tmp_path: Path)
     session.control_tick(200_000_001)
     assert session.arm_clutch.state.value == "tracking_fault"
     assert session.hand_clutch.state.value == "tracking_fault"
+
+
+def test_hand_tracking_without_controller_cannot_authorize_motion(tmp_path: Path) -> None:
+    session = _session(tmp_path)
+    session.ingest(_hand(1, 0))
+    session.ingest(_head(1, 0))
+    session.control_tick(0)
+    assert session.arm_clutch.state.value == "tracking_fault"
+    assert session.accepted_targets == 0
+    assert session.arm_mapper.robot_reference is None

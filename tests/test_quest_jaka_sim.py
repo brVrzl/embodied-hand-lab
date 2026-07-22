@@ -196,11 +196,10 @@ def test_structured_feasibility_rejections(
     assert classify_candidate(metrics, _limits()) is expected
 
 
-def test_singularity_gate_requires_excessive_candidate_joint_velocity() -> None:
+def test_singularity_gate_rejects_slow_geometric_approach() -> None:
     limits = replace(
         _limits(),
         maximum_joint_velocity_rad_s=14.0,
-        near_singularity_joint_velocity_rad_s=math.pi,
     )
     geometry_only = CandidateMetrics(
         jacobian_condition=41.0,
@@ -210,7 +209,7 @@ def test_singularity_gate_requires_excessive_candidate_joint_velocity() -> None:
         jacobian_condition=41.0,
         maximum_joint_velocity_rad_s=math.pi + 0.01,
     )
-    assert classify_candidate(geometry_only, limits) is FeasibilityReason.ACCEPTED
+    assert classify_candidate(geometry_only, limits) is FeasibilityReason.NEAR_SINGULARITY
     assert (
         classify_candidate(amplified_velocity, limits)
         is FeasibilityReason.NEAR_SINGULARITY
@@ -221,7 +220,6 @@ def test_explicit_wrist_singularity_margin_does_not_require_a_velocity_spike() -
     limits = replace(
         _limits(),
         minimum_wrist_bend_rad=math.radians(15.0),
-        near_singularity_joint_velocity_rad_s=14.0,
     )
     metrics = CandidateMetrics(
         wrist_bend_from_singularity_rad=math.radians(14.0),
@@ -308,11 +306,11 @@ def _run_short_replay(tmp_path: Path) -> dict[str, object]:
     simulation = JakaMujocoSimulation(config, mjcf_path=model)
     session = QuestJakaReplaySession(config, simulation)
     datagrams = [
-        ReceivedHtsDatagram(_hand_payload(1), "10.24.0.78", 1, 0, 0),
-        ReceivedHtsDatagram(_hand_payload(2), "10.24.0.78", 1, 50_000_000, 1),
-        ReceivedHtsDatagram(_hand_payload(3, 0.01), "10.24.0.78", 1, 100_000_000, 2),
-        ReceivedHtsDatagram(_head_payload(1), "10.24.0.78", 2, 400_000_000, 3),
-        ReceivedHtsDatagram(_hand_payload(4, 0.02), "10.24.0.78", 1, 500_000_000, 4),
+        ReceivedHtsDatagram(_hand_payload(1), "192.0.2.10", 1, 0, 0),
+        ReceivedHtsDatagram(_hand_payload(2), "192.0.2.10", 1, 50_000_000, 1),
+        ReceivedHtsDatagram(_hand_payload(3, 0.01), "192.0.2.10", 1, 100_000_000, 2),
+        ReceivedHtsDatagram(_head_payload(1), "192.0.2.10", 2, 400_000_000, 3),
+        ReceivedHtsDatagram(_hand_payload(4, 0.02), "192.0.2.10", 1, 500_000_000, 4),
     ]
     previous = 0
     for datagram in datagrams:
@@ -383,3 +381,29 @@ def test_offline_entrypoint_has_no_hardware_backend_imports() -> None:
         "rclpy",
     )
     assert not any(name.startswith(forbidden) for name in imported)
+
+
+def test_formal_sim_entry_has_no_keyboard_clutch_or_retired_live_command() -> None:
+    root = Path(__file__).parents[1]
+    entry = (root / "tools/quest_jaka_mujoco_sim.py").read_text(encoding="utf-8")
+    session_sources = "\n".join(
+        (root / relative).read_text(encoding="utf-8")
+        for relative in (
+            "src/quest_jaka_sim/simulation.py",
+            "src/quest_jaka_sim/smooth_session.py",
+        )
+    )
+    command_names = {
+        node.args[0].value
+        for node in ast.walk(ast.parse(entry))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "add_parser"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    }
+    assert "live" not in command_names
+    assert "live-6dof" in command_names
+    assert "key_callback" not in entry
+    assert "request_toggle" not in entry + session_sources

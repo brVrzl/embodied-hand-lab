@@ -118,7 +118,8 @@ simulation:
   # normal continuous motion ~38-40 / 0.018-0.020; wrist jump ~69 / 0.0109.
   maximum_jacobian_condition: 60.0
   minimum_jacobian_singular_value: 0.0125
-  near_singularity_joint_velocity_rad_s: 14.0
+  # These are hard geometric gates: slow motion cannot pass through a singular
+  # configuration merely because its per-frame joint velocity is small.
   # J5=0 is the spherical-wrist singularity. The explicit margin prevents
   # continuation IK from preserving the TCP by counter-winding J4/J6.
   minimum_wrist_bend_deg: 15.0
@@ -141,9 +142,11 @@ simulation:
   # At 60 Hz this remains below the 14 rad/s IK-candidate guard (0.233 rad),
   # while the actuator command is independently limited to pi rad/s.
   maximum_joint_target_jump_rad: 0.22
-  # Hold the last safe target for up to 0.5 s at 60 Hz so the operator can move
-  # an absolute relative-pose candidate back into the feasible region. Invalid
-  # candidates are never integrated or made authoritative.
+  # Shared/default (including hardware) fault containment: hold the last safe
+  # target for 0.5 s at 60 Hz before faulting.  The MuJoCo demo entry explicitly
+  # enables simulation-only SE(3) continuation/recovery instead: invalid
+  # candidates remain non-authoritative while the operator may retreat without
+  # losing the captured reference.  The hardware runner does not enable it.
   isolated_rejection_hold_count: 30
   reject_action: hold_last_safe_for_isolated_rejection_then_disengage
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts

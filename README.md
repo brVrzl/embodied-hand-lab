@@ -74,7 +74,7 @@ tools/            脚本和实验调用的 Python 工具
 ## 环境
 
 ```bash
-cd /home/thor/projects/embodied_lab
+cd "$(git rev-parse --show-toplevel)"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -90,6 +90,49 @@ pip install -e ".[sim]"            # ManiSkill stack，需要匹配本机 Python
 ```
 
 ROS2 Humble 路径可能还需要系统 ROS 包，不完全由 Python venv 管理。
+
+## Quest 3 → JAKA MuJoCo 仿真遥操作演示
+
+当前推荐演示使用 Quest 右手腕 + head capture + 左 Touch controller CTRL sidecar，
+对 JAKA Mini2 mounted MuJoCo 模型进行相对 6D（XYZ + 完整姿态）遥操作。该入口
+**只运行仿真**，不会导入、初始化或连接 JAKA / Inspire RH56DFX 真机 SDK。
+
+在图形桌面中，从仓库根目录运行：
+
+```bash
+source .venv/bin/activate
+HOST_IP=$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([^ ]*\).*/\1/p')
+./scripts/run_quest_jaka_sim_demo.sh \
+  --config configs/sim/quest_hts_jaka_mini2_live_demo.yaml \
+  --bind 0.0.0.0 \
+  --port 9000 \
+  --project-ip "${HOST_IP}" \
+  --duration-sec 600 \
+  --telemetry-hz 2 \
+  --viewer
+```
+
+从 SSH 运行时，脚本会自动查找当前用户的本地 GNOME `DISPLAY/XAUTHORITY`，
+把 viewer 显示在主机物理显示器上；也可显式传 `--display` 和 `--xauthority`。
+显示号重启后可能变化，以详细文档中的核实命令为准。
+
+Quest 端必须使用带 `LeftControllerPacketSender`/CTRL v1 sidecar 的 Hand Tracking
+Streamer 构建；普通上游 HTS 只有手/头数据，无法使当前双 clutch 状态机 engaged。
+左 index trigger 是机械臂 reference capture + hold-to-run，左 grip 独立控制仿真手，
+当前 6D 演示不是空格键控制。
+
+当前 MuJoCo 入口沿完整 SE(3) 目标做有界连续推进；若候选逼近奇异点、限位或发生 IK
+不连续，会保持 last safe target，同时保留 engaged/reference，让操作者直接退回安全区。
+硬奇异性、限位、碰撞和完整 6D 误差检查没有放宽。J4/J5/J6 会按机构运动学共同完成
+姿态变化，不以“J6 占比”作为正确性标准。诊断时可在命令末尾追加 `--ik-debug`，显示
+每帧 q/Δq、swing/twist、TCP error、奇异性、限位裕量、continuation/backlog 和拒绝原因。
+
+完整 Quest 设置、参数表、坐标公式、真实状态机、验收清单和故障排查见
+[docs/quest_jaka_sim_teleoperation.md](docs/quest_jaka_sim_teleoperation.md)。脚本帮助：
+
+```bash
+./scripts/run_quest_jaka_sim_demo.sh --help
+```
 
 ## 基础验证
 

@@ -1,5 +1,8 @@
 # Quest right hand to JAKA MuJoCo offline integration
 
+> Historical recorded-input checkpoint. For the supported live 6-DoF demo,
+> use `docs/quest_jaka_sim_teleoperation.md` and its `live-6dof` entry.
+
 Status: **offline recorded-input gate PASS**. The mapping is explicitly
 uncalibrated and simulation-only. No physical JAKA or Inspire connection,
 login, enable, SDK session, or command occurred.
@@ -10,7 +13,6 @@ login, enable, SDK session, or command occurred.
 - committed JAKA/RH56 MuJoCo foundation in its ancestry:
   `6faa64b3776aa536ba699fe4967956f34e0865b5`
 - branch: `feature/quest-jaka-offline-simulation`
-- worktree: `/home/thor/projects/embodied_lab_quest_jaka_sim`
 - base MJCF: `data/sim_assets/jaka_rh56_visual_coacd.xml`
 - existing IK: `jaka_driver_adapter.palm_target_ik.PalmTargetIkState`
 
@@ -112,19 +114,19 @@ VELOCITY_LIMIT, ACCELERATION_LIMIT, SELF_COLLISION, ENVIRONMENT_COLLISION
 Headless deterministic replay:
 
 ```bash
-cd /home/thor/projects/embodied_lab_quest_jaka_sim
-PYTHONPATH=src /home/thor/projects/embodied_lab/.venv/bin/python \
+cd "$(git rev-parse --show-toplevel)"
+PYTHONPATH=src .venv/bin/python \
   tools/quest_jaka_mujoco_sim.py replay \
-  /home/thor/projects/embodied_lab_quest_input/logs/quest_input/quest_live_retry_20260717T1704+0800.hts.jsonl \
+  <recording.hts.jsonl> \
   --report logs/quest_jaka_sim/main_motion.report.json
 ```
 
 Full recorded-time viewer replay on the external display:
 
 ```bash
-DISPLAY=:1 PYTHONPATH=src /home/thor/projects/embodied_lab/.venv/bin/python \
+PYTHONPATH=src .venv/bin/python \
   tools/quest_jaka_mujoco_sim.py replay \
-  /home/thor/projects/embodied_lab_quest_input/logs/quest_input/quest_live_retry_20260717T1704+0800.hts.jsonl \
+  <recording.hts.jsonl> \
   --viewer --realtime \
   --report logs/quest_jaka_sim/viewer_realtime.report.json
 ```
@@ -178,24 +180,13 @@ windows, not coordinate assumptions:
 These findings validate the configured simulation response only. They do not
 establish a physical direction calibration.
 
-## Prepared live Quest-to-simulation gate
+## Live Quest-to-simulation entry
 
-The same executable supports a live Quest-only UDP receiver and the same
-MuJoCo mapper, feasibility checks, actuator stepping, markers, overlay, raw
-capture, event log, and report. This command is prepared but is not part of the
-recorded-input checkpoint:
-
-```bash
-DISPLAY=:1 PYTHONPATH=src /home/thor/projects/embodied_lab/.venv/bin/python \
-  tools/quest_jaka_mujoco_sim.py live \
-  --project-ip 10.24.1.68 --port 9000 --allowed-sender 10.24.0.78 \
-  --duration-sec 120
-```
-
-Press SPACE once with a fresh tracked right hand to arm, then SPACE again on a
-fresh sample to capture both references. A third press disengages. Tracking
-loss or target rejection also disengages. The live mode contains no JAKA SDK,
-ROS control, RH56 driver, or physical backend import.
+The earlier translation-only live gate and its viewer keyboard clutch have
+been retired. The supported live entry is the filtered relative 6-DoF
+`live-6dof` path documented in `docs/quest_jaka_sim_teleoperation.md`. It
+requires the explicit Quest CTRL v1 sidecar and never substitutes host keyboard
+input for controller state.
 
 ## Remaining unknowns and next gate
 

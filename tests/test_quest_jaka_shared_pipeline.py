@@ -141,6 +141,85 @@ def test_shared_pipeline_simulation_and_hardware_pre_adapter_parity(tmp_path: Pa
         assert left.joint_position_rad == pytest.approx(right.joint_position_rad, abs=1e-12)
 
 
+def test_simulation_only_continuation_bounds_full_pose_without_changing_shared_default(
+    tmp_path: Path,
+) -> None:
+    config = replace(ReplayConfig.load(CONFIG), engagement_schedule_s=())
+    sim_model = build_viewer_mjcf(config.mjcf_path, tmp_path / "recovery.xml")
+    simulation = JakaMujocoSimulation(config, mjcf_path=sim_model)
+    session = SmoothQuestJakaSession(
+        config, simulation, simulation_only_recovery=True
+    )
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+
+    session.ingest(_hand(1, 20_000_000, identity))
+    session.ingest(_head(1, 20_000_000))
+    _clutch(session, 0.0, 1, 20_000_000)
+    session.control_tick(20_000_000)
+    session.ingest(_hand(2, 40_000_000, identity))
+    _clutch(session, 1.0, 2, 40_000_000)
+    captured = session.control_tick(40_000_000)
+    assert captured.accepted_target is not None
+
+    abrupt = Pose6D(
+        (0.03, 0.01, 0.0),
+        rotvec_to_quaternion_xyzw((0.20, -0.10, 0.30)),
+    )
+    session.ingest(_hand(3, 60_000_000, abrupt))
+    _clutch(session, 1.0, 3, 60_000_000)
+    session.control_tick(60_000_000)
+    session.ingest(_hand(4, 80_000_000, abrupt))
+    _clutch(session, 1.0, 4, 80_000_000)
+    advanced = session.control_tick(80_000_000)
+    event = session.event_records[-1]
+
+    assert advanced.accepted_target is not None
+    assert event["continuation_enabled"] is True
+    assert 0.0 < event["continuation_fraction"] < 1.0
+    assert event["requested_backlog_deg"] > 0.0
+    assert quaternion_angle_rad(
+        captured.accepted_target.filtered_tcp.orientation_xyzw,
+        advanced.accepted_target.filtered_tcp.orientation_xyzw,
+    ) <= config.feasibility.maximum_tcp_angular_velocity_rad_s * 0.02 + 1e-9
+    # The shared constructor default remains the hardware-compatible behavior.
+    _, default_sim, default_hardware, _, _ = _sessions(tmp_path / "default")
+    assert default_sim.simulation_only_recovery is False
+    assert default_hardware.simulation_only_recovery is False
+
+
+def test_simulation_rejection_holds_engaged_for_retreat_but_shared_default_faults(
+    tmp_path: Path,
+) -> None:
+    config = replace(ReplayConfig.load(CONFIG), engagement_schedule_s=())
+    sessions = []
+    for name, recovery in (("recovery", True), ("default", False)):
+        model = build_viewer_mjcf(config.mjcf_path, tmp_path / name / "model.xml")
+        session = SmoothQuestJakaSession(
+            config,
+            JakaMujocoSimulation(config, mjcf_path=model),
+            simulation_only_recovery=recovery,
+        )
+        identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+        session.ingest(_hand(1, 20_000_000, identity))
+        session.ingest(_head(1, 20_000_000))
+        _clutch(session, 0.0, 1, 20_000_000)
+        session.control_tick(20_000_000)
+        session.ingest(_hand(2, 40_000_000, identity))
+        _clutch(session, 1.0, 2, 40_000_000)
+        session.control_tick(40_000_000)
+        sessions.append(session)
+
+    recovery, default = sessions
+    for index in range(config.raw["simulation"]["isolated_rejection_hold_count"] + 1):
+        recovery._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
+        default._handle_rejection(60_000_000 + index, FeasibilityReason.NEAR_SINGULARITY.value)
+
+    assert recovery.arm_clutch.state.value == "engaged"
+    assert recovery.arm_mapper.robot_reference is not None
+    assert default.arm_clutch.state.value == "tracking_fault"
+    assert default.arm_mapper.robot_reference is None
+
+
 def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_path: Path) -> None:
     _, _, session, _, recorder = _sessions(tmp_path)
     identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))

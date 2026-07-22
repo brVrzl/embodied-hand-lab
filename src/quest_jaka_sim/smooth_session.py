@@ -34,7 +34,12 @@ from .output import (
     ArmTargetOutputAdapter,
     MujocoArmTargetAdapter,
 )
-from .se3 import PoseSampleBuffer, TimedPoseSample, quaternion_angle_rad
+from .se3 import (
+    PoseSampleBuffer,
+    TimedPoseSample,
+    bounded_pose_step,
+    quaternion_angle_rad,
+)
 from .simulation import FeasibilityReason, FeasibilityResult, JakaMujocoSimulation, ReplayConfig
 from .smooth_operator import Se3FilterProfile
 
@@ -61,6 +66,7 @@ class SmoothQuestJakaSession:
         simulation: JakaMujocoSimulation,
         *,
         arm_output: ArmTargetOutputAdapter | None = None,
+        simulation_only_recovery: bool = False,
     ) -> None:
         filter_values = config.raw.get("filter", {})
         profile_name = str(filter_values.get("selected_profile", "simulation_exploration"))
@@ -71,6 +77,11 @@ class SmoothQuestJakaSession:
         self.config = config
         self.simulation = simulation
         self.arm_output = arm_output or MujocoArmTargetAdapter(simulation)
+        # This policy is deliberately selected by the MuJoCo demo entry point,
+        # not by the shared YAML.  The hardware runner therefore retains its
+        # existing fail-after-N-rejections semantics unless explicitly changed
+        # in a future, separately reviewed hardware task.
+        self.simulation_only_recovery = bool(simulation_only_recovery)
         self.assembler = HtsCanonicalAssembler(stale_after_s=config.stale_after_s)
         rates = config.raw.get("rates", {})
         self.interpolation_delay_ns = int(float(rates.get("interpolation_delay_ms", 20.0)) * 1e6)
@@ -116,6 +127,11 @@ class SmoothQuestJakaSession:
         self.accepted_targets = 0
         self._accepted_sequence = 0
         self.consecutive_rejections = 0
+        self.continuation_intervention_count = 0
+        self.continuation_backtrack_count = 0
+        self.singularity_warning_count = 0
+        self.maximum_requested_backlog_m = 0.0
+        self.maximum_requested_backlog_rad = 0.0
         self.isolated_rejection_hold_count = int(
             config.raw.get("simulation", {}).get("isolated_rejection_hold_count", 2)
         )
@@ -165,14 +181,6 @@ class SmoothQuestJakaSession:
             self._last_grip_sequence = grip.sequence_number
         self.left_controller_valid = bool(left_controller_valid)
         self.clutch_provider = provider
-
-    def request_toggle(self) -> None:
-        raise RuntimeError(
-            "high-level toggle removed; inject independent index/grip samples through set_clutch_samples"
-        )
-
-    def set_mode(self, mode: str) -> None:
-        raise RuntimeError("arm/hand/both mode selection is not part of dual-clutch control")
 
     @property
     def right_hand_valid(self) -> bool:
@@ -290,20 +298,113 @@ class SmoothQuestJakaSession:
             )
         self.ik_timestamps_ns.append(now_ns)
         started = time.perf_counter_ns()
-        result = self.simulation.evaluate(
-            desired,
-            dt_s=(
-                self.simulation.model.opt.timestep
-                if len(self.ik_timestamps_ns) < 2
-                else (self.ik_timestamps_ns[-1] - self.ik_timestamps_ns[-2]) / 1e9
-            ),
+        dt_s = (
+            self.simulation.model.opt.timestep
+            if len(self.ik_timestamps_ns) < 2
+            else (self.ik_timestamps_ns[-1] - self.ik_timestamps_ns[-2]) / 1e9
         )
+        evaluated_target = desired
+        continuation_fraction = 1.0
+        continuation_backtracks = 0
+        attempted_reasons: list[str] = []
+        if self.simulation_only_recovery:
+            limits = self.config.feasibility
+            # Stay just inside strict ``>`` gates without introducing a new
+            # tuning knob.  nextafter only changes the last representable bit.
+            maximum_translation = min(
+                limits.maximum_target_jump_m,
+                limits.maximum_tcp_velocity_m_s * max(dt_s, 1e-6),
+            )
+            maximum_rotation = min(
+                limits.maximum_target_rotation_jump_rad,
+                limits.maximum_tcp_angular_velocity_rad_s * max(dt_s, 1e-6),
+            )
+            evaluated_target, continuation_fraction = bounded_pose_step(
+                self.simulation.last_safe_target,
+                desired,
+                maximum_translation_m=float(np.nextafter(maximum_translation, 0.0)),
+                maximum_rotation_rad=float(np.nextafter(maximum_rotation, 0.0)),
+            )
+            if continuation_fraction < 1.0:
+                self.continuation_intervention_count += 1
+        result = self.simulation.evaluate(evaluated_target, dt_s=dt_s)
+        attempted_reasons.append(result.reason.value)
+        # A rejected trial never becomes authoritative.  Retry smaller points
+        # on the same full-pose segment; all hard feasibility gates are run on
+        # every trial and remain unchanged.
+        while (
+            self.simulation_only_recovery
+            and not result.accepted
+            and continuation_fraction > 1.0 / 32.0
+            and continuation_backtracks < 5
+        ):
+            continuation_fraction *= 0.5
+            evaluated_target, _ = bounded_pose_step(
+                self.simulation.last_safe_target,
+                desired,
+                maximum_translation_m=(
+                    np.linalg.norm(
+                        np.asarray(desired.position_m)
+                        - np.asarray(self.simulation.last_safe_target.position_m)
+                    )
+                    * continuation_fraction
+                ),
+                maximum_rotation_rad=(
+                    quaternion_angle_rad(
+                        self.simulation.last_safe_target.orientation_xyzw,
+                        desired.orientation_xyzw,
+                    )
+                    * continuation_fraction
+                ),
+            )
+            continuation_backtracks += 1
+            self.continuation_backtrack_count += 1
+            result = self.simulation.evaluate(evaluated_target, dt_s=dt_s)
+            attempted_reasons.append(result.reason.value)
+        backlog_m = float(
+            np.linalg.norm(
+                np.asarray(desired.position_m)
+                - np.asarray(evaluated_target.position_m)
+            )
+        )
+        backlog_rad = quaternion_angle_rad(
+            desired.orientation_xyzw, evaluated_target.orientation_xyzw
+        )
+        self.maximum_requested_backlog_m = max(
+            self.maximum_requested_backlog_m, backlog_m
+        )
+        self.maximum_requested_backlog_rad = max(
+            self.maximum_requested_backlog_rad, backlog_rad
+        )
+        limits = self.config.feasibility
+        singularity_warning = bool(
+            result.metrics.jacobian_condition
+            >= 0.8 * limits.maximum_jacobian_condition
+            or result.metrics.minimum_jacobian_singular_value
+            <= 1.25 * limits.minimum_jacobian_singular_value
+            or (
+                limits.minimum_wrist_bend_rad > 0.0
+                and result.metrics.wrist_bend_from_singularity_rad
+                <= limits.minimum_wrist_bend_rad + math.radians(5.0)
+            )
+        )
+        if singularity_warning:
+            self.singularity_warning_count += 1
         record.update(
             desired_tcp=_pose_dict(desired),
             mapped_tcp_target=_pose_dict(desired),
-            filtered_tcp_target=_pose_dict(desired),
+            filtered_tcp_target=_pose_dict(evaluated_target),
+            continuation_enabled=self.simulation_only_recovery,
+            continuation_fraction=continuation_fraction,
+            continuation_backtracks=continuation_backtracks,
+            continuation_attempt_reasons=attempted_reasons,
+            requested_backlog_m=backlog_m,
+            requested_backlog_deg=math.degrees(backlog_rad),
+            singularity_warning=singularity_warning,
             metrics=asdict(result.metrics),
             ik_solution_rad=result.joint_target_rad,
+            ik_rejection_reason=None if result.accepted else result.reason.value,
+            hold_last=not result.accepted,
             ik_computation_ms=(time.perf_counter_ns() - started) / 1e6,
         )
         if not result.accepted:
@@ -315,7 +416,7 @@ class SmoothQuestJakaSession:
                 state.right.wrist_pose,
                 None if self.arm_mapper.last_telemetry is None else self.arm_mapper.last_telemetry.hand_local_delta,
                 desired,
-                desired,
+                evaluated_target,
                 result,
                 None,
                 False,
@@ -331,20 +432,20 @@ class SmoothQuestJakaSession:
             input_receive_monotonic_ns=min(input_receive_ns, now_ns),
             generated_monotonic_ns=now_ns,
             desired_tcp=desired,
-            filtered_tcp=desired,
+            filtered_tcp=evaluated_target,
             joint_position_rad=result.joint_target_rad,
         )
         output_applied = self.arm_output.apply(accepted_target)
         self.accepted_targets += 1
         self.consecutive_rejections = 0
         self.last_reason = FeasibilityReason.ACCEPTED.value
-        self.last_desired = desired
+        self.last_desired = evaluated_target
         current = self.simulation.current_tcp_pose
         record.update(
             accepted=True,
             reason=FeasibilityReason.ACCEPTED.value,
-            position_error_m=float(np.linalg.norm(np.asarray(desired.position_m) - np.asarray(current.position_m))),
-            orientation_error_deg=math.degrees(quaternion_angle_rad(desired.orientation_xyzw, current.orientation_xyzw)),
+            position_error_m=float(np.linalg.norm(np.asarray(evaluated_target.position_m) - np.asarray(current.position_m))),
+            orientation_error_deg=math.degrees(quaternion_angle_rad(evaluated_target.orientation_xyzw, current.orientation_xyzw)),
             accepted_joint_target_rad=list(accepted_target.joint_position_rad),
             output_applied=output_applied,
         )
@@ -354,7 +455,7 @@ class SmoothQuestJakaSession:
             state.right.wrist_pose,
             None if self.arm_mapper.last_telemetry is None else self.arm_mapper.last_telemetry.hand_local_delta,
             desired,
-            desired,
+            evaluated_target,
             result,
             accepted_target,
             output_applied,
@@ -431,6 +532,7 @@ class SmoothQuestJakaSession:
             "hand_clutch_state": self.hand_clutch.state.value,
             "captured_head_yaw_rad": self.arm_mapper.latched_head_yaw_rad,
             "arm_reference_pose": _pose_dict(self.arm_mapper.robot_reference),
+            "operator_reference_wrist": _pose_dict(self.arm_mapper.hand_reference),
             "current_arm_target": _pose_dict(self.simulation.last_safe_target),
             "operator_delta": None if mapping is None else {
                 "translation_m": mapping.horizontal_delta.position_m,
@@ -463,6 +565,12 @@ class SmoothQuestJakaSession:
         self.rejections[reason] += 1
         self.last_reason = reason
         self.consecutive_rejections += 1
+        if self.simulation_only_recovery:
+            # Candidate rejection already holds the last safe joint target.
+            # Keeping the clutch engaged lets the same absolute relative-pose
+            # mapping recover as soon as the operator retreats.  Tracking and
+            # controller faults are handled earlier and still fault instantly.
+            return
         if self.consecutive_rejections > self.isolated_rejection_hold_count:
             self.arm_clutch.fault(timestamp_ns, reason)
             self.arm_mapper.clear()
@@ -492,6 +600,14 @@ class SmoothQuestJakaSession:
             "final_state": f"arm={self.arm_clutch.state.value},hand={self.hand_clutch.state.value}",
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
             "hand_clutch_cycle_count": self.hand_clutch.cycle_count,
+            "simulation_only_recovery": self.simulation_only_recovery,
+            "continuation_intervention_count": self.continuation_intervention_count,
+            "continuation_backtrack_count": self.continuation_backtrack_count,
+            "singularity_warning_count": self.singularity_warning_count,
+            "maximum_requested_backlog_m": self.maximum_requested_backlog_m,
+            "maximum_requested_backlog_deg": math.degrees(
+                self.maximum_requested_backlog_rad
+            ),
             "arm_reference_capture_ms": _distribution_ms(self.arm_capture_durations_ns),
             "hand_reacquisition_configured_ms": self.hand_clutch.reacquisition_duration_ns / 1e6,
             "ik_computation_ms": _event_metric(self.event_records, "ik_computation_ms"),

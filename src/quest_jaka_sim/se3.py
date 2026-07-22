@@ -120,6 +120,33 @@ def quaternion_to_rotvec(values: Iterable[float]) -> np.ndarray:
     return vector / sine * angle
 
 
+def swing_twist_about_local_z(
+    values: Iterable[float],
+) -> tuple[tuple[float, float, float, float], float]:
+    """Decompose ``q = swing * twist`` about the source frame's local Z axis.
+
+    The returned scalar is the signed shortest-path twist angle in ``[-pi, pi]``.
+    Projection in quaternion space avoids Euler angles and remains continuous for
+    small rotations.  At the one genuinely ambiguous case -- an exact 180-degree
+    swing whose quaternion has both ``z == 0`` and ``w == 0`` -- twist is defined
+    as zero and the complete rotation is returned as swing.
+    """
+
+    x, y, z, w = normalize_quaternion_xyzw(values)
+    if w < 0.0:
+        x, y, z, w = -x, -y, -z, -w
+    twist_norm = math.hypot(z, w)
+    if twist_norm < 1e-12:
+        return (x, y, z, w), 0.0
+    twist = (0.0, 0.0, z / twist_norm, w / twist_norm)
+    swing = quaternion_multiply_xyzw(
+        (x, y, z, w), quaternion_conjugate_xyzw(twist)
+    )
+    angle = 2.0 * math.atan2(twist[2], twist[3])
+    angle = (angle + math.pi) % (2.0 * math.pi) - math.pi
+    return swing, angle
+
+
 def rotvec_to_quaternion_xyzw(values: Iterable[float]) -> tuple[float, float, float, float]:
     vector = np.asarray(tuple(values), dtype=np.float64)
     if vector.shape != (3,) or not np.all(np.isfinite(vector)):
@@ -153,6 +180,49 @@ def quaternion_slerp_xyzw(
     return normalize_quaternion_xyzw(
         math.sin((1.0 - t) * angle) / sine * a
         + math.sin(t * angle) / sine * b
+    )
+
+
+def bounded_pose_step(
+    start: Pose6D,
+    end: Pose6D,
+    *,
+    maximum_translation_m: float,
+    maximum_rotation_rad: float,
+) -> tuple[Pose6D, float]:
+    """Advance along one coupled SE(3) segment without dropping pose axes.
+
+    A single fraction is used for both translation and quaternion SLERP.  This
+    is intentionally different from clipping Cartesian and rotational
+    components independently: the requested six-dimensional path is retained,
+    while its progress per control tick is bounded.
+    """
+
+    start_position = np.asarray(start.position_m, dtype=np.float64)
+    end_position = np.asarray(end.position_m, dtype=np.float64)
+    displacement = float(np.linalg.norm(end_position - start_position))
+    rotation = quaternion_angle_rad(start.orientation_xyzw, end.orientation_xyzw)
+    fraction = 1.0
+    if displacement > 0.0:
+        fraction = min(
+            fraction,
+            max(0.0, float(maximum_translation_m)) / displacement,
+        )
+    if rotation > 0.0:
+        fraction = min(
+            fraction,
+            max(0.0, float(maximum_rotation_rad)) / rotation,
+        )
+    fraction = max(0.0, min(1.0, fraction))
+    position = start_position + fraction * (end_position - start_position)
+    return (
+        Pose6D(
+            tuple(float(value) for value in position),
+            quaternion_slerp_xyzw(
+                start.orientation_xyzw, end.orientation_xyzw, fraction
+            ),
+        ),
+        fraction,
     )
 
 

@@ -53,16 +53,6 @@ def _parser() -> argparse.ArgumentParser:
         help="fast-forward before this recorded time, then display in real time",
     )
 
-    live = commands.add_parser("live", help="Quest-only live input to MuJoCo viewer")
-    live.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    live.add_argument("--bind", default="0.0.0.0")
-    live.add_argument("--port", type=int, default=9000)
-    live.add_argument("--project-ip")
-    live.add_argument("--allowed-sender")
-    live.add_argument("--duration-sec", type=float, default=120.0)
-    live.add_argument("--report", type=Path)
-    live.add_argument("--output", type=Path)
-    live.add_argument("--events", type=Path)
     smooth_live = commands.add_parser(
         "live-6dof", help="fixed-rate filtered Quest 6-DoF input to MuJoCo"
     )
@@ -79,6 +69,23 @@ def _parser() -> argparse.ArgumentParser:
     smooth_live.add_argument("--report", type=Path)
     smooth_live.add_argument("--output", type=Path)
     smooth_live.add_argument("--events", type=Path)
+    smooth_live.add_argument(
+        "--viewer",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="open the MuJoCo passive viewer (default: enabled)",
+    )
+    smooth_live.add_argument(
+        "--telemetry-hz",
+        type=float,
+        default=2.0,
+        help="terminal tracking/clutch status rate; 0 disables (default: 2)",
+    )
+    smooth_live.add_argument(
+        "--ik-debug",
+        action="store_true",
+        help="show optional joint/IK/singularity/continuation diagnostics",
+    )
     smooth_replay = commands.add_parser(
         "replay-6dof", help="deterministic fixed-rate filtered 6-DoF replay"
     )
@@ -142,22 +149,17 @@ def _make_smooth_session(
         config.mjcf_path, Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
-    return simulation, SmoothQuestJakaSession(config, simulation)
+    return simulation, SmoothQuestJakaSession(
+        config, simulation, simulation_only_recovery=True
+    )
 
 
-def _viewer(simulation: JakaMujocoSimulation, session: object):
+def _viewer(simulation: JakaMujocoSimulation):
     module = importlib.import_module("mujoco.viewer")
-
-    def key_callback(keycode: int) -> None:
-        # Preserve the older offline translation-only viewer control. The
-        # precision dual-clutch session intentionally ignores keyboard input.
-        if keycode == 32 and not hasattr(session, "arm_clutch"):
-            session.request_toggle()
 
     handle = module.launch_passive(
         simulation.model,
         simulation.data,
-        key_callback=key_callback,
         show_left_ui=False,
         show_right_ui=False,
     )
@@ -187,6 +189,31 @@ def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: obje
     arm = getattr(session, "arm_clutch", None)
     hand = getattr(session, "hand_clutch", None)
     latest = session.event_records[-1] if getattr(session, "event_records", None) else {}
+    metrics = latest.get("metrics") or {}
+    debug_text = ""
+    if getattr(session, "ik_debug", False) and metrics:
+        q = latest.get("accepted_joint_target_rad") or metrics.get("ik_candidate_rad") or ()
+        dq = metrics.get("joint_delta_rad") or ()
+        q_deg = tuple(round(math.degrees(v), 2) for v in q)
+        dq_deg = tuple(round(math.degrees(v), 3) for v in dq)
+        roll_deg = math.degrees(metrics.get("target_tool_axial_roll_rad", 0.0))
+        swing_deg = math.degrees(metrics.get("target_tool_swing_rad", 0.0))
+        ratio = metrics.get("j6_axial_contribution_ratio")
+        margin_deg = math.degrees(metrics.get("nearest_safe_joint_limit_margin_rad", 0.0))
+        debug_text = (
+            f"\nq_deg={q_deg}\ndq_deg={dq_deg}\n"
+            f"tool swing/roll={swing_deg:.3f}/{roll_deg:.3f} deg "
+            f"J6_ratio(diag)={ratio}\n"
+            f"cond={metrics.get('jacobian_condition')} "
+            f"sigma_min={metrics.get('minimum_jacobian_singular_value')} "
+            f"safe_limit_margin={margin_deg:.2f} deg "
+            f"branch_switch={metrics.get('branch_switch')}\n"
+            f"continuation={latest.get('continuation_fraction', 1.0):.4f} "
+            f"backtracks={latest.get('continuation_backtracks', 0)} "
+            f"backlog={latest.get('requested_backlog_m', 0.0) * 1000.0:.2f} mm/"
+            f"{latest.get('requested_backlog_deg', 0.0):.2f} deg "
+            f"singularity_warning={latest.get('singularity_warning', False)}"
+        )
     instruction = (
         "LEFT INDEX=arm hold-to-run; LEFT GRIP=hand hold-to-run"
         if getattr(session, "clutch_provider", "unavailable") == "quest_ctrl_udp_v1"
@@ -217,7 +244,7 @@ def _sync_viewer(handle: object, simulation: JakaMujocoSimulation, session: obje
                 f"arm_fault={latest.get('active_arm_fault')} hand_fault={latest.get('active_hand_fault')}\n"
                 f"cycles arm={getattr(arm, 'cycle_count', 0)} hand={getattr(hand, 'cycle_count', 0)}\n"
                 f"{instruction}\n"
-                "BLUE=desired TCP frame GREEN=simulated TCP frame"
+                f"BLUE=desired TCP frame GREEN=simulated TCP frame{debug_text}"
             ),
         )
     )
@@ -258,7 +285,7 @@ def _replay(args: argparse.Namespace) -> int:
         raise SystemExit("recording contains no datagrams")
     base_ns = datagrams[0].receive_monotonic_ns
     previous_ns = base_ns
-    handle = _viewer(simulation, session) if args.viewer else None
+    handle = _viewer(simulation) if args.viewer else None
     realtime = bool(args.realtime or args.viewer)
     wall_start: float | None = None
     last_viewer_sync = 0.0
@@ -326,54 +353,6 @@ def _project_ip(explicit: str | None) -> str:
     return str(address)
 
 
-def _live(args: argparse.Namespace) -> int:
-    if args.duration_sec <= 0:
-        raise SystemExit("duration must be positive")
-    config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
-    simulation, session = _make_session(config)
-    project_ip = _project_ip(args.project_ip)
-    default_report, default_capture = _paths("quest_jaka_live_sim")
-    report_path = args.report or default_report
-    capture_path = args.output or default_capture
-    capture_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"PROJECT_IP={project_ip}")
-    print(f"PORT={args.port}")
-    print("TRANSPORT=UDP")
-    print("CONTROL=SPACE once to arm, SPACE again on a fresh sample to capture reference")
-    print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
-    handle = _viewer(simulation, session)
-    started = time.monotonic()
-    previous = started
-    with HtsUdpReceiver(
-        args.bind, args.port, allowed_sender=args.allowed_sender
-    ) as receiver, HtsRawRecordingWriter(
-        capture_path, metadata={"mode": "quest_jaka_live_sim_only"}
-    ) as writer:
-        try:
-            while handle.is_running() and time.monotonic() - started < args.duration_sec:
-                now = time.monotonic()
-                simulation.step(now - previous)
-                previous = now
-                datagram = receiver.receive(timeout_s=0.001)
-                if datagram is not None:
-                    writer.write(datagram)
-                    session.process(datagram)
-                else:
-                    session.tick(time.monotonic_ns())
-                _sync_viewer(handle, simulation, session)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            handle.close()
-    report = session.report(replay_source=str(capture_path))
-    report["mode"] = "live_quest_to_simulation_only"
-    events_path = args.events or report_path.with_suffix(".events.jsonl")
-    report["event_log"] = str(events_path.resolve())
-    _write_events(session.event_records, events_path)
-    _write_report(report, report_path)
-    return 0
-
-
 class _ReceiveWorker:
     """Quest UDP receive owns its thread and only publishes validated-timestamp datagrams."""
 
@@ -421,6 +400,8 @@ class _ReceiveWorker:
 def _live_6dof(args: argparse.Namespace) -> int:
     if args.duration_sec <= 0:
         raise SystemExit("duration must be positive")
+    if args.telemetry_hz < 0:
+        raise SystemExit("telemetry-hz must be non-negative")
     config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
     simulation, session = _make_smooth_session(config)
     clutch_config = config.raw.get("clutches", {})
@@ -449,7 +430,21 @@ def _live_6dof(args: argparse.Namespace) -> int:
     print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP hand clutch; both are independent hold-to-run")
     print("MODE=filtered relative 6-DoF; BLUE desired frame, GREEN simulated frame")
     print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
-    handle = _viewer(simulation, session)
+    if args.ik_debug:
+        print(
+            "IK_DEBUG=enabled; viewer/STATUS show q, dq, tool swing/roll, "
+            "IK/singularity/continuation metrics (J6 contribution is diagnostic only)"
+        )
+    print("操作提示：")
+    print("1. 打开带 CTRL sidecar 的 Quest Hand Tracking Streamer。")
+    print(f"2. 确认 Quest 与主机同网，并将目标设为 {project_ip}:{args.port}/UDP unicast。")
+    print("3. 开启右手追踪、Head Pose、Debug Info，确认扩展 CTRL sender 已启用，再点击 Start Streaming。")
+    print("4. 右手进入视野；等待终端显示 right_valid=True、controller_valid=True。")
+    print("5. 左手食指扳机先完全释放，再按住以捕获 reference 并进入 engaged。")
+    print("6. 按住食指扳机移动/旋转右手；释放即 disengage，下一次按下会重新捕获。")
+    print("7. 左手 grip 仅控制仿真 RH56；退出请关闭 viewer 或按 Ctrl-C。")
+    handle = _viewer(simulation) if args.viewer else None
+    session.ik_debug = bool(args.ik_debug)
     started = time.monotonic()
     sim_period = float(simulation.model.opt.timestep)
     target_period = 1.0 / target_hz
@@ -459,6 +454,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     target_skipped_ticks = 0
     viewer_skipped_frames = 0
     viewer_updates = 0
+    next_telemetry = started
     with HtsRawRecordingWriter(
         capture_path,
         metadata={
@@ -469,7 +465,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
         worker = _ReceiveWorker(args, writer)
         worker.start()
         try:
-            while handle.is_running() and time.monotonic() - started < args.duration_sec:
+            while (handle is None or handle.is_running()) and time.monotonic() - started < args.duration_sec:
                 if worker.error is not None:
                     raise RuntimeError("Quest receive worker failed") from worker.error
                 while True:
@@ -499,16 +495,59 @@ def _live_6dof(args: argparse.Namespace) -> int:
                 if now >= next_viewer:
                     skipped = max(0, int((now - next_viewer) / viewer_period))
                     viewer_skipped_frames += skipped
-                    _sync_viewer(handle, simulation, session)
-                    viewer_updates += 1
+                    if handle is not None:
+                        _sync_viewer(handle, simulation, session)
+                        viewer_updates += 1
                     next_viewer += (skipped + 1) * viewer_period
+                if args.telemetry_hz > 0 and now >= next_telemetry:
+                    controller = controller_router.last_state
+                    latest = session.event_records[-1] if session.event_records else {}
+                    print(
+                        "STATUS "
+                        f"right_valid={latest.get('right_wrist_valid', False)} "
+                        f"controller_valid={controller.controller_valid} "
+                        f"arm={session.arm_clutch.state.value} "
+                        f"hand={session.hand_clutch.state.value} "
+                        f"target={session.last_reason} "
+                        f"accepted={session.accepted_targets}",
+                        flush=True,
+                    )
+                    if args.ik_debug and latest.get("metrics"):
+                        metrics = latest["metrics"]
+                        q = latest.get("accepted_joint_target_rad") or metrics.get("ik_candidate_rad") or ()
+                        dq = metrics.get("joint_delta_rad") or ()
+                        print(
+                            "IKDBG "
+                            f"q_deg={tuple(round(math.degrees(v), 2) for v in q)} "
+                            f"dq_deg={tuple(round(math.degrees(v), 3) for v in dq)} "
+                            f"tool_swing_deg={math.degrees(metrics.get('target_tool_swing_rad', 0.0)):.3f} "
+                            f"tool_roll_deg={math.degrees(metrics.get('target_tool_axial_roll_rad', 0.0)):.3f} "
+                            f"j6_expected_deg={math.degrees(metrics.get('j6_expected_delta_rad', 0.0)):.3f} "
+                            f"j6_actual_axial_deg={math.degrees(metrics.get('j6_axial_contribution_rad', 0.0)):.3f} "
+                            f"j6_ratio={metrics.get('j6_axial_contribution_ratio')} "
+                            f"pos_err_mm={1000.0 * metrics.get('ik_error_m', 0.0):.3f} "
+                            f"ori_err_deg={math.degrees(metrics.get('ik_orientation_error_rad', 0.0)):.3f} "
+                            f"cond={metrics.get('jacobian_condition'):.3f} "
+                            f"sigma_min={metrics.get('minimum_jacobian_singular_value'):.6f} "
+                            f"safe_limit_margin_deg={math.degrees(metrics.get('nearest_safe_joint_limit_margin_rad', 0.0)):.2f} "
+                            f"accepted={latest.get('accepted')} reason={latest.get('reason')} "
+                            f"branch_switch={metrics.get('branch_switch')} hold_last={latest.get('hold_last')} "
+                            f"continuation={latest.get('continuation_fraction', 1.0):.4f} "
+                            f"backtracks={latest.get('continuation_backtracks', 0)} "
+                            f"backlog_mm={1000.0 * latest.get('requested_backlog_m', 0.0):.2f} "
+                            f"backlog_deg={latest.get('requested_backlog_deg', 0.0):.2f} "
+                            f"singularity_warning={latest.get('singularity_warning', False)}",
+                            flush=True,
+                        )
+                    next_telemetry = now + 1.0 / args.telemetry_hz
                 deadline = min(next_sim, next_target, next_viewer)
                 time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
         except KeyboardInterrupt:
             pass
         finally:
             worker.close()
-            handle.close()
+            if handle is not None:
+                handle.close()
     report = session.report(str(capture_path.resolve()))
     report.update(
         mode="live_quest_to_smooth_6dof_simulation_only",
@@ -559,7 +598,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     control_period_ns = int(round(1e9 / float(rates.get("target_generation_hz", 60.0))))
     sim_period_ns = int(round(simulation.model.opt.timestep * 1e9))
     viewer_period_ns = int(round(1e9 / float(rates.get("viewer_hz", 60.0))))
-    handle = _viewer(simulation, session) if args.viewer else None
+    handle = _viewer(simulation) if args.viewer else None
     realtime = bool(args.realtime or args.viewer)
     wall_start = time.monotonic()
     index = 0
@@ -649,8 +688,6 @@ def main() -> int:
     args = _parser().parse_args()
     if args.command == "replay":
         return _replay(args)
-    if args.command == "live":
-        return _live(args)
     if args.command == "live-6dof":
         return _live_6dof(args)
     if args.command == "replay-6dof":

@@ -12,12 +12,15 @@ from quest_jaka_sim.se3 import (
     PoseSampleBuffer,
     TimedPoseSample,
     align_quaternion_sign,
+    bounded_pose_step,
     compose_pose,
     normalize_quaternion_xyzw,
     quaternion_angle_rad,
+    quaternion_multiply_xyzw,
     quaternion_slerp_xyzw,
     relative_pose,
     rotvec_to_quaternion_xyzw,
+    swing_twist_about_local_z,
 )
 
 
@@ -49,6 +52,24 @@ def test_relative_pose_and_composition_use_reference_local_multiplication_order(
     ) < 1e-9
 
 
+def test_swing_twist_decomposition_is_quaternion_safe() -> None:
+    swing_expected = rotvec_to_quaternion_xyzw((0.2, -0.1, 0.0))
+    twist_expected = rotvec_to_quaternion_xyzw((0.0, 0.0, -0.35))
+    combined = quaternion_multiply_xyzw(swing_expected, twist_expected)
+
+    swing, twist_angle = swing_twist_about_local_z(tuple(-v for v in combined))
+
+    assert quaternion_angle_rad(swing, swing_expected) < 1e-9
+    assert twist_angle == pytest.approx(-0.35, abs=1e-9)
+
+
+def test_swing_twist_exact_half_turn_swing_has_defined_zero_twist() -> None:
+    swing, twist_angle = swing_twist_about_local_z((1.0, 0.0, 0.0, 0.0))
+
+    assert quaternion_angle_rad(swing, (1.0, 0.0, 0.0, 0.0)) < 1e-9
+    assert twist_angle == 0.0
+
+
 def test_relative_orientation_and_shortest_path_slerp() -> None:
     qx90 = rotvec_to_quaternion_xyzw((math.pi / 2.0, 0.0, 0.0))
     reference = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
@@ -58,6 +79,32 @@ def test_relative_orientation_and_shortest_path_slerp() -> None:
     assert quaternion_angle_rad(
         midpoint, rotvec_to_quaternion_xyzw((math.pi / 4.0, 0.0, 0.0))
     ) < 1e-8
+
+
+def test_bounded_pose_step_preserves_one_coupled_full_pose_fraction() -> None:
+    start = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    end = Pose6D(
+        (0.10, -0.04, 0.02),
+        rotvec_to_quaternion_xyzw((0.0, 0.0, math.radians(30.0))),
+    )
+
+    stepped, fraction = bounded_pose_step(
+        start,
+        end,
+        maximum_translation_m=1.0,
+        maximum_rotation_rad=math.radians(5.0),
+    )
+
+    assert fraction == pytest.approx(1.0 / 6.0)
+    assert stepped.position_m == pytest.approx(
+        tuple(fraction * value for value in end.position_m)
+    )
+    assert quaternion_angle_rad(start.orientation_xyzw, stepped.orientation_xyzw) == pytest.approx(
+        math.radians(5.0)
+    )
+    assert quaternion_angle_rad(stepped.orientation_xyzw, end.orientation_xyzw) == pytest.approx(
+        math.radians(25.0)
+    )
 
 
 def test_timestamp_aware_one_euro_filters_reduce_stationary_noise_and_reset() -> None:
