@@ -80,6 +80,34 @@ def _read_points(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
+def _run_e1_zero_motion_fake(
+    tmp_path: Path,
+    *,
+    initial: tuple[float, ...],
+    post_edg_offset: tuple[float, ...],
+    extra: tuple[str, ...] = (),
+) -> tuple[subprocess.CompletedProcess[str], dict, list[dict]]:
+    metrics = tmp_path / "e1-metrics.json"
+    emitted = tmp_path / "e1-emitted.jsonl"
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-zero-motion-dry-run",
+            "--duration-s", "0.20",
+            "--fake-initial-joints-rad", ",".join(map(str, initial)),
+            "--fake-post-edg-joint-offset-rad", ",".join(map(str, post_edg_offset)),
+            "--target-socket", str(tmp_path / "e1-target.sock"),
+            "--metrics-file", str(metrics),
+            "--emitted-points-file", str(emitted),
+            *extra,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result, json.loads(metrics.read_text()), _read_points(emitted)
+
+
 def _run_stream(
     tmp_path: Path,
     samples: list[tuple[float, int, tuple[float, ...]]],
@@ -174,6 +202,85 @@ def test_60_hz_targets_become_continuous_exact_8ms_grid_and_reach_endpoint(tmp_p
     assert points[-1]["joint_position_rad"] == pytest.approx(samples[-1][2], abs=1e-15)
     assert metrics["final_resampler_endpoint_error_rad"] == pytest.approx([0.0] * 6, abs=1e-15)
     assert metrics["ik_calls"] == 0
+
+
+def test_e1_post_edg_state_is_atomic_q_hold_with_no_startup_convergence(tmp_path) -> None:
+    initial = (0.2, -0.3, 0.4, -0.5, 0.6, -0.7)
+    offset = (1e-5, -2e-5, 3e-5, -4e-5, 5e-5, -6e-5)
+    q_hold = tuple(left + right for left, right in zip(initial, offset, strict=True))
+
+    result, metrics, points = _run_e1_zero_motion_fake(
+        tmp_path, initial=initial, post_edg_offset=offset
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert metrics["pre_edg_measured_joint_position_rad"] == pytest.approx(initial)
+    assert metrics["post_edg_authoritative_q_hold_rad"] == pytest.approx(q_hold)
+    assert metrics["pre_to_post_edg_difference_rad"] == pytest.approx(offset)
+    assert metrics["zero_motion_fixed_destination_rad"] == pytest.approx(q_hold)
+    assert metrics["zero_motion_first_command_rad"] == pytest.approx(q_hold)
+    assert metrics["zero_motion_last_command_rad"] == pytest.approx(q_hold)
+    assert metrics["zero_motion_q_hold_initialized"] is True
+    assert metrics["zero_motion_command_count"] == len(points) > 0
+    assert metrics["zero_motion_command_mismatch_count"] == 0
+    assert metrics["resampler_active_segment"] is False
+    assert metrics["resampler_destination_switches"] == 0
+    assert metrics["resampler_preemptions"] == 0
+    assert metrics["final_resampler_endpoint_error_rad"] == [0.0] * 6
+    assert metrics["output_maximum_adjacent_delta_rad"] == [0.0] * 6
+    assert metrics["output_maximum_velocity_rad_s"] == [0.0] * 6
+    assert metrics["output_maximum_acceleration_rad_s2"] == [0.0] * 6
+    assert all(row["joint_position_rad"] == pytest.approx(q_hold) for row in points)
+    assert metrics["ik_calls"] == 0
+
+    source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text().lower()
+    e1_source = (ROOT / "tools/jaka_edg_e1_zero_motion.py").read_text().lower()
+    assert "mujoco" not in source
+    assert "quest" not in e1_source
+    assert "command_rh56" not in e1_source
+
+
+def test_e1_recoverable_lateness_realigns_without_command_burst(tmp_path) -> None:
+    result, metrics, points = _run_e1_zero_motion_fake(
+        tmp_path,
+        initial=(0.0,) * 6,
+        post_edg_offset=(1e-5,) * 6,
+        extra=("--fake-start-delay-once-us", "5000"),
+    )
+    assert result.returncode == 0
+    assert metrics["hard_timing_misses"] == 0
+    assert metrics["timing_warning_events"] >= 1
+    assert metrics["schedule_realignments"] >= 1
+    command_times = [row["command_ns"] for row in points]
+    assert all(
+        right - left > 1_000_000
+        for left, right in zip(command_times, command_times[1:])
+    )
+    assert metrics["output_maximum_adjacent_delta_rad"] == [0.0] * 6
+
+
+def test_per_joint_and_global_tracking_and_displacement_metrics_agree(tmp_path) -> None:
+    samples = _stream_samples([40_000_000], [0.0, 0.02])
+    result, metrics, points = _run_stream(tmp_path, samples)
+    assert result.returncode == 0
+
+    tracking = metrics["maximum_tracking_difference_rad_per_joint"]
+    displacement = metrics["maximum_observed_joint_delta_rad_per_joint"]
+    assert metrics["maximum_measured_displacement_from_q_hold_rad_per_joint"] == displacement
+    assert any(value > 0.0 for value in tracking)
+    assert any(value > 0.0 for value in displacement)
+    assert metrics["maximum_tracking_difference_rad"] == pytest.approx(max(tracking))
+    assert metrics["maximum_observed_joint_delta_rad"] == pytest.approx(max(displacement))
+    assert metrics["output_maximum_adjacent_delta_rad_global"] == pytest.approx(
+        max(metrics["output_maximum_adjacent_delta_rad"])
+    )
+    assert metrics["output_maximum_velocity_rad_s_global"] == pytest.approx(
+        max(metrics["output_maximum_velocity_rad_s"])
+    )
+    assert metrics["output_maximum_acceleration_rad_s2_global"] == pytest.approx(
+        max(metrics["output_maximum_acceleration_rad_s2"])
+    )
+    assert points
 
 
 def test_alternating_16ms_17ms_intervals_preserve_monotonic_continuity(tmp_path) -> None:

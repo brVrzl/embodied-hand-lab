@@ -35,13 +35,15 @@ constexpr const char* kShadowAck = "I_ACKNOWLEDGE_JAKA_COMMAND_SHADOW_NO_EDG";
 constexpr const char* kBoundedTeleopAck = "I_ACKNOWLEDGE_BOUNDED_TELEDEX_JAKA_MOTION";
 constexpr const char* kQuestShadowAck = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW";
 constexpr const char* kQuestMotionAck = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION";
+constexpr const char* kE1ZeroMotionAck = "I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER";
 constexpr double kProbeMaximumVelocityRadS = 0.005;
 constexpr double kProbeMaximumAccelerationRadS2 = 0.02;
 
 enum class Mode {
   DryRun, StateRead, ZeroMotion, MinimalMotion,
   CommandShadowDryRun, CommandShadow, BoundedTeleopDryRun, BoundedTeleop,
-  JointShadowDryRun, JointShadow, JointTeleopDryRun, JointTeleop
+  JointShadowDryRun, JointShadow, JointTeleopDryRun, JointTeleop,
+  JointZeroMotionDryRun, JointZeroMotion
 };
 enum class State : std::uint16_t {
   Disconnected, Connecting, Connected, Armed, EdgReady, Holding, Running,
@@ -142,6 +144,7 @@ struct Options {
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
   std::array<double, 6> fake_initial_joints_rad{};
+  std::array<double, 6> fake_post_edg_joint_offset_rad{};
   std::array<double, 3> workspace_min_mm{};
   std::array<double, 3> workspace_max_mm{};
   bool workspace_min_set = false;
@@ -177,8 +180,13 @@ bool is_joint_teleop_mode(Mode mode) {
   return mode == Mode::JointTeleopDryRun || mode == Mode::JointTeleop;
 }
 
+bool is_joint_zero_motion_mode(Mode mode) {
+  return mode == Mode::JointZeroMotionDryRun || mode == Mode::JointZeroMotion;
+}
+
 bool is_joint_mode(Mode mode) {
-  return is_joint_shadow_mode(mode) || is_joint_teleop_mode(mode);
+  return is_joint_shadow_mode(mode) || is_joint_teleop_mode(mode) ||
+         is_joint_zero_motion_mode(mode);
 }
 
 bool is_stream_mode(Mode mode) {
@@ -188,7 +196,7 @@ bool is_stream_mode(Mode mode) {
 bool uses_fake_backend(Mode mode) {
   return mode == Mode::DryRun || mode == Mode::CommandShadowDryRun ||
          mode == Mode::BoundedTeleopDryRun || mode == Mode::JointShadowDryRun ||
-         mode == Mode::JointTeleopDryRun;
+         mode == Mode::JointTeleopDryRun || mode == Mode::JointZeroMotionDryRun;
 }
 
 bool is_connected_mode(Mode mode) {
@@ -246,6 +254,8 @@ Options parse_options(int argc, char** argv) {
       else if (v == "joint-shadow") o.mode = Mode::JointShadow;
       else if (v == "joint-teleop-dry-run") o.mode = Mode::JointTeleopDryRun;
       else if (v == "joint-teleop") o.mode = Mode::JointTeleop;
+      else if (v == "joint-zero-motion-dry-run") o.mode = Mode::JointZeroMotionDryRun;
+      else if (v == "joint-zero-motion") o.mode = Mode::JointZeroMotion;
       else throw std::runtime_error("invalid --mode");
     } else if (a == "--robot-ip") o.robot_ip = value_after(i, argc, argv);
     else if (a == "--edg-state-ip") o.edg_state_ip = value_after(i, argc, argv);
@@ -272,6 +282,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
     else if (a == "--fake-initial-joints-rad") o.fake_initial_joints_rad = parse_six(value_after(i, argc, argv), "fake initial joints");
+    else if (a == "--fake-post-edg-joint-offset-rad") o.fake_post_edg_joint_offset_rad = parse_six(value_after(i, argc, argv), "fake post-EDG joint offset");
     else if (a == "--workspace-min-mm") { o.workspace_min_mm = parse_xyz(value_after(i, argc, argv)); o.workspace_min_set = true; }
     else if (a == "--workspace-max-mm") { o.workspace_max_mm = parse_xyz(value_after(i, argc, argv)); o.workspace_max_set = true; }
     else if (a == "--relative-translation-limit-m") o.relative_translation_limit_m = std::stod(value_after(i, argc, argv));
@@ -288,7 +299,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--maximum-output-joint-velocity-rad-s") o.maximum_output_joint_velocity_rad_s = std::stod(value_after(i, argc, argv));
     else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
     else if (a == "--help") {
-      std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop [options]\n";
+      std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
@@ -296,7 +307,8 @@ Options parse_options(int argc, char** argv) {
   if (!(o.warning_ns < o.hold_ns && o.hold_ns < o.stop_ns && o.stop_ns < o.fatal_ns))
     throw std::runtime_error("stale thresholds must be strictly increasing");
   if (is_connected_mode(o.mode)) {
-    const char* expected_ack = is_joint_shadow_mode(o.mode) ? kQuestShadowAck :
+    const char* expected_ack = is_joint_zero_motion_mode(o.mode) ? kE1ZeroMotionAck :
+                               is_joint_shadow_mode(o.mode) ? kQuestShadowAck :
                                is_joint_teleop_mode(o.mode) ? kQuestMotionAck :
                                is_shadow_mode(o.mode) ? kShadowAck :
                                is_bounded_mode(o.mode) ? kBoundedTeleopAck : kHardwareAck;
@@ -482,6 +494,20 @@ class JointServoResampler {
     active_ = false;
   }
 
+  void hold(const std::array<double, 6>& position, std::uint64_t accepted_ns,
+            std::uint64_t sequence) {
+    if (!initialized_) throw std::runtime_error("resampler is not initialized");
+    validate_manufacturer_joint_position_limits(position);
+    if (accepted_ns == 0 || sequence == 0)
+      throw std::runtime_error("hold target has an invalid timestamp or sequence");
+    emitted_ = start_ = destination_ = position;
+    segment_start_ns_ = segment_end_ns_ = last_servo_time_ns_;
+    last_accepted_ns_ = from_accepted_ns_ = to_accepted_ns_ = accepted_ns;
+    from_sequence_ = to_sequence_ = sequence;
+    has_accepted_ = true;
+    active_ = false;
+  }
+
   void accept(const std::array<double, 6>& destination, std::uint64_t accepted_ns,
               std::uint64_t sequence) {
     if (!initialized_) throw std::runtime_error("resampler is not initialized");
@@ -576,6 +602,7 @@ class JointServoResampler {
   std::uint64_t endpoint_points() const { return endpoint_points_; }
   std::uint64_t maximum_segment_duration_ns() const { return maximum_segment_duration_ns_; }
   std::uint64_t maximum_endpoint_latency_ns() const { return maximum_endpoint_latency_ns_; }
+  bool active() const { return active_; }
 
  private:
   std::array<double, 6> emitted_{}, start_{}, destination_{};
@@ -598,6 +625,16 @@ struct OutputMotionSample {
 class OutputMotionDiagnostics {
  public:
   explicit OutputMotionDiagnostics(const Options& options) : options_(options) {}
+
+  void initialize(const std::array<double, 6>& position, std::uint64_t command_ns) {
+    validate_manufacturer_joint_position_limits(position);
+    if (command_ns == 0) throw std::runtime_error("output diagnostic initialization time is invalid");
+    previous_position_ = position;
+    previous_velocity_.fill(0.0);
+    previous_acceleration_.fill(0.0);
+    previous_command_ns_ = command_ns;
+    initialized_ = true;
+  }
 
   OutputMotionSample check(const ResampledServoPoint& point, std::uint64_t command_ns) {
     validate_manufacturer_joint_position_limits(point.position);
@@ -734,6 +771,8 @@ class FakeBackend final : public Backend {
   void enter_edg() override {
     if (!connected_) throw std::runtime_error("fake disconnected");
     delay(options_.fake_edg_delay_ns);
+    for (std::size_t joint = 0; joint < joints_.size(); ++joint)
+      joints_[joint] += options_.fake_post_edg_joint_offset_rad[joint];
     edg_ = true;
   }
   void validate_probe(const std::array<double, 6>&, const std::array<double, 6>&) override {}
@@ -1078,6 +1117,17 @@ struct TeleopMetrics {
   double maximum_ik_joint_step_rad = 0.0;
   double maximum_tracking_difference_rad = 0.0;
   double maximum_jacobian_condition = 0.0;
+  std::array<double, 6> maximum_tracking_difference_rad_per_joint{};
+  std::array<double, 6> maximum_observed_joint_delta_rad_per_joint{};
+  std::array<double, 6> pre_edg_measured_joint_position_rad{};
+  std::array<double, 6> post_edg_q_hold_rad{};
+  std::array<double, 6> pre_to_post_edg_difference_rad{};
+  std::array<double, 6> zero_motion_fixed_destination_rad{};
+  std::array<double, 6> zero_motion_first_command_rad{};
+  std::array<double, 6> zero_motion_last_command_rad{};
+  std::uint64_t zero_motion_command_count = 0;
+  std::uint64_t zero_motion_command_mismatch_count = 0;
+  bool zero_motion_q_hold_initialized = false;
   CartesianState startup_tcp{};
   std::array<double, 6> last_ik_target{};
 };
@@ -1127,6 +1177,8 @@ const char* mode_name(Mode mode) {
     case Mode::JointShadow: return "quest_joint_shadow_connected_no_edg";
     case Mode::JointTeleopDryRun: return "quest_joint_teleop_fake";
     case Mode::JointTeleop: return "quest_joint_teleop_connected";
+    case Mode::JointZeroMotionDryRun: return "joint_zero_motion_resampler_fake";
+    case Mode::JointZeroMotion: return "joint_zero_motion_resampler_connected";
   }
   return "unknown";
 }
@@ -1177,6 +1229,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"resampler_endpoint_points\":" << resampler.endpoint_points() << ",\n"
       << "  \"resampler_maximum_segment_duration_ns\":" << resampler.maximum_segment_duration_ns() << ",\n"
       << "  \"resampler_maximum_endpoint_latency_ns\":" << resampler.maximum_endpoint_latency_ns() << ",\n"
+      << "  \"resampler_active_segment\":" << (resampler.active() ? "true" : "false") << ",\n"
       << "  \"output_joint_velocity_boundary_rad_s\":" << o.maximum_output_joint_velocity_rad_s << ",\n"
       << "  \"diagnostic_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"maximum_joint_velocity_rad_s\":" << tracker.maximum_velocity() << ",\n"
@@ -1213,7 +1266,28 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
   if (resampler.emitted_points() > 0)
     for (std::size_t joint = 0; joint < 6; ++joint)
       endpoint_error[joint] = resampler.emitted()[joint] - final_accepted_target_rad[joint];
-  write_six("final_resampler_endpoint_error_rad", endpoint_error, false);
+  write_six("final_resampler_endpoint_error_rad", endpoint_error, true);
+  write_six("maximum_tracking_difference_rad_per_joint", teleop.maximum_tracking_difference_rad_per_joint, true);
+  write_six("maximum_observed_joint_delta_rad_per_joint", teleop.maximum_observed_joint_delta_rad_per_joint, true);
+  // Explicit E1 name; retain maximum_observed_joint_delta_rad_per_joint above
+  // as a backwards-compatible alias for existing metrics readers.
+  write_six("maximum_measured_displacement_from_q_hold_rad_per_joint",
+            teleop.maximum_observed_joint_delta_rad_per_joint, true);
+  write_six("pre_edg_measured_joint_position_rad", teleop.pre_edg_measured_joint_position_rad, true);
+  write_six("post_edg_authoritative_q_hold_rad", teleop.post_edg_q_hold_rad, true);
+  write_six("pre_to_post_edg_difference_rad", teleop.pre_to_post_edg_difference_rad, true);
+  write_six("zero_motion_fixed_destination_rad", teleop.zero_motion_fixed_destination_rad, true);
+  write_six("zero_motion_first_command_rad", teleop.zero_motion_first_command_rad, true);
+  write_six("zero_motion_last_command_rad", teleop.zero_motion_last_command_rad, true);
+  const auto maximum_of = [](const auto& values) {
+    return *std::max_element(values.begin(), values.end());
+  };
+  out << "  \"output_maximum_adjacent_delta_rad_global\":" << maximum_of(output_diagnostics.maximum_delta()) << ",\n"
+      << "  \"output_maximum_velocity_rad_s_global\":" << maximum_of(output_diagnostics.maximum_velocity()) << ",\n"
+      << "  \"output_maximum_acceleration_rad_s2_global\":" << maximum_of(output_diagnostics.maximum_acceleration()) << ",\n"
+      << "  \"zero_motion_command_count\":" << teleop.zero_motion_command_count << ",\n"
+      << "  \"zero_motion_command_mismatch_count\":" << teleop.zero_motion_command_mismatch_count << ",\n"
+      << "  \"zero_motion_q_hold_initialized\":" << (teleop.zero_motion_q_hold_initialized ? "true" : "false") << "\n";
   out << "}\n";
 }
 
@@ -1237,6 +1311,7 @@ int run(const Options& o) {
   std::uint64_t warning_cycles = 0;
   std::uint64_t status_accepted = 0, status_rejected = 0;
   std::array<double, 6> initial{}, observed{}, target{}, ik_target{};
+  std::array<double, 6> tracking_reference{}, command_reference{};
   bool has_ik_target = false;
   bool stop_requested = false;
   std::uint64_t stop_request_ns = 0;
@@ -1252,9 +1327,12 @@ int run(const Options& o) {
     backend->connect(); state = State::Connected;
     backend->verify(o.expected_tool_id, o.expected_user_frame_id); state = State::Armed;
     backend->read(initial); observed = initial; target = initial;
+    tracking_reference = command_reference = initial;
+    teleop.pre_edg_measured_joint_position_rad = initial;
     if (!std::all_of(initial.begin(), initial.end(), [](double v) { return std::isfinite(v) && std::abs(v) <= 2.0 * M_PI; })) throw std::runtime_error("initial joint state failed radians/finiteness check");
     if (o.mode == Mode::StateRead || is_shadow_mode(o.mode) ||
-        is_bounded_mode(o.mode) || is_joint_mode(o.mode)) {
+        is_bounded_mode(o.mode) || is_joint_shadow_mode(o.mode) ||
+        is_joint_teleop_mode(o.mode)) {
       backend->read_tcp(teleop.startup_tcp);
     }
     if (is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) {
@@ -1266,11 +1344,32 @@ int run(const Options& o) {
       auto endpoint = initial; endpoint[static_cast<std::size_t>(o.probe_joint)] += o.probe_delta_rad;
       backend->validate_probe(initial, endpoint);
     }
+    if (is_joint_zero_motion_mode(o.mode)) {
+      backend->enter_edg();
+      state = State::EdgReady;
+      backend->read(observed);
+      validate_manufacturer_joint_position_limits(observed);
+      const auto handoff_ns = now_ns();
+      const std::array<double, 6> q_hold = observed;
+      tracking_reference = command_reference = q_hold;
+      ik_target = q_hold;
+      teleop.last_ik_target = q_hold;
+      teleop.post_edg_q_hold_rad = q_hold;
+      teleop.zero_motion_fixed_destination_rad = q_hold;
+      teleop.zero_motion_q_hold_initialized = true;
+      for (std::size_t joint = 0; joint < q_hold.size(); ++joint)
+        teleop.pre_to_post_edg_difference_rad[joint] = q_hold[joint] - initial[joint];
+      joint_resampler.initialize(q_hold, handoff_ns);
+      joint_resampler.hold(q_hold, handoff_ns, 1);
+      output_diagnostics.initialize(q_hold, handoff_ns);
+      has_ik_target = true;
+      state = State::Running;
+    }
     if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) { backend->enter_edg(); state = State::EdgReady; backend->read(observed);
       double delta = 0; for (std::size_t i = 0; i < 6; ++i) delta = std::max(delta, std::abs(observed[i] - initial[i]));
       if (delta > 1e-4) throw std::runtime_error("near-zero initial command delta check failed");
     }
-    state = State::Holding;
+    if (!is_joint_zero_motion_mode(o.mode)) state = State::Holding;
     // Connection, verification, and initial state reads are setup work, not an
     // 8 ms command-stream cycle. Start deadline monitoring only after setup so
     // normal SDK/network startup latency cannot cause a false first-cycle abort.
@@ -1291,7 +1390,11 @@ int run(const Options& o) {
       }
       const auto cycle_start = now_ns();
       if (cycle_start - start >= static_cast<std::uint64_t>(o.duration_s * 1e9)) {
-        if (is_joint_teleop_mode(o.mode) && backend->edg_active()) {
+        if (is_joint_zero_motion_mode(o.mode) && backend->edg_active()) {
+          state = State::ControlledStop;
+          outcome = "zero_motion_duration_complete";
+          break;
+        } else if (is_joint_teleop_mode(o.mode) && backend->edg_active()) {
           state = State::ControlledStop;
           outcome = "maximum_session_duration";
           break;
@@ -1339,7 +1442,8 @@ int run(const Options& o) {
       }
       TargetPacket packet{};
       bool invalid_command = false, transport_failure = false;
-      if (target_socket.drain_newest(packet, last_sequence, ever_received, cycle_start, rejected,
+      if (!is_joint_zero_motion_mode(o.mode) &&
+          target_socket.drain_newest(packet, last_sequence, ever_received, cycle_start, rejected,
                                      invalid_command, transport_failure)) {
         latest = packet; last_sequence = packet.sequence; last_dispatch = packet.dispatch_ns; ever_received = true; ++accepted;
         const bool packet_stop = packet.kind == static_cast<std::uint16_t>(TargetKind::Stop);
@@ -1467,10 +1571,15 @@ int run(const Options& o) {
           state = State::ControlledStop; outcome = "controlled_stop_target_timeout"; break;
         }
       }
-      if (!ever_received || age >= o.hold_ns) state = State::Holding;
+      if (!is_joint_zero_motion_mode(o.mode) && (!ever_received || age >= o.hold_ns))
+        state = State::Holding;
       const auto read_start = now_ns(); backend->read(observed); const auto read_end = now_ns();
-      for (std::size_t joint = 0; joint < 6; ++joint)
-        maximum_observed_delta_rad = std::max(maximum_observed_delta_rad, std::abs(observed[joint] - initial[joint]));
+      for (std::size_t joint = 0; joint < 6; ++joint) {
+        const double displacement = std::abs(observed[joint] - tracking_reference[joint]);
+        teleop.maximum_observed_joint_delta_rad_per_joint[joint] = std::max(
+            teleop.maximum_observed_joint_delta_rad_per_joint[joint], displacement);
+        maximum_observed_delta_rad = std::max(maximum_observed_delta_rad, displacement);
+      }
       std::uint64_t write_duration = 0, command_time = 0;
       if (is_bounded_mode(o.mode) && backend->edg_active()) {
         const std::array<double, 6>& desired =
@@ -1479,6 +1588,8 @@ int run(const Options& o) {
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < 6; ++joint) {
           const double difference = std::abs(target[joint] - observed[joint]);
+          teleop.maximum_tracking_difference_rad_per_joint[joint] = std::max(
+              teleop.maximum_tracking_difference_rad_per_joint[joint], difference);
           teleop.maximum_tracking_difference_rad = std::max(teleop.maximum_tracking_difference_rad, difference);
           if (difference >= 0.003490658503988659) ++teleop.tracking_warning_cycles;
           const double hard = std::max(0.01308996938995747,
@@ -1494,7 +1605,8 @@ int run(const Options& o) {
         for (std::size_t joint = 0; joint < 6; ++joint)
           maximum_command_delta_rad = std::max(maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
         const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
-      } else if (is_joint_teleop_mode(o.mode) && backend->edg_active() && has_ik_target) {
+      } else if ((is_joint_teleop_mode(o.mode) || is_joint_zero_motion_mode(o.mode)) &&
+                 backend->edg_active() && has_ik_target) {
         // Normal trajectory evaluation stays on the exact 8 ms deadline grid.
         // A recovered late wake evaluates once at current time and re-arms;
         // expired historical ticks are never emitted in a catch-up burst.
@@ -1505,11 +1617,13 @@ int run(const Options& o) {
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < target.size(); ++joint) {
           const double difference = std::abs(target[joint] - observed[joint]);
+          teleop.maximum_tracking_difference_rad_per_joint[joint] = std::max(
+              teleop.maximum_tracking_difference_rad_per_joint[joint], difference);
           teleop.maximum_tracking_difference_rad = std::max(
               teleop.maximum_tracking_difference_rad, difference);
           hard_crossing = hard_crossing || difference > o.excessive_tracking_error_abort_rad;
           maximum_command_delta_rad = std::max(
-              maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
+              maximum_command_delta_rad, std::abs(target[joint] - command_reference[joint]));
         }
         if (hard_crossing) {
           ++teleop.tracking_hard_crossings;
@@ -1526,6 +1640,16 @@ int run(const Options& o) {
         write_duration = command_time - write_start;
         output_diagnostics.commit(servo_point, motion_sample);
         joint_resampler.commit(servo_point, command_time);
+        if (is_joint_zero_motion_mode(o.mode)) {
+          if (teleop.zero_motion_command_count == 0)
+            teleop.zero_motion_first_command_rad = target;
+          teleop.zero_motion_last_command_rad = target;
+          ++teleop.zero_motion_command_count;
+          bool mismatch = false;
+          for (std::size_t joint = 0; joint < target.size(); ++joint)
+            mismatch = mismatch || target[joint] != tracking_reference[joint];
+          teleop.zero_motion_command_mismatch_count += mismatch ? 1 : 0;
+        }
         if (!o.emitted_points_file.empty())
           recorded_servo_points.push_back(RecordedServoPoint{servo_point, motion_sample});
       } else if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) {

@@ -451,6 +451,22 @@ repository, build, compile and whitespace checks passed. No physical gate ran.
 E1 is a new, separately gated measured-position-only path through the same
 resampler. It sends no motion target other than the initially measured J1-J6:
 
+The first E1 evidence run exposed a measurement-handoff defect, not a timing or
+controller fault: its fixed destination was read before EDG entry while the
+resampler started from a fresh post-EDG measurement. The resulting maximum
+startup offset was 1.6961e-5 rad. E1 now performs one atomic post-EDG handoff:
+the fresh post-EDG J1-J6 value is simultaneously the hold destination,
+resampler state, output-diagnostic state and tracking reference. The E1 native
+mode does not consume the target socket, so neither a stale target nor the
+normal live-target acceptance path can replace that hold value.
+
+Metrics retain the prior global fields and add per-joint arrays (J1 through J6)
+for target-to-measured tracking error, measured displacement from `q_hold`,
+adjacent emitted-command delta, emitted velocity and emitted acceleration. The
+pre-EDG measurement, post-EDG authoritative `q_hold`, their difference, fixed
+destination, and first/last commands are recorded separately. Global maxima
+must equal the maximum corresponding array element.
+
 ```bash
 .venv/bin/python tools/jaka_edg_e1_zero_motion.py \
   --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
