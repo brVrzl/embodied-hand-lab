@@ -273,6 +273,50 @@ def test_stream_timing_starts_after_connection_setup(tmp_path) -> None:
     assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
 
 
+def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
+    metrics = tmp_path / "recoverable-start-delay.json"
+    target = tmp_path / "recoverable-start-delay.sock"
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-shadow-dry-run",
+            "--duration-s", "0.20",
+            "--fake-start-delay-once-us", "5000",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    assert result.returncode == 0
+    assert payload["outcome"] == "completed"
+    assert payload["hard_timing_misses"] == 0
+    assert payload["timing_warning_events"] == 1
+    assert payload["schedule_realignments"] == 1
+    assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
+
+
+def test_full_period_start_delay_is_a_nonzero_hard_fault(tmp_path) -> None:
+    metrics = tmp_path / "hard-start-delay.json"
+    target = tmp_path / "hard-start-delay.sock"
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-shadow-dry-run",
+            "--duration-s", "0.20",
+            "--fake-start-delay-once-us", "9000",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    assert result.returncode == 2
+    assert payload["outcome"] == "hard_start_timing_miss"
+    assert payload["hard_timing_misses"] == 1
+    assert payload["error_code"] == 1
+
+
 def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
     metrics = tmp_path / "delayed-edg.json"
     target = tmp_path / "delayed-edg.sock"

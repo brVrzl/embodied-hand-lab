@@ -135,6 +135,7 @@ struct Options {
   std::uint32_t max_consecutive_overruns = 50;
   std::uint64_t fake_connect_delay_ns = 0;
   std::uint64_t fake_edg_delay_ns = 0;
+  std::uint64_t fake_start_delay_once_ns = 0;
   std::uint64_t fake_read_delay_ns = 0;
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
@@ -245,6 +246,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--fatal-timeout-ms") o.fatal_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--fake-connect-delay-us") o.fake_connect_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-edg-delay-us") o.fake_edg_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
+    else if (a == "--fake-start-delay-once-us") o.fake_start_delay_once_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-read-delay-us") o.fake_read_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
@@ -970,10 +972,18 @@ int run(const Options& o) {
     start = now_ns();
     previous = start;
     deadline = start;
+    bool fake_start_delay_injected = false;
     while (!g_stop.load(std::memory_order_relaxed) && samples.count < kMaximumSamples) {
       deadline += kPeriodNs;
       timespec wake{static_cast<time_t>(deadline / 1'000'000'000), static_cast<long>(deadline % 1'000'000'000)};
       while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wake, nullptr) == EINTR && !g_stop.load()) {}
+      if (!fake_start_delay_injected && o.fake_start_delay_once_ns > 0) {
+        timespec delay{
+            static_cast<time_t>(o.fake_start_delay_once_ns / 1'000'000'000),
+            static_cast<long>(o.fake_start_delay_once_ns % 1'000'000'000)};
+        while (nanosleep(&delay, &delay) == -1 && errno == EINTR && !g_stop.load()) {}
+        fake_start_delay_injected = true;
+      }
       const auto cycle_start = now_ns();
       if (cycle_start - start >= static_cast<std::uint64_t>(o.duration_s * 1e9)) {
         if (is_joint_teleop_mode(o.mode) && backend->edg_active()) {
@@ -994,7 +1004,10 @@ int run(const Options& o) {
       bool schedule_realign = false;
       bool timing_rearmed_after_edg = false;
       if (is_stream_mode(o.mode)) {
-        if (start_period > 12'000'000 || wake_lateness >= 8'000'000) {
+        // A single sub-period scheduler delay is recoverable by re-aligning the
+        // absolute deadline. Fault only after a full 8 ms wake is missed, a
+        // complete 16 ms start interval is exceeded, or warnings repeat.
+        if (start_period > 16'000'000 || wake_lateness >= kPeriodNs) {
           const std::size_t row = samples.count++;
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
@@ -1272,7 +1285,11 @@ int run(const Options& o) {
       }
       if (exit_after_cycle) break;
     }
-    state = State::ControlledStop;
+    if (state == State::Fault) {
+      if (error_code == 0) error_code = 1;
+    } else {
+      state = State::ControlledStop;
+    }
   } catch (const std::exception& e) {
     state = State::Fault; error_code = 1;
     fault_outcome = std::string("fault: ") + e.what();
