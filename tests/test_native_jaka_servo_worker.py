@@ -523,6 +523,9 @@ def test_connected_health_monitor_uses_only_audited_sdk_calls() -> None:
     assert "is_in_estop(&estop)" in source
     assert "is_in_collision(&collision)" in source
     assert "get_joint_servo_alarm" not in source
+    assert "class ControllerHealthMonitor" in source
+    assert "cycle_health = health_monitor->snapshot()" in source
+    assert "cycle_health = backend->read_controller_health()" not in source
 
 
 def test_quest_joint_teleop_rejects_nonzero_startup_jump(tmp_path) -> None:

@@ -14,9 +14,11 @@ endpoint instead of the joint point emitted on that 8 ms tick.
 
 The bounded diagnostic path now polls the SDK 2.2.7 interfaces present in the
 committed headers (`get_robot_status_simple`, `is_in_estop`, and
-`is_in_collision`) before every physical dispatch. A query failure, controller
-error, collision, E-stop, power loss, or enable loss stops before another ServoJ
-point. Bounded native telemetry records the current emitted command, same-cycle
+`is_in_collision`) from a separate read-only SDK session. The monitor publishes
+a bounded latest snapshot approximately every 16 ms; the 8 ms command thread
+only copies that snapshot and never performs these non-deterministic queries.
+A query failure, controller error, collision, E-stop, power loss, or enable loss
+stops before another ServoJ point. Bounded native telemetry records the current emitted command, same-cycle
 measurement, shortest-angle tracking difference, active endpoint, velocities,
 acceleration, sequence, heartbeat age, and host monotonic/wall clocks. An
 offline extractor selects event windows around alarms, J4/J6 peak lag, peak
@@ -37,6 +39,14 @@ limit stops this diagnostic run.
 Recorded operator configuration: payload 0.8 kg, COM
 [9.289, 12.427, 36.961] mm, upright installation X=0°/Z=0°, TCP zero. The
 process records but never writes these settings.
+
+The first post-payload attempt at instrumentation synchronously issued all
+three status calls on every 8 ms command tick. It safely stopped before Quest
+engagement with `hard_completion_timing_miss` after 66 identical hold commands;
+there was no controller alarm and no commanded motion. This demonstrated that
+fault polling itself must remain outside the EDG timing-critical path. The
+separate monitor above is the offline correction; it was not physically retried
+in the same task.
 
 ## Repository state at start
 
