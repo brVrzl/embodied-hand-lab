@@ -74,6 +74,12 @@ def _wait_status(runtime: ArmOnlyRuntime, native: NativeWorkerProcess, timeout_s
     raise RuntimeError("JAKA worker did not report connected state")
 
 
+def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
+    """Treat accepted-target or heartbeat transport failure as fatal, not disengagement."""
+
+    return reason != "DISENGAGED" and not output_applied
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.duration_sec <= 0.0:
@@ -235,9 +241,9 @@ def main() -> int:
                             ):
                                 jaka_adapter.observe_measured_joint_position(sample)
                         tick = session.control_tick(now_ns)
-                        dispatch_failed = (
-                            tick.reason != FeasibilityReason.DISENGAGED.value
-                            and not tick.output_applied
+                        dispatch_failed = _control_output_failed(
+                            reason=tick.reason,
+                            output_applied=tick.output_applied,
                         )
                         if dispatch_failed:
                             control_state = session.event_records[-1].get(

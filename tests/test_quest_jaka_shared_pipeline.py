@@ -38,9 +38,18 @@ from teleoperation.jaka.quest_adapter import (
     JakaAcceptedJointTargetAdapter,
 )
 from teleoperation.wire import TargetFlags, TargetKind
+from tools.quest_jaka_hardware import _control_output_failed
 
 
 CONFIG = Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+
+
+def test_hardware_control_output_failure_classification_is_dependency_free() -> None:
+    assert not _control_output_failed(reason="DISENGAGED", output_applied=False)
+    assert not _control_output_failed(reason="ACCEPTED", output_applied=True)
+    assert not _control_output_failed(reason="IK_POSITION_FAILED", output_applied=True)
+    assert _control_output_failed(reason="IK_POSITION_FAILED", output_applied=False)
+    assert _control_output_failed(reason="NEAR_SINGULARITY", output_applied=False)
 
 
 def _hand(sequence: int, timestamp_ns: int, pose: Pose6D) -> ReceivedHtsDatagram:
