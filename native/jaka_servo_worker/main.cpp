@@ -15,10 +15,8 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <stdexcept>
 #include <string>
-#include <thread>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -1036,16 +1034,22 @@ class RealBackend final : public Backend {
     health.monotonic_ns = now_ns();
     health.wall_ns = wall_now_ns();
     RobotStatus_simple status{};
-    BOOL estop = FALSE, collision = FALSE;
     health.status_sdk_return_code = robot_.get_robot_status_simple(&status);
-    health.estop_sdk_return_code = robot_.is_in_estop(&estop);
-    health.collision_sdk_return_code = robot_.is_in_collision(&collision);
     health.controller_error_code = status.errcode;
     health.controller_error_message = status.errmsg;
     health.powered_on = status.powered_on != 0;
     health.enabled = status.enabled != 0;
-    health.emergency_stop = estop != FALSE;
-    health.collision = collision != FALSE;
+    // Keep the healthy-path query to one supported lightweight SDK call.
+    // Once it reports a fault/power transition, classify collision/E-stop;
+    // timing no longer matters because no subsequent ServoJ point is allowed.
+    if (health.status_sdk_return_code != ERR_SUCC || status.errcode != 0 ||
+        !health.powered_on || !health.enabled) {
+      BOOL estop = FALSE, collision = FALSE;
+      health.estop_sdk_return_code = robot_.is_in_estop(&estop);
+      health.collision_sdk_return_code = robot_.is_in_collision(&collision);
+      health.emergency_stop = estop != FALSE;
+      health.collision = collision != FALSE;
+    }
     return health;
   }
   void solve_ik(const CartesianState& target, const std::array<double, 6>& reference,
@@ -1157,79 +1161,6 @@ class RealBackend final : public Backend {
   JAKAZuRobot robot_;
   bool connected_ = false, edg_ = false, servo_ = false;
   int cleanup_error_code_ = 0;
-};
-
-// Controller fault queries are non-deterministic network/SDK operations.  A
-// dedicated read-only SDK session keeps them off the 8 ms EDG command thread.
-// The command thread consumes only the newest bounded snapshot and never waits.
-class ControllerHealthMonitor {
- public:
-  explicit ControllerHealthMonitor(const Options& options) : options_(options) {}
-  ~ControllerHealthMonitor() { stop(); }
-
-  void start() {
-    running_.store(true, std::memory_order_release);
-    thread_ = std::thread([this] { loop(); });
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (!ready_.load(std::memory_order_acquire) &&
-           std::chrono::steady_clock::now() < deadline)
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    if (!ready_.load(std::memory_order_acquire))
-      throw std::runtime_error("controller health monitor startup timeout");
-    require_healthy_controller(snapshot());
-  }
-
-  ControllerHealth snapshot() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return latest_;
-  }
-
-  void stop() noexcept {
-    running_.store(false, std::memory_order_release);
-    if (thread_.joinable()) thread_.join();
-  }
-
- private:
-  void publish(const ControllerHealth& health) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    latest_ = health;
-    ready_.store(true, std::memory_order_release);
-  }
-
-  void loop() noexcept {
-    try {
-      auto backend = uses_fake_backend(options_.mode)
-          ? std::unique_ptr<Backend>(new FakeBackend(options_))
-          : std::unique_ptr<Backend>(new RealBackend(options_));
-      backend->connect();
-      backend->verify(options_.expected_tool_id, options_.expected_user_frame_id);
-      while (running_.load(std::memory_order_acquire)) {
-        const ControllerHealth health = backend->read_controller_health();
-        publish(health);
-        const bool alarm = health.status_sdk_return_code != ERR_SUCC ||
-            health.estop_sdk_return_code != ERR_SUCC ||
-            health.collision_sdk_return_code != ERR_SUCC ||
-            health.controller_error_code != 0 || health.collision ||
-            health.emergency_stop || !health.powered_on || !health.enabled;
-        if (alarm) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
-      }
-      backend->cleanup();
-    } catch (const std::exception& error) {
-      ControllerHealth health{};
-      health.monotonic_ns = now_ns();
-      health.wall_ns = wall_now_ns();
-      health.monitor_failure = error.what();
-      publish(health);
-    }
-  }
-
-  const Options& options_;
-  mutable std::mutex mutex_;
-  ControllerHealth latest_{};
-  std::atomic<bool> running_{false};
-  std::atomic<bool> ready_{false};
-  std::thread thread_;
 };
 
 class TargetSocket {
@@ -1586,7 +1517,6 @@ double smoothstep5(double x) { x = std::clamp(x, 0.0, 1.0); return x*x*x*(10.0 +
 int run(const Options& o) {
   std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler); std::signal(SIGHUP, signal_handler);
   auto backend = uses_fake_backend(o.mode) ? std::unique_ptr<Backend>(new FakeBackend(o)) : std::unique_ptr<Backend>(new RealBackend(o));
-  std::unique_ptr<ControllerHealthMonitor> health_monitor;
   TargetSocket target_socket(o.target_socket); StatusSender status_sender(o.status_socket);
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
@@ -1624,9 +1554,9 @@ int run(const Options& o) {
     backend->connect(); state = State::Connected;
     backend->verify(o.expected_tool_id, o.expected_user_frame_id); state = State::Armed;
     if (o.monitor_controller_health_each_cycle) {
-      health_monitor = std::make_unique<ControllerHealthMonitor>(o);
-      health_monitor->start();
-      teleop.last_controller_health = health_monitor->snapshot();
+      teleop.last_controller_health = backend->read_controller_health();
+      ++teleop.controller_health_samples;
+      require_healthy_controller(teleop.last_controller_health);
     }
     backend->read(initial); observed = initial; target = initial;
     tracking_reference = command_reference = initial;
@@ -1899,8 +1829,8 @@ int run(const Options& o) {
         state = State::Holding;
       const auto read_start = now_ns(); backend->read(observed); const auto read_end = now_ns();
       ControllerHealth cycle_health = teleop.last_controller_health;
-      if (o.monitor_controller_health_each_cycle) {
-        cycle_health = health_monitor->snapshot();
+      if (o.monitor_controller_health_each_cycle && (samples.count % 2) == 0) {
+        cycle_health = backend->read_controller_health();
         teleop.last_controller_health = cycle_health;
         ++teleop.controller_health_samples;
         const bool alarm = cycle_health.status_sdk_return_code != ERR_SUCC ||
@@ -2115,7 +2045,6 @@ int run(const Options& o) {
     fault_outcome = std::string("fault: ") + e.what();
     outcome = fault_outcome.c_str();
   }
-  if (health_monitor) health_monitor->stop();
   backend->cleanup();
   const int cleanup_error_code = backend->cleanup_error_code();
   if (cleanup_error_code != 0 && error_code == 0) {

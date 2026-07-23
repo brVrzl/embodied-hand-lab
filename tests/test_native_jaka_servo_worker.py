@@ -476,10 +476,11 @@ def test_cycle_telemetry_uses_current_emitted_command_for_tracking(tmp_path) -> 
     payload = json.loads(metrics.read_text())
     rows = [json.loads(line) for line in telemetry.read_text().splitlines()]
     assert rows
-    assert payload["controller_health_samples"] >= len(rows)
+    assert payload["controller_health_samples"] >= len(rows) // 2
     assert payload["controller_alarm_events"] == 0
     assert payload["joint_specific_servo_alarm_code_available"] is False
     for row in rows:
+        assert row["controller_health_age_ns"] < 25_000_000
         expected = [
             math.remainder(command - measured, 2.0 * math.pi)
             for command, measured in zip(
@@ -523,9 +524,13 @@ def test_connected_health_monitor_uses_only_audited_sdk_calls() -> None:
     assert "is_in_estop(&estop)" in source
     assert "is_in_collision(&collision)" in source
     assert "get_joint_servo_alarm" not in source
-    assert "class ControllerHealthMonitor" in source
-    assert "cycle_health = health_monitor->snapshot()" in source
-    assert "cycle_health = backend->read_controller_health()" not in source
+    assert "class ControllerHealthMonitor" not in source
+    assert "std::unique_ptr<ControllerHealthMonitor>" not in source
+    assert "(samples.count % 2) == 0" in source
+    assert "cycle_health = backend->read_controller_health()" in source
+    health_method = source.split("ControllerHealth read_controller_health() override", 2)[2]
+    assert health_method.index("get_robot_status_simple") < health_method.index("if (health.status_sdk_return_code")
+    assert health_method.index("if (health.status_sdk_return_code") < health_method.index("is_in_collision")
 
 
 def test_quest_joint_teleop_rejects_nonzero_startup_jump(tmp_path) -> None:

@@ -12,11 +12,11 @@ terminated run. The previous worker checked controller faults only at preflight,
 and the Python log compared measured joints with a future AcceptedArmTarget
 endpoint instead of the joint point emitted on that 8 ms tick.
 
-The bounded diagnostic path now polls the SDK 2.2.7 interfaces present in the
-committed headers (`get_robot_status_simple`, `is_in_estop`, and
-`is_in_collision`) from a separate read-only SDK session. The monitor publishes
-a bounded latest snapshot approximately every 16 ms; the 8 ms command thread
-only copies that snapshot and never performs these non-deterministic queries.
+The bounded diagnostic path now polls SDK 2.2.7 `get_robot_status_simple` on
+the existing sole SDK session approximately every 16 ms. Healthy cycles make
+only that lightweight query. If it reports an error, power loss, or enable loss,
+the worker then calls `is_in_estop` and `is_in_collision` to classify the event
+after target progression is already prohibited.
 A query failure, controller error, collision, E-stop, power loss, or enable loss
 stops before another ServoJ point. Bounded native telemetry records the current emitted command, same-cycle
 measurement, shortest-angle tracking difference, active endpoint, velocities,
@@ -44,9 +44,12 @@ The first post-payload attempt at instrumentation synchronously issued all
 three status calls on every 8 ms command tick. It safely stopped before Quest
 engagement with `hard_completion_timing_miss` after 66 identical hold commands;
 there was no controller alarm and no commanded motion. This demonstrated that
-fault polling itself must remain outside the EDG timing-critical path. The
-separate monitor above is the offline correction; it was not physically retried
-in the same task.
+healthy-path polling must remain lightweight. A subsequent attempt to use a
+separate read-only SDK session also failed safely: the second SDK login prevented
+the primary worker from publishing CONNECTED, so the launcher timed out after
+8 seconds before any AcceptedArmTarget or Quest motion. The sole-session 16 ms
+poll above is the final offline correction and has not yet been physically
+retried.
 
 ## Repository state at start
 
