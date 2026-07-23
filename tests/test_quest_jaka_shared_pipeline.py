@@ -29,7 +29,10 @@ from teleoperation.accepted_target import AcceptedTargetDiagnostics
 from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, FeasibilityResult
-from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
+from teleoperation.jaka.quest_adapter import (
+    E2IsolatedForwardTranslationGuard,
+    JakaAcceptedJointTargetAdapter,
+)
 from teleoperation.wire import TargetFlags, TargetKind
 
 
@@ -556,6 +559,56 @@ def test_hardware_adapter_contract_has_no_conversion_filter_or_interpolation() -
     assert len(runtime.packets) == 1
 
 
+def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:
+    runtime = _MockRuntime()
+    output = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
+    guard = E2IsolatedForwardTranslationGuard(output)
+    baseline = _accepted()
+    guard.establish_startup_joint_position(baseline.joint_position_rad)
+    assert guard.apply(baseline)
+
+    forward_pose = AcceptedTcpPose(
+        (0.085, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
+    )
+    forward = replace(
+        baseline,
+        sequence_number=2,
+        desired_tcp=forward_pose,
+        filtered_tcp=forward_pose,
+        joint_position_rad=(0.11, -0.21, 0.31, -0.41, 0.51, -0.61),
+    )
+    assert guard.apply(forward)
+    assert runtime.packets[-1].payload[:6] == forward.joint_position_rad
+    assert guard.maximum_requested_tcp_displacement_m == pytest.approx(0.015)
+    assert guard.maximum_accepted_joint_displacement_rad == pytest.approx([0.01] * 6)
+
+    lateral_pose = AcceptedTcpPose(
+        (0.085, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
+    )
+    lateral = replace(
+        forward,
+        sequence_number=3,
+        desired_tcp=lateral_pose,
+        filtered_tcp=lateral_pose,
+    )
+    assert not guard.apply(lateral)
+    assert guard.abort_reason == "e2_requested_cross_axis_displacement"
+    assert len(runtime.packets) == 2
+
+
+def test_e2_guard_rejects_pre_edg_first_target_before_transport() -> None:
+    runtime = _MockRuntime()
+    guard = E2IsolatedForwardTranslationGuard(
+        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
+    )
+    target = _accepted()
+    post_edg = tuple(value + 1e-5 for value in target.joint_position_rad)
+    guard.establish_startup_joint_position(post_edg)
+    assert not guard.apply(target)
+    assert guard.abort_reason == "e2_first_target_not_continuous_with_post_edg_state"
+    assert runtime.packets == []
+
+
 def test_composite_adapters_receive_the_identical_accepted_target_object() -> None:
     identities: list[int] = []
 
@@ -606,7 +659,7 @@ def test_physical_entry_has_no_mujoco_plant_adapter_or_simulation_step() -> None
     assert not hasattr(SharedJakaTargetGenerator, "set_hand_actuator_target")
     assert "native.process.poll()" in source
     assert "accepted_target_transport_failure" in source
-    assert 'return 2 if abort_reason is not None else 0' in source
+    assert 'return 2 if abort_reason is not None or e2_failures else 0' in source
 
 
 def test_invalid_or_communication_failed_target_does_not_count_as_applied() -> None:

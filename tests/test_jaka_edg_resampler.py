@@ -153,8 +153,12 @@ def _run_stream(
     while not target.exists() and time.monotonic() < deadline:
         time.sleep(0.001)
     assert target.exists()
+    maximum_offset_ns = max(offset_ns for _, offset_ns, _ in samples)
+    time.sleep(maximum_offset_ns / 1e9 + 0.02)
     started = time.monotonic()
-    processing_base = time.monotonic_ns() - 1_000_000_000
+    # Keep generated times behind dispatch while remaining newer than the
+    # post-EDG handoff established before the offset-dependent wait above.
+    processing_base = time.monotonic_ns() - maximum_offset_ns - 10_000_000
     with LatestTargetPublisher(target) as publisher:
         for sequence, (delay_s, offset_ns, joints) in enumerate(samples, start=1):
             while time.monotonic() - started < delay_s:
@@ -257,6 +261,46 @@ def test_e1_recoverable_lateness_realigns_without_command_burst(tmp_path) -> Non
         for left, right in zip(command_times, command_times[1:])
     )
     assert metrics["output_maximum_adjacent_delta_rad"] == [0.0] * 6
+
+
+def test_live_worker_holds_post_edg_state_until_fresh_aligned_target(tmp_path) -> None:
+    initial = (0.2, -0.3, 0.4, -0.5, 0.6, -0.7)
+    offset = (1e-5, -2e-5, 3e-5, -4e-5, 5e-5, -6e-5)
+    q_hold = tuple(left + right for left, right in zip(initial, offset, strict=True))
+    metrics = tmp_path / "live-handoff.json"
+    emitted = tmp_path / "live-handoff.jsonl"
+    target = tmp_path / "live-handoff.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "0.30",
+            "--fake-initial-joints-rad", ",".join(map(str, initial)),
+            "--fake-post-edg-joint-offset-rad", ",".join(map(str, offset)),
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+            "--emitted-points-file", str(emitted),
+        ]
+    )
+    deadline = time.monotonic() + 2.0
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    time.sleep(0.04)  # stand in for the launcher's post-EDG status handoff
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(_packet(1, q_hold, time.monotonic_ns()))
+        time.sleep(0.04)
+        assert publisher.publish(_packet(2, (0.0,) * 6, time.monotonic_ns(), stop=True))
+    assert process.wait(timeout=3) == 0
+
+    payload = json.loads(metrics.read_text())
+    points = _read_points(emitted)
+    assert payload["pre_edg_measured_joint_position_rad"] == pytest.approx(initial)
+    assert payload["post_edg_authoritative_q_hold_rad"] == pytest.approx(q_hold)
+    assert payload["pre_to_post_edg_difference_rad"] == pytest.approx(offset)
+    assert payload["maximum_intentional_command_delta_rad"] == 0.0
+    assert payload["output_maximum_adjacent_delta_rad"] == [0.0] * 6
+    assert payload["resampler_destination_switches"] == 0
+    assert all(row["joint_position_rad"] == pytest.approx(q_hold) for row in points)
 
 
 def test_per_joint_and_global_tracking_and_displacement_metrics_agree(tmp_path) -> None:

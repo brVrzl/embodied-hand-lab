@@ -491,6 +491,7 @@ class JointServoResampler {
     last_servo_time_ns_ = segment_start_ns_ = segment_end_ns_ = servo_time_ns;
     initialized_ = true;
     has_accepted_ = false;
+    internal_hold_ = false;
     active_ = false;
   }
 
@@ -498,13 +499,14 @@ class JointServoResampler {
             std::uint64_t sequence) {
     if (!initialized_) throw std::runtime_error("resampler is not initialized");
     validate_manufacturer_joint_position_limits(position);
-    if (accepted_ns == 0 || sequence == 0)
-      throw std::runtime_error("hold target has an invalid timestamp or sequence");
+    if (accepted_ns == 0)
+      throw std::runtime_error("hold target has an invalid timestamp");
     emitted_ = start_ = destination_ = position;
     segment_start_ns_ = segment_end_ns_ = last_servo_time_ns_;
     last_accepted_ns_ = from_accepted_ns_ = to_accepted_ns_ = accepted_ns;
     from_sequence_ = to_sequence_ = sequence;
     has_accepted_ = true;
+    internal_hold_ = true;
     active_ = false;
   }
 
@@ -531,6 +533,18 @@ class JointServoResampler {
       throw std::runtime_error("accepted target resampling timestamps are not strictly monotonic");
     if (sequence <= to_sequence_)
       throw std::runtime_error("accepted target resampling sequences are not strictly monotonic");
+    if (internal_hold_) {
+      last_accepted_ns_ = from_accepted_ns_ = to_accepted_ns_ = accepted_ns;
+      from_sequence_ = to_sequence_ = sequence;
+      start_ = emitted_;
+      destination_ = destination;
+      segment_start_ns_ = last_servo_time_ns_;
+      segment_end_ns_ = segment_start_ns_ + kPeriodNs;
+      maximum_segment_duration_ns_ = std::max(maximum_segment_duration_ns_, kPeriodNs);
+      internal_hold_ = false;
+      active_ = true;
+      return;
+    }
     if (active_ && last_servo_time_ns_ < segment_end_ns_) ++preemptions_;
     const std::uint64_t duration_ns = accepted_ns - last_accepted_ns_;
     maximum_segment_duration_ns_ = std::max(maximum_segment_duration_ns_, duration_ns);
@@ -614,7 +628,7 @@ class JointServoResampler {
   std::uint64_t emitted_points_ = 0, repeated_points_ = 0;
   std::uint64_t destination_switches_ = 0, preemptions_ = 0, endpoint_points_ = 0;
   std::uint64_t maximum_segment_duration_ns_ = 0, maximum_endpoint_latency_ns_ = 0;
-  bool initialized_ = false, has_accepted_ = false, active_ = false;
+  bool initialized_ = false, has_accepted_ = false, internal_hold_ = false, active_ = false;
 };
 
 struct OutputMotionSample {
@@ -1313,6 +1327,7 @@ int run(const Options& o) {
   std::array<double, 6> initial{}, observed{}, target{}, ik_target{};
   std::array<double, 6> tracking_reference{}, command_reference{};
   bool has_ik_target = false;
+  bool first_external_joint_target_received = false;
   bool stop_requested = false;
   std::uint64_t stop_request_ns = 0;
   std::string stop_reason;
@@ -1344,7 +1359,7 @@ int run(const Options& o) {
       auto endpoint = initial; endpoint[static_cast<std::size_t>(o.probe_joint)] += o.probe_delta_rad;
       backend->validate_probe(initial, endpoint);
     }
-    if (is_joint_zero_motion_mode(o.mode)) {
+    if (is_joint_zero_motion_mode(o.mode) || is_joint_teleop_mode(o.mode)) {
       backend->enter_edg();
       state = State::EdgReady;
       backend->read(observed);
@@ -1355,15 +1370,22 @@ int run(const Options& o) {
       ik_target = q_hold;
       teleop.last_ik_target = q_hold;
       teleop.post_edg_q_hold_rad = q_hold;
-      teleop.zero_motion_fixed_destination_rad = q_hold;
-      teleop.zero_motion_q_hold_initialized = true;
       for (std::size_t joint = 0; joint < q_hold.size(); ++joint)
         teleop.pre_to_post_edg_difference_rad[joint] = q_hold[joint] - initial[joint];
       joint_resampler.initialize(q_hold, handoff_ns);
-      joint_resampler.hold(q_hold, handoff_ns, 1);
+      // Sequence zero is an internal transport hold, leaving the external
+      // AcceptedArmTarget sequence space untouched.  The worker emits this
+      // exact post-EDG state while waiting for a fresh, aligned target.
+      joint_resampler.hold(q_hold, handoff_ns, 0);
       output_diagnostics.initialize(q_hold, handoff_ns);
       has_ik_target = true;
-      state = State::Running;
+      if (is_joint_zero_motion_mode(o.mode)) {
+        teleop.zero_motion_fixed_destination_rad = q_hold;
+        teleop.zero_motion_q_hold_initialized = true;
+        state = State::Running;
+      } else {
+        state = State::Holding;
+      }
     }
     if (o.mode != Mode::StateRead && !is_stream_mode(o.mode)) { backend->enter_edg(); state = State::EdgReady; backend->read(observed);
       double delta = 0; for (std::size_t i = 0; i < 6; ++i) delta = std::max(delta, std::abs(observed[i] - initial[i]));
@@ -1514,12 +1536,14 @@ int run(const Options& o) {
           std::array<double, 6> solution{};
           std::copy_n(packet.payload, solution.size(), solution.begin());
           validate_manufacturer_joint_position_limits(solution);
-          if (!has_ik_target && is_joint_teleop_mode(o.mode)) {
+          if (is_joint_teleop_mode(o.mode) && !first_external_joint_target_received) {
             double startup_delta = 0.0;
             for (std::size_t joint = 0; joint < solution.size(); ++joint)
-              startup_delta = std::max(startup_delta, std::abs(solution[joint] - observed[joint]));
+              startup_delta = std::max(
+                  startup_delta, std::abs(solution[joint] - command_reference[joint]));
             if (startup_delta > o.startup_alignment_tolerance_rad)
               throw std::runtime_error("first Quest joint target is not aligned with measured startup pose");
+            first_external_joint_target_received = true;
           }
           ik_target = solution;
           teleop.last_ik_target = solution;

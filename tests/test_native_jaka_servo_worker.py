@@ -334,6 +334,7 @@ def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
     deadline = time.monotonic() + 2
     while not target.exists() and time.monotonic() < deadline:
         time.sleep(0.005)
+    time.sleep(0.06)
     with LatestTargetPublisher(target) as publisher:
         assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
     assert process.wait(timeout=3) == 0
@@ -364,6 +365,7 @@ def test_quest_joint_teleop_time_resamples_latest_target_without_ik_or_endpoint_
     deadline = time.monotonic() + 2
     while not target.exists() and time.monotonic() < deadline:
         time.sleep(0.005)
+    time.sleep(0.02)
     with LatestTargetPublisher(target) as publisher:
         assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
         time.sleep(0.025)

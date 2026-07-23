@@ -15,6 +15,7 @@ import json
 import math
 from pathlib import Path
 import signal
+import subprocess
 import tempfile
 import time
 
@@ -26,7 +27,10 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
-from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
+from teleoperation.jaka.quest_adapter import (
+    E2IsolatedForwardTranslationGuard,
+    JakaAcceptedJointTargetAdapter,
+)
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
 from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusReceiver
 
@@ -114,12 +118,17 @@ def main() -> int:
             LatestTargetPublisher(target_socket),
             WorkerStatusReceiver(status_socket),
         )
-        jaka_adapter = JakaAcceptedJointTargetAdapter(
+        base_jaka_adapter = JakaAcceptedJointTargetAdapter(
             runtime,
             allow_motion=live,
             joint_order=tuple(hardware["joint_order"]),
             joint_angle_unit=str(hardware["joint_angle_unit"]),
             command_mode=str(hardware["command_mode"]),
+        )
+        jaka_adapter = (
+            E2IsolatedForwardTranslationGuard(base_jaka_adapter)
+            if args.stage == "e2-isolated"
+            else base_jaka_adapter
         )
         session = SmoothQuestJakaSession(
             config,
@@ -168,9 +177,17 @@ def main() -> int:
         next_tick = started
         status = None
         receiver: QuestDatagramReceiverWorker | None = None
+        maximum_quest_displacement_m = 0.0
+        minimum_continuation_fraction = 1.0
+        measured_joint_samples: list[tuple[float, ...]] = []
         native.start()
         try:
             status = _wait_status(runtime, native)
+            measured_joint_samples.append(tuple(status.joint_position_rad))
+            if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard):
+                jaka_adapter.establish_startup_joint_position(
+                    tuple(status.joint_position_rad)
+                )
             target_generator.synchronize_authoritative_arm_joints(list(status.joint_position_rad))
             with HtsRawRecordingWriter(
                 args.capture,
@@ -183,6 +200,8 @@ def main() -> int:
                     record=capture.write,
                 )
                 receiver.start()
+                started = time.monotonic()
+                next_tick = started
                 try:
                     while time.monotonic() - started < args.duration_sec:
                         if native.process is None or native.process.poll() is not None:
@@ -203,6 +222,9 @@ def main() -> int:
                         latest_status = runtime.latest_status()
                         if latest_status is not None:
                             status = latest_status
+                            sample = tuple(status.joint_position_rad)
+                            if not measured_joint_samples or sample != measured_joint_samples[-1]:
+                                measured_joint_samples.append(sample)
                         engaged_before_tick = session.arm_clutch.state.value == "engaged"
                         if not engaged_before_tick and status is not None:
                             target_generator.synchronize_authoritative_arm_joints(
@@ -213,7 +235,12 @@ def main() -> int:
                             tick.accepted_target is not None and not tick.output_applied
                         )
                         if dispatch_failed:
-                            abort_reason = "accepted_target_transport_failure"
+                            abort_reason = (
+                                jaka_adapter.abort_reason
+                                if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard)
+                                and jaka_adapter.abort_reason is not None
+                                else "accepted_target_transport_failure"
+                            )
                             stop_reason = abort_reason
                             jaka_adapter.stop()
                         engaged = session.arm_clutch.state.value == "engaged"
@@ -224,6 +251,20 @@ def main() -> int:
                         prior_engaged = engaged
                         accepted += int(tick.accepted_target is not None and tick.output_applied)
                         event = dict(session.event_records[-1])
+                        operator_delta = event.get("operator_delta")
+                        if operator_delta is not None:
+                            maximum_quest_displacement_m = max(
+                                maximum_quest_displacement_m,
+                                math.sqrt(sum(
+                                    float(value) ** 2
+                                    for value in operator_delta["translation_m"]
+                                )),
+                            )
+                        if event.get("continuation_fraction") is not None:
+                            minimum_continuation_fraction = min(
+                                minimum_continuation_fraction,
+                                float(event["continuation_fraction"]),
+                            )
                         event.update(
                             physical_stage=args.stage,
                             measured_joint_position_rad=None if status is None else list(status.joint_position_rad),
@@ -253,10 +294,40 @@ def main() -> int:
         finally:
             if not jaka_adapter.stopped:
                 jaka_adapter.stop()
-            native.stop()
+            if native.process is not None and native.process.poll() is None:
+                try:
+                    native.process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    native.stop()
+            else:
+                native.stop()
             runtime.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
+    measured_tcp = _measured_tcp_motion(target_generator, measured_joint_samples)
+    e2_guard = (
+        jaka_adapter
+        if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard)
+        else None
+    )
+    if args.stage == "e2-isolated":
+        e2_failures = []
+        if e2_guard is None or e2_guard.baseline is None:
+            e2_failures.append("no_fresh_engagement_target")
+        if maximum_quest_displacement_m < 0.005:
+            e2_failures.append("no_small_translation_observed")
+        if stop_reason != "operator_clutch_released":
+            e2_failures.append("clutch_release_not_observed")
+        if metrics["error_code"] != 0 or metrics["cleanup_error_code"] != 0:
+            e2_failures.append("native_or_cleanup_failure")
+        if metrics["hard_timing_misses"] != 0:
+            e2_failures.append("timing_hard_fault")
+        if any(metrics["output_speed_boundary_rejections"]):
+            e2_failures.append("output_speed_boundary_rejection")
+        if abort_reason is not None:
+            e2_failures.append(abort_reason)
+    else:
+        e2_failures = []
     summary = {
         "schema_version": "quest_jaka_physical_gate.v1",
         "stage": args.stage,
@@ -277,10 +348,55 @@ def main() -> int:
         "stop_reason": stop_reason,
         "abort_reason": abort_reason,
         "rh56_commands": 0,
+        "maximum_quest_displacement_m": maximum_quest_displacement_m,
+        "minimum_continuation_fraction": minimum_continuation_fraction,
+        "continuation_backtrack_count": session.continuation_backtrack_count,
+        "ik_rejections": dict(sorted(session.rejections.items())),
+        "measured_joint_fk_tcp_motion": measured_tcp,
+        "e2_maximum_requested_tcp_displacement_m": (
+            None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m
+        ),
+        "e2_maximum_accepted_tcp_displacement_m": (
+            None if e2_guard is None else e2_guard.maximum_accepted_tcp_displacement_m
+        ),
+        "e2_maximum_accepted_joint_displacement_rad": (
+            None if e2_guard is None else e2_guard.maximum_accepted_joint_displacement_rad
+        ),
+        "e2_startup_alignment_difference_rad": (
+            None if e2_guard is None else e2_guard.startup_alignment_difference_rad
+        ),
+        "e2_failures": e2_failures,
+        "e2_pass": args.stage == "e2-isolated" and not e2_failures,
     }
     args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
-    return 2 if abort_reason is not None else 0
+    return 2 if abort_reason is not None or e2_failures else 0
+
+
+def _measured_tcp_motion(
+    target_generator: SharedJakaTargetGenerator,
+    samples: list[tuple[float, ...]],
+) -> dict[str, object] | None:
+    """Post-cleanup FK evidence only; never runs on the command-critical path."""
+
+    if not samples:
+        return None
+    positions: list[tuple[float, float, float]] = []
+    for joints in samples:
+        target_generator.synchronize_authoritative_arm_joints(list(joints))
+        positions.append(target_generator.current_tcp_pose.position_m)
+    baseline = positions[0]
+    deltas = [
+        tuple(value - start for value, start in zip(position, baseline, strict=True))
+        for position in positions
+    ]
+    maximum = max(deltas, key=lambda item: math.sqrt(sum(value * value for value in item)))
+    return {
+        "sample_count": len(samples),
+        "maximum_displacement_vector_m": list(maximum),
+        "maximum_displacement_norm_m": math.sqrt(sum(value * value for value in maximum)),
+        "direction": "robot_base_negative_x" if maximum[0] < 0.0 else "robot_base_positive_x_or_zero",
+    }
 
 
 if __name__ == "__main__":
