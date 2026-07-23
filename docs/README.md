@@ -59,8 +59,9 @@ or this index.
 - [LeRobot data and workspace calibration](lerobot_data_and_workspace_calibration.md)
 - [Literature and asset reviews](literature/)
 
-Plans for the Jetson integration and tennis-ball digital twin remain plans, not
-validation evidence.
+The dated Jetson integration and original tennis-ball digital-twin plans are
+archived under `history/archived_designs/plans/`; they are not validation
+evidence.
 
 ## History and evidence
 

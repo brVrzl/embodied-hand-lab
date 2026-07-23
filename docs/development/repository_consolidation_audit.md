@@ -63,6 +63,7 @@ MuJoCo-following concepts are not current authority.
 | `docs/project_rebuild_status.md` | `docs/history/archived_designs/project_rebuild/project_rebuild_status_20260713.md` | dated pre-current-stack snapshot |
 | dated motion-input audit/build/integration documents | `docs/history/archived_designs/motion_input/` | checkpoint evidence separated from current UMIP/transport references |
 | root `real_robot_data_collection_protocol.md` | `docs/development/real_robot_data_collection.md` | active data schema moved out of repository root and linked to current safety/status |
+| dated Jetson and initial tennis-ball digital-twin plans | `docs/history/archived_designs/plans/` | superseded planning paths separated from current digital-twin status |
 
 ## Deletion manifest
 
@@ -78,5 +79,46 @@ regression, simulation, native, or safety-gate contract. No test was removed:
 the audit did not find a duplicate whose deletion could be proven coverage
 neutral. Marker churn was also avoided because hardware execution is already
 outside default pytest and a new marker taxonomy would not improve the current
-single suite. Final totals and validation results are recorded when the
-maintenance commit is completed.
+single suite.
+
+The audit started with 627 tests in 76 modules. Three cases were added in
+`tests/test_repository_hygiene.py`: one prevents credentials embedded in
+runtime source/config and two require an explicit input source for camera
+tools. Final collection is 630 tests. The full run completed with 629 passed
+and one expected skip because a headless MuJoCo rendering backend was not
+configured.
+
+## Code/configuration and artifact decisions
+
+- Removed an embedded iPhone camera URL containing basic-auth credentials.
+  Camera tools now require `--source` or an explicit `--realsense-serial`.
+- Removed the unused `/home/w/Desktop/...` ManiSkill asset-prefix constant;
+  runtime asset resolution already uses the repository-relative asset root.
+- Kept sample robot/network configuration where it is an explicit example.
+  No physical limits, mapping, payload, TCP, installation, or controller
+  setting changed.
+- Kept intentional duplicate vendor C/C++ headers, compatibility wrapper
+  scripts, and the digital-twin scene alias. No duplicate current document or
+  unique evidence was deleted.
+- `.gitignore` was already conservative for builds, caches, logs, captures,
+  models, and local artifacts, so it was not broadened. Existing ignored local
+  media/log/artifact data and untracked `learned_policy/` were preserved.
+
+## Final offline validation
+
+The following completed without hardware access:
+
+- native `jaka_servo_worker` configure/build and `--help`;
+- Python `compileall` over `src`, `tools`, and `tests`;
+- 630-test collection;
+- 92/92 critical Quest/JAKA safety tests;
+- full pytest: 629 passed, one expected headless-render skip;
+- syntax check of all 50 shell scripts;
+- parse of all 27 versioned YAML configs;
+- tracked schema/evidence parse: 27 JSON, 5 JSONL, and 44 YAML files;
+- zero broken Markdown links and zero missing current backtick paths;
+- documented CLI `--help` checks, stale-current-path scan, credential/private
+  key pattern scan, duplicate hash audit, and `git diff --check`.
+
+No JAKA, RH56DFX, Quest, camera, robot SDK session, servo/EDG mode, payload
+identification, controller write, or live physical gate was invoked.

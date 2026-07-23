@@ -48,6 +48,10 @@ simulation gate, and dual-clutch design. They contain useful provenance and
 parallel-project context but stale branch names, paths, or test totals must not
 be used as current instructions.
 
+`archived_designs/plans/` contains the dated Jetson integration and initial
+tennis-ball digital-twin plans. Current digital-twin status is under
+`docs/digital_twin/`.
+
 ## Retention policy
 
 Preserve unique physical/incident evidence, meaningful hashes, and regression

@@ -117,8 +117,7 @@ Critical Quest/JAKA checks:
   tests/test_quest_jaka_output_feasibility.py \
   tests/test_quest_jaka_singularity_liveness.py \
   tests/test_jaka_edg_resampler.py \
-  tests/test_native_jaka_servo_worker.py \
-  tests/test_quest_jaka_hardware_cli.py
+  tests/test_native_jaka_servo_worker.py
 ```
 
 Run `bash -n` on changed shell scripts. The project currently configures no
