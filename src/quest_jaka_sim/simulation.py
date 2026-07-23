@@ -63,6 +63,7 @@ class FeasibilityReason(str, Enum):
     IK_ORIENTATION_FAILED = "IK_ORIENTATION_FAILED"
     IK_DISCONTINUITY = "IK_DISCONTINUITY"
     OUTPUT_VELOCITY_INFEASIBLE = "OUTPUT_VELOCITY_INFEASIBLE"
+    OUTPUT_ACCELERATION_INFEASIBLE = "OUTPUT_ACCELERATION_INFEASIBLE"
     JOINT_LIMIT = "JOINT_LIMIT"
     NEAR_SINGULARITY = "NEAR_SINGULARITY"
     SINGULARITY_SLOWDOWN = "SINGULARITY_SLOWDOWN"
@@ -255,6 +256,10 @@ class CandidateMetrics:
     predicted_output_joint_velocity_rad_s: tuple[float, ...] = ()
     predicted_output_maximum_joint_velocity_rad_s: float = 0.0
     output_velocity_violating_joint_indices: tuple[int, ...] = ()
+    previous_emitted_output_joint_velocity_rad_s: tuple[float, ...] = ()
+    predicted_output_joint_acceleration_rad_s2: tuple[float, ...] = ()
+    predicted_output_maximum_joint_acceleration_rad_s2: float = 0.0
+    output_acceleration_violating_joint_indices: tuple[int, ...] = ()
     self_collision: bool = False
     environment_collision: bool = False
     minimum_new_contact_distance_m: float | None = None
@@ -315,6 +320,8 @@ def classify_candidate(
         return FeasibilityReason.IK_DISCONTINUITY
     if metrics.output_velocity_violating_joint_indices:
         return FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
+    if metrics.output_acceleration_violating_joint_indices:
+        return FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
     if metrics.maximum_joint_acceleration_rad_s2 > limits.maximum_joint_acceleration_rad_s2:
         return FeasibilityReason.LINEAR_ACCELERATION_LIMIT
     if metrics.ik_error_m > limits.ik_position_tolerance_m:
@@ -456,6 +463,12 @@ class ReplayConfig:
                 simulation.get("command_maximum_joint_velocity_rad_s", math.pi),
             )
         )
+        maximum_output_acceleration = float(
+            shared_target.get(
+                "maximum_output_joint_acceleration_rad_s2",
+                simulation.get("command_maximum_joint_acceleration_rad_s2", 4.0 * math.pi),
+            )
+        )
         servo_period_ns = int(
             round(1e9 / float(rates.get("jaka_transport_hz", 125.0)))
         )
@@ -470,6 +483,7 @@ class ReplayConfig:
             output_contract=JointOutputContractConfig(
                 maximum_velocity_rad_s=maximum_output_velocity,
                 servo_period_ns=servo_period_ns,
+                maximum_acceleration_rad_s2=maximum_output_acceleration,
             ),
             stale_after_s=float(raw["input"]["stale_after_ms"]) / 1000.0,
             engagement_schedule_s=tuple(
@@ -882,6 +896,18 @@ class SharedJakaTargetGenerator:
             ),
             output_velocity_violating_joint_indices=(
                 output_prediction.violating_joint_indices
+            ),
+            previous_emitted_output_joint_velocity_rad_s=(
+                output_prediction.previous_emitted_velocity_rad_s
+            ),
+            predicted_output_joint_acceleration_rad_s2=(
+                output_prediction.predicted_acceleration_rad_s2
+            ),
+            predicted_output_maximum_joint_acceleration_rad_s2=(
+                output_prediction.maximum_acceleration_rad_s2
+            ),
+            output_acceleration_violating_joint_indices=(
+                output_prediction.acceleration_violating_joint_indices
             ),
             self_collision=self_collision,
             environment_collision=environment_collision,

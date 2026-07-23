@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import numpy as np
@@ -25,6 +26,19 @@ PHYSICAL_Q = np.asarray(
         -0.698044422428,
     )
 )
+
+
+def _singularity_config() -> ReplayConfig:
+    config = ReplayConfig.load(CONFIG)
+    # Isolate the Jacobian-direction policy from the independently tested
+    # controller-visible acceleration feasibility contract.
+    return replace(
+        config,
+        output_contract=replace(
+            config.output_contract,
+            maximum_acceleration_rad_s2=math.inf,
+        ),
+    )
 
 
 def _pose_at(generator: SharedJakaTargetGenerator, joints: np.ndarray):
@@ -70,7 +84,7 @@ def test_manual02_j5_condition_is_warning_only_not_hard_rejection() -> None:
 
 def test_model_manual02_proximity_is_accepted_and_diagnostic() -> None:
     result = _evaluate_j5(
-        SharedJakaTargetGenerator(ReplayConfig.load(CONFIG)), -16.0, -14.968
+        SharedJakaTargetGenerator(_singularity_config()), -16.0, -14.968
     )
     assert result.accepted
     assert result.metrics.wrist_proximity_warning
@@ -80,7 +94,7 @@ def test_model_manual02_proximity_is_accepted_and_diagnostic() -> None:
 
 
 def test_directional_slowdown_allows_away_and_tangent_but_backtracks_toward() -> None:
-    config = ReplayConfig.load(CONFIG)
+    config = _singularity_config()
     generator = SharedJakaTargetGenerator(config)
 
     toward = _evaluate_j5(generator, -10.0, -9.5)
@@ -106,7 +120,7 @@ def test_directional_slowdown_allows_away_and_tangent_but_backtracks_toward() ->
 
 
 def test_true_hard_boundary_rejects_deeper_motion_but_permits_retreat() -> None:
-    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+    generator = SharedJakaTargetGenerator(_singularity_config())
     hard = _evaluate_j5(generator, -10.0, -7.5)
     assert not hard.accepted
     assert hard.reason is FeasibilityReason.NEAR_SINGULARITY
@@ -131,7 +145,7 @@ def test_true_hard_boundary_rejects_deeper_motion_but_permits_retreat() -> None:
 
 
 def test_slowdown_hysteresis_does_not_chatter_and_releases_after_recovery() -> None:
-    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+    generator = SharedJakaTargetGenerator(_singularity_config())
     start = PHYSICAL_Q.copy()
     start[4] = math.radians(-10.0)
     generator.synchronize_authoritative_arm_joints(start.tolist())
@@ -163,7 +177,7 @@ def test_slowdown_hysteresis_does_not_chatter_and_releases_after_recovery() -> N
 
 
 def test_adaptive_damping_changes_smoothly_with_solver_sigma() -> None:
-    config = ReplayConfig.load(CONFIG)
+    config = _singularity_config()
     values = config.raw["simulation"]
     ik = PalmTargetIkState(
         list(config.initial_arm_joints_rad),

@@ -207,7 +207,7 @@ def main() -> int:
             # One authority: the EDG pass-through diagnostic consumes the
             # existing shared command contract rather than hardware-only copies.
             "--maximum-output-joint-velocity-rad-s", str(config.output_contract.maximum_velocity_rad_s),
-            "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.command_limits.maximum_acceleration_rad_s2),
+            "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.output_contract.maximum_acceleration_rad_s2),
         ]
         if live:
             worker_args.append("--monitor-controller-health-each-cycle")

@@ -21,6 +21,7 @@ OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S = 1e-12
 class JointOutputContractConfig:
     maximum_velocity_rad_s: float
     servo_period_ns: int
+    maximum_acceleration_rad_s2: float = math.inf
     numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S
 
     def __post_init__(self) -> None:
@@ -28,6 +29,8 @@ class JointOutputContractConfig:
             raise ValueError("output velocity boundary must be finite and positive")
         if not isinstance(self.servo_period_ns, int) or self.servo_period_ns <= 0:
             raise ValueError("servo period must be a positive integer nanosecond count")
+        if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
+            raise ValueError("output acceleration boundary must be positive")
         if not math.isfinite(self.numeric_tolerance_rad_s) or self.numeric_tolerance_rad_s < 0.0:
             raise ValueError("output feasibility tolerance must be finite and non-negative")
 
@@ -58,13 +61,18 @@ class JointOutputFeasibility:
     candidate_rad: tuple[float, ...]
     delta_rad: tuple[float, ...]
     predicted_velocity_rad_s: tuple[float, ...]
+    previous_emitted_velocity_rad_s: tuple[float, ...]
+    predicted_acceleration_rad_s2: tuple[float, ...]
     violating_joint_indices: tuple[int, ...]
+    acceleration_violating_joint_indices: tuple[int, ...]
     maximum_velocity_rad_s: float
+    maximum_acceleration_rad_s2: float
     boundary_rad_s: float
+    acceleration_boundary_rad_s2: float
 
     @property
     def feasible(self) -> bool:
-        return not self.violating_joint_indices
+        return not self.violating_joint_indices and not self.acceleration_violating_joint_indices
 
 
 class JointOutputFeasibilityTracker:
@@ -80,6 +88,7 @@ class JointOutputFeasibilityTracker:
         *,
         maximum_velocity_rad_s: float,
         servo_period_ns: int,
+        maximum_acceleration_rad_s2: float = math.inf,
         numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S,
     ) -> None:
         boundary = float(maximum_velocity_rad_s)
@@ -91,6 +100,9 @@ class JointOutputFeasibilityTracker:
         if not math.isfinite(tolerance) or tolerance < 0.0:
             raise ValueError("output feasibility tolerance must be finite and non-negative")
         self.maximum_velocity_rad_s = boundary
+        self.maximum_acceleration_rad_s2 = float(maximum_acceleration_rad_s2)
+        if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
+            raise ValueError("output acceleration boundary must be positive")
         self.servo_period_ns = servo_period_ns
         self.numeric_tolerance_rad_s = tolerance
         self._initial_rad: tuple[float, ...] | None = None
@@ -98,12 +110,14 @@ class JointOutputFeasibilityTracker:
         self._segment_start_rad: tuple[float, ...] | None = None
         self._segment_destination_rad: tuple[float, ...] | None = None
         self._segment_duration_ns = servo_period_ns
+        self._segment_entry_velocity_rad_s: tuple[float, ...] = (0.0,) * 6
 
     @classmethod
     def from_config(cls, config: JointOutputContractConfig) -> "JointOutputFeasibilityTracker":
         return cls(
             maximum_velocity_rad_s=config.maximum_velocity_rad_s,
             servo_period_ns=config.servo_period_ns,
+            maximum_acceleration_rad_s2=config.maximum_acceleration_rad_s2,
             numeric_tolerance_rad_s=config.numeric_tolerance_rad_s,
         )
 
@@ -118,6 +132,7 @@ class JointOutputFeasibilityTracker:
         self._segment_start_rad = values
         self._segment_destination_rad = values
         self._segment_duration_ns = self.servo_period_ns
+        self._segment_entry_velocity_rad_s = (0.0,) * len(values)
 
     def preview(
         self,
@@ -134,22 +149,34 @@ class JointOutputFeasibilityTracker:
         if self._last_accepted_ns is None:
             interval_ns = self.servo_period_ns
             emitted = self._initial_rad
+            previous_velocity = (0.0,) * len(candidate)
         else:
             interval_ns = timestamp - self._last_accepted_ns
             if interval_ns <= 0:
                 raise ValueError("accepted-target generation timestamps must be strictly monotonic")
-            emitted = self._emitted_before_replacement(interval_ns)
+            emitted, previous_velocity = self._emitted_state_before_replacement(interval_ns)
         interval_s = interval_ns / 1e9
         delta = tuple(
             continuous_joint_delta(value, start)
             for value, start in zip(candidate, emitted, strict=True)
         )
-        velocity = tuple(value / interval_s for value in delta)
+        servo_period_s = self.servo_period_ns / 1e9
+        first_tick_alpha = min(1.0, self.servo_period_ns / interval_ns)
+        velocity = tuple(value * first_tick_alpha / servo_period_s for value in delta)
+        acceleration = tuple(
+            (value - previous) / servo_period_s
+            for value, previous in zip(velocity, previous_velocity, strict=True)
+        )
         violating = tuple(
             index
             for index, value in enumerate(velocity)
             if abs(value)
             > self.maximum_velocity_rad_s + self.numeric_tolerance_rad_s
+        )
+        acceleration_violating = tuple(
+            index
+            for index, value in enumerate(acceleration)
+            if abs(value) > self.maximum_acceleration_rad_s2 + self.numeric_tolerance_rad_s
         )
         return JointOutputFeasibility(
             generated_monotonic_ns=timestamp,
@@ -158,9 +185,14 @@ class JointOutputFeasibilityTracker:
             candidate_rad=candidate,
             delta_rad=delta,
             predicted_velocity_rad_s=velocity,
+            previous_emitted_velocity_rad_s=previous_velocity,
+            predicted_acceleration_rad_s2=acceleration,
             violating_joint_indices=violating,
+            acceleration_violating_joint_indices=acceleration_violating,
             maximum_velocity_rad_s=max(map(abs, velocity), default=0.0),
+            maximum_acceleration_rad_s2=max(map(abs, acceleration), default=0.0),
             boundary_rad_s=self.maximum_velocity_rad_s,
+            acceleration_boundary_rad_s2=self.maximum_acceleration_rad_s2,
         )
 
     def commit(self, prediction: JointOutputFeasibility) -> None:
@@ -173,14 +205,17 @@ class JointOutputFeasibilityTracker:
         self._segment_start_rad = prediction.segment_start_rad
         self._segment_destination_rad = prediction.candidate_rad
         self._segment_duration_ns = prediction.interval_ns
+        self._segment_entry_velocity_rad_s = prediction.previous_emitted_velocity_rad_s
         self._last_accepted_ns = prediction.generated_monotonic_ns
 
-    def _emitted_before_replacement(self, elapsed_ns: int) -> tuple[float, ...]:
+    def _emitted_state_before_replacement(
+        self, elapsed_ns: int
+    ) -> tuple[tuple[float, ...], tuple[float, ...]]:
         assert self._segment_start_rad is not None
         assert self._segment_destination_rad is not None
         emitted_elapsed_ns = (elapsed_ns // self.servo_period_ns) * self.servo_period_ns
         alpha = min(1.0, emitted_elapsed_ns / self._segment_duration_ns)
-        return tuple(
+        emitted = tuple(
             start + alpha * continuous_joint_delta(destination, start)
             for start, destination in zip(
                 self._segment_start_rad,
@@ -188,6 +223,24 @@ class JointOutputFeasibilityTracker:
                 strict=True,
             )
         )
+        if emitted_elapsed_ns == 0:
+            return emitted, self._segment_entry_velocity_rad_s
+        previous_elapsed_ns = emitted_elapsed_ns - self.servo_period_ns
+        previous_alpha = min(1.0, previous_elapsed_ns / self._segment_duration_ns)
+        previous_emitted = tuple(
+            start + previous_alpha * continuous_joint_delta(destination, start)
+            for start, destination in zip(
+                self._segment_start_rad,
+                self._segment_destination_rad,
+                strict=True,
+            )
+        )
+        servo_period_s = self.servo_period_ns / 1e9
+        velocity = tuple(
+            continuous_joint_delta(value, previous) / servo_period_s
+            for value, previous in zip(emitted, previous_emitted, strict=True)
+        )
+        return emitted, velocity
 
     @staticmethod
     def _validated_joints(values: Sequence[float]) -> tuple[float, ...]:

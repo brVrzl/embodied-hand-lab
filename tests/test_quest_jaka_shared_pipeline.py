@@ -155,6 +155,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "minimum_continuation_fraction": 0.03125,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
+        "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
     }
 
 
@@ -280,7 +281,14 @@ def test_quaternion_wraparound_uses_same_shortest_arc_for_both_outputs(tmp_path:
 def test_shared_continuation_bounds_full_pose_for_both_outputs(
     tmp_path: Path,
 ) -> None:
-    config = replace(ReplayConfig.load(CONFIG), engagement_schedule_s=())
+    loaded = ReplayConfig.load(CONFIG)
+    config = replace(
+        loaded,
+        engagement_schedule_s=(),
+        output_contract=replace(
+            loaded.output_contract, maximum_acceleration_rad_s2=math.inf
+        ),
+    )
     sim_model = build_viewer_mjcf(config.mjcf_path, tmp_path / "recovery.xml")
     simulation = JakaMujocoSimulation(config, mjcf_path=sim_model)
     session = SmoothQuestJakaSession(config, simulation)
@@ -965,6 +973,58 @@ def test_output_velocity_rejection_heartbeats_hold_and_recovers_without_restart(
         )
     )
     assert recovery_delta < 0.002
+
+
+def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for sequence, value in ((1, 0.0), (2, 1.0)):
+        now_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, now_ns, identity))
+        if sequence == 1:
+            session.ingest(_head(1, now_ns))
+        _clutch(session, value, sequence, now_ns)
+        session.control_tick(now_ns)
+    held = recorder.targets[-1]
+    original_evaluate = session.target_generator.evaluate
+    monkeypatch.setattr(
+        session.target_generator,
+        "evaluate",
+        lambda *_args, **_kwargs: FeasibilityResult(
+            False,
+            FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE,
+            None,
+            CandidateMetrics(
+                previous_emitted_output_joint_velocity_rad_s=(0.0,) * 6,
+                predicted_output_joint_acceleration_rad_s2=(0.0, 0.0, 0.0, 14.2, 0.0, 0.0),
+                predicted_output_maximum_joint_acceleration_rad_s2=14.2,
+                output_acceleration_violating_joint_indices=(3,),
+            ),
+        ),
+    )
+    now_ns = 60_000_000
+    session.ingest(_hand(3, now_ns, Pose6D((0.002, 0.0, 0.0), identity.orientation_xyzw)))
+    _clutch(session, 1.0, 3, now_ns)
+    rejected = session.control_tick(now_ns)
+    assert rejected.accepted_target is None
+    assert rejected.reason == FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE.value
+    assert rejected.output_applied
+    assert recorder.targets == [held]
+    assert recorder.heartbeats[-1].state is ArmControlState.HOLD_REJECTED
+    attempt = session.event_records[-1]["output_feasibility_attempts"][0]
+    assert attempt["acceleration_violating_joint_indices_zero_based"] == [3]
+    assert attempt["maximum_predicted_joint_acceleration_rad_s2"] == 14.2
+
+    monkeypatch.setattr(session.target_generator, "evaluate", original_evaluate)
+    now_ns = 80_000_000
+    session.ingest(_hand(4, now_ns, identity))
+    _clutch(session, 1.0, 4, now_ns)
+    recovered = session.control_tick(now_ns)
+    assert recovered.accepted_target is not None
+    assert recovered.output_applied
+    assert session.event_records[-1]["recovery_event"]
     assert recovered.feasibility is not None
     assert (
         recovered.feasibility.metrics.predicted_output_maximum_joint_velocity_rad_s

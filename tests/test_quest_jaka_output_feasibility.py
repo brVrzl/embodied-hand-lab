@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -106,7 +107,13 @@ def test_failed_p4_prediction_includes_active_segment_replacement_residual() -> 
 
 
 def test_failed_p4_candidate_backtracks_before_accepted_target_boundary() -> None:
-    config = ReplayConfig.load(CONFIG)
+    base = ReplayConfig.load(CONFIG)
+    config = replace(
+        base,
+        output_contract=replace(
+            base.output_contract, maximum_acceleration_rad_s2=math.inf
+        ),
+    )
     generator = SharedJakaTargetGenerator(config)
     generator.synchronize_authoritative_arm_joints(list(Q213))
     generator.output_feasibility.commit(
@@ -161,4 +168,61 @@ def test_output_contract_authority_is_separate_from_ik_pathology_guard() -> None
     config = ReplayConfig.load(CONFIG)
     assert config.feasibility.maximum_joint_velocity_rad_s == pytest.approx(14.0)
     assert config.output_contract.maximum_velocity_rad_s == pytest.approx(math.pi)
+    assert config.output_contract.maximum_acceleration_rad_s2 == pytest.approx(4.0 * math.pi)
     assert config.output_contract.servo_period_ns == PERIOD_NS
+
+
+def test_output_acceleration_boundary_is_checked_before_commit() -> None:
+    boundary = 4.0 * math.pi
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=math.pi,
+        maximum_acceleration_rad_s2=boundary,
+        servo_period_ns=PERIOD_NS,
+    )
+    _establish_zero_baseline(tracker)
+    interval_ns = 16_000_000
+    interval_s = interval_ns / 1e9
+    exact_velocity = boundary * (PERIOD_NS / 1e9)
+    exact_delta = exact_velocity * interval_s
+    exact = tracker.preview(
+        (exact_delta, 0, 0, 0, 0, 0),
+        generated_monotonic_ns=1_000_000_000 + interval_ns,
+    )
+    assert exact.feasible
+    assert exact.maximum_acceleration_rad_s2 == pytest.approx(boundary)
+
+    above = tracker.preview(
+        (exact_delta * 1.01, 0, 0, 0, 0, 0),
+        generated_monotonic_ns=1_000_000_000 + interval_ns,
+    )
+    assert not above.feasible
+    assert above.acceleration_violating_joint_indices == (0,)
+    with pytest.raises(ValueError, match="infeasible"):
+        tracker.commit(above)
+
+
+def test_acceleration_preview_uses_previous_emitted_8ms_velocity() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=1.0,
+        maximum_acceleration_rad_s2=4.0 * math.pi,
+        servo_period_ns=PERIOD_NS,
+    )
+    _establish_zero_baseline(tracker)
+    first = tracker.preview(
+        (0.0016, 0, 0, 0, 0, 0), generated_monotonic_ns=1_016_000_000
+    )
+    assert first.feasible
+    tracker.commit(first)
+    smooth = tracker.preview(
+        (0.0032, 0, 0, 0, 0, 0), generated_monotonic_ns=1_032_000_000
+    )
+    assert smooth.previous_emitted_velocity_rad_s[0] == pytest.approx(0.1)
+    assert smooth.predicted_velocity_rad_s[0] == pytest.approx(0.1)
+    assert smooth.predicted_acceleration_rad_s2[0] == pytest.approx(0.0, abs=1e-12)
+    assert smooth.feasible
+
+    abrupt = tracker.preview(
+        (0.0036, 0, 0, 0, 0, 0), generated_monotonic_ns=1_032_000_000
+    )
+    assert abrupt.predicted_velocity_rad_s[0] == pytest.approx(0.125)
+    assert abrupt.predicted_acceleration_rad_s2[0] == pytest.approx(3.125)

@@ -253,6 +253,16 @@ def test_recorded_circle_path_stays_on_bounded_wrist_branch(tmp_path: Path) -> N
     )
     recorded = tuple(Pose6D(position, orientation) for position, orientation in recorded_keyframes)
     config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    # This regression isolates IK wrist-branch continuity along the recorded
+    # Cartesian path; live continuation/output-acceleration behavior is tested
+    # separately at the shared pipeline boundary.
+    config = replace(
+        config,
+        output_contract=replace(
+            config.output_contract,
+            maximum_acceleration_rad_s2=math.inf,
+        ),
+    )
     model = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
     simulation = JakaMujocoSimulation(config, mjcf_path=model)
     robot_reference = simulation.capture_reference()

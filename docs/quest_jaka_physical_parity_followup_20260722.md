@@ -48,8 +48,27 @@ healthy-path polling must remain lightweight. A subsequent attempt to use a
 separate read-only SDK session also failed safely: the second SDK login prevented
 the primary worker from publishing CONNECTED, so the launcher timed out after
 8 seconds before any AcceptedArmTarget or Quest motion. The sole-session 16 ms
-poll above is the final offline correction and has not yet been physically
-retried.
+poll above was the correction exercised by the `_03` validation below.
+
+The following `_03` validation confirmed that the sole-session health poll no
+longer perturbs EDG timing: 3,377 ticks ran for 27.09 s with zero timing warning,
+zero hard miss, and no SDK/controller alarm. It stopped before dispatching a J4
+point whose controller-visible acceleration was 14.199679 rad/s², above the
+existing 4π rad/s² diagnostic contract. Maximum dispatched J4/J6 tracking lag
+was only 0.00692/0.00601 rad, so this was an AcceptedArmTarget contract mismatch,
+not a measured tracking or controller fault.
+
+Acceleration feasibility is now part of the same shared pre-adapter contract as
+velocity feasibility. The predictor carries the previous actually emittable 8 ms
+velocity across active-segment replacement, predicts the first new 8 ms velocity
+and acceleration, and lets existing continuation test its normal fractions. If
+no fraction is feasible, the candidate remains unaccepted and shared state emits
+`OUTPUT_ACCELERATION_INFEASIBLE` with HOLD_REJECTED heartbeat semantics. The
+native 4π assertion remains defensive and must not be reached in normal use.
+Offline replay from the physical q_hold changed old sequence 59 into a one-tick
+hold (smaller continuation fractions increased the required deceleration), then
+accepted recovery on the second fresh tick without restart. Evidence is in
+`docs/measurements/quest_jaka_post_payload_03_acceleration_replay_20260723.json`.
 
 ## Repository state at start
 

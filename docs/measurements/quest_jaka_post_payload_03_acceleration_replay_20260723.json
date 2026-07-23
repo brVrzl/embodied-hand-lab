@@ -1,0 +1,100 @@
+{
+  "acceleration_boundary_rad_s2": 12.5663706144,
+  "changed_sequence_evidence": [
+    {
+      "attempts": [
+        {
+          "fraction": 1.0,
+          "maximum_acceleration_rad_s2": 14.481913155118031,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        },
+        {
+          "fraction": 0.5,
+          "maximum_acceleration_rad_s2": 17.519977408529268,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        },
+        {
+          "fraction": 0.25,
+          "maximum_acceleration_rad_s2": 19.042932220033787,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        },
+        {
+          "fraction": 0.125,
+          "maximum_acceleration_rad_s2": 19.853095594328018,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        },
+        {
+          "fraction": 0.0625,
+          "maximum_acceleration_rad_s2": 20.35977770035074,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        },
+        {
+          "fraction": 0.03125,
+          "maximum_acceleration_rad_s2": 20.425993429022288,
+          "reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+          "violating_joints_zero_based": [
+            3,
+            5
+          ]
+        }
+      ],
+      "control_monotonic_ns": 682994017436861,
+      "final_fraction": 0.03125,
+      "final_reason": "OUTPUT_ACCELERATION_INFEASIBLE",
+      "old_accepted_sequence": 59,
+      "source_sequence": 3927
+    }
+  ],
+  "corrected_accepted_count": 78,
+  "corrected_backtracked_count": 0,
+  "corrected_hold_count": 1,
+  "first_old_sequence_changed": 59,
+  "initial_joint_position_rad": [
+    1.56898115761,
+    0.0176976383133,
+    -1.25087745357,
+    -3.49065844444e-05,
+    -0.468812882381,
+    -6.98131688889e-05
+  ],
+  "maximum_previewed_acceleration_rad_s2": 20.425993429022288,
+  "native_defensive_acceleration_fault_reachable": false,
+  "notes": "Filtered TCP targets and physical q_hold are replayed through the current shared IK, continuation, and 8 ms output contract; no JAKA or MuJoCo plant is used.",
+  "old_accepted_target_count": 79,
+  "recovery_attempts": [
+    {
+      "attempt": 1,
+      "reason": "OUTPUT_ACCELERATION_INFEASIBLE"
+    },
+    {
+      "attempt": 2,
+      "reason": "ACCEPTED"
+    }
+  ],
+  "recovery_without_restart": true,
+  "schema_version": "quest_jaka_output_acceleration_replay.v1",
+  "servo_period_ns": 8000000,
+  "source_control_log": "logs/quest_jaka_post_payload_collision_validation_03.jsonl",
+  "source_worker_metrics": "logs/quest_jaka_post_payload_collision_validation_03_worker.json",
+  "velocity_boundary_rad_s": 1.0
+}

@@ -283,6 +283,15 @@ def test_wrist_local_roll_is_solved_predominantly_by_jaka_joint_6(
     tmp_path: Path,
 ) -> None:
     config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    # This is a single-step IK-axis attribution test, not a live continuation
+    # test.  Output acceleration is exercised by the shared feasibility suite.
+    config = replace(
+        config,
+        output_contract=replace(
+            config.output_contract,
+            maximum_acceleration_rad_s2=math.inf,
+        ),
+    )
     model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
     simulation = JakaMujocoSimulation(config, mjcf_path=model_path)
     tcp = simulation.capture_reference()

@@ -95,6 +95,7 @@ shared_target_generation:
   # hardware reject/backtrack before AcceptedArmTarget construction. The native
   # worker consumes this same value as a final defensive assertion.
   maximum_output_joint_velocity_rad_s: 3.141592653589793
+  maximum_output_joint_acceleration_rad_s2: 12.5663706144
 
 hand_retargeting:
   enabled: true

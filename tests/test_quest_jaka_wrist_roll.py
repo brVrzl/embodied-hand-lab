@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import mujoco
@@ -20,7 +21,18 @@ CONTROL_DT_S = 1.0 / 60.0
 
 
 def _simulation() -> JakaMujocoSimulation:
-    return JakaMujocoSimulation(ReplayConfig.load(CONFIG_PATH))
+    config = ReplayConfig.load(CONFIG_PATH)
+    # These tests isolate IK pose accuracy and wrist-branch continuity.  The
+    # live continuation loop's output-acceleration contract is covered by the
+    # dedicated output-feasibility tests.
+    config = replace(
+        config,
+        output_contract=replace(
+            config.output_contract,
+            maximum_acceleration_rad_s2=math.inf,
+        ),
+    )
+    return JakaMujocoSimulation(config)
 
 
 def _set_configuration(

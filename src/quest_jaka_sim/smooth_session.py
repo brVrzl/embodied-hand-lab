@@ -474,6 +474,9 @@ class SmoothQuestJakaSession:
             output_velocity_boundary_rad_s=(
                 self.config.output_contract.maximum_velocity_rad_s
             ),
+            output_acceleration_boundary_rad_s2=(
+                self.config.output_contract.maximum_acceleration_rad_s2
+            ),
             ik_solution_rad=result.joint_target_rad,
             ik_rejection_reason=None if result.accepted else result.reason.value,
             hold_last=not result.accepted,
@@ -819,6 +822,18 @@ def _output_feasibility_attempt(
         ),
         "maximum_predicted_joint_velocity_rad_s": (
             metrics.predicted_output_maximum_joint_velocity_rad_s
+        ),
+        "previous_emitted_joint_velocity_rad_s": list(
+            metrics.previous_emitted_output_joint_velocity_rad_s
+        ),
+        "predicted_joint_acceleration_rad_s2": list(
+            metrics.predicted_output_joint_acceleration_rad_s2
+        ),
+        "acceleration_violating_joint_indices_zero_based": list(
+            metrics.output_acceleration_violating_joint_indices
+        ),
+        "maximum_predicted_joint_acceleration_rad_s2": (
+            metrics.predicted_output_maximum_joint_acceleration_rad_s2
         ),
     }
 
