@@ -67,10 +67,16 @@ MuJoCo-following concepts are not current authority.
 
 ## Deletion manifest
 
-No tracked document, report, raw evidence file, test, source module, asset, or
-configuration was deleted during consolidation. Empty source directories
-created solely by moves were removed. Any later deletion must be added here
-with active-reference proof and replacement.
+Git classifies two fully rewritten paths as deletions rather than renames:
+
+| Deleted path | Classification | Reason | Replacement / active-reference proof |
+|---|---|---|---|
+| `Agents.md` | stale root instructions | nonstandard casing and obsolete pre-Quest priorities | `AGENTS.md`; current tree contains no reference to `Agents.md` |
+| `docs/quest_jaka_sim_teleoperation.md` | superseded current guide | repeated/stale 573-line guide replaced by the current operation architecture | `docs/operation/simulation_demo.md` plus architecture/safety/reference pages; stale-current-path scan is clean |
+
+No report, raw evidence file, test, source module, asset, or configuration was
+deleted. Empty source directories created solely by moves were removed. Any
+later deletion must be added here with active-reference proof and replacement.
 
 ## Test decision
 
