@@ -1,35 +1,79 @@
-# 文档入口
+# Documentation
 
-本目录保存当前 `JAKA mini2 + Inspire RH56` 重建工作的项目说明、实验协议和审计记录。旧计划只能作为背景参考，不能作为某个子系统已经完成的证据。
+This index separates current instructions from dated evidence. Start with the
+status page, then use the topic-specific page. Historical reports retain the
+claims and paths that were true when written; they do not override current code
+or this index.
 
-## 优先阅读
+## Current project documentation
 
-- [项目 README](../README.md)
-- [项目重建状态总览](project_rebuild_status.md)
-- [Correll RH56DFX 资产整合评估](rh56dfx_correll_integration_assessment.md)
-- [RH56DFX Correll 资产审计](literature/rh56dfx_correll_assets_audit_20260709.md)
-- [RH56 预抓取预测协议](rh56_pregrasp_prediction_protocol.md)
-- [真实机器人数据采集协议](../real_robot_data_collection_protocol.md)
-- [LeRobot 数据与工作空间标定](lerobot_data_and_workspace_calibration.md)
-- [D435 深度与点云准备状态](d435_depth_pointcloud_readiness.md)
-- [D435 深度质量评估](d435_depth_quality_assessment_20260713.md)
-- [D435 深度与点云算法选择](d435_algorithm_selection_20260713.md)
-- [网球数字孪生计划](tennis_ball_digital_twin_plan.md)
-- [近期灵巧抓取文献边界](literature/dexterous_grasping_recent_work_20260609.md)
+### Architecture
 
-## 当前工程边界
+- [Overview](architecture/overview.md)
+- [Shared target pipeline](architecture/shared_target_pipeline.md)
+- [Simulation/hardware parity](architecture/simulation_hardware_parity.md)
+- [Coordinate frames](architecture/coordinate_frames.md)
 
-- 仓库正在从仿真资产误删后的状态中重建。文档必须区分可用代码路径和恢复锚点。
-- `data/sim_assets/jaka_rh56_visual_coacd.xml` 是默认 mounted runtime collision asset；`jaka_rh56.xml` 只保留为 comparison-mode derivation anchor。
-- `data/sim_assets/correll_rh56dfx/` 是 RH56DFX reference hand asset set，用于浮动手 FK 规划和指尖 force/torque sensor 验证。
-- 真实硬件脚本在没有明确只读说明前，都应按可能产生运动命令处理。
-- 没有真实 replay 数据时，不要把仿真结果描述为真实 RH56 抓取性能。
+### Operation
 
-## 写作规则
+- [Quest/JAKA MuJoCo simulation](operation/simulation_demo.md)
+- [Quest host setup](operation/quest_setup.md)
+- [Hardware prerequisites](operation/hardware_prerequisites.md)
+- [JAKA arm teleoperation](operation/jaka_arm_teleoperation.md)
+- [RH56 operation](operation/rh56_operation.md)
+- [Troubleshooting](operation/troubleshooting.md)
 
-新增或更新文档时，明确标注资产或子系统状态：
+### Safety and status
 
-- `validated`：有测试覆盖或近期真实硬件检查记录。
-- `current anchor`：当前代码依赖，但仍需审计。
-- `reference`：有用的外部模型或方法，不直接挂载到当前机器人栈。
-- `plan`：计划或建议流程，尚未验证。
+- [Safety model](safety/safety_model.md)
+- [Physical test gates](safety/physical_test_gates.md)
+- [Controller configuration boundary](safety/controller_configuration.md)
+- [Incident response](safety/incident_response.md)
+- [Current status](status/current_status.md)
+- [Known limitations](status/known_limitations.md)
+- [Validation matrix](status/validation_matrix.md)
+
+### Development and reference
+
+- [Repository layout](development/repository_layout.md)
+- [Setup](development/setup.md)
+- [Build](development/build.md)
+- [Testing](development/testing.md)
+- [Configuration](development/configuration.md)
+- [Logging and replay](development/logging_and_replay.md)
+- [Real-robot data collection schema](development/real_robot_data_collection.md)
+- [Contribution workflow](development/contribution_workflow.md)
+- [Repository consolidation audit](development/repository_consolidation_audit.md)
+- [Command reference](reference/command_reference.md)
+- [Configuration reference](reference/config_reference.md)
+- [Log schemas](reference/log_schemas.md)
+- [Glossary](reference/glossary.md)
+
+## Other current project areas
+
+- [Digital twin workspace](digital_twin/README.md)
+- [Motion-input platform](motion_input/README.md)
+- [RH56 pregrasp protocol](rh56_pregrasp_prediction_protocol.md)
+- [Correll RH56DFX assessment](rh56dfx_correll_integration_assessment.md)
+- [RGB-D readiness](d435_depth_pointcloud_readiness.md)
+- [LeRobot data and workspace calibration](lerobot_data_and_workspace_calibration.md)
+- [Literature and asset reviews](literature/)
+
+Plans for the Jetson integration and tennis-ball digital twin remain plans, not
+validation evidence.
+
+## History and evidence
+
+[The history index](history/README.md) classifies preserved physical gates,
+incidents, raw measurements, handoffs, and superseded designs. Historical
+evidence is intentionally not mixed into normal operator instructions.
+
+## Documentation rules
+
+- Keep one authoritative current page per topic.
+- Use repository-relative paths and commands verified against current `--help`.
+- State whether a result is offline, simulation, physical, failed, or
+  unverified.
+- Never rewrite raw evidence or a failed historical outcome.
+- Move superseded material to history and update its index; delete only when
+  complete duplication and absence of active references are proven.

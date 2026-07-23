@@ -38,14 +38,14 @@ examples. The x86-64 library identifies itself as
 
 Version-specific sources:
 
-- [`JAKAZuRobot.h`](../third_party/jaka_sdk/v2.2.7/linux/c_cpp/inc_of_c++/JAKAZuRobot.h)
+- [`JAKAZuRobot.h`](../../../../third_party/jaka_sdk/v2.2.7/linux/c_cpp/inc_of_c++/JAKAZuRobot.h)
   declares `servo_move_enable(BOOL)`, describes it as enabling/disabling servo
   mode, and describes `is_in_servomove(BOOL*)` as reporting whether the robot is
   in servo-move mode. It states that `servo_j` and `edg_servo_j` work only when
   that mode is active.
-- [`jakaAPI.h`](../third_party/jaka_sdk/v2.2.7/linux/c_cpp/inc_of_c/jakaAPI.h)
+- [`jakaAPI.h`](../../../../third_party/jaka_sdk/v2.2.7/linux/c_cpp/inc_of_c/jakaAPI.h)
   provides the equivalent C capability boundary.
-- [`SDK V2.2.7 Release Notes.pdf`](../third_party/jaka_sdk/v2.2.7/SDK%20V2.2.7%20Release%20Notes.pdf)
+- [`SDK V2.2.7 Release Notes.pdf`](../../../../third_party/jaka_sdk/v2.2.7/SDK%20V2.2.7%20Release%20Notes.pdf)
   specifies controller version `1_7_2_28` or newer, Linux outside a virtual
   machine, a real-time patch where practical, an approximately 8 ms client
   cycle, CPU affinity/priority/frequency precautions, and the ordering
@@ -57,11 +57,11 @@ Version-specific sources:
 
 Repository evidence:
 
-- [`native/jaka_servo_worker/main.cpp`](../native/jaka_servo_worker/main.cpp)
+- [`native/jaka_servo_worker/main.cpp`](../../../../native/jaka_servo_worker/main.cpp)
   already follows the required enable order: EDG initialization, then servo-mode
   enable. Its cleanup uses reverse acquisition order: servo-mode disable, EDG
   disable, logout.
-- [`src/jaka_driver_adapter/servo_jog.py`](../src/jaka_driver_adapter/servo_jog.py)
+- [`src/jaka_driver_adapter/servo_jog.py`](../../../../src/jaka_driver_adapter/servo_jog.py)
   uses the correct enable order but disables servo mode without disabling EDG.
   That wrapper is not an acceptable lifecycle reference for Gate 3B cleanup.
 - The existing Stage 3 entry-only binary excludes `servo_move_enable`,

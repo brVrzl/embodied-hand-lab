@@ -1,11 +1,8 @@
 # Motion Input Platform
 
-Status: input-only implementation complete; review is required before any
-teleoperation integration.
-
-The platform turns device observations into the Unified Motion Input Protocol
-(UMIP), records and replays the same values, visualizes hands and frames, and
-reports stream quality. It imports no robot package and issues no commands.
+Status: the device-neutral input platform and Quest HTS/CTRL providers are
+implemented and integrated into the current Quest/JAKA simulation and shared
+target pipeline. This package describes observations, never robot commands.
 
 ```text
 Quest / future device
@@ -16,85 +13,56 @@ device-isolated provider
      /   |    \
 record replay diagnostics/visualization
         |
-future teleoperation adapter (not implemented here)
+explicit teleoperation consumer
 ```
 
 ## Components
 
 - `src/motion_input/model.py`: immutable UMIP values and invariants.
-- `src/motion_input/provider.py`: common live/replay provider lifecycle.
+- `src/motion_input/provider.py`: common live/replay lifecycle.
 - `src/motion_input/quest.py`: Quest wire parser, UDP source, UMIP translator.
-- `src/motion_input/hts_protocol.py`: strict Hand Tracking Streamer v1.1 CSV schema.
-- `src/motion_input/hts_transport.py`: input-only UDP transport and raw capture/replay.
-- `src/motion_input/hts_canonical.py`: bimanual Quest state and inert future boundary.
-- `src/motion_input/hts_operator.py`: right-hand-only offline validity state machine and relative transform.
-- `src/motion_input/hts_gate.py`: raw-capture replay evaluation for hand-stream loss/recovery.
-- `src/motion_input/hts_telemetry.py`: live/replay stream-health telemetry.
-- `integrations/quest_unity/`: input-only Unity XR Hands publisher.
-- `src/motion_input/recording.py` and `replay.py`: versioned recording and live-equivalent replay.
-- `src/motion_input/visualization.py`: text and optional 3-D hand-frame view.
-- `src/motion_input/diagnostics.py`: rate, drops, ordering, jitter, latency,
-  confidence, interruption, and process CPU statistics.
-- `tools/umip_motion_input.py`: operator CLI.
-- `tools/quest_hand_tracking_streamer.py`: bounded HTS inspection/live/replay CLI.
+- `src/motion_input/hts_protocol.py`: strict HTS v1.1 CSV schema.
+- `src/motion_input/hts_transport.py`: input-only UDP transport and raw replay.
+- `src/motion_input/hts_canonical.py`: Unity/OpenXR canonical conversion.
+- `src/motion_input/controller_provider.py`: CTRL v1 validation and freshness.
+- `src/motion_input/recording.py`, `replay.py`, `diagnostics.py`, and
+  `visualization.py`: device-neutral support.
+- `integrations/quest_unity/`: input-only Unity publisher sources.
 
-Detailed documents:
+Current references:
 
-- [Repository audit](REPOSITORY_AUDIT.md)
-- [Quest SDK review](QUEST_SDK_REVIEW.md)
-- [UMIP protocol](UMIP_PROTOCOL.md)
-- [Coordinate frames](COORDINATE_FRAMES.md)
-- [Hand Tracking Streamer integration](HAND_TRACKING_STREAMER_INTEGRATION.md)
-- [Quest to JAKA offline MuJoCo integration](QUEST_JAKA_OFFLINE_SIMULATION.md)
+- [UMIP observation contract](UMIP_PROTOCOL.md)
+- [coordinate-frame contract](COORDINATE_FRAMES.md)
+- [Quest controller host transport](QUEST_CONTROLLER_TRANSPORT_HOST.md)
+- [Quest SDK/OpenXR review](QUEST_SDK_REVIEW.md)
+- [current Quest host setup](../operation/quest_setup.md)
 
-## Usage
+Dated repository audits, streamer integration gates, offline simulation gates,
+and the initial dual-clutch design are preserved under
+`docs/history/archived_designs/motion_input/`. They no longer define current
+branches, local paths, test totals, or integration status.
 
-Record Quest datagrams without contacting any robot:
+## Safe usage
+
+Inspect the input-only tools:
 
 ```bash
-.venv/bin/python tools/umip_motion_input.py record data/quest/session.umip.jsonl \
-  --allowed-sender 192.168.1.50 --duration-sec 60
+.venv/bin/python tools/umip_motion_input.py --help
+.venv/bin/python tools/quest_hand_tracking_streamer.py --help
 ```
 
-Replay, visualize, and report:
+Recordings default under ignored `data/` paths and may contain personal motion
+data. Select any sender address and output path for the current trusted network;
+do not copy old example addresses as operational truth.
 
-```bash
-.venv/bin/python tools/umip_motion_input.py replay data/quest/session.umip.jsonl
-.venv/bin/python tools/umip_motion_input.py visualize data/quest/session.umip.jsonl
-.venv/bin/python tools/umip_motion_input.py diagnose data/quest/session.umip.jsonl \
-  --output data/quest/session.diagnostics.json
-```
-
-Install `.[motion-input-viz]` and add `--matplotlib` for the optional 3-D
-tracking-origin, wrist, and palm triads. There is no robot model.
-
-## Validation
+## Focused validation
 
 ```bash
 .venv/bin/python -m pytest -q \
   tests/test_motion_input_protocol.py \
   tests/test_motion_input_recording_replay.py \
   tests/test_quest_motion_provider.py \
+  tests/test_hand_tracking_streamer_provider.py \
+  tests/test_quest_controller_transport.py \
   tests/test_motion_input_diagnostics.py
 ```
-
-Hardware-free coverage includes disconnect, loss/recovery, sequence and time
-ordering, serialization, crash-recoverable recording, replay timing, coordinate
-conversion, diagnostics, visualization state, and 20,000 samples of sustained
-streaming. Unity compilation, Quest 3 runtime behavior, and device rate/latency
-remain explicit hardware validation items.
-
-For the Meta Store Hand Tracking Streamer app, use the dedicated bounded tool;
-it is a different wire format from the repository's custom Unity bridge:
-
-```bash
-PYTHONPATH=src python3 tools/quest_hand_tracking_streamer.py live \
-  --project-ip <HOST_LAN_IP> --port 9000 --duration-sec 120
-```
-
-## Integration gate
-
-The future teleoperation session may depend only on `MotionInputProvider` and
-`MotionInputSample`. It must not import `motion_input.quest`, Unity, OpenXR, or
-Meta types. No such adapter is added in this change because that framework is
-owned by another session.

@@ -161,7 +161,7 @@ python3 tools/check_realsense_stream.py --duration-sec 3 --width 640 --height 48
 
 ```bash
 ./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
-./scripts/check_iphone_camera_stream.sh --url http://IPHONE_IP:PORT/video
+./scripts/check_iphone_camera_stream.sh --source http://IPHONE_IP:PORT/video
 ```
 
 ### Xbox

@@ -1,219 +1,100 @@
 # Embodied Lab
 
-`embodied_lab` 是一个正在重建中的 `JAKA mini2 + Inspire RH56` 操作栈仓库。当前仓库同时包含真实机器人 bring-up、遥操作、数据记录、仿真资产和预抓取工具。由于早期仿真内容曾被误删，当前项目应被视为恢复和重新规划中的工作区，而不是完成版数字孪生。
-
-## 当前状态
-
-当前可用内容：
-
-- JAKA mini2 配置、preset motion 辅助脚本、mock backend、servo-jog 安全控制工具。
-- Inspire RH56 命令 schema、mock/serial backend、ROS2 JSON bridge、手指顺序和命令映射。
-- Xbox、HEBI Mobile I/O、iPhone camera、RViz shadow 等遥操作实验工具。
-- 默认 JAKA-mounted MuJoCo runtime asset `data/sim_assets/jaka_rh56_visual_coacd.xml`，使用固定的 148-hull `visual_coacd` collision baseline。
-- Correll RH56DFX 参考 MuJoCo 手部资产 `data/sim_assets/correll_rh56dfx/`，用于浮动手 FK 规划和指尖 force/torque scene 验证。
-- `src/pregrasp` 中的确定性 geometry-based RH56 预抓取候选生成流程。
-- P 作为工程世界坐标系的 MuJoCo 集成工作空间：现有 JAKA+RH56、参数化桌面/铝架碰撞、清理后的静态视觉背景、相机占位和可扩展物体层。首轮离线关节空间碰撞扫掠已完成（130 个静态配置、9 条执行器轨迹）；发现 3 条失败轨迹与导轨原语警告，因此成熟度仍为 **Integrated Workspace**，尚未达到 Simulation Ready 或 Manipulation Ready。详见 `docs/digital_twin/DIGITAL_TW.md`。
-
-关键说明：
-
-`data/sim_assets/jaka_rh56.xml` 继续保留为 mounted-arm 派生源，用于显式构建 Correll/proxy 比较模式。普通 runtime 使用 `jaka_rh56_visual_coacd.xml`；这不表示整机动力学或真实抓取性能已经完成标定。
-
-## 目录结构
+Embodied Lab is a research and engineering repository for a JAKA Mini2 arm,
+Inspire RH56DFX hand, Meta Quest 3 input, MuJoCo simulation, perception, and
+robot-learning experiments. Its most developed current path is a shared
+Quest-to-JAKA target pipeline whose accepted joint targets can drive either
+MuJoCo or a separately authorized physical ServoJ/EDG adapter.
 
 ```text
-configs/          机器人、手、相机、遥操作、仿真和工作空间配置
-data/sim_assets/  当前 IK、预览、规划和测试使用的 MuJoCo 资产
-docs/             项目说明、协议和文献/资产审计
-launch/           ROS2 launch 文件
-scripts/          面向人的 shell 入口
-src/              Python 包源码
-tests/            回归和 smoke 测试
-third_party/      vendor 或外部代码快照
-tools/            脚本和实验调用的 Python 工具
+Quest wrist/head + left Touch controller
+  -> validated input and clutch/reference capture
+  -> frame mapping and filtering
+  -> continuation IK and safety feasibility
+  -> immutable AcceptedArmTarget
+  -> MuJoCo simulation | physical JAKA adapter
 ```
 
-核心模块：
+Simulation and hardware are identical up to the adapter boundary. The physical
+path does not follow MuJoCo `qpos`, does not independently solve IK, and does
+not write payload, TCP, installation, or controller safety settings.
 
-- `src/rh56_driver`：RH56 command schema、backend adapter、ROS2 bridge helper。
-- `src/jaka_driver_adapter`：JAKA SDK/mock、掌心目标 IK、servo-jog 安全逻辑。
-- `src/teleop_tools`：Xbox、HEBI/iPhone、RViz shadow、relative-pose teleop。
-- `src/robot_bringup`：真实机械臂和手的 bridge 编排。
-- `src/pregrasp`：物体几何、RH56 预抓取 primitives、Correll FK adapter、触觉/力反馈修正。
-- `src/sim_maniskill`：使用当前 JAKA+RH56 资产的 ManiSkill task 和 agent。
-- `src/data_recorder`：episode 记录工具。
-- `src/vision_interface`：原子 RGB-D 帧、RealSense/mock adapter、点云和桌面几何处理。
+## Start here
 
-关键文档：
+- [Documentation index](docs/README.md)
+- [Current status and next safe step](docs/status/current_status.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Simulation demo](docs/operation/simulation_demo.md)
+- [Development setup and testing](docs/development/setup.md)
+- [Safety model](docs/safety/safety_model.md)
+- [Validation matrix](docs/status/validation_matrix.md)
 
-- `docs/project_rebuild_status.md`：当前项目重建状态、验证等级和优先级。
-- `docs/rh56dfx_correll_integration_assessment.md`：Correll RH56DFX 资产与原项目资产的对比和整合结论。
-- `data/sim_assets/README.md`：当前仿真资产角色边界。
-- `docs/digital_twin/README.md`：P-world 数字孪生的复现命令、坐标约定和验证边界。
-- `docs/digital_twin/DIGITAL_TW.md`：当前集成工作空间交接状态。
+## Simulation-first quick start
 
-## 仿真资产边界
-
-当前有三类 RH56 资产角色：
-
-- `data/sim_assets/jaka_rh56_visual_coacd.xml`
-  - 默认 JAKA+RH56 mounted runtime model。
-  - 13 个 vendor visual geoms 仅渲染，148 个 CoACD hulls 是唯一 active RH56 collision geometry。
-  - `jaka_rh56_visual_coacd.manifest.json` 固定资产清单与 SHA-256。
-
-- `data/sim_assets/jaka_rh56.xml`
-  - mounted integration/derivation source。
-  - 保留 legacy、Correll 和 proxy 信息以支持隔离比较模式，不作为普通 runtime 默认模型。
-
-- `data/sim_assets/correll_rh56dfx/`
-  - 来自 Correll Robotics Lab RH56DFX 工作的参考资产。
-  - 用作浮动手 FK 规划和指尖 force/torque sensor scene 的参考模型。
-  - 通过 `pregrasp.correll_rh56dfx` 暴露给项目代码，并通过 `sim_maniskill.rh56_collision` 保留为显式 comparison mode。
-
-不要随意合并这两类角色。用 Correll 浮动手模型替换 JAKA-mounted 模型，需要单独迁移 mount frame、joint/body name、actuator order 和下游测试。
-
-## 环境
+Set up the supported Python environment:
 
 ```bash
-cd "$(git rev-parse --show-toplevel)"
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+.venv/bin/python -m pip install -e ".[dev]"
 ```
 
-可选依赖：
+Run the offline suite:
 
 ```bash
-pip install -e ".[gamepad]"        # Xbox / pygame
-pip install -e ".[phone-teleop]"   # HEBI Mobile I/O
-pip install -e ".[vision-teleop]"  # MediaPipe / OpenCV hand tracking
-pip install -e ".[sim]"            # ManiSkill stack，需要匹配本机 Python 环境
+.venv/bin/python -m pytest -q
 ```
 
-ROS2 Humble 路径可能还需要系统 ROS 包，不完全由 Python venv 管理。
-
-## Quest 3 → JAKA MuJoCo 仿真遥操作演示
-
-当前推荐演示使用 Quest 右手腕 + head capture + 左 Touch controller CTRL sidecar，
-对 JAKA Mini2 mounted MuJoCo 模型进行相对 6D（XYZ + 完整姿态）遥操作。该入口
-**只运行仿真**，不会导入、初始化或连接 JAKA / Inspire RH56DFX 真机 SDK。
-
-在图形桌面中，从仓库根目录运行：
-
-```bash
-source .venv/bin/activate
-HOST_IP=$(ip -4 route get 1.1.1.1 | sed -n 's/.* src \([^ ]*\).*/\1/p')
-./scripts/run_quest_jaka_sim_demo.sh \
-  --config configs/sim/quest_hts_jaka_mini2_live_demo.yaml \
-  --bind 0.0.0.0 \
-  --port 9000 \
-  --project-ip "${HOST_IP}" \
-  --duration-sec 600 \
-  --telemetry-hz 2 \
-  --viewer
-```
-
-从 SSH 运行时，脚本会自动查找当前用户的本地 GNOME `DISPLAY/XAUTHORITY`，
-把 viewer 显示在主机物理显示器上；也可显式传 `--display` 和 `--xauthority`。
-显示号重启后可能变化，以详细文档中的核实命令为准。
-
-Quest 端必须使用带 `LeftControllerPacketSender`/CTRL v1 sidecar 的 Hand Tracking
-Streamer 构建；普通上游 HTS 只有手/头数据，无法使当前双 clutch 状态机 engaged。
-左 index trigger 是机械臂 reference capture + hold-to-run，左 grip 独立控制仿真手，
-当前 6D 演示不是空格键控制。
-
-当前 MuJoCo 入口沿完整 SE(3) 目标做有界连续推进；若候选逼近奇异点、限位或发生 IK
-不连续，会保持 last safe target，同时保留 engaged/reference，让操作者直接退回安全区。
-硬奇异性、限位、碰撞和完整 6D 误差检查没有放宽。J4/J5/J6 会按机构运动学共同完成
-姿态变化，不以“J6 占比”作为正确性标准。诊断时可在命令末尾追加 `--ik-debug`，显示
-每帧 q/Δq、swing/twist、TCP error、奇异性、限位裕量、continuation/backlog 和拒绝原因。
-
-完整 Quest 设置、参数表、坐标公式、真实状态机、验收清单和故障排查见
-[docs/quest_jaka_sim_teleoperation.md](docs/quest_jaka_sim_teleoperation.md)。脚本帮助：
+Inspect the simulation entry point without connecting to devices:
 
 ```bash
 ./scripts/run_quest_jaka_sim_demo.sh --help
+.venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
 ```
 
-## 基础验证
+The live simulation demo receives Quest UDP packets but imports and initializes
+no JAKA or RH56 hardware SDK. Its controller clutch is release-before-press:
+left index captures and holds the arm reference; left grip controls the
+simulated RH56 hand. Full setup is in the
+[simulation guide](docs/operation/simulation_demo.md).
 
-修改机器人控制、RH56 schema 或仿真资产前，优先跑这些聚焦测试：
+## Current validation boundary
 
-```bash
-.venv/bin/python -m pytest \
-  tests/test_rh56_hand_schema.py \
-  tests/test_rh56_ros2_bridge.py \
-  tests/test_rh56_serial_backend.py \
-  tests/test_jaka_servo_jog.py \
-  tests/test_correll_rh56dfx_assets.py \
-  tests/test_mujoco_rh56_collision_modes.py \
-  tests/test_pregrasp_prediction.py
-```
+The shared target generator, continuation IK, Jacobian-based singularity
+policy, `HOLD_REJECTED`, output velocity and acceleration feasibility,
+piecewise-linear native resampling, startup continuity, and zero-native-IK
+joint mode are covered offline. The Quest/MuJoCo path is simulation validated.
 
-只验证新引入的 Correll RH56DFX 参考资产：
+Historical bounded physical gates established parts of the JAKA foundation and
+later exercised Quest teleoperation. A larger run encountered a J4 collision
+alarm. After the operator corrected payload data, the sole-session lightweight
+health polling implementation completed a bounded physical timing run, but the
+run then revealed an excessive accepted-output acceleration. The current
+acceleration-feasibility fix is tested offline and has **not** yet been
+physically validated. The J4 collision cause remains unresolved.
 
-```bash
-.venv/bin/python -m pytest tests/test_correll_rh56dfx_assets.py
-```
+Physical execution is deliberately not a quick-start workflow. It requires a
+new, explicit authorization for the exact bounded gate and the prerequisites in
+[hardware prerequisites](docs/operation/hardware_prerequisites.md). Repository
+maintenance or running `--help` never authorizes robot login, enable, servo
+mode, EDG, or motion.
 
-该测试会确认 XML 能被 MuJoCo 编译、预期 actuator/site/sensor 存在、width-based FK planner 能输出可用命令。
+## Project areas
 
-## 硬件入口
+- `src/quest_jaka_sim`, `src/teleoperation`, `src/motion_input`: current Quest
+  input and shared arm-target pipeline.
+- `native/jaka_servo_worker`: 125 Hz JAKA EDG transport and safety worker.
+- `src/rh56_driver`, `src/jaka_driver_adapter`, `src/robot_bringup`: robot and
+  hand adapters plus legacy/parallel bring-up tools.
+- `data/sim_assets`, `models`: MuJoCo robot and integrated-workspace assets.
+- `src/pregrasp`, `src/vision_interface`, `src/data_recorder`: pregrasp,
+  perception, and data workflows.
+- `docs/digital_twin`: current integrated-workspace project, which remains
+  below “Simulation Ready” pending its documented calibration and collision
+  issues.
+- `docs/history`: preserved gate, incident, audit, and design evidence; it is
+  not the current command reference.
 
-使用真实硬件脚本前，先检查对应配置、IP 和串口路径。
-
-JAKA：
-
-```bash
-./scripts/check_jaka_connection.sh --ip 192.168.1.100
-./scripts/check_jaka_zero_motion.sh --ip 192.168.1.100
-./scripts/check_jaka_edg_servo_capability.sh --config configs/robot/jaka_mini2_real.yaml
-```
-
-RH56：
-
-```bash
-./scripts/check_rh56_connection.sh --port /dev/ttyUSB0
-./scripts/rh56_pc_direct_bringup.sh --config configs/hand/rh56_real.yaml --port /dev/ttyUSB0 --polls 20
-```
-
-遥操作和预览：
-
-```bash
-./scripts/run_jaka_rh56_rviz.sh
-./scripts/run_xbox_rviz_shadow.sh
-./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
-```
-
-会移动硬件的脚本应要求显式 enable/execute 参数。使用前先看帮助：
-
-```bash
-./scripts/<script-name>.sh --help
-```
-
-## 预抓取流程
-
-当前预抓取路径是确定性的 geometry-first 流程：
-
-```bash
-.venv/bin/python tools/predict_rh56_pregrasp.py \
-  --geometry-json path/to/object_geometry.json \
-  --top-k 3
-```
-
-相关文件：
-
-- `configs/pregrasp/rh56_pregrasp.yaml`
-- `src/pregrasp/primitives.py`
-- `src/pregrasp/predictor.py`
-- `src/pregrasp/correll_rh56dfx.py`
-- `tools/generate_rh56_pregrasp_dataset.py`
-
-Correll FK planner 会在适合的物体宽度下生成额外的 `correll_line_width` 候选。这是规划辅助，不替代真实 RH56 接触验证。
-
-## 开发约定
-
-- 外部资产要按来源和用途分目录，并保留 license。
-- 替换仿真文件前，先补验证测试。
-- 不要删除 `data/sim_assets/jaka_rh56.xml`；它仍是隔离 collision comparison modes 的派生源。
-- 没有真实 replay 数据时，不要把仿真抓取成功率写成真实机器人性能。
-- 如果某个资产只是临时恢复锚点，要在文档和配置注释中明确说明。
+The worktree may contain untracked datasets, models, captures, calibration
+assets, or concurrent experiments. They are not part of the repository merely
+because they are present locally; preserve them and stage changes
+intentionally.

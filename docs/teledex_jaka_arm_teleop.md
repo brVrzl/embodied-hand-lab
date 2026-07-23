@@ -25,7 +25,7 @@
 ## 1. 安装与只读验流
 
 ```bash
-cd /home/thor/projects/embodied_lab
+cd "$(git rev-parse --show-toplevel)"
 .venv/bin/python -m pip install -e ".[teledex-teleop]"
 ./scripts/check_teledex_phone.sh --duration-sec 15
 ```

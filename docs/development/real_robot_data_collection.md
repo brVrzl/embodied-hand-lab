@@ -2,7 +2,9 @@
 
 适用硬件：JAKA mini2 + Inspire RH56。
 
-当前 active plan 见 `docs/active_research_and_control_plan.md`。本协议保留 episode schema、manual review、success/failure 标注等数据规范，但控制假设已更新：
+当前项目状态与安全边界见 `docs/status/current_status.md` 和
+`docs/safety/safety_model.md`。本协议保留 episode schema、manual
+review、success/failure 标注等数据规范；它不是当前物理执行授权或控制架构说明。
 
 - JAKA 大范围运动使用 trajectory / MoveIt，精细 palm pose 微调使用 EDG servo。
 - RH56 论文实验主链路使用 PC direct USB-RS485，以读取 angle / force / current / status / temp。
