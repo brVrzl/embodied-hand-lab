@@ -38,11 +38,12 @@ from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusR
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
 E2_APPROVAL = "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
+POST_PAYLOAD_APPROVAL = "I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("p2-shadow", "e2-isolated", "p4-live"))
+    parser.add_argument("stage", choices=("p2-shadow", "e2-isolated", "p4-live", "post-payload-diagnostic"))
     parser.add_argument("--config", type=Path, default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"))
     parser.add_argument("--worker", type=Path, default=Path("build/jaka_servo_worker/jaka_servo_worker"))
     parser.add_argument("--robot-ip", required=True)
@@ -59,6 +60,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--metrics", type=Path, required=True)
     parser.add_argument("--capture", type=Path, required=True)
+    parser.add_argument("--native-telemetry", type=Path)
+    parser.add_argument("--event-extract", type=Path)
+    parser.add_argument("--run-output-joint-velocity-limit-rad-s", type=float)
+    parser.add_argument("--abort-on-diagnostic-acceleration-boundary", action="store_true")
     return parser
 
 
@@ -85,10 +90,22 @@ def main() -> int:
     if args.duration_sec <= 0.0:
         raise SystemExit("duration must be positive")
     config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+    if args.run_output_joint_velocity_limit_rad_s is not None:
+        if not 0.0 < args.run_output_joint_velocity_limit_rad_s <= config.output_contract.maximum_velocity_rad_s:
+            raise SystemExit("run output velocity limit must be positive and no greater than the shared contract")
+        config = replace(
+            config,
+            output_contract=replace(
+                config.output_contract,
+                maximum_velocity_rad_s=args.run_output_joint_velocity_limit_rad_s,
+            ),
+        )
     hardware = config.raw["hardware_adapter"]
-    live = args.stage in ("e2-isolated", "p4-live")
+    live = args.stage in ("e2-isolated", "p4-live", "post-payload-diagnostic")
     expected_approval = (
-        E2_APPROVAL if args.stage == "e2-isolated" else P4_APPROVAL if live else P2_APPROVAL
+        E2_APPROVAL if args.stage == "e2-isolated"
+        else POST_PAYLOAD_APPROVAL if args.stage == "post-payload-diagnostic"
+        else P4_APPROVAL if live else P2_APPROVAL
     )
     if args.approval != expected_approval:
         raise SystemExit(f"exact approval required: {expected_approval}")
@@ -97,6 +114,15 @@ def main() -> int:
             raise SystemExit("P4 blocked: physical Quest/JAKA mapping has not been confirmed after P1/P2")
         if not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
             raise SystemExit("P4 requires E-stop, clear-workspace, and no-RH56-command confirmations")
+    if args.stage == "post-payload-diagnostic":
+        if args.duration_sec > 60.0:
+            raise SystemExit("post-payload diagnostic is limited to 60 seconds")
+        if args.native_telemetry is None or args.event_extract is None:
+            raise SystemExit("post-payload diagnostic requires native telemetry and event extract paths")
+        if args.run_output_joint_velocity_limit_rad_s is None or args.run_output_joint_velocity_limit_rad_s > 1.0:
+            raise SystemExit("post-payload diagnostic requires a shared output limit no greater than 1.0 rad/s")
+        if not args.abort_on_diagnostic_acceleration_boundary:
+            raise SystemExit("post-payload diagnostic requires the pre-SDK acceleration abort")
     print(f"STAGE={args.stage} STOP=Ctrl+C or release the left-index arm clutch")
 
     rates = config.raw["rates"]
@@ -114,6 +140,10 @@ def main() -> int:
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     args.capture.parent.mkdir(parents=True, exist_ok=True)
+    if args.native_telemetry is not None:
+        args.native_telemetry.parent.mkdir(parents=True, exist_ok=True)
+    if args.event_extract is not None:
+        args.event_extract.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="quest_jaka_hardware_") as directory:
         temporary = Path(directory)
@@ -179,6 +209,12 @@ def main() -> int:
             "--maximum-output-joint-velocity-rad-s", str(config.output_contract.maximum_velocity_rad_s),
             "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.command_limits.maximum_acceleration_rad_s2),
         ]
+        if live:
+            worker_args.append("--monitor-controller-health-each-cycle")
+        if args.native_telemetry is not None:
+            worker_args.extend(("--cycle-telemetry-file", str(args.native_telemetry)))
+        if args.abort_on_diagnostic_acceleration_boundary:
+            worker_args.append("--abort-on-diagnostic-acceleration-boundary")
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
         stop_reason = "duration_complete"
@@ -190,6 +226,7 @@ def main() -> int:
         receiver: QuestDatagramReceiverWorker | None = None
         maximum_quest_displacement_m = 0.0
         minimum_continuation_fraction = 1.0
+        clutch_release_monotonic_ns: int | None = None
         measured_joint_samples: list[tuple[float, ...]] = []
         native.start()
         try:
@@ -269,6 +306,7 @@ def main() -> int:
                         disengaged = prior_engaged and not engaged
                         if disengaged:
                             jaka_adapter.stop()
+                            clutch_release_monotonic_ns = now_ns
                             stop_reason = session.arm_clutch.active_fault.reason if session.arm_clutch.active_fault else "operator_clutch_released"
                         prior_engaged = engaged
                         accepted += int(tick.accepted_target is not None and tick.output_applied)
@@ -290,7 +328,7 @@ def main() -> int:
                         event.update(
                             physical_stage=args.stage,
                             measured_joint_position_rad=None if status is None else list(status.joint_position_rad),
-                            joint_tracking_error_rad=None if status is None or tick.accepted_target is None else [
+                            accepted_endpoint_minus_measured_joint_rad=None if status is None or tick.accepted_target is None else [
                                 command - measured
                                 for command, measured in zip(
                                     tick.accepted_target.joint_position_rad,
@@ -326,6 +364,13 @@ def main() -> int:
             runtime.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
+    if args.event_extract is not None and args.native_telemetry is not None:
+        _write_event_extract(
+            args.native_telemetry,
+            args.event_extract,
+            metrics,
+            clutch_release_monotonic_ns=clutch_release_monotonic_ns,
+        )
     measured_tcp = _measured_tcp_motion(target_generator, measured_joint_samples)
     e2_guard = (
         jaka_adapter
@@ -360,6 +405,17 @@ def main() -> int:
         "native_outcome": metrics["outcome"],
         "native_ik_calls": metrics["ik_calls"],
         "native_command_max_ns": metrics["statistics"]["command_write_duration"]["max_ns"],
+        "tracking_difference_definition": "current_8ms_emitted_command_minus_same_cycle_measured_joint_shortest_valid_revolute_delta",
+        "authoritative_tracking_metrics_source": "native_worker_cycle_telemetry",
+        "active_controller_payload_operator_report": {
+            "mass_kg": 0.8,
+            "center_of_mass_mm": [9.289, 12.427, 36.961],
+            "written_by_this_process": False,
+        },
+        "installation_operator_report": {"type": "upright", "x_deg": 0.0, "z_deg": 0.0, "written_by_this_process": False},
+        "tcp_status_operator_report": {"tcp1_through_tcp10": "zero", "written_by_this_process": False},
+        "controller_alarm_history_programmatically_available": False,
+        "joint_specific_servo_alarm_code_programmatically_available": metrics.get("joint_specific_servo_alarm_code_available", False),
         "pre_adapter_target_source": "single_shared_immutable_AcceptedArmTarget",
         "maximum_pre_adapter_joint_difference_rad": 0.0,
         "maximum_pre_adapter_tcp_position_difference_m": 0.0,
@@ -427,6 +483,55 @@ def _measured_tcp_motion(
         "maximum_displacement_norm_m": math.sqrt(sum(value * value for value in maximum)),
         "direction": "robot_base_negative_x" if maximum[0] < 0.0 else "robot_base_positive_x_or_zero",
     }
+
+
+def _write_event_extract(
+    telemetry_path: Path,
+    output_path: Path,
+    metrics: dict[str, object],
+    *,
+    clutch_release_monotonic_ns: int | None,
+) -> None:
+    """Write bounded native-cycle windows without touching the command path."""
+
+    rows = [
+        json.loads(line)
+        for line in telemetry_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not rows:
+        output_path.write_text("", encoding="utf-8")
+        return
+    focus: dict[str, int] = {}
+    alarm_ns = int(metrics.get("controller_event_monotonic_ns", 0) or 0)
+    if int(metrics.get("controller_alarm_events", 0) or 0) and alarm_ns:
+        focus["controller_alarm"] = alarm_ns
+    for joint_index, name in ((3, "maximum_j4_tracking_lag"), (5, "maximum_j6_tracking_lag")):
+        row = max(
+            rows,
+            key=lambda item: abs(item["emitted_minus_measured_tracking_difference_rad"][joint_index]),
+        )
+        focus[name] = int(row["host_monotonic_ns"])
+    acceleration_row = max(
+        rows,
+        key=lambda item: max(abs(value) for value in item["emitted_acceleration_rad_s2"][3:]),
+    )
+    focus["maximum_wrist_acceleration"] = int(acceleration_row["host_monotonic_ns"])
+    if clutch_release_monotonic_ns is not None:
+        focus["operator_clutch_release"] = clutch_release_monotonic_ns
+
+    selected: dict[int, set[str]] = {}
+    for name, timestamp_ns in focus.items():
+        for index, row in enumerate(rows):
+            delta = int(row["host_monotonic_ns"]) - timestamp_ns
+            if -2_000_000_000 <= delta <= 1_000_000_000:
+                selected.setdefault(index, set()).add(name)
+    with output_path.open("x", encoding="utf-8") as output:
+        for index in sorted(selected):
+            output.write(json.dumps({
+                "focus_events": sorted(selected[index]),
+                "telemetry": rows[index],
+            }, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":

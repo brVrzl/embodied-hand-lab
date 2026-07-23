@@ -102,6 +102,12 @@ std::uint64_t now_ns() {
   return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000ULL + static_cast<std::uint64_t>(ts.tv_nsec);
 }
 
+std::uint64_t wall_now_ns() {
+  timespec ts{};
+  clock_gettime(CLOCK_REALTIME, &ts);
+  return static_cast<std::uint64_t>(ts.tv_sec) * 1'000'000'000ULL + static_cast<std::uint64_t>(ts.tv_nsec);
+}
+
 std::uint32_t crc32(const void* data, std::size_t size) {
   std::uint32_t crc = 0xFFFFFFFFu;
   const auto* bytes = static_cast<const std::uint8_t*>(data);
@@ -116,6 +122,10 @@ void require_sdk(errno_t code, const char* operation) {
   if (code != ERR_SUCC) throw std::runtime_error(std::string(operation) + " failed: " + std::to_string(code));
 }
 
+double shortest_joint_difference(double target, double measured) {
+  return std::remainder(target - measured, 2.0 * M_PI);
+}
+
 struct Options {
   Mode mode = Mode::DryRun;
   std::string robot_ip;
@@ -124,6 +134,7 @@ struct Options {
   std::string status_socket;
   std::string metrics_file;
   std::string emitted_points_file;
+  std::string cycle_telemetry_file;
   std::string acknowledgement;
   double duration_s = 5.0;
   int expected_tool_id = 0;
@@ -162,6 +173,8 @@ struct Options {
   double startup_alignment_tolerance_rad = 0.001;
   double maximum_output_joint_velocity_rad_s = M_PI;
   double diagnostic_joint_acceleration_boundary_rad_s2 = 4.0 * M_PI;
+  bool abort_on_diagnostic_acceleration_boundary = false;
+  bool monitor_controller_health_each_cycle = false;
 };
 
 bool is_shadow_mode(Mode mode) {
@@ -263,6 +276,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--status-socket") o.status_socket = value_after(i, argc, argv);
     else if (a == "--metrics-file") o.metrics_file = value_after(i, argc, argv);
     else if (a == "--emitted-points-file") o.emitted_points_file = value_after(i, argc, argv);
+    else if (a == "--cycle-telemetry-file") o.cycle_telemetry_file = value_after(i, argc, argv);
     else if (a == "--duration-s") o.duration_s = std::stod(value_after(i, argc, argv));
     else if (a == "--expected-tool-id") o.expected_tool_id = std::stoi(value_after(i, argc, argv));
     else if (a == "--expected-user-frame-id") o.expected_user_frame_id = std::stoi(value_after(i, argc, argv));
@@ -298,6 +312,8 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--startup-alignment-tolerance-rad") o.startup_alignment_tolerance_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--maximum-output-joint-velocity-rad-s") o.maximum_output_joint_velocity_rad_s = std::stod(value_after(i, argc, argv));
     else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
+    else if (a == "--abort-on-diagnostic-acceleration-boundary") o.abort_on_diagnostic_acceleration_boundary = true;
+    else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::exit(0);
@@ -347,6 +363,8 @@ Options parse_options(int argc, char** argv) {
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
     if (!o.emitted_points_file.empty() && !uses_fake_backend(o.mode))
       throw std::runtime_error("emitted point recording is fake-backend/offline only");
+    if (!o.cycle_telemetry_file.empty() && o.duration_s > 65.0)
+      throw std::runtime_error("cycle telemetry is bounded to sessions of at most 65 seconds");
   }
   if (o.mode == Mode::MinimalMotion) {
     if (o.probe_joint < 0 || o.probe_joint >= 6 || std::abs(o.probe_delta_rad) > 0.002 || std::abs(o.probe_delta_rad) < 1e-9)
@@ -367,6 +385,42 @@ struct CartesianState {
   std::array<double, 3> position_mm{};
   std::array<double, 3> rpy_rad{};
 };
+
+struct ControllerHealth {
+  std::uint64_t monotonic_ns = 0;
+  std::uint64_t wall_ns = 0;
+  int status_sdk_return_code = 0;
+  int estop_sdk_return_code = 0;
+  int collision_sdk_return_code = 0;
+  int controller_error_code = 0;
+  std::string controller_error_message;
+  bool powered_on = true;
+  bool enabled = true;
+  bool emergency_stop = false;
+  bool collision = false;
+};
+
+void require_healthy_controller(const ControllerHealth& health) {
+  if (health.status_sdk_return_code != ERR_SUCC ||
+      health.estop_sdk_return_code != ERR_SUCC ||
+      health.collision_sdk_return_code != ERR_SUCC)
+    throw std::runtime_error(
+        "controller health SDK query failed: status=" +
+        std::to_string(health.status_sdk_return_code) + " estop=" +
+        std::to_string(health.estop_sdk_return_code) + " collision=" +
+        std::to_string(health.collision_sdk_return_code));
+  if (health.controller_error_code != 0)
+    throw std::runtime_error(
+        "controller reported error code " +
+        std::to_string(health.controller_error_code) + ": " +
+        health.controller_error_message);
+  if (health.collision)
+    throw std::runtime_error("controller collision alarm asserted");
+  if (health.emergency_stop)
+    throw std::runtime_error("controller emergency/protective stop asserted");
+  if (!health.powered_on || !health.enabled)
+    throw std::runtime_error("controller power or servo-enable state became invalid");
+}
 
 using Matrix3 = std::array<std::array<double, 3>, 3>;
 
@@ -468,6 +522,7 @@ void validate_manufacturer_joint_position_limits(const std::array<double, 6>& ta
 
 struct ResampledServoPoint {
   std::array<double, 6> position{};
+  std::array<double, 6> segment_velocity_rad_s{};
   std::uint64_t servo_time_ns = 0;
   std::uint64_t from_sequence = 0;
   std::uint64_t to_sequence = 0;
@@ -585,7 +640,12 @@ class JointServoResampler {
             static_cast<double>(segment_end_ns_ - segment_start_ns_),
         0.0, 1.0);
     for (std::size_t joint = 0; joint < point.position.size(); ++joint)
+    {
       point.position[joint] = start_[joint] + point.alpha * (destination_[joint] - start_[joint]);
+      point.segment_velocity_rad_s[joint] =
+          (destination_[joint] - start_[joint]) * 1e9 /
+          static_cast<double>(segment_end_ns_ - segment_start_ns_);
+    }
     point.endpoint = point.alpha >= 1.0;
     return point;
   }
@@ -676,6 +736,16 @@ class OutputMotionDiagnostics {
             " to_sequence=" + std::to_string(point.to_sequence) +
             " alpha=" + std::to_string(point.alpha));
       }
+      if (options_.abort_on_diagnostic_acceleration_boundary &&
+          std::abs(sample.acceleration[joint]) >
+              options_.diagnostic_joint_acceleration_boundary_rad_s2 + 1e-12) {
+        ++acceleration_boundary_rejections_[joint];
+        throw std::runtime_error(
+            "diagnostic output acceleration boundary crossed before SDK call: J" +
+            std::to_string(joint + 1) + " acceleration=" +
+            std::to_string(sample.acceleration[joint]) + " rad/s2 limit=" +
+            std::to_string(options_.diagnostic_joint_acceleration_boundary_rad_s2));
+      }
     }
     return sample;
   }
@@ -704,12 +774,14 @@ class OutputMotionDiagnostics {
   const std::array<double, 6>& maximum_jerk() const { return maximum_jerk_; }
   const std::array<std::uint64_t, 6>& acceleration_boundary_crossings() const { return acceleration_boundary_crossings_; }
   const std::array<std::uint64_t, 6>& speed_boundary_rejections() const { return speed_boundary_rejections_; }
+  const std::array<std::uint64_t, 6>& acceleration_boundary_rejections() const { return acceleration_boundary_rejections_; }
 
  private:
   const Options& options_;
   std::array<double, 6> previous_position_{}, previous_velocity_{}, previous_acceleration_{};
   std::array<double, 6> maximum_delta_{}, maximum_velocity_{}, maximum_acceleration_{}, maximum_jerk_{};
   std::array<std::uint64_t, 6> acceleration_boundary_crossings_{};
+  std::array<std::uint64_t, 6> acceleration_boundary_rejections_{};
   std::array<std::uint64_t, 6> speed_boundary_rejections_{};
   std::uint64_t previous_command_ns_ = 0;
   bool initialized_ = false;
@@ -719,6 +791,64 @@ struct RecordedServoPoint {
   ResampledServoPoint point;
   OutputMotionSample motion;
 };
+
+struct CycleTelemetry {
+  std::uint64_t monotonic_ns = 0;
+  std::uint64_t wall_ns = 0;
+  std::uint64_t last_sequence = 0;
+  std::uint64_t heartbeat_age_ns = 0;
+  std::array<double, 6> emitted{}, destination{}, measured{}, tracking{};
+  ResampledServoPoint point{};
+  OutputMotionSample motion{};
+  ControllerHealth health{};
+};
+
+void write_six_json(std::ostream& out, const std::array<double, 6>& values) {
+  out << '[';
+  for (std::size_t joint = 0; joint < values.size(); ++joint)
+    out << (joint ? "," : "") << values[joint];
+  out << ']';
+}
+
+void write_cycle_telemetry(const Options& options,
+                           const std::vector<CycleTelemetry>& rows) {
+  if (options.cycle_telemetry_file.empty()) return;
+  std::ofstream out(options.cycle_telemetry_file);
+  if (!out) throw std::runtime_error("cannot open cycle telemetry file");
+  out << std::setprecision(17);
+  for (const auto& row : rows) {
+    out << "{\"host_monotonic_ns\":" << row.monotonic_ns
+        << ",\"local_wall_clock_unix_ns\":" << row.wall_ns
+        << ",\"last_accepted_sequence\":" << row.last_sequence
+        << ",\"generator_heartbeat_age_ns\":" << row.heartbeat_age_ns
+        << ",\"controller_error_code\":" << row.health.controller_error_code
+        << ",\"controller_collision\":" << (row.health.collision ? "true" : "false")
+        << ",\"controller_emergency_stop\":" << (row.health.emergency_stop ? "true" : "false")
+        << ",\"controller_powered_on\":" << (row.health.powered_on ? "true" : "false")
+        << ",\"controller_enabled\":" << (row.health.enabled ? "true" : "false")
+        << ",\"controller_status_sdk_return_code\":" << row.health.status_sdk_return_code
+        << ",\"collision_sdk_return_code\":" << row.health.collision_sdk_return_code
+        << ",\"estop_sdk_return_code\":" << row.health.estop_sdk_return_code
+        << ",\"resampler_from_sequence\":" << row.point.from_sequence
+        << ",\"resampler_to_sequence\":" << row.point.to_sequence
+        << ",\"resampler_alpha\":" << row.point.alpha
+        << ",\"emitted_command_rad\":";
+    write_six_json(out, row.emitted);
+    out << ",\"active_segment_destination_rad\":";
+    write_six_json(out, row.destination);
+    out << ",\"measured_joint_rad\":";
+    write_six_json(out, row.measured);
+    out << ",\"emitted_minus_measured_tracking_difference_rad\":";
+    write_six_json(out, row.tracking);
+    out << ",\"active_segment_target_velocity_rad_s\":";
+    write_six_json(out, row.point.segment_velocity_rad_s);
+    out << ",\"emitted_velocity_rad_s\":";
+    write_six_json(out, row.motion.velocity);
+    out << ",\"emitted_acceleration_rad_s2\":";
+    write_six_json(out, row.motion.acceleration);
+    out << "}\n";
+  }
+}
 
 void write_emitted_points(const Options& options, const std::vector<RecordedServoPoint>& points) {
   if (options.emitted_points_file.empty()) return;
@@ -766,6 +896,7 @@ class Backend {
   virtual void validate_probe(const std::array<double, 6>& initial, const std::array<double, 6>& target) = 0;
   virtual void read(std::array<double, 6>& joints) = 0;
   virtual void read_tcp(CartesianState& pose) = 0;
+  virtual ControllerHealth read_controller_health() = 0;
   virtual void solve_ik(const CartesianState& target, const std::array<double, 6>& reference,
                         std::array<double, 6>& solution) = 0;
   virtual double validate_kinematics(const CartesianState& target,
@@ -792,6 +923,12 @@ class FakeBackend final : public Backend {
   void validate_probe(const std::array<double, 6>&, const std::array<double, 6>&) override {}
   void read(std::array<double, 6>& joints) override { delay(options_.fake_read_delay_ns); fail(); joints = joints_; }
   void read_tcp(CartesianState& pose) override { pose = {}; }
+  ControllerHealth read_controller_health() override {
+    ControllerHealth health{};
+    health.monotonic_ns = now_ns();
+    health.wall_ns = wall_now_ns();
+    return health;
+  }
   void solve_ik(const CartesianState& target, const std::array<double, 6>&,
                 std::array<double, 6>& solution) override {
     fail();
@@ -885,6 +1022,23 @@ class RealBackend final : public Backend {
     if (!std::all_of(pose.position_mm.begin(), pose.position_mm.end(), [](double v) { return std::isfinite(v); }) ||
         !std::all_of(pose.rpy_rad.begin(), pose.rpy_rad.end(), [](double v) { return std::isfinite(v); }))
       throw std::runtime_error("non-finite TCP state");
+  }
+  ControllerHealth read_controller_health() override {
+    ControllerHealth health{};
+    health.monotonic_ns = now_ns();
+    health.wall_ns = wall_now_ns();
+    RobotStatus_simple status{};
+    BOOL estop = FALSE, collision = FALSE;
+    health.status_sdk_return_code = robot_.get_robot_status_simple(&status);
+    health.estop_sdk_return_code = robot_.is_in_estop(&estop);
+    health.collision_sdk_return_code = robot_.is_in_collision(&collision);
+    health.controller_error_code = status.errcode;
+    health.controller_error_message = status.errmsg;
+    health.powered_on = status.powered_on != 0;
+    health.enabled = status.enabled != 0;
+    health.emergency_stop = estop != FALSE;
+    health.collision = collision != FALSE;
+    return health;
   }
   void solve_ik(const CartesianState& target, const std::array<double, 6>& reference,
                 std::array<double, 6>& solution) override {
@@ -1133,6 +1287,8 @@ struct TeleopMetrics {
   double maximum_tracking_difference_rad = 0.0;
   double maximum_jacobian_condition = 0.0;
   std::array<double, 6> maximum_tracking_difference_rad_per_joint{};
+  std::array<std::uint64_t, 6> maximum_tracking_difference_monotonic_ns_per_joint{};
+  std::array<std::uint64_t, 6> maximum_tracking_difference_sequence_per_joint{};
   std::array<double, 6> maximum_observed_joint_delta_rad_per_joint{};
   std::array<double, 6> pre_edg_measured_joint_position_rad{};
   std::array<double, 6> post_edg_q_hold_rad{};
@@ -1145,6 +1301,10 @@ struct TeleopMetrics {
   bool zero_motion_q_hold_initialized = false;
   CartesianState startup_tcp{};
   std::array<double, 6> last_ik_target{};
+  ControllerHealth last_controller_health{};
+  std::uint64_t controller_health_samples = 0;
+  std::uint64_t controller_alarm_events = 0;
+  bool joint_specific_servo_alarm_code_available = false;
 };
 
 struct Samples {
@@ -1177,6 +1337,18 @@ void metric_json(std::ostream& out, const char* name, const std::array<std::uint
 }
 
 double cpu_seconds(const rusage& r) { return r.ru_utime.tv_sec + r.ru_utime.tv_usec / 1e6 + r.ru_stime.tv_sec + r.ru_stime.tv_usec / 1e6; }
+
+std::string json_escape(const std::string& value) {
+  std::string result;
+  result.reserve(value.size());
+  for (const char c : value) {
+    if (c == '\\' || c == '"') result.push_back('\\');
+    if (c == '\n') { result += "\\n"; continue; }
+    if (c == '\r') { result += "\\r"; continue; }
+    result.push_back(c);
+  }
+  return result;
+}
 
 const char* mode_name(Mode mode) {
   switch (mode) {
@@ -1235,6 +1407,21 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"maximum_tracking_difference_rad\":" << teleop.maximum_tracking_difference_rad << ",\n"
       << "  \"tracking_warning_cycles\":" << teleop.tracking_warning_cycles << ",\n"
       << "  \"tracking_hard_crossings\":" << teleop.tracking_hard_crossings << ",\n"
+      << "  \"controller_health_samples\":" << teleop.controller_health_samples << ",\n"
+      << "  \"controller_alarm_events\":" << teleop.controller_alarm_events << ",\n"
+      << "  \"controller_error_code\":" << teleop.last_controller_health.controller_error_code << ",\n"
+      << "  \"controller_error_message\":\"" << json_escape(teleop.last_controller_health.controller_error_message) << "\",\n"
+      << "  \"controller_collision\":" << (teleop.last_controller_health.collision ? "true" : "false") << ",\n"
+      << "  \"controller_emergency_stop\":" << (teleop.last_controller_health.emergency_stop ? "true" : "false") << ",\n"
+      << "  \"controller_powered_on\":" << (teleop.last_controller_health.powered_on ? "true" : "false") << ",\n"
+      << "  \"controller_enabled\":" << (teleop.last_controller_health.enabled ? "true" : "false") << ",\n"
+      << "  \"controller_status_sdk_return_code\":" << teleop.last_controller_health.status_sdk_return_code << ",\n"
+      << "  \"collision_status_sdk_return_code\":" << teleop.last_controller_health.collision_sdk_return_code << ",\n"
+      << "  \"estop_status_sdk_return_code\":" << teleop.last_controller_health.estop_sdk_return_code << ",\n"
+      << "  \"controller_event_monotonic_ns\":" << teleop.last_controller_health.monotonic_ns << ",\n"
+      << "  \"controller_event_wall_clock_unix_ns\":" << teleop.last_controller_health.wall_ns << ",\n"
+      << "  \"joint_specific_servo_alarm_code_available\":" << (teleop.joint_specific_servo_alarm_code_available ? "true" : "false") << ",\n"
+      << "  \"controller_alarm_history_available\":false,\n"
       << "  \"initial_joint_position_rad\":[" << initial_joint_position_rad[0] << ',' << initial_joint_position_rad[1] << ',' << initial_joint_position_rad[2] << ',' << initial_joint_position_rad[3] << ',' << initial_joint_position_rad[4] << ',' << initial_joint_position_rad[5] << "],\n"
       << "  \"edg_step_num\":1,\n"
       << "  \"resampler_timestamp_domain\":\"AcceptedArmTarget.generated_monotonic_ns/CLOCK_MONOTONIC\",\n"
@@ -1280,12 +1467,15 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
   write_six("output_maximum_jerk_rad_s3", output_diagnostics.maximum_jerk(), true);
   write_six("output_speed_boundary_rejections", output_diagnostics.speed_boundary_rejections(), true);
   write_six("output_acceleration_boundary_crossings", output_diagnostics.acceleration_boundary_crossings(), true);
+  write_six("output_acceleration_boundary_rejections", output_diagnostics.acceleration_boundary_rejections(), true);
   std::array<double, 6> endpoint_error{};
   if (resampler.emitted_points() > 0)
     for (std::size_t joint = 0; joint < 6; ++joint)
       endpoint_error[joint] = resampler.emitted()[joint] - final_accepted_target_rad[joint];
   write_six("final_resampler_endpoint_error_rad", endpoint_error, true);
   write_six("maximum_tracking_difference_rad_per_joint", teleop.maximum_tracking_difference_rad_per_joint, true);
+  write_six("maximum_tracking_difference_monotonic_ns_per_joint", teleop.maximum_tracking_difference_monotonic_ns_per_joint, true);
+  write_six("maximum_tracking_difference_sequence_per_joint", teleop.maximum_tracking_difference_sequence_per_joint, true);
   write_six("maximum_observed_joint_delta_rad_per_joint", teleop.maximum_observed_joint_delta_rad_per_joint, true);
   // Explicit E1 name; retain maximum_observed_joint_delta_rad_per_joint above
   // as a backwards-compatible alias for existing metrics readers.
@@ -1322,6 +1512,9 @@ int run(const Options& o) {
   OutputMotionDiagnostics output_diagnostics(o);
   std::vector<RecordedServoPoint> recorded_servo_points;
   if (!o.emitted_points_file.empty()) recorded_servo_points.reserve(4096);
+  std::vector<CycleTelemetry> cycle_telemetry;
+  if (!o.cycle_telemetry_file.empty())
+    cycle_telemetry.reserve(static_cast<std::size_t>(o.duration_s * 125.0) + 16);
   TeleopMetrics teleop{};
   TargetPacket latest{}; bool ever_received = false;
   std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, last_target_dispatch = 0, consecutive_overruns = 0;
@@ -1336,6 +1529,8 @@ int run(const Options& o) {
   std::uint64_t stop_request_ns = 0;
   std::string stop_reason;
   std::uint64_t consecutive_tracking_crossings = 0;
+  std::array<double, 6> previous_absolute_tracking_difference{};
+  std::array<std::uint32_t, 6> consecutive_increasing_tracking_cycles{};
   double maximum_command_delta_rad = 0.0, maximum_observed_delta_rad = 0.0;
   State state = State::Connecting; std::int32_t error_code = 0;
   const char* outcome = "completed";
@@ -1615,6 +1810,19 @@ int run(const Options& o) {
       if (!is_joint_zero_motion_mode(o.mode) && (!ever_received || age >= o.hold_ns))
         state = State::Holding;
       const auto read_start = now_ns(); backend->read(observed); const auto read_end = now_ns();
+      ControllerHealth cycle_health = teleop.last_controller_health;
+      if (o.monitor_controller_health_each_cycle) {
+        cycle_health = backend->read_controller_health();
+        teleop.last_controller_health = cycle_health;
+        ++teleop.controller_health_samples;
+        const bool alarm = cycle_health.status_sdk_return_code != ERR_SUCC ||
+            cycle_health.estop_sdk_return_code != ERR_SUCC ||
+            cycle_health.collision_sdk_return_code != ERR_SUCC ||
+            cycle_health.controller_error_code != 0 || cycle_health.collision ||
+            cycle_health.emergency_stop || !cycle_health.powered_on || !cycle_health.enabled;
+        if (alarm) ++teleop.controller_alarm_events;
+        require_healthy_controller(cycle_health);
+      }
       for (std::size_t joint = 0; joint < 6; ++joint) {
         const double displacement = std::abs(observed[joint] - tracking_reference[joint]);
         teleop.maximum_observed_joint_delta_rad_per_joint[joint] = std::max(
@@ -1628,9 +1836,12 @@ int run(const Options& o) {
         target = tracker.update(desired);
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < 6; ++joint) {
-          const double difference = std::abs(target[joint] - observed[joint]);
-          teleop.maximum_tracking_difference_rad_per_joint[joint] = std::max(
-              teleop.maximum_tracking_difference_rad_per_joint[joint], difference);
+          const double difference = std::abs(shortest_joint_difference(target[joint], observed[joint]));
+          if (difference > teleop.maximum_tracking_difference_rad_per_joint[joint]) {
+            teleop.maximum_tracking_difference_rad_per_joint[joint] = difference;
+            teleop.maximum_tracking_difference_monotonic_ns_per_joint[joint] = cycle_start;
+            teleop.maximum_tracking_difference_sequence_per_joint[joint] = last_sequence;
+          }
           teleop.maximum_tracking_difference_rad = std::max(teleop.maximum_tracking_difference_rad, difference);
           if (difference >= 0.003490658503988659) ++teleop.tracking_warning_cycles;
           const double hard = std::max(0.01308996938995747,
@@ -1657,12 +1868,29 @@ int run(const Options& o) {
         target = servo_point.position;
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < target.size(); ++joint) {
-          const double difference = std::abs(target[joint] - observed[joint]);
-          teleop.maximum_tracking_difference_rad_per_joint[joint] = std::max(
-              teleop.maximum_tracking_difference_rad_per_joint[joint], difference);
+          const double difference = std::abs(shortest_joint_difference(target[joint], observed[joint]));
+          if (difference > teleop.maximum_tracking_difference_rad_per_joint[joint]) {
+            teleop.maximum_tracking_difference_rad_per_joint[joint] = difference;
+            teleop.maximum_tracking_difference_monotonic_ns_per_joint[joint] = cycle_start;
+            teleop.maximum_tracking_difference_sequence_per_joint[joint] = last_sequence;
+          }
           teleop.maximum_tracking_difference_rad = std::max(
               teleop.maximum_tracking_difference_rad, difference);
           hard_crossing = hard_crossing || difference > o.excessive_tracking_error_abort_rad;
+          if (joint >= 3) {
+            if (difference > previous_absolute_tracking_difference[joint] + 1e-6)
+              ++consecutive_increasing_tracking_cycles[joint];
+            else
+              consecutive_increasing_tracking_cycles[joint] = 0;
+            if (difference >= 0.5 * o.excessive_tracking_error_abort_rad)
+              ++teleop.tracking_warning_cycles;
+            if (difference >= 0.5 * o.excessive_tracking_error_abort_rad &&
+                consecutive_increasing_tracking_cycles[joint] >= 3)
+              throw std::runtime_error(
+                  "sustained increasing wrist tracking lag before SDK call: J" +
+                  std::to_string(joint + 1));
+          }
+          previous_absolute_tracking_difference[joint] = difference;
           maximum_command_delta_rad = std::max(
               maximum_command_delta_rad, std::abs(target[joint] - command_reference[joint]));
         }
@@ -1681,6 +1909,22 @@ int run(const Options& o) {
         write_duration = command_time - write_start;
         output_diagnostics.commit(servo_point, motion_sample);
         joint_resampler.commit(servo_point, command_time);
+        if (!o.cycle_telemetry_file.empty()) {
+          CycleTelemetry row{};
+          row.monotonic_ns = command_time;
+          row.wall_ns = wall_now_ns();
+          row.last_sequence = last_sequence;
+          row.heartbeat_age_ns = age;
+          row.emitted = target;
+          row.destination = ik_target;
+          row.measured = observed;
+          for (std::size_t joint = 0; joint < target.size(); ++joint)
+            row.tracking[joint] = shortest_joint_difference(target[joint], observed[joint]);
+          row.point = servo_point;
+          row.motion = motion_sample;
+          row.health = cycle_health;
+          cycle_telemetry.push_back(row);
+        }
         if (is_joint_zero_motion_mode(o.mode)) {
           if (teleop.zero_motion_command_count == 0)
             teleop.zero_motion_first_command_rad = target;
@@ -1797,6 +2041,7 @@ int run(const Options& o) {
   status_sender.send_status(final_status);
   getrusage(RUSAGE_SELF, &usage_end); const auto end = now_ns();
   write_emitted_points(o, recorded_servo_points);
+  write_cycle_telemetry(o, cycle_telemetry);
   write_metrics(o, samples, accepted, rejected, warning_cycles, (end - start) / 1e9,
                 cpu_seconds(usage_end) - cpu_seconds(usage_start), maximum_command_delta_rad,
                 maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker,

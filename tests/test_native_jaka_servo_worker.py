@@ -453,6 +453,78 @@ def test_recoverable_hold_heartbeat_keeps_last_safe_target_live(tmp_path) -> Non
     assert all(row["joint_position_rad"] == pytest.approx([0.0] * 6) for row in rows)
 
 
+def test_cycle_telemetry_uses_current_emitted_command_for_tracking(tmp_path) -> None:
+    metrics = tmp_path / "metrics.json"
+    telemetry = tmp_path / "cycles.jsonl"
+    target = tmp_path / "target.sock"
+    process = subprocess.Popen([
+        str(WORKER), "--mode", "joint-teleop-dry-run", "--duration-s", "0.3",
+        "--target-socket", str(target), "--metrics-file", str(metrics),
+        "--cycle-telemetry-file", str(telemetry),
+        "--monitor-controller-health-each-cycle",
+    ])
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    time.sleep(0.02)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+        time.sleep(0.04)
+        now = time.monotonic_ns()
+        assert publisher.publish(stop_target_packet(sequence=2, monotonic_ns=now))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    rows = [json.loads(line) for line in telemetry.read_text().splitlines()]
+    assert rows
+    assert payload["controller_health_samples"] >= len(rows)
+    assert payload["controller_alarm_events"] == 0
+    assert payload["joint_specific_servo_alarm_code_available"] is False
+    for row in rows:
+        expected = [
+            math.remainder(command - measured, 2.0 * math.pi)
+            for command, measured in zip(
+                row["emitted_command_rad"], row["measured_joint_rad"], strict=True
+            )
+        ]
+        assert row["emitted_minus_measured_tracking_difference_rad"] == pytest.approx(expected)
+
+
+def test_diagnostic_acceleration_abort_occurs_before_fake_sdk_call(tmp_path) -> None:
+    metrics = tmp_path / "metrics.json"
+    emitted = tmp_path / "emitted.jsonl"
+    target = tmp_path / "target.sock"
+    process = subprocess.Popen([
+        str(WORKER), "--mode", "joint-teleop-dry-run", "--duration-s", "0.3",
+        "--target-socket", str(target), "--metrics-file", str(metrics),
+        "--emitted-points-file", str(emitted),
+        "--diagnostic-joint-acceleration-boundary-rad-s2", str(4.0 * math.pi),
+        "--abort-on-diagnostic-acceleration-boundary",
+    ])
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    time.sleep(0.02)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+        time.sleep(0.025)
+        assert publisher.publish(joint_packet(2, (0.004,) + (0.0,) * 5, allow_motion=True))
+    assert process.wait(timeout=3) == 2
+    payload = json.loads(metrics.read_text())
+    assert "acceleration boundary crossed before SDK call" in payload["outcome"]
+    assert sum(payload["output_acceleration_boundary_rejections"]) >= 1
+    rows = [json.loads(line) for line in emitted.read_text().splitlines()]
+    assert rows
+    assert all(row["joint_position_rad"][0] == pytest.approx(0.0) for row in rows)
+
+
+def test_connected_health_monitor_uses_only_audited_sdk_calls() -> None:
+    source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text()
+    assert "get_robot_status_simple(&status)" in source
+    assert "is_in_estop(&estop)" in source
+    assert "is_in_collision(&collision)" in source
+    assert "get_joint_servo_alarm" not in source
+
+
 def test_quest_joint_teleop_rejects_nonzero_startup_jump(tmp_path) -> None:
     result, metrics = run_new_mode(
         tmp_path,

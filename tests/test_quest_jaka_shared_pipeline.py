@@ -38,7 +38,7 @@ from teleoperation.jaka.quest_adapter import (
     JakaAcceptedJointTargetAdapter,
 )
 from teleoperation.wire import TargetFlags, TargetKind
-from tools.quest_jaka_hardware import _control_output_failed
+from tools.quest_jaka_hardware import _control_output_failed, _write_event_extract
 
 
 CONFIG = Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
@@ -56,6 +56,35 @@ def test_hardware_control_output_failure_classification_is_dependency_free() -> 
     )
     assert _control_output_failed(reason="IK_POSITION_FAILED", output_applied=False)
     assert _control_output_failed(reason="NEAR_SINGULARITY", output_applied=False)
+
+
+def test_physical_event_extract_uses_native_monotonic_windows(tmp_path: Path) -> None:
+    telemetry = tmp_path / "native.jsonl"
+    output = tmp_path / "events.jsonl"
+    rows = [
+        {
+            "host_monotonic_ns": 1_000_000_000 * index,
+            "emitted_minus_measured_tracking_difference_rad": [0, 0, 0, index * 0.01, 0, index * 0.02],
+            "emitted_acceleration_rad_s2": [0, 0, 0, index, 0, 2 * index],
+        }
+        for index in range(5)
+    ]
+    telemetry.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _write_event_extract(
+        telemetry,
+        output,
+        {"controller_alarm_events": 1, "controller_event_monotonic_ns": 3_000_000_000},
+        clutch_release_monotonic_ns=4_000_000_000,
+    )
+    extracted = [json.loads(line) for line in output.read_text().splitlines()]
+    labels = {label for row in extracted for label in row["focus_events"]}
+    assert labels == {
+        "controller_alarm",
+        "maximum_j4_tracking_lag",
+        "maximum_j6_tracking_lag",
+        "maximum_wrist_acceleration",
+        "operator_clutch_release",
+    }
 
 
 def _hand(sequence: int, timestamp_ns: int, pose: Pose6D) -> ReceivedHtsDatagram:
