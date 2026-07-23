@@ -48,6 +48,12 @@ def test_hardware_control_output_failure_classification_is_dependency_free() -> 
     assert not _control_output_failed(reason="DISENGAGED", output_applied=False)
     assert not _control_output_failed(reason="ACCEPTED", output_applied=True)
     assert not _control_output_failed(reason="IK_POSITION_FAILED", output_applied=True)
+    assert not _control_output_failed(
+        reason="OUTPUT_VELOCITY_INFEASIBLE", output_applied=True
+    )
+    assert _control_output_failed(
+        reason="OUTPUT_VELOCITY_INFEASIBLE", output_applied=False
+    )
     assert _control_output_failed(reason="IK_POSITION_FAILED", output_applied=False)
     assert _control_output_failed(reason="NEAR_SINGULARITY", output_applied=False)
 
@@ -119,6 +125,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "maximum_backtracks": 5,
         "minimum_continuation_fraction": 0.03125,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
+        "maximum_output_joint_velocity_rad_s": math.pi,
     }
 
 
@@ -851,6 +858,90 @@ def test_nan_tracking_dropout_stale_input_and_ik_rejection_emit_no_new_target(
             strict=True,
         )
     ) < 0.002
+
+
+def test_output_velocity_rejection_heartbeats_hold_and_recovers_without_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for sequence, value in ((1, 0.0), (2, 1.0)):
+        now_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, now_ns, identity))
+        if sequence == 1:
+            session.ingest(_head(1, now_ns))
+        _clutch(session, value, sequence, now_ns)
+        session.control_tick(now_ns)
+    assert len(recorder.targets) == 1
+    held = recorder.targets[-1]
+    original_evaluate = session.target_generator.evaluate
+    monkeypatch.setattr(
+        session.target_generator,
+        "evaluate",
+        lambda *_args, **_kwargs: FeasibilityResult(
+            False,
+            FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE,
+            None,
+            CandidateMetrics(
+                output_feasibility_interval_s=1.0 / 60.0,
+                output_feasibility_delta_rad=(0.0, 0.0, 0.0, 0.0, 0.0, -0.08),
+                predicted_output_joint_velocity_rad_s=(
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    -4.8,
+                ),
+                predicted_output_maximum_joint_velocity_rad_s=4.8,
+                output_velocity_violating_joint_indices=(5,),
+            ),
+        ),
+    )
+    now_ns = 60_000_000
+    session.ingest(
+        _hand(3, now_ns, Pose6D((0.002, 0.0, 0.0), identity.orientation_xyzw))
+    )
+    _clutch(session, 1.0, 3, now_ns)
+    rejected = session.control_tick(now_ns)
+    assert rejected.accepted_target is None
+    assert rejected.reason == FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE.value
+    assert rejected.output_applied
+    assert len(recorder.targets) == 1
+    assert len(recorder.heartbeats) == 1
+    assert recorder.heartbeats[-1].state is ArmControlState.HOLD_REJECTED
+    assert recorder.heartbeats[-1].last_accepted_target_sequence == held.sequence_number
+    assert session.event_records[-1]["control_state"] == ArmControlState.HOLD_REJECTED.value
+    attempts = session.event_records[-1]["output_feasibility_attempts"]
+    assert attempts[0]["continuation_fraction"] == 1.0
+    assert attempts[0]["violating_joint_indices_zero_based"] == [5]
+    assert attempts[0]["maximum_predicted_joint_velocity_rad_s"] == 4.8
+
+    monkeypatch.setattr(session.target_generator, "evaluate", original_evaluate)
+    now_ns = 80_000_000
+    session.ingest(_hand(4, now_ns, identity))
+    _clutch(session, 1.0, 4, now_ns)
+    recovered = session.control_tick(now_ns)
+    assert recovered.accepted_target is not None
+    assert recovered.output_applied
+    assert session.event_records[-1]["recovery_event"]
+    assert recovered.accepted_target.reference_generation == held.reference_generation
+    assert recovered.accepted_target.clutch_generation == held.clutch_generation
+    recovery_delta = max(
+        abs(current - previous)
+        for current, previous in zip(
+            recovered.accepted_target.joint_position_rad,
+            held.joint_position_rad,
+            strict=True,
+        )
+    )
+    assert recovery_delta < 0.002
+    assert recovered.feasibility is not None
+    assert (
+        recovered.feasibility.metrics.predicted_output_maximum_joint_velocity_rad_s
+        <= math.pi + 1e-12
+    )
+    assert not recovered.feasibility.metrics.branch_switch
 
 
 def test_p4_entry_requires_exact_current_authorization_before_connection(tmp_path: Path) -> None:

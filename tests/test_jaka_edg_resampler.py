@@ -472,7 +472,7 @@ def test_excessive_output_velocity_is_rejected_before_fake_sdk_call(tmp_path) ->
     samples = [(0.0, 0, (0.0,) * 6), (0.020, 1_000_000, (0.05,) * 6)]
     result, metrics, points = _run_stream(tmp_path, samples)
     assert result.returncode == 2
-    assert "joint-speed boundary before SDK call" in metrics["outcome"]
+    assert "internal output-feasibility contract violation before SDK call" in metrics["outcome"]
     assert sum(metrics["output_speed_boundary_rejections"]) >= 1
     assert all(row["joint_position_rad"][0] == 0.0 for row in points)
 

@@ -669,7 +669,7 @@ class OutputMotionDiagnostics {
       if (std::abs(sample.velocity[joint]) > options_.maximum_output_joint_velocity_rad_s + 1e-12) {
         ++speed_boundary_rejections_[joint];
         throw std::runtime_error(
-            "resampled output exceeds joint-speed boundary before SDK call: J" +
+            "internal output-feasibility contract violation before SDK call: J" +
             std::to_string(joint + 1) + " velocity=" + std::to_string(sample.velocity[joint]) +
             " rad/s limit=" + std::to_string(options_.maximum_output_joint_velocity_rad_s) +
             " from_sequence=" + std::to_string(point.from_sequence) +

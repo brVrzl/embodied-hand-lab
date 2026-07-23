@@ -355,6 +355,8 @@ class SmoothQuestJakaSession:
         continuation_fraction = 1.0
         continuation_backtracks = 0
         attempted_reasons: list[str] = []
+        attempted_continuation_fractions: list[float] = []
+        output_feasibility_attempts: list[dict[str, Any]] = []
         if self.continuation_enabled:
             limits = self.config.feasibility
             # Stay just inside strict ``>`` gates without introducing a new
@@ -375,8 +377,16 @@ class SmoothQuestJakaSession:
             )
             if continuation_fraction < 1.0:
                 self.continuation_intervention_count += 1
-        result = self.target_generator.evaluate(evaluated_target, dt_s=dt_s)
+        result = self.target_generator.evaluate(
+            evaluated_target,
+            dt_s=dt_s,
+            generated_monotonic_ns=now_ns,
+        )
         attempted_reasons.append(result.reason.value)
+        attempted_continuation_fractions.append(continuation_fraction)
+        output_feasibility_attempts.append(
+            _output_feasibility_attempt(result, continuation_fraction)
+        )
         # A rejected trial never becomes authoritative.  Retry smaller points
         # on the same full-pose segment; all hard feasibility gates are run on
         # every trial and remain unchanged.
@@ -407,8 +417,16 @@ class SmoothQuestJakaSession:
             )
             continuation_backtracks += 1
             self.continuation_backtrack_count += 1
-            result = self.target_generator.evaluate(evaluated_target, dt_s=dt_s)
+            result = self.target_generator.evaluate(
+                evaluated_target,
+                dt_s=dt_s,
+                generated_monotonic_ns=now_ns,
+            )
             attempted_reasons.append(result.reason.value)
+            attempted_continuation_fractions.append(continuation_fraction)
+            output_feasibility_attempts.append(
+                _output_feasibility_attempt(result, continuation_fraction)
+            )
         backlog_m = float(
             np.linalg.norm(
                 np.asarray(desired.position_m)
@@ -445,10 +463,17 @@ class SmoothQuestJakaSession:
             continuation_fraction=continuation_fraction,
             continuation_backtracks=continuation_backtracks,
             continuation_attempt_reasons=attempted_reasons,
+            continuation_attempt_fractions=attempted_continuation_fractions,
+            output_feasibility_attempts=output_feasibility_attempts,
             requested_backlog_m=backlog_m,
             requested_backlog_deg=math.degrees(backlog_rad),
             singularity_warning=singularity_warning,
             metrics=asdict(result.metrics),
+            previous_accepted_target_sequence=self._accepted_sequence,
+            candidate_source_sequence=state.right.source_sequence_number,
+            output_velocity_boundary_rad_s=(
+                self.config.output_contract.maximum_velocity_rad_s
+            ),
             ik_solution_rad=result.joint_target_rad,
             ik_rejection_reason=None if result.accepted else result.reason.value,
             hold_last=not result.accepted,
@@ -775,6 +800,27 @@ class SmoothQuestJakaSession:
             "hardware_commands": False,
             **self.target_generator.metrics_report(),
         }
+
+
+def _output_feasibility_attempt(
+    result: FeasibilityResult, fraction: float
+) -> dict[str, Any]:
+    metrics = result.metrics
+    return {
+        "continuation_fraction": fraction,
+        "reason": result.reason.value,
+        "candidate_interval_s": metrics.output_feasibility_interval_s,
+        "joint_delta_rad": list(metrics.output_feasibility_delta_rad),
+        "predicted_joint_velocity_rad_s": list(
+            metrics.predicted_output_joint_velocity_rad_s
+        ),
+        "violating_joint_indices_zero_based": list(
+            metrics.output_velocity_violating_joint_indices
+        ),
+        "maximum_predicted_joint_velocity_rad_s": (
+            metrics.predicted_output_maximum_joint_velocity_rad_s
+        ),
+    }
 
 
 def _pose_dict(pose: Any) -> dict[str, Any] | None:

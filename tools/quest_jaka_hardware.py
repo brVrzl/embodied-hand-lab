@@ -176,7 +176,7 @@ def main() -> int:
             "--startup-alignment-tolerance-rad", str(hardware["startup_alignment_tolerance_rad"]),
             # One authority: the EDG pass-through diagnostic consumes the
             # existing shared command contract rather than hardware-only copies.
-            "--maximum-output-joint-velocity-rad-s", str(config.command_limits.maximum_velocity_rad_s),
+            "--maximum-output-joint-velocity-rad-s", str(config.output_contract.maximum_velocity_rad_s),
             "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.command_limits.maximum_acceleration_rad_s2),
         ]
         native = NativeWorkerProcess(args.worker, worker_args)

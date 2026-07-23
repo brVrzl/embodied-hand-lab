@@ -178,9 +178,9 @@ def _replay(
         "continuation_backtracks": backtracks,
         "maximum_joint_step_rad": maximum_joint_step,
         "maximum_joint_velocity_rad_s": maximum_joint_velocity,
-        "speed_boundary_rad_s": config.command_limits.maximum_velocity_rad_s,
+        "speed_boundary_rad_s": config.output_contract.maximum_velocity_rad_s,
         "speed_boundary_violations": int(
-            maximum_joint_velocity > config.command_limits.maximum_velocity_rad_s
+            maximum_joint_velocity > config.output_contract.maximum_velocity_rad_s
         ),
         "branch_switches": branch_switches,
         "longest_producer_publication_gap_ms": longest_producer_gap_ns / 1e6,
@@ -195,7 +195,7 @@ def _replay(
             "maximum_joint_delta_rad": recovery_jump,
             "maximum_joint_velocity_rad_s": recovery_jump * 60.0,
             "speed_boundary_violation": recovery_jump * 60.0
-            > config.command_limits.maximum_velocity_rad_s,
+            > config.output_contract.maximum_velocity_rad_s,
             "continuous_from_held_target": recovery_jump
             <= limits.maximum_joint_target_jump_rad,
         },

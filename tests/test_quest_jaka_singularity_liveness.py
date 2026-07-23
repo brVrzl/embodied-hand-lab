@@ -40,9 +40,20 @@ def _evaluate_j5(
     target = start.copy()
     target[4] = math.radians(target_deg)
     generator.synchronize_authoritative_arm_joints(start.tolist())
+    baseline = generator.output_feasibility.preview(
+        start,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    generator.output_feasibility.commit(baseline)
     pose = _pose_at(generator, target)
     generator.ik.set_arm_joints_rad(start.tolist())
-    return generator.evaluate(pose, dt_s=1.0 / 60.0)
+    # The singularity policy is exercised with a transport-feasible synthetic
+    # interval; output-velocity behavior has its own contract tests.
+    return generator.evaluate(
+        pose,
+        dt_s=0.1,
+        generated_monotonic_ns=1_100_000_000,
+    )
 
 
 def test_manual02_j5_condition_is_warning_only_not_hard_rejection() -> None:

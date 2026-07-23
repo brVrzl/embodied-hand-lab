@@ -91,6 +91,10 @@ shared_target_generation:
   maximum_backtracks: 5
   minimum_continuation_fraction: 0.03125
   rejection_policy: hold_last_accepted_and_allow_operator_retreat
+  # Authoritative pre-adapter J1..J6 feasibility contract. Both simulation and
+  # hardware reject/backtrack before AcceptedArmTarget construction. The native
+  # worker consumes this same value as a final defensive assertion.
+  maximum_output_joint_velocity_rad_s: 3.141592653589793
 
 hand_retargeting:
   enabled: true
@@ -140,8 +144,9 @@ simulation:
   maximum_tcp_velocity_m_s: 1.0
   maximum_tcp_angular_velocity_rad_s: 5.0
   # These two thresholds detect pathological unsmoothed IK candidates. They are
-  # not actuator commands; target-jump, joint-limit and branch continuity checks
-  # remain active. The command generator below enforces the JAKA-aligned limits.
+  # not actuator/output limits; target-jump, joint-limit and branch continuity
+  # checks remain active. The shared target-generation contract above separately
+  # enforces the JAKA output boundary before AcceptedArmTarget construction.
   maximum_ik_target_velocity_rad_s: 14.0
   maximum_ik_target_acceleration_rad_s2: 1000.0
   command_maximum_joint_velocity_rad_s: 3.1415926536

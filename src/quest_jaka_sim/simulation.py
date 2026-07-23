@@ -31,6 +31,11 @@ from motion_input import (
     parse_hts_datagram,
 )
 from motion_input.hts_transport import ReceivedHtsDatagram
+from teleoperation.output_feasibility import (
+    JointOutputContractConfig,
+    JointOutputFeasibility,
+    JointOutputFeasibilityTracker,
+)
 
 from .mapping import MappingRejection, ProvisionalMappingConfig, ProvisionalOperatorToRobotMapper
 from .se3 import (
@@ -57,6 +62,7 @@ class FeasibilityReason(str, Enum):
     IK_POSITION_FAILED = "IK_POSITION_FAILED"
     IK_ORIENTATION_FAILED = "IK_ORIENTATION_FAILED"
     IK_DISCONTINUITY = "IK_DISCONTINUITY"
+    OUTPUT_VELOCITY_INFEASIBLE = "OUTPUT_VELOCITY_INFEASIBLE"
     JOINT_LIMIT = "JOINT_LIMIT"
     NEAR_SINGULARITY = "NEAR_SINGULARITY"
     SINGULARITY_SLOWDOWN = "SINGULARITY_SLOWDOWN"
@@ -244,6 +250,11 @@ class CandidateMetrics:
     wrist_bend_from_singularity_rad: float = math.pi
     maximum_joint_velocity_rad_s: float = 0.0
     maximum_joint_acceleration_rad_s2: float = 0.0
+    output_feasibility_interval_s: float = 0.0
+    output_feasibility_delta_rad: tuple[float, ...] = ()
+    predicted_output_joint_velocity_rad_s: tuple[float, ...] = ()
+    predicted_output_maximum_joint_velocity_rad_s: float = 0.0
+    output_velocity_violating_joint_indices: tuple[int, ...] = ()
     self_collision: bool = False
     environment_collision: bool = False
     minimum_new_contact_distance_m: float | None = None
@@ -302,6 +313,8 @@ def classify_candidate(
         return FeasibilityReason.ANGULAR_VELOCITY_LIMIT
     if metrics.maximum_joint_velocity_rad_s > limits.maximum_joint_velocity_rad_s:
         return FeasibilityReason.IK_DISCONTINUITY
+    if metrics.output_velocity_violating_joint_indices:
+        return FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
     if metrics.maximum_joint_acceleration_rad_s2 > limits.maximum_joint_acceleration_rad_s2:
         return FeasibilityReason.LINEAR_ACCELERATION_LIMIT
     if metrics.ik_error_m > limits.ik_position_tolerance_m:
@@ -418,6 +431,7 @@ class ReplayConfig:
     mapping: ProvisionalMappingConfig
     feasibility: FeasibilityLimits
     command_limits: CommandTrajectoryLimits
+    output_contract: JointOutputContractConfig
     stale_after_s: float
     engagement_schedule_s: tuple[float, ...]
     mjcf_path: Path
@@ -434,6 +448,17 @@ class ReplayConfig:
         raw = load_yaml(path)
         provisional = ProvisionalMappingConfig.from_mapping(raw["provisional_calibration"])
         simulation = raw["simulation"]
+        shared_target = raw.get("shared_target_generation", {})
+        rates = raw.get("rates", {})
+        maximum_output_velocity = float(
+            shared_target.get(
+                "maximum_output_joint_velocity_rad_s",
+                simulation.get("command_maximum_joint_velocity_rad_s", math.pi),
+            )
+        )
+        servo_period_ns = int(
+            round(1e9 / float(rates.get("jaka_transport_hz", 125.0)))
+        )
         return cls(
             raw=raw,
             mapping=provisional,
@@ -442,6 +467,10 @@ class ReplayConfig:
                 maximum_target_displacement_m=provisional.maximum_target_displacement_m,
             ),
             command_limits=CommandTrajectoryLimits.from_mapping(simulation),
+            output_contract=JointOutputContractConfig(
+                maximum_velocity_rad_s=maximum_output_velocity,
+                servo_period_ns=servo_period_ns,
+            ),
             stale_after_s=float(raw["input"]["stale_after_ms"]) / 1000.0,
             engagement_schedule_s=tuple(
                 float(value) for value in raw["input"]["engagement_schedule_s"]
@@ -631,6 +660,11 @@ class SharedJakaTargetGenerator:
         self.last_safe_joint_target = np.asarray(config.initial_arm_joints_rad, dtype=np.float64)
         self.last_safe_target = self.initial_tcp
         self.last_safe_joint_velocity = np.zeros(6)
+        self.output_feasibility = JointOutputFeasibilityTracker.from_config(
+            config.output_contract
+        )
+        self.output_feasibility.reset(self.last_safe_joint_target)
+        self._synthetic_generated_monotonic_ns = 1_000_000_000
         self._baseline_contacts = self._contact_pairs(self.ik.data)
         self.accepted_metrics: list[CandidateMetrics] = []
         self._singularity_slowdown_latched = False
@@ -669,6 +703,7 @@ class SharedJakaTargetGenerator:
         self.last_safe_target = current
         self.last_safe_joint_target = joints.copy()
         self.last_safe_joint_velocity[:] = 0.0
+        self.output_feasibility.reset(joints)
         self._baseline_contacts = self._contact_pairs(self.ik.data)
         self._singularity_slowdown_latched = False
 
@@ -680,12 +715,36 @@ class SharedJakaTargetGenerator:
         self.last_safe_target = current
         self.last_safe_joint_target = self.arm_joints_rad
         self.last_safe_joint_velocity[:] = 0.0
+        self.output_feasibility.reset(self.last_safe_joint_target)
         self._singularity_slowdown_latched = False
         return current
 
-    def evaluate(self, target: Pose6D, *, dt_s: float) -> FeasibilityResult:
+    def evaluate(
+        self,
+        target: Pose6D,
+        *,
+        dt_s: float,
+        generated_monotonic_ns: int | None = None,
+    ) -> FeasibilityResult:
         limits = self.config.feasibility
         dt = max(float(dt_s), 1e-6)
+        if generated_monotonic_ns is None:
+            # Deterministic compatibility for direct IK/offline callers: model
+            # an already aligned stationary target before their first trial.
+            # Runtime sessions pass the real local CLOCK_MONOTONIC tick and use
+            # the explicit post-EDG/reference startup contract instead.
+            if not self.output_feasibility.has_accepted_target:
+                self.output_feasibility.reset(self.last_safe_joint_target)
+                self.output_feasibility.commit(
+                    self.output_feasibility.preview(
+                        self.last_safe_joint_target,
+                        generated_monotonic_ns=self._synthetic_generated_monotonic_ns,
+                    )
+                )
+            self._synthetic_generated_monotonic_ns += max(1, int(round(dt * 1e9)))
+            candidate_generated_ns = self._synthetic_generated_monotonic_ns
+        else:
+            candidate_generated_ns = int(generated_monotonic_ns)
         # Continuation IK: every solve starts on the previous accepted branch,
         # never on a lagging actuator state or a global/random seed.
         ik_seed = self.last_safe_joint_target.copy()
@@ -789,6 +848,10 @@ class SharedJakaTargetGenerator:
                 f"joint_{index}_clipped_to_safe_limit"
                 for index in self.ik.limited_joint_indices_1_based
             )
+        output_prediction: JointOutputFeasibility = self.output_feasibility.preview(
+            candidate_q,
+            generated_monotonic_ns=candidate_generated_ns,
+        )
         metrics = CandidateMetrics(
             target_displacement_m=displacement,
             target_jump_m=float(np.linalg.norm(target_delta)),
@@ -809,6 +872,17 @@ class SharedJakaTargetGenerator:
             wrist_bend_from_singularity_rad=abs(float(candidate_q[4])),
             maximum_joint_velocity_rad_s=float(np.max(np.abs(joint_velocity))),
             maximum_joint_acceleration_rad_s2=float(np.max(np.abs(joint_acceleration))),
+            output_feasibility_interval_s=output_prediction.interval_ns / 1e9,
+            output_feasibility_delta_rad=output_prediction.delta_rad,
+            predicted_output_joint_velocity_rad_s=(
+                output_prediction.predicted_velocity_rad_s
+            ),
+            predicted_output_maximum_joint_velocity_rad_s=(
+                output_prediction.maximum_velocity_rad_s
+            ),
+            output_velocity_violating_joint_indices=(
+                output_prediction.violating_joint_indices
+            ),
             self_collision=self_collision,
             environment_collision=environment_collision,
             minimum_new_contact_distance_m=min(contact_distances) if contact_distances else None,
@@ -852,6 +926,7 @@ class SharedJakaTargetGenerator:
             ):
                 reason = FeasibilityReason.SINGULARITY_SLOWDOWN
         if reason is FeasibilityReason.ACCEPTED:
+            self.output_feasibility.commit(output_prediction)
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
             self.last_safe_target = target
