@@ -126,7 +126,12 @@ def main() -> int:
             command_mode=str(hardware["command_mode"]),
         )
         jaka_adapter = (
-            E2IsolatedForwardTranslationGuard(base_jaka_adapter)
+            E2IsolatedForwardTranslationGuard(
+                base_jaka_adapter,
+                startup_alignment_tolerance_rad=float(
+                    hardware["startup_alignment_tolerance_rad"]
+                ),
+            )
             if args.stage == "e2-isolated"
             else base_jaka_adapter
         )
@@ -225,11 +230,10 @@ def main() -> int:
                             sample = tuple(status.joint_position_rad)
                             if not measured_joint_samples or sample != measured_joint_samples[-1]:
                                 measured_joint_samples.append(sample)
-                        engaged_before_tick = session.arm_clutch.state.value == "engaged"
-                        if not engaged_before_tick and status is not None:
-                            target_generator.synchronize_authoritative_arm_joints(
-                                list(status.joint_position_rad)
-                            )
+                            if isinstance(
+                                jaka_adapter, E2IsolatedForwardTranslationGuard
+                            ):
+                                jaka_adapter.observe_measured_joint_position(sample)
                         tick = session.control_tick(now_ns)
                         dispatch_failed = (
                             tick.accepted_target is not None and not tick.output_applied
@@ -364,6 +368,14 @@ def main() -> int:
         ),
         "e2_startup_alignment_difference_rad": (
             None if e2_guard is None else e2_guard.startup_alignment_difference_rad
+        ),
+        "e2_startup_alignment_tolerance_rad": (
+            None if e2_guard is None else e2_guard.startup_alignment_tolerance_rad
+        ),
+        "e2_maximum_observed_startup_difference_rad": (
+            None
+            if e2_guard is None
+            else e2_guard.maximum_observed_startup_difference_rad
         ),
         "e2_failures": e2_failures,
         "e2_pass": args.stage == "e2-isolated" and not e2_failures,

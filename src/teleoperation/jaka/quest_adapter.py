@@ -20,9 +20,6 @@ E2_MAXIMUM_FORWARD_DISPLACEMENT_M = 0.025
 E2_MAXIMUM_CROSS_AXIS_DISPLACEMENT_M = 0.004
 E2_MAXIMUM_NEUTRAL_OVERSHOOT_M = 0.003
 E2_MAXIMUM_ORIENTATION_CHANGE_RAD = math.radians(3.0)
-E2_STARTUP_CONTINUITY_TOLERANCE_RAD = 1e-7
-
-
 class _PacketRuntime(Protocol):
     def dispatch_packet(self, packet: object) -> bool: ...
     def dispatch_stop(self, *, sequence: int) -> bool: ...
@@ -84,12 +81,23 @@ class E2IsolatedForwardTranslationGuard:
     it never scales, filters, interpolates, or rewrites an accepted target.
     """
 
-    def __init__(self, output: JakaAcceptedJointTargetAdapter) -> None:
+    def __init__(
+        self,
+        output: JakaAcceptedJointTargetAdapter,
+        *,
+        startup_alignment_tolerance_rad: float,
+    ) -> None:
+        tolerance = float(startup_alignment_tolerance_rad)
+        if not math.isfinite(tolerance) or tolerance <= 0.0:
+            raise ValueError("E2 startup alignment tolerance must be finite and positive")
         self.output = output
+        self.startup_alignment_tolerance_rad = tolerance
         self.abort_reason: str | None = None
         self.baseline: AcceptedArmTarget | None = None
         self.startup_joint_position_rad: tuple[float, ...] | None = None
         self.startup_alignment_difference_rad: tuple[float, ...] | None = None
+        self.latest_measured_joint_position_rad: tuple[float, ...] | None = None
+        self.maximum_observed_startup_difference_rad = [0.0] * 6
         self.maximum_requested_tcp_displacement_m = 0.0
         self.maximum_accepted_tcp_displacement_m = 0.0
         self.maximum_accepted_joint_displacement_rad = [0.0] * 6
@@ -109,6 +117,24 @@ class E2IsolatedForwardTranslationGuard:
         if self.startup_joint_position_rad is not None:
             raise RuntimeError("E2 startup position is already established")
         self.startup_joint_position_rad = values
+        self.latest_measured_joint_position_rad = values
+
+    def observe_measured_joint_position(self, joints_rad: tuple[float, ...]) -> None:
+        """Record live encoders without changing the armed-session command state."""
+
+        values = tuple(float(value) for value in joints_rad)
+        if len(values) != 6 or not all(math.isfinite(value) for value in values):
+            raise ValueError("E2 measured position must contain six finite radians")
+        if self.startup_joint_position_rad is None:
+            raise RuntimeError("E2 startup position has not been established")
+        self.latest_measured_joint_position_rad = values
+        for joint, (measured, startup) in enumerate(
+            zip(values, self.startup_joint_position_rad, strict=True)
+        ):
+            self.maximum_observed_startup_difference_rad[joint] = max(
+                self.maximum_observed_startup_difference_rad[joint],
+                abs(measured - startup),
+            )
 
     def apply(self, target: AcceptedArmTarget) -> bool:
         if self.output.stopped or self.abort_reason is not None:
@@ -125,7 +151,10 @@ class E2IsolatedForwardTranslationGuard:
                     strict=True,
                 )
             )
-            if max(map(abs, self.startup_alignment_difference_rad)) > E2_STARTUP_CONTINUITY_TOLERANCE_RAD:
+            if (
+                max(map(abs, self.startup_alignment_difference_rad))
+                > self.startup_alignment_tolerance_rad
+            ):
                 self.abort_reason = "e2_first_target_not_continuous_with_post_edg_state"
                 return False
             self.baseline = target

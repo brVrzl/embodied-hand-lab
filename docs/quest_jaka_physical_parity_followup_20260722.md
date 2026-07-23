@@ -501,6 +501,18 @@ E2 is operator-limited to one small TCP translation and return, then clutch
 release; it adds no software scale or trajectory shaping. E3/P4 is not ready to
 run before E1 and E2 pass.
 
+The first E2 attempt stopped safely before any Quest-controlled command reached
+the SDK. Its post-EDG hold was correct, but disengaged encoder polling repeatedly
+reseeded the shared target generator; the resulting neutral target differed from
+the immutable hold by 3.49066e-5 rad. The armed-session post-EDG J1-J6 value now
+owns the resampler state, shared continuation seed and first-engagement baseline
+until an explicit fresh startup handoff. Subsequent measured joints remain live
+for monitoring but cannot rewrite those command states. E2 uses the same
+0.001 rad startup-alignment contract already enforced by the native worker and
+shared hardware configuration; it does not retain the conflicting 1e-7 rad
+E2-only equality check. The guard still rejects larger mismatches and does not
+modify an accepted target.
+
 Before E2, read/report the active tool/user IDs and verify in the JAKA App the
 RH56 payload mass and centre of mass plus robot mounting orientation. Tool 0,
 user frame 0, order and radians were historically validated, but the repository

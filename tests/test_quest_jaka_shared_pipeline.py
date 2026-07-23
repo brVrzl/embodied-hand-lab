@@ -562,7 +562,9 @@ def test_hardware_adapter_contract_has_no_conversion_filter_or_interpolation() -
 def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:
     runtime = _MockRuntime()
     output = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
-    guard = E2IsolatedForwardTranslationGuard(output)
+    guard = E2IsolatedForwardTranslationGuard(
+        output, startup_alignment_tolerance_rad=0.001
+    )
     baseline = _accepted()
     guard.establish_startup_joint_position(baseline.joint_position_rad)
     assert guard.apply(baseline)
@@ -596,17 +598,85 @@ def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> Non
     assert len(runtime.packets) == 2
 
 
-def test_e2_guard_rejects_pre_edg_first_target_before_transport() -> None:
+def test_e2_guard_observes_encoder_noise_without_replacing_startup_state() -> None:
     runtime = _MockRuntime()
     guard = E2IsolatedForwardTranslationGuard(
-        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
+        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True),
+        startup_alignment_tolerance_rad=0.001,
     )
     target = _accepted()
-    post_edg = tuple(value + 1e-5 for value in target.joint_position_rad)
+    post_edg = target.joint_position_rad
     guard.establish_startup_joint_position(post_edg)
-    assert not guard.apply(target)
-    assert guard.abort_reason == "e2_first_target_not_continuous_with_post_edg_state"
+    noisy = tuple(value + 3.49066e-5 for value in post_edg)
+    guard.observe_measured_joint_position(noisy)
+    assert guard.startup_joint_position_rad == post_edg
+    assert guard.latest_measured_joint_position_rad == noisy
+    assert guard.maximum_observed_startup_difference_rad == pytest.approx(
+        [3.49066e-5] * 6
+    )
     assert runtime.packets == []
+    assert guard.apply(target)
+    assert runtime.packets[0].payload[:6] == post_edg
+
+
+def test_e2_guard_uses_approved_startup_alignment_contract() -> None:
+    observed_stationary_mismatch_rad = 3.49066e-5
+    target = _accepted()
+
+    accepted_runtime = _MockRuntime()
+    accepted_guard = E2IsolatedForwardTranslationGuard(
+        JakaAcceptedJointTargetAdapter(accepted_runtime, allow_motion=True),
+        startup_alignment_tolerance_rad=0.001,
+    )
+    accepted_guard.establish_startup_joint_position(
+        tuple(
+            value + observed_stationary_mismatch_rad
+            for value in target.joint_position_rad
+        )
+    )
+    assert accepted_guard.apply(target)
+    assert accepted_guard.abort_reason is None
+
+    rejected_runtime = _MockRuntime()
+    rejected_guard = E2IsolatedForwardTranslationGuard(
+        JakaAcceptedJointTargetAdapter(rejected_runtime, allow_motion=True),
+        startup_alignment_tolerance_rad=0.001,
+    )
+    rejected_guard.establish_startup_joint_position(
+        tuple(value + 0.0011 for value in target.joint_position_rad)
+    )
+    assert not rejected_guard.apply(target)
+    assert rejected_guard.abort_reason == "e2_first_target_not_continuous_with_post_edg_state"
+    assert rejected_runtime.packets == []
+
+
+def test_e2_startup_baseline_changes_only_through_fresh_handoff() -> None:
+    first = _accepted().joint_position_rad
+    second = tuple(value + 0.0002 for value in first)
+    output = JakaAcceptedJointTargetAdapter(_MockRuntime(), allow_motion=True)
+    armed_session = E2IsolatedForwardTranslationGuard(
+        output, startup_alignment_tolerance_rad=0.001
+    )
+    armed_session.establish_startup_joint_position(first)
+    armed_session.observe_measured_joint_position(second)
+    with pytest.raises(RuntimeError, match="already established"):
+        armed_session.establish_startup_joint_position(second)
+    assert armed_session.startup_joint_position_rad == first
+
+    fresh_session = E2IsolatedForwardTranslationGuard(
+        JakaAcceptedJointTargetAdapter(_MockRuntime(), allow_motion=True),
+        startup_alignment_tolerance_rad=0.001,
+    )
+    fresh_session.establish_startup_joint_position(second)
+    assert fresh_session.startup_joint_position_rad == second
+
+
+def test_e2_entry_synchronizes_shared_seed_only_at_post_edg_handoff() -> None:
+    source = Path("tools/quest_jaka_hardware.py").read_text(encoding="utf-8")
+    command_loop = source.split("while time.monotonic() - started < args.duration_sec:", 1)[1]
+    command_loop = command_loop.split("except KeyboardInterrupt:", 1)[0]
+    assert "synchronize_authoritative_arm_joints" not in command_loop
+    assert "observe_measured_joint_position(sample)" in command_loop
 
 
 def test_composite_adapters_receive_the_identical_accepted_target_object() -> None:
