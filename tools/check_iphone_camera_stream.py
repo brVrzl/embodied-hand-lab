@@ -4,12 +4,16 @@ import argparse
 import json
 import time
 
-from teleop_tools.iphone_hand import IPHONE_CAMERA_URL, parse_camera_source
+from teleop_tools.iphone_hand import parse_camera_source
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Check an iPhone IP camera/OpenCV stream.")
-    parser.add_argument("--source", default=IPHONE_CAMERA_URL)
+    parser.add_argument(
+        "--source",
+        required=True,
+        help="OpenCV camera index or URL. Supply credentials through local configuration, never source control.",
+    )
     parser.add_argument("--frames", type=int, default=30)
     args = parser.parse_args()
     try:

@@ -6,7 +6,6 @@ import time
 from pathlib import Path
 
 from teleop_tools.iphone_hand import (
-    IPHONE_CAMERA_URL,
     apply_retarget_safety,
     build_landmark_payload,
     build_rh56_target_payload,
@@ -51,8 +50,15 @@ def _smooth_target(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Retarget iPhone IP-camera MediaPipe hand landmarks to RH56 commands.")
-    parser.add_argument("--source", default=IPHONE_CAMERA_URL)
-    parser.add_argument("--realsense-serial", default=None, help="Use RealSense RGB frames from this serial instead of --source.")
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument(
+        "--source",
+        help="OpenCV camera index or URL. Supply credentials through local configuration, never source control.",
+    )
+    source_group.add_argument(
+        "--realsense-serial",
+        help="Use RealSense RGB frames from this serial instead of --source.",
+    )
     parser.add_argument("--realsense-width", type=int, default=640)
     parser.add_argument("--realsense-height", type=int, default=480)
     parser.add_argument("--realsense-fps", type=int, default=30)

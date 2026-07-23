@@ -16,7 +16,6 @@ from rh56_driver.hand_schema import (
 )
 
 
-IPHONE_CAMERA_URL = "http://admin:admin@192.168.71.157:8081/video"
 HAND_TELEOP_SCHEMA_VERSION = "iphone_mediapipe_hand_teleop_v0.1"
 
 

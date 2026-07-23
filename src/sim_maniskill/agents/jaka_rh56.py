@@ -15,7 +15,6 @@ from transforms3d.euler import euler2quat
 
 LOCAL_ASSET_ROOT = Path(__file__).resolve().parents[3] / "data" / "sim_assets"
 LOCAL_XML_PATH = LOCAL_ASSET_ROOT / "jaka_rh56_visual_coacd.xml"
-DESKTOP_ASSET_PREFIX = "/home/w/Desktop/robot_sim/assets"
 HAND_MOUNT_TOKEN = 'pos="0 0 0.009"'
 HAND_MOUNT_WITH_USER_FLANGE = 'pos="0 0 0.009"'
 JAKA_RH56_BASE_POSE = sapien.Pose(p=[-0.615, 0, 0], q=euler2quat(0, 0, np.pi))
