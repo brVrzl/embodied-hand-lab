@@ -1120,6 +1120,7 @@ class JerkBoundedJointTracker {
 };
 
 struct TeleopMetrics {
+  std::uint64_t producer_heartbeat_packets = 0;
   std::uint64_t ik_calls = 0;
   std::uint64_t ik_duration_total_ns = 0;
   std::uint64_t ik_duration_max_ns = 0;
@@ -1147,7 +1148,7 @@ struct TeleopMetrics {
 };
 
 struct Samples {
-  std::array<std::uint64_t, kMaximumSamples> periods{}, wakes{}, reads{}, writes{}, sdk{}, target_ages{}, command_ages{};
+  std::array<std::uint64_t, kMaximumSamples> periods{}, wakes{}, reads{}, writes{}, sdk{}, target_ages{}, accepted_target_ages{}, command_ages{};
   std::size_t count = 0;
   std::uint64_t missed = 0, maximum_consecutive = 0;
   std::uint64_t timing_warnings = 0, hard_timing_misses = 0, schedule_realignments = 0;
@@ -1220,6 +1221,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"maximum_intentional_command_delta_rad\":" << maximum_command_delta_rad << ",\n"
       << "  \"maximum_observed_joint_delta_rad\":" << maximum_observed_delta_rad << ",\n"
       << "  \"accepted_targets\":" << accepted << ",\n  \"rejected_targets\":" << rejected << ",\n"
+      << "  \"producer_heartbeat_packets\":" << teleop.producer_heartbeat_packets << ",\n"
       << "  \"target_age_warning_cycles\":" << warning_cycles << ",\n"
       << "  \"error_code\":" << error_code << ",\n  \"cleanup_error_code\":" << cleanup_error_code << ",\n"
       << "  \"ik_calls\":" << teleop.ik_calls << ",\n"
@@ -1263,6 +1265,8 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
   metric_json(out, "state_read_duration", s.reads, s.count, true);
   metric_json(out, "command_write_duration", s.writes, s.count, true);
   metric_json(out, "transport_age", s.target_ages, s.count, true);
+  metric_json(out, "producer_heartbeat_age", s.target_ages, s.count, true);
+  metric_json(out, "accepted_target_age", s.accepted_target_ages, s.count, true);
   metric_json(out, "command_age", s.command_ages, s.count, false);
   out << "  },\n";
   auto write_six = [&out](const char* name, const auto& values, bool comma) {
@@ -1320,7 +1324,7 @@ int run(const Options& o) {
   if (!o.emitted_points_file.empty()) recorded_servo_points.reserve(4096);
   TeleopMetrics teleop{};
   TargetPacket latest{}; bool ever_received = false;
-  std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, consecutive_overruns = 0;
+  std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, last_target_dispatch = 0, consecutive_overruns = 0;
   std::uint64_t consecutive_timing_warnings = 0, consecutive_completion_misses = 0;
   std::uint64_t warning_cycles = 0;
   std::uint64_t status_accepted = 0, status_rejected = 0;
@@ -1469,6 +1473,9 @@ int run(const Options& o) {
                                      invalid_command, transport_failure)) {
         latest = packet; last_sequence = packet.sequence; last_dispatch = packet.dispatch_ns; ever_received = true; ++accepted;
         const bool packet_stop = packet.kind == static_cast<std::uint16_t>(TargetKind::Stop);
+        const bool packet_heartbeat = packet.kind == static_cast<std::uint16_t>(TargetKind::Heartbeat);
+        if (packet_heartbeat) ++teleop.producer_heartbeat_packets;
+        else if (!packet_stop) last_target_dispatch = packet.dispatch_ns;
         if (packet_stop && is_joint_teleop_mode(o.mode) && backend->edg_active()) {
           state = State::ControlledStop;
           outcome = "operator_stop_command";
@@ -1482,10 +1489,11 @@ int run(const Options& o) {
         } else {
           if (stop_requested && !packet_stop)
             throw std::runtime_error("new target received after controlled stop request");
-          state = packet_stop ? State::ControlledStop : State::Running;
+          state = packet_stop ? State::ControlledStop
+                              : (packet_heartbeat ? State::Holding : State::Running);
         }
         if ((is_shadow_mode(o.mode) || is_bounded_mode(o.mode)) &&
-            state != State::ControlledStop && !packet_stop) {
+            state != State::ControlledStop && !packet_stop && !packet_heartbeat) {
           const std::uint32_t expected_flags = is_bounded_mode(o.mode) ? kTargetAllowMotion : 0u;
           if (packet.flags != expected_flags)
             throw std::runtime_error("target motion flag does not match native execution mode");
@@ -1527,7 +1535,8 @@ int run(const Options& o) {
             tracker.reset(observed);
             state = State::Running;
           }
-        } else if (is_joint_mode(o.mode) && state != State::ControlledStop && !packet_stop) {
+        } else if (is_joint_mode(o.mode) && state != State::ControlledStop &&
+                   !packet_stop && !packet_heartbeat) {
           const std::uint32_t expected_flags = is_joint_teleop_mode(o.mode) ? kTargetAllowMotion : 0u;
           if (packet.flags != expected_flags)
             throw std::runtime_error("joint target motion flag does not match native execution mode");
@@ -1572,6 +1581,14 @@ int run(const Options& o) {
           } else if (is_joint_teleop_mode(o.mode)) {
             joint_resampler.accept(solution, packet.processing_ns, packet.sequence);
           }
+        } else if (packet_heartbeat && is_joint_teleop_mode(o.mode)) {
+          const std::uint32_t expected_flags = kTargetAllowMotion;
+          if (packet.flags != expected_flags || packet.frame_id != 0)
+            throw std::runtime_error("producer heartbeat contract mismatch");
+          // Liveness advances independently of target validity.  Deliberately
+          // do not call resampler.accept(): the last safe endpoint remains the
+          // exact 8 ms command while the shared generator evaluates retreat.
+          state = State::Holding;
         }
       }
       if (transport_failure) { state = State::Fault; outcome = "target_transport_failure"; break; }
@@ -1709,6 +1726,8 @@ int run(const Options& o) {
       samples.reads[i] = read_end - read_start; samples.writes[i] = write_duration;
       samples.sdk[i] = samples.reads[i] + samples.writes[i];
       samples.target_ages[i] = ever_received ? age : 0;
+      samples.accepted_target_ages[i] = last_target_dispatch
+          ? cycle_start - std::min(cycle_start, last_target_dispatch) : 0;
       samples.command_ages[i] = command_time && last_dispatch ? command_time - std::min(command_time, last_dispatch) : 0;
       if (cycle_end > deadline + kPeriodNs) {
         ++samples.missed;

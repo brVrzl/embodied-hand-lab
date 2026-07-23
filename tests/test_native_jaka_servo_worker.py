@@ -10,7 +10,15 @@ from pathlib import Path
 
 import pytest
 
-from teleoperation.wire import FrameId, LatestTargetPublisher, TargetFlags, TargetKind, TargetPacket
+from teleoperation.wire import (
+    FrameId,
+    LatestTargetPublisher,
+    TargetFlags,
+    TargetKind,
+    TargetPacket,
+    heartbeat_target_packet,
+    stop_target_packet,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +59,20 @@ def joint_packet(sequence: int, joints: tuple[float, ...], *, allow_motion: bool
         now,
         now,
         (*joints, 0.0, 0.0),
+    )
+
+
+def heartbeat_packet(sequence: int) -> TargetPacket:
+    now = time.monotonic_ns()
+    return heartbeat_target_packet(
+        sequence=sequence,
+        input_sequence=sequence,
+        local_receive_ns=now,
+        processing_ns=now,
+        dispatch_ns=now,
+        last_accepted_target_sequence=1,
+        control_state_code=1,
+        allow_motion=True,
     )
 
 
@@ -133,6 +155,7 @@ def test_latest_sequence_wins_and_disconnect_times_out(tmp_path) -> None:
     deadline = time.monotonic() + 2
     while not target.exists() and time.monotonic() < deadline:
         time.sleep(0.005)
+    time.sleep(0.02)
     with LatestTargetPublisher(target) as publisher:
         for sequence in (1, 2, 4, 3, 4):
             publisher.publish(packet(sequence))
@@ -385,6 +408,49 @@ def test_quest_joint_teleop_time_resamples_latest_target_without_ik_or_endpoint_
     assert payload["final_resampler_endpoint_error_rad"] == pytest.approx([0.0] * 6)
     assert max(payload["output_maximum_velocity_rad_s"]) <= math.pi + 1e-12
     assert payload["outcome"] == "command_stream_timeout"
+
+
+def test_recoverable_hold_heartbeat_keeps_last_safe_target_live(tmp_path) -> None:
+    metrics = tmp_path / "heartbeat-hold.json"
+    target = tmp_path / "heartbeat-hold.sock"
+    emitted = tmp_path / "heartbeat-hold.jsonl"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "0.50",
+            "--warning-ms", "40",
+            "--hold-ms", "100",
+            "--controlled-stop-ms", "200",
+            "--fatal-timeout-ms", "300",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+            "--emitted-points-file", str(emitted),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    time.sleep(0.02)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+        for sequence in range(2, 8):
+            time.sleep(0.04)
+            assert publisher.publish(heartbeat_packet(sequence))
+        time.sleep(0.02)
+        now = time.monotonic_ns()
+        assert publisher.publish(stop_target_packet(sequence=8, monotonic_ns=now))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["outcome"] == "operator_stop_command"
+    assert payload["producer_heartbeat_packets"] == 6
+    assert payload["ik_calls"] == 0
+    assert payload["last_ik_target_rad"] == pytest.approx([0.0] * 6)
+    assert payload["resampler_destination_switches"] == 0
+    assert payload["output_maximum_adjacent_delta_rad"] == pytest.approx([0.0] * 6)
+    rows = [json.loads(line) for line in emitted.read_text().splitlines()]
+    assert rows
+    assert all(row["joint_position_rad"] == pytest.approx([0.0] * 6) for row in rows)
 
 
 def test_quest_joint_teleop_rejects_nonzero_startup_jump(tmp_path) -> None:

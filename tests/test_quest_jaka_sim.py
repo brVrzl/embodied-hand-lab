@@ -216,16 +216,16 @@ def test_singularity_gate_rejects_slow_geometric_approach() -> None:
     )
 
 
-def test_explicit_wrist_singularity_margin_does_not_require_a_velocity_spike() -> None:
+def test_wrist_angle_proximity_is_warning_only_when_jacobian_is_healthy() -> None:
     limits = replace(
         _limits(),
-        minimum_wrist_bend_rad=math.radians(15.0),
+        wrist_proximity_warning_rad=math.radians(15.0),
     )
     metrics = CandidateMetrics(
         wrist_bend_from_singularity_rad=math.radians(14.0),
         maximum_joint_velocity_rad_s=0.1,
     )
-    assert classify_candidate(metrics, limits) is FeasibilityReason.NEAR_SINGULARITY
+    assert classify_candidate(metrics, limits) is FeasibilityReason.ACCEPTED
 
 
 def test_recorded_circle_path_stays_on_bounded_wrist_branch(tmp_path: Path) -> None:
@@ -284,7 +284,11 @@ def test_recorded_circle_path_stays_on_bounded_wrist_branch(tmp_path: Path) -> N
     assert spans[5] < 1.6
     assert abs(net[3]) < 0.75
     assert abs(net[5]) < 0.75
-    assert np.min(np.abs(trajectory[:, 4])) > config.feasibility.minimum_wrist_bend_rad
+    assert max(metric.jacobian_condition for metric in simulation.accepted_metrics) < 60.0
+    assert min(
+        metric.minimum_jacobian_singular_value
+        for metric in simulation.accepted_metrics
+    ) > 0.0125
 
 
 def _hand_payload(sequence: int, x: float = 0.0) -> bytes:

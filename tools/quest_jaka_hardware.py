@@ -236,15 +236,27 @@ def main() -> int:
                                 jaka_adapter.observe_measured_joint_position(sample)
                         tick = session.control_tick(now_ns)
                         dispatch_failed = (
-                            tick.accepted_target is not None and not tick.output_applied
+                            tick.reason != FeasibilityReason.DISENGAGED.value
+                            and not tick.output_applied
                         )
                         if dispatch_failed:
-                            abort_reason = (
-                                jaka_adapter.abort_reason
-                                if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard)
-                                and jaka_adapter.abort_reason is not None
-                                else "accepted_target_transport_failure"
+                            control_state = session.event_records[-1].get(
+                                "control_state"
                             )
+                            if control_state == "HARD_STOP":
+                                abort_reason = f"shared_hard_stop:{tick.reason}"
+                            elif tick.accepted_target is None:
+                                abort_reason = "control_heartbeat_transport_failure"
+                            else:
+                                abort_reason = (
+                                    jaka_adapter.abort_reason
+                                    if isinstance(
+                                        jaka_adapter,
+                                        E2IsolatedForwardTranslationGuard,
+                                    )
+                                    and jaka_adapter.abort_reason is not None
+                                    else "accepted_target_transport_failure"
+                                )
                             stop_reason = abort_reason
                             jaka_adapter.stop()
                         engaged = session.arm_clutch.state.value == "engaged"

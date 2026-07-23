@@ -112,6 +112,12 @@ simulation:
   initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 1.1344640138, -0.2617993878]
   ik_gain: 0.70
   ik_damping: 0.05
+  # Smooth DLS increase in the solver's weighted Jacobian domain. The local
+  # Mini2 scan reaches sigma~=0.027 at J5=15 deg, ~=0.018 at 10 deg and
+  # ~=0.0135 at 7.5 deg; damping therefore rises before the hard boundary.
+  adaptive_damping_sigma_start: 0.025
+  adaptive_damping_sigma_full: 0.0125
+  adaptive_damping_max: 0.10
   ik_max_step_rad: 0.04
   ik_iterations: 24
   ik_position_tolerance_m: 0.0025
@@ -119,11 +125,16 @@ simulation:
   # normal continuous motion ~38-40 / 0.018-0.020; wrist jump ~69 / 0.0109.
   maximum_jacobian_condition: 60.0
   minimum_jacobian_singular_value: 0.0125
-  # These are hard geometric gates: slow motion cannot pass through a singular
-  # configuration merely because its per-frame joint velocity is small.
-  # J5=0 is the spherical-wrist singularity. The explicit margin prevents
-  # continuation IK from preserving the TCP by counter-winding J4/J6.
-  minimum_wrist_bend_deg: 15.0
+  # Actual Jacobian quality is authoritative. J5 proximity is diagnostic only:
+  # the model scan shows the existing hard Jacobian limits are reached near
+  # |J5|~=8 deg, while the manual_02 posture at 14.968 deg remains healthy.
+  wrist_proximity_warning_deg: 15.0
+  jacobian_slowdown_condition: 48.0
+  minimum_singular_value_slowdown: 0.015625
+  # Recovery thresholds are stricter than slowdown onset to prevent chatter.
+  jacobian_recovery_condition: 45.0
+  minimum_singular_value_recovery: 0.016875
+  singularity_direction_hysteresis_ratio: 0.01
   jacobian_rotation_characteristic_length_m: 0.25
   maximum_target_jump_m: 0.04
   maximum_tcp_velocity_m_s: 1.0

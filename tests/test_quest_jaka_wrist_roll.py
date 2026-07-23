@@ -147,7 +147,7 @@ def test_combined_translation_pitch_and_roll_preserves_full_6d_target() -> None:
     assert not any(result.metrics.branch_switch for result in results)
 
 
-def test_near_wrist_singularity_roll_stays_continuous_but_crossing_guard_rejects() -> None:
+def test_near_wrist_singularity_roll_uses_jacobian_not_fixed_j5_guard() -> None:
     simulation = _simulation()
     joints = np.asarray(simulation.config.initial_arm_joints_rad, dtype=float)
     joints[4] = math.radians(17.0)
@@ -158,11 +158,7 @@ def test_near_wrist_singularity_roll_stays_continuous_but_crossing_guard_rejects
         final_rotvec_rad=(0.0, 0.0, math.radians(5.0)),
     )
     assert not any(result.metrics.branch_switch for result in roll_results)
-    assert all(
-        result.metrics.wrist_bend_from_singularity_rad
-        >= simulation.config.feasibility.minimum_wrist_bend_rad
-        for result in roll_results
-    )
+    assert all(result.accepted for result in roll_results)
 
     simulation = _simulation()
     joints = np.asarray(simulation.config.initial_arm_joints_rad, dtype=float)
@@ -177,8 +173,10 @@ def test_near_wrist_singularity_roll_stays_continuous_but_crossing_guard_rejects
     mujoco.mj_forward(simulation.model, simulation.data)
 
     result = simulation.evaluate(target, dt_s=CONTROL_DT_S)
-    assert not result.accepted
-    assert result.reason is FeasibilityReason.NEAR_SINGULARITY
+    assert result.accepted
+    assert result.metrics.wrist_proximity_warning
+    assert result.metrics.jacobian_condition < 60.0
+    assert result.metrics.minimum_jacobian_singular_value > 0.0125
 
 
 def test_j6_near_safe_limit_rejects_without_wrap_or_branch_flip() -> None:
@@ -229,6 +227,8 @@ def test_recorded_slow_elbow_singularity_candidate_is_rejected() -> None:
 
     assert not result.accepted
     assert result.reason is FeasibilityReason.NEAR_SINGULARITY
-    assert result.metrics.jacobian_condition > 60.0
-    assert result.metrics.minimum_jacobian_singular_value < 0.0125
+    assert (
+        result.metrics.jacobian_condition > 60.0
+        or result.metrics.minimum_jacobian_singular_value < 0.0125
+    )
     assert np.allclose(simulation.last_safe_joint_target, seed)

@@ -6,10 +6,10 @@ import time
 import math
 from typing import Protocol
 
-from teleoperation.accepted_target import AcceptedArmTarget
+from teleoperation.accepted_target import AcceptedArmTarget, ArmControlHeartbeat
 
 from ..runtime.arm_only import ArmOnlyRuntime
-from ..wire import joint_position_target_packet
+from ..wire import heartbeat_target_packet, joint_position_target_packet
 
 
 JAKA_JOINT_ORDER = tuple(f"jaka_joint_{index}" for index in range(1, 7))
@@ -53,8 +53,9 @@ class JakaAcceptedJointTargetAdapter:
         if self.stopped:
             return False
         dispatch_ns = max(time.monotonic_ns(), target.generated_monotonic_ns)
+        self.last_sequence += 1
         packet = joint_position_target_packet(
-            sequence=target.sequence_number,
+            sequence=self.last_sequence,
             joint_position_rad=target.joint_position_rad,
             local_receive_ns=target.input_receive_monotonic_ns,
             processing_ns=target.generated_monotonic_ns,
@@ -64,8 +65,24 @@ class JakaAcceptedJointTargetAdapter:
         sent = self.runtime.dispatch_packet(packet)
         if sent:
             self.applied_count += 1
-            self.last_sequence = target.sequence_number
         return sent
+
+    def heartbeat(self, heartbeat: ArmControlHeartbeat) -> bool:
+        if self.stopped:
+            return False
+        self.last_sequence += 1
+        dispatch_ns = max(time.monotonic_ns(), heartbeat.generated_monotonic_ns)
+        packet = heartbeat_target_packet(
+            sequence=self.last_sequence,
+            input_sequence=heartbeat.input_sequence_number,
+            local_receive_ns=heartbeat.input_receive_monotonic_ns,
+            processing_ns=heartbeat.generated_monotonic_ns,
+            dispatch_ns=dispatch_ns,
+            last_accepted_target_sequence=heartbeat.last_accepted_target_sequence,
+            control_state_code=1,
+            allow_motion=self.allow_motion,
+        )
+        return self.runtime.dispatch_packet(packet)
 
     def stop(self) -> bool:
         self.stopped = True
@@ -185,6 +202,9 @@ class E2IsolatedForwardTranslationGuard:
 
     def stop(self) -> bool:
         return self.output.stop()
+
+    def heartbeat(self, heartbeat: ArmControlHeartbeat) -> bool:
+        return self.output.heartbeat(heartbeat)
 
 
 def _e2_violation(

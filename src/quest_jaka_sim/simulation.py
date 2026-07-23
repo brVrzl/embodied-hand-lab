@@ -59,6 +59,7 @@ class FeasibilityReason(str, Enum):
     IK_DISCONTINUITY = "IK_DISCONTINUITY"
     JOINT_LIMIT = "JOINT_LIMIT"
     NEAR_SINGULARITY = "NEAR_SINGULARITY"
+    SINGULARITY_SLOWDOWN = "SINGULARITY_SLOWDOWN"
     LINEAR_VELOCITY_LIMIT = "LINEAR_VELOCITY_LIMIT"
     ANGULAR_VELOCITY_LIMIT = "ANGULAR_VELOCITY_LIMIT"
     LINEAR_ACCELERATION_LIMIT = "LINEAR_ACCELERATION_LIMIT"
@@ -82,7 +83,41 @@ class FeasibilityLimits:
     ik_orientation_tolerance_rad: float = math.pi
     maximum_target_rotation_jump_rad: float = math.pi
     maximum_joint_target_jump_rad: float = math.pi
-    minimum_wrist_bend_rad: float = 0.0
+    wrist_proximity_warning_rad: float = 0.0
+    jacobian_slowdown_condition: float = math.inf
+    minimum_singular_value_slowdown: float = 0.0
+    jacobian_recovery_condition: float = math.inf
+    minimum_singular_value_recovery: float = 0.0
+    singularity_direction_hysteresis_ratio: float = 0.01
+
+    def __post_init__(self) -> None:
+        if not (
+            math.isfinite(self.maximum_jacobian_condition)
+            and self.maximum_jacobian_condition > 0.0
+            and math.isfinite(self.minimum_jacobian_singular_value)
+            and self.minimum_jacobian_singular_value >= 0.0
+            and math.isfinite(self.wrist_proximity_warning_rad)
+            and self.wrist_proximity_warning_rad >= 0.0
+            and math.isfinite(self.singularity_direction_hysteresis_ratio)
+            and self.singularity_direction_hysteresis_ratio >= 0.0
+        ):
+            raise ValueError("singularity feasibility thresholds must be finite and non-negative")
+        if math.isfinite(self.jacobian_slowdown_condition) and not (
+            0.0 < self.jacobian_recovery_condition
+            < self.jacobian_slowdown_condition
+            < self.maximum_jacobian_condition
+        ):
+            raise ValueError(
+                "Jacobian condition thresholds require recovery < slowdown < hard"
+            )
+        if self.minimum_singular_value_slowdown > 0.0 and not (
+            self.minimum_jacobian_singular_value
+            < self.minimum_singular_value_slowdown
+            < self.minimum_singular_value_recovery
+        ):
+            raise ValueError(
+                "minimum-singular-value thresholds require hard < slowdown < recovery"
+            )
 
     @classmethod
     def from_mapping(
@@ -118,8 +153,42 @@ class FeasibilityLimits:
             maximum_joint_target_jump_rad=float(
                 values.get("maximum_joint_target_jump_rad", math.pi)
             ),
-            minimum_wrist_bend_rad=math.radians(
-                float(values.get("minimum_wrist_bend_deg", 0.0))
+            wrist_proximity_warning_rad=math.radians(
+                float(
+                    values.get(
+                        "wrist_proximity_warning_deg",
+                        # Compatibility migration: the old hard-gate setting is
+                        # deliberately warning-only under the new policy.
+                        values.get("minimum_wrist_bend_deg", 0.0),
+                    )
+                )
+            ),
+            jacobian_slowdown_condition=float(
+                values.get(
+                    "jacobian_slowdown_condition",
+                    0.8 * float(values["maximum_jacobian_condition"]),
+                )
+            ),
+            minimum_singular_value_slowdown=float(
+                values.get(
+                    "minimum_singular_value_slowdown",
+                    1.25 * float(values["minimum_jacobian_singular_value"]),
+                )
+            ),
+            jacobian_recovery_condition=float(
+                values.get(
+                    "jacobian_recovery_condition",
+                    0.75 * float(values["maximum_jacobian_condition"]),
+                )
+            ),
+            minimum_singular_value_recovery=float(
+                values.get(
+                    "minimum_singular_value_recovery",
+                    1.35 * float(values["minimum_jacobian_singular_value"]),
+                )
+            ),
+            singularity_direction_hysteresis_ratio=float(
+                values.get("singularity_direction_hysteresis_ratio", 0.01)
             ),
         )
 
@@ -190,23 +259,26 @@ class CandidateMetrics:
     j6_axial_contribution_ratio: float | None = None
     nearest_safe_joint_limit_margin_rad: float = math.pi
     branch_switch: bool = False
+    current_jacobian_condition: float = 1.0
+    current_minimum_jacobian_singular_value: float = 1.0
+    singularity_risk: float = 0.0
+    current_singularity_risk: float = 0.0
+    singularity_direction: str = "TANGENT"
+    singularity_state: str = "NORMAL"
+    wrist_proximity_warning: bool = False
+    effective_ik_damping: float = 0.0
+    current_hard_singularity: bool = False
+    hard_stop_required: bool = False
 
 
-def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> FeasibilityReason:
+def classify_candidate(
+    metrics: CandidateMetrics,
+    limits: FeasibilityLimits,
+    *,
+    check_singularity: bool = True,
+) -> FeasibilityReason:
     if metrics.target_displacement_m > limits.maximum_target_displacement_m:
         return FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
-    # JAKA's spherical wrist loses a degree of freedom at J5 ~= 0.  A generic
-    # scaled-Jacobian condition number did not reject the recorded circle soon
-    # enough: continuation IK preserved the TCP while J4/J6 counter-wound by
-    # almost one full turn.  Keep a small explicit bend margin so that branch
-    # cannot become an accepted target; the absolute pose target remains
-    # recoverable by moving back toward the last safe pose.
-    if (
-        limits.minimum_wrist_bend_rad > 0.0
-        and metrics.wrist_bend_from_singularity_rad
-        < limits.minimum_wrist_bend_rad
-    ):
-        return FeasibilityReason.NEAR_SINGULARITY
     near_singularity = (
         metrics.jacobian_condition > limits.maximum_jacobian_condition
         or metrics.minimum_jacobian_singular_value
@@ -216,7 +288,7 @@ def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> 
     # velocity-qualified gate allowed a gradual trajectory to pass condition
     # 60, drive J3 through zero, and reach a measured condition number above
     # one million.  Candidate velocity remains a separate continuity check.
-    if near_singularity:
+    if check_singularity and near_singularity:
         return FeasibilityReason.NEAR_SINGULARITY
     if (
         metrics.target_jump_m > limits.maximum_target_jump_m
@@ -243,6 +315,35 @@ def classify_candidate(metrics: CandidateMetrics, limits: FeasibilityLimits) -> 
     if metrics.environment_collision:
         return FeasibilityReason.ENVIRONMENT_COLLISION
     return FeasibilityReason.ACCEPTED
+
+
+def _singularity_risk(
+    condition: float, sigma_min: float, limits: FeasibilityLimits
+) -> float:
+    """Dimensionless Jacobian risk; one is the committed hard boundary."""
+
+    return max(
+        float(condition) / limits.maximum_jacobian_condition,
+        limits.minimum_jacobian_singular_value / max(float(sigma_min), 1e-12),
+    )
+
+
+def _hard_singularity(
+    condition: float, sigma_min: float, limits: FeasibilityLimits
+) -> bool:
+    return (
+        condition > limits.maximum_jacobian_condition
+        or sigma_min < limits.minimum_jacobian_singular_value
+    )
+
+
+def _slowdown_singularity(
+    condition: float, sigma_min: float, limits: FeasibilityLimits
+) -> bool:
+    return (
+        condition >= limits.jacobian_slowdown_condition
+        or sigma_min <= limits.minimum_singular_value_slowdown
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,6 +595,21 @@ class SharedJakaTargetGenerator:
             target_workspace_radius_m=0.0,
             joint_limit_margin_rad=config.feasibility.joint_limit_margin_rad,
             orientation_ik_weight=0.0 if not config.mapping.orientation_enabled else 0.35,
+            adaptive_damping_sigma_start=float(
+                config.raw.get("simulation", {}).get(
+                    "adaptive_damping_sigma_start", 0.0
+                )
+            ),
+            adaptive_damping_sigma_full=float(
+                config.raw.get("simulation", {}).get(
+                    "adaptive_damping_sigma_full", 0.0
+                )
+            ),
+            adaptive_damping_max=float(
+                config.raw.get("simulation", {}).get(
+                    "adaptive_damping_max", config.ik_damping
+                )
+            ),
         )
         self.model = self.ik.model
         simulation_values = config.raw.get("simulation", {})
@@ -517,6 +633,7 @@ class SharedJakaTargetGenerator:
         self.last_safe_joint_velocity = np.zeros(6)
         self._baseline_contacts = self._contact_pairs(self.ik.data)
         self.accepted_metrics: list[CandidateMetrics] = []
+        self._singularity_slowdown_latched = False
 
     def _required_id(self, kind: mujoco.mjtObj, name: str) -> int:
         value = mujoco.mj_name2id(self.model, kind, name)
@@ -553,6 +670,7 @@ class SharedJakaTargetGenerator:
         self.last_safe_joint_target = joints.copy()
         self.last_safe_joint_velocity[:] = 0.0
         self._baseline_contacts = self._contact_pairs(self.ik.data)
+        self._singularity_slowdown_latched = False
 
     def capture_reference(self) -> Pose6D:
         """Capture the current authoritative FK pose and reset derivative history."""
@@ -562,6 +680,7 @@ class SharedJakaTargetGenerator:
         self.last_safe_target = current
         self.last_safe_joint_target = self.arm_joints_rad
         self.last_safe_joint_velocity[:] = 0.0
+        self._singularity_slowdown_latched = False
         return current
 
     def evaluate(self, target: Pose6D, *, dt_s: float) -> FeasibilityResult:
@@ -572,6 +691,7 @@ class SharedJakaTargetGenerator:
         ik_seed = self.last_safe_joint_target.copy()
         previous_target = self.last_safe_target
         self.ik.set_arm_joints_rad(ik_seed.tolist())
+        current_condition, current_sigma, _ = self._jacobian_quality()
         self.ik.apply_position_target(
             palm_target_position_m=list(target.position_m),
             palm_target_quaternion_wxyz=(
@@ -598,25 +718,37 @@ class SharedJakaTargetGenerator:
         displacement = float(
             np.linalg.norm(np.asarray(target.position_m) - np.asarray(self.initial_tcp.position_m))
         )
-        jacp = np.zeros((3, self.model.nv))
-        jacr = np.zeros((3, self.model.nv))
-        mujoco.mj_jacBody(self.model, self.ik.data, jacp, jacr, self.palm_body_id)
-        position_jacobian = jacp[:, self.arm_dof_ids]
-        if self.config.mapping.orientation_enabled:
-            # Scale radian rows by a characteristic arm length so the complete
-            # 6-D spatial Jacobian has consistent metre-like units.  A
-            # translation-only condition number misses wrist singularities.
-            spatial_jacobian = np.vstack(
-                (
-                    position_jacobian,
-                    self.jacobian_rotation_characteristic_length_m
-                    * jacr[:, self.arm_dof_ids],
-                )
-            )
+        condition, sigma_min, jacr = self._jacobian_quality()
+        current_risk = _singularity_risk(current_condition, current_sigma, limits)
+        candidate_risk = _singularity_risk(condition, sigma_min, limits)
+        risk_delta = candidate_risk - current_risk
+        if risk_delta > limits.singularity_direction_hysteresis_ratio:
+            singularity_direction = "TOWARD"
+        elif risk_delta < -limits.singularity_direction_hysteresis_ratio:
+            singularity_direction = "AWAY"
         else:
-            spatial_jacobian = position_jacobian
-        singular_values = np.linalg.svd(spatial_jacobian, compute_uv=False)
-        condition = float(singular_values[0] / max(singular_values[-1], 1e-12))
+            singularity_direction = "TANGENT"
+        hard_singularity = _hard_singularity(condition, sigma_min, limits)
+        current_hard_singularity = _hard_singularity(
+            current_condition, current_sigma, limits
+        )
+        slowdown_region = _slowdown_singularity(condition, sigma_min, limits)
+        recovered = (
+            condition <= limits.jacobian_recovery_condition
+            and sigma_min >= limits.minimum_singular_value_recovery
+        )
+        if recovered:
+            self._singularity_slowdown_latched = False
+        elif slowdown_region:
+            self._singularity_slowdown_latched = True
+        if hard_singularity:
+            singularity_state = "HARD"
+        elif self._singularity_slowdown_latched:
+            singularity_state = "SLOWDOWN"
+        elif abs(float(candidate_q[4])) <= limits.wrist_proximity_warning_rad:
+            singularity_state = "PROXIMITY"
+        else:
+            singularity_state = "NORMAL"
         previous_rotation = quaternion_to_matrix(previous_target.orientation_xyzw)
         j6_axis_in_previous_tool = previous_rotation.T @ jacr[:, self.arm_dof_ids[5]]
         j6_axial_sign = float(j6_axis_in_previous_tool[2])
@@ -673,7 +805,7 @@ class SharedJakaTargetGenerator:
             maximum_joint_target_jump_rad=float(np.max(np.abs(joint_target_jump))),
             joint_limit_blockers=tuple(limit_blockers),
             jacobian_condition=condition,
-            minimum_jacobian_singular_value=float(singular_values[-1]),
+            minimum_jacobian_singular_value=sigma_min,
             wrist_bend_from_singularity_rad=abs(float(candidate_q[4])),
             maximum_joint_velocity_rad_s=float(np.max(np.abs(joint_velocity))),
             maximum_joint_acceleration_rad_s2=float(np.max(np.abs(joint_acceleration))),
@@ -692,8 +824,33 @@ class SharedJakaTargetGenerator:
             j6_axial_contribution_ratio=j6_contribution_ratio,
             nearest_safe_joint_limit_margin_rad=nearest_safe_limit_margin,
             branch_switch=bool(np.max(np.abs(joint_target_jump)) >= math.pi / 2.0),
+            current_jacobian_condition=current_condition,
+            current_minimum_jacobian_singular_value=current_sigma,
+            singularity_risk=candidate_risk,
+            current_singularity_risk=current_risk,
+            singularity_direction=singularity_direction,
+            singularity_state=singularity_state,
+            wrist_proximity_warning=bool(
+                limits.wrist_proximity_warning_rad > 0.0
+                and abs(float(candidate_q[4])) <= limits.wrist_proximity_warning_rad
+            ),
+            effective_ik_damping=self.ik.last_effective_damping,
+            current_hard_singularity=current_hard_singularity,
+            hard_stop_required=bool(
+                current_hard_singularity and singularity_direction != "AWAY"
+            ),
         )
-        reason = classify_candidate(metrics, limits)
+        hard_escape = current_hard_singularity and singularity_direction == "AWAY"
+        if hard_singularity and not hard_escape:
+            reason = FeasibilityReason.NEAR_SINGULARITY
+        else:
+            reason = classify_candidate(metrics, limits, check_singularity=False)
+            if (
+                reason is FeasibilityReason.ACCEPTED
+                and self._singularity_slowdown_latched
+                and singularity_direction == "TOWARD"
+            ):
+                reason = FeasibilityReason.SINGULARITY_SLOWDOWN
         if reason is FeasibilityReason.ACCEPTED:
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
@@ -701,6 +858,30 @@ class SharedJakaTargetGenerator:
             self.accepted_metrics.append(metrics)
             return FeasibilityResult(True, reason, tuple(float(v) for v in candidate_q), metrics)
         return FeasibilityResult(False, reason, None, metrics)
+
+    def _jacobian_quality(self) -> tuple[float, float, np.ndarray]:
+        jacp = np.zeros((3, self.model.nv))
+        jacr = np.zeros((3, self.model.nv))
+        mujoco.mj_jacBody(self.model, self.ik.data, jacp, jacr, self.palm_body_id)
+        position_jacobian = jacp[:, self.arm_dof_ids]
+        spatial_jacobian = (
+            np.vstack(
+                (
+                    position_jacobian,
+                    self.jacobian_rotation_characteristic_length_m
+                    * jacr[:, self.arm_dof_ids],
+                )
+            )
+            if self.config.mapping.orientation_enabled
+            else position_jacobian
+        )
+        singular_values = np.linalg.svd(spatial_jacobian, compute_uv=False)
+        sigma_min = float(singular_values[-1])
+        return (
+            float(singular_values[0] / max(sigma_min, 1e-12)),
+            sigma_min,
+            jacr,
+        )
 
     def metrics_report(self) -> dict[str, Any]:
         metrics = self.accepted_metrics

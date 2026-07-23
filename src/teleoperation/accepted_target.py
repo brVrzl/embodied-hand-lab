@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import math
 
 
@@ -92,3 +93,36 @@ class AcceptedArmTarget:
             math.isfinite(value) for value in self.joint_position_rad
         ):
             raise ValueError("accepted target must contain six finite joint radians")
+
+
+class ArmControlState(str, Enum):
+    """Shared pre-adapter command state; it never changes an accepted target."""
+
+    ACTIVE = "ACTIVE"
+    HOLD_REJECTED = "HOLD_REJECTED"
+    DISENGAGED = "DISENGAGED"
+    HARD_STOP = "HARD_STOP"
+
+
+@dataclass(frozen=True, slots=True)
+class ArmControlHeartbeat:
+    """Fresh producer liveness and rejection state without a fake target."""
+
+    input_sequence_number: int
+    input_receive_monotonic_ns: int
+    generated_monotonic_ns: int
+    reference_generation: int
+    clutch_generation: int
+    state: ArmControlState
+    reason: str
+    last_accepted_target_sequence: int
+
+    def __post_init__(self) -> None:
+        if self.input_sequence_number < 0 or self.last_accepted_target_sequence < 0:
+            raise ValueError("control heartbeat sequences must be non-negative")
+        if not 0 < self.input_receive_monotonic_ns <= self.generated_monotonic_ns:
+            raise ValueError("control heartbeat timestamps must be positive and monotonic")
+        if self.reference_generation < 1 or self.clutch_generation < 1:
+            raise ValueError("control heartbeat requires an active captured reference")
+        if not self.reason:
+            raise ValueError("control heartbeat requires a reason")

@@ -25,7 +25,11 @@ from quest_jaka_sim import (
     SmoothQuestJakaSession,
 )
 from quest_jaka_sim.output import AcceptedArmTarget, AcceptedTcpPose
-from teleoperation.accepted_target import AcceptedTargetDiagnostics
+from teleoperation.accepted_target import (
+    AcceptedTargetDiagnostics,
+    ArmControlHeartbeat,
+    ArmControlState,
+)
 from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, FeasibilityResult
@@ -554,9 +558,22 @@ def test_hardware_adapter_contract_has_no_conversion_filter_or_interpolation() -
     assert packet.frame_id.value == 0
     assert packet.payload[:6] == target.joint_position_rad
     assert packet.payload[6:] == (0.0, 0.0)
+    heartbeat = ArmControlHeartbeat(
+        input_sequence_number=43,
+        input_receive_monotonic_ns=2_100_000,
+        generated_monotonic_ns=2_200_000,
+        reference_generation=1,
+        clutch_generation=1,
+        state=ArmControlState.HOLD_REJECTED,
+        reason="SINGULARITY_SLOWDOWN",
+        last_accepted_target_sequence=target.sequence_number,
+    )
+    assert adapter.heartbeat(heartbeat)
+    assert runtime.packets[-1].kind is TargetKind.HEARTBEAT
+    assert runtime.packets[-1].sequence == 2
     assert adapter.stop()
     assert not adapter.apply(_accepted(2))
-    assert len(runtime.packets) == 1
+    assert len(runtime.packets) == 2
 
 
 def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:
@@ -782,6 +799,7 @@ def test_nan_tracking_dropout_stale_input_and_ik_rejection_emit_no_new_target(
         _clutch(rejected_session, value, sequence, now_ns)
         rejected_session.control_tick(now_ns)
     rejected_baseline = len(rejected_recorder.targets)
+    original_evaluate = rejected_session.simulation.evaluate
     monkeypatch.setattr(
         rejected_session.simulation,
         "evaluate",
@@ -801,6 +819,29 @@ def test_nan_tracking_dropout_stale_input_and_ik_rejection_emit_no_new_target(
     assert result.reason == FeasibilityReason.IK_POSITION_FAILED.value
     assert result.accepted_target is None
     assert len(rejected_recorder.targets) == rejected_baseline
+    assert len(rejected_recorder.heartbeats) == 1
+    assert rejected_recorder.heartbeats[0].state is ArmControlState.HOLD_REJECTED
+    assert rejected_recorder.heartbeats[0].last_accepted_target_sequence == rejected_baseline
+
+    # A retreat to the captured neutral pose recovers continuously without a
+    # reference recapture or process restart; the held target stayed authoritative.
+    monkeypatch.setattr(rejected_session.simulation, "evaluate", original_evaluate)
+    now_ns = 80_000_000
+    rejected_session.ingest(_hand(4, now_ns, identity))
+    _clutch(rejected_session, 1.0, 4, now_ns)
+    recovered = rejected_session.control_tick(now_ns)
+    assert recovered.accepted_target is not None
+    assert recovered.output_applied
+    assert len(rejected_recorder.targets) == rejected_baseline + 1
+    assert rejected_session.event_records[-1]["recovery_event"]
+    assert max(
+        abs(current - held)
+        for current, held in zip(
+            recovered.accepted_target.joint_position_rad,
+            rejected_recorder.targets[-2].joint_position_rad,
+            strict=True,
+        )
+    ) < 0.002
 
 
 def test_p4_entry_requires_exact_current_authorization_before_connection(tmp_path: Path) -> None:

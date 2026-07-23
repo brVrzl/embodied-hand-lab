@@ -16,6 +16,7 @@ from teleoperation.wire import (
     WorkerStatusPacket,
     decode_target,
     encode_target,
+    heartbeat_target_packet,
     status_acknowledgement,
 )
 
@@ -49,6 +50,24 @@ def test_startup_tcp_relative_frame_round_trips_explicitly() -> None:
         value.payload,
     )
     assert decode_target(encode_target(relative)).frame_id == FrameId.STARTUP_TCP_RELATIVE
+
+
+def test_hold_rejected_heartbeat_has_no_joint_target_payload() -> None:
+    heartbeat = heartbeat_target_packet(
+        sequence=11,
+        input_sequence=42,
+        local_receive_ns=100,
+        processing_ns=110,
+        dispatch_ns=120,
+        last_accepted_target_sequence=7,
+        control_state_code=1,
+        allow_motion=True,
+    )
+    decoded = decode_target(encode_target(heartbeat))
+    assert decoded.kind is TargetKind.HEARTBEAT
+    assert decoded.frame_id is FrameId.NONE
+    assert decoded.payload[:3] == (42.0, 7.0, 1.0)
+    assert decoded.payload[3:] == (0.0,) * 5
 
 
 def test_publisher_has_no_application_queue_and_drops_absent_consumer(tmp_path) -> None:

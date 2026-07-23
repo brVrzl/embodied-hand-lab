@@ -34,7 +34,12 @@ from .output import (
     ArmTargetOutputAdapter,
     MujocoArmTargetAdapter,
 )
-from teleoperation.accepted_target import AcceptedTargetDiagnostics, AcceptedTcpPose
+from teleoperation.accepted_target import (
+    AcceptedTargetDiagnostics,
+    AcceptedTcpPose,
+    ArmControlHeartbeat,
+    ArmControlState,
+)
 from .se3 import (
     PoseSampleBuffer,
     TimedPoseSample,
@@ -157,6 +162,8 @@ class SmoothQuestJakaSession:
         self.event_records: list[dict[str, Any]] = []
         self.accepted_targets = 0
         self._accepted_sequence = 0
+        self._last_accepted_generated_ns: int | None = None
+        self._hold_rejected_started_ns: int | None = None
         self.reference_generation = 0
         self.consecutive_rejections = 0
         self.continuation_intervention_count = 0
@@ -319,7 +326,12 @@ class SmoothQuestJakaSession:
         desired = self._arm_target(state, arm_action, now_ns)
         record = self._base_record(state, now_ns)
         if desired is None:
-            record.update(accepted=False, reason=FeasibilityReason.DISENGAGED.value)
+            self._hold_rejected_started_ns = None
+            record.update(
+                accepted=False,
+                reason=FeasibilityReason.DISENGAGED.value,
+                control_state=ArmControlState.DISENGAGED.value,
+            )
             self.event_records.append(record)
             return ArmControlTickResult(
                 state.right.host_sequence_number,
@@ -414,14 +426,13 @@ class SmoothQuestJakaSession:
         )
         limits = self.config.feasibility
         singularity_warning = bool(
-            result.metrics.jacobian_condition
-            >= 0.8 * limits.maximum_jacobian_condition
+            result.metrics.jacobian_condition >= limits.jacobian_slowdown_condition
             or result.metrics.minimum_jacobian_singular_value
-            <= 1.25 * limits.minimum_jacobian_singular_value
+            <= limits.minimum_singular_value_slowdown
             or (
-                limits.minimum_wrist_bend_rad > 0.0
+                limits.wrist_proximity_warning_rad > 0.0
                 and result.metrics.wrist_bend_from_singularity_rad
-                <= limits.minimum_wrist_bend_rad + math.radians(5.0)
+                <= limits.wrist_proximity_warning_rad
             )
         )
         if singularity_warning:
@@ -445,7 +456,58 @@ class SmoothQuestJakaSession:
         )
         if not result.accepted:
             self._handle_rejection(now_ns, result.reason.value)
-            record.update(accepted=False, reason=result.reason.value)
+            if result.metrics.hard_stop_required:
+                self.arm_clutch.fault(now_ns, "HARD_SINGULARITY_AT_ACCEPTED_STATE")
+                self.arm_mapper.clear()
+                record.update(
+                    accepted=False,
+                    reason=result.reason.value,
+                    control_state=ArmControlState.HARD_STOP.value,
+                    heartbeat_applied=False,
+                    hard_stop_reason="HARD_SINGULARITY_AT_ACCEPTED_STATE",
+                )
+                self.event_records.append(record)
+                return ArmControlTickResult(
+                    state.right.host_sequence_number,
+                    state.right.wrist_pose,
+                    None
+                    if self.arm_mapper.last_telemetry is None
+                    else self.arm_mapper.last_telemetry.hand_local_delta,
+                    desired,
+                    evaluated_target,
+                    result,
+                    None,
+                    False,
+                    result.reason.value,
+                )
+            if self._hold_rejected_started_ns is None:
+                self._hold_rejected_started_ns = now_ns
+            assert state.right.host_sequence_number is not None
+            input_receive_ns = int(state.right.host_receive_monotonic_ns or now_ns)
+            heartbeat = ArmControlHeartbeat(
+                input_sequence_number=state.right.host_sequence_number,
+                input_receive_monotonic_ns=min(input_receive_ns, now_ns),
+                generated_monotonic_ns=now_ns,
+                reference_generation=self.reference_generation,
+                clutch_generation=self.arm_clutch.cycle_count,
+                state=ArmControlState.HOLD_REJECTED,
+                reason=result.reason.value,
+                last_accepted_target_sequence=self._accepted_sequence,
+            )
+            heartbeat_applied = self.arm_output.heartbeat(heartbeat)
+            record.update(
+                accepted=False,
+                reason=result.reason.value,
+                control_state=ArmControlState.HOLD_REJECTED.value,
+                heartbeat_applied=heartbeat_applied,
+                heartbeat_generated_monotonic_ns=now_ns,
+                hold_duration_s=(now_ns - self._hold_rejected_started_ns) / 1e9,
+                last_accepted_target_age_s=(
+                    None
+                    if self._last_accepted_generated_ns is None
+                    else (now_ns - self._last_accepted_generated_ns) / 1e9
+                ),
+            )
             self.event_records.append(record)
             return ArmControlTickResult(
                 state.right.host_sequence_number,
@@ -455,7 +517,7 @@ class SmoothQuestJakaSession:
                 evaluated_target,
                 result,
                 None,
-                False,
+                heartbeat_applied,
                 result.reason.value,
             )
         assert result.joint_target_rad is not None
@@ -493,6 +555,9 @@ class SmoothQuestJakaSession:
             ),
         )
         output_applied = self.arm_output.apply(accepted_target)
+        recovery_event = self._hold_rejected_started_ns is not None
+        self._hold_rejected_started_ns = None
+        self._last_accepted_generated_ns = now_ns
         self.accepted_targets += 1
         self.consecutive_rejections = 0
         self.last_reason = FeasibilityReason.ACCEPTED.value
@@ -515,6 +580,9 @@ class SmoothQuestJakaSession:
             accepted_clutch_generation=accepted_target.clutch_generation,
             accepted_diagnostics=asdict(accepted_target.diagnostics),
             output_applied=output_applied,
+            control_state=ArmControlState.ACTIVE.value,
+            recovery_event=recovery_event,
+            heartbeat_applied=False,
         )
         self.event_records.append(record)
         return ArmControlTickResult(

@@ -16,13 +16,21 @@ from .contracts import (
     TimestampSet,
     TimingStatistics,
 )
-from .accepted_target import AcceptedArmTarget, AcceptedTargetDiagnostics, AcceptedTcpPose
+from .accepted_target import (
+    AcceptedArmTarget,
+    AcceptedTargetDiagnostics,
+    AcceptedTcpPose,
+    ArmControlHeartbeat,
+    ArmControlState,
+)
 
 __all__ = [
     "ArmPoseSample",
     "AcceptedArmTarget",
     "AcceptedTargetDiagnostics",
     "AcceptedTcpPose",
+    "ArmControlHeartbeat",
+    "ArmControlState",
     "CommandAcknowledgement",
     "ControllerState",
     "HealthState",

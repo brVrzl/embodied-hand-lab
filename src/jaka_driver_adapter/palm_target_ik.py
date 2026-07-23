@@ -113,6 +113,9 @@ class PalmTargetIkState:
         ik_damping: float = 0.05,
         ik_max_step_rad: float = 0.025,
         ik_iterations: int = 4,
+        adaptive_damping_sigma_start: float = 0.0,
+        adaptive_damping_sigma_full: float = 0.0,
+        adaptive_damping_max: float | None = None,
         target_workspace_radius_m: float = 0.0,
         joint_limit_margin_rad: float = DEFAULT_JOINT_LIMIT_MARGIN_RAD,
         orientation_ik_weight: float = 0.35,
@@ -125,6 +128,25 @@ class PalmTargetIkState:
         self.ik_damping = abs(float(ik_damping))
         self.ik_max_step_rad = abs(float(ik_max_step_rad))
         self.ik_iterations = max(1, int(ik_iterations))
+        self.adaptive_damping_sigma_start = max(
+            0.0, float(adaptive_damping_sigma_start)
+        )
+        self.adaptive_damping_sigma_full = max(
+            0.0, float(adaptive_damping_sigma_full)
+        )
+        self.adaptive_damping_max = (
+            self.ik_damping
+            if adaptive_damping_max is None
+            else max(self.ik_damping, abs(float(adaptive_damping_max)))
+        )
+        if self.adaptive_damping_sigma_start > 0.0 and not (
+            0.0 < self.adaptive_damping_sigma_full
+            < self.adaptive_damping_sigma_start
+        ):
+            raise ValueError(
+                "adaptive damping requires 0 < sigma_full < sigma_start"
+            )
+        self.last_effective_damping = self.ik_damping
         self.target_workspace_radius_m = abs(float(target_workspace_radius_m))
         self.joint_limit_margin_rad = abs(float(joint_limit_margin_rad))
         self.orientation_ik_weight = max(0.0, float(orientation_ik_weight))
@@ -302,7 +324,8 @@ class PalmTargetIkState:
             jacr = np.zeros((3, self.model.nv), dtype=np.float64)
             mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.palm_body_id)
             arm_jacobian = jacp[:, self.arm_dof_ids]
-            lhs = arm_jacobian @ arm_jacobian.T + (self.ik_damping**2) * np.eye(3)
+            damping = self._effective_damping(arm_jacobian)
+            lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(3)
             delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
             self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
             self._clip_arm_joints()
@@ -320,7 +343,28 @@ class PalmTargetIkState:
         if np.linalg.norm(error) < 1e-5:
             return
         arm_jacobian = np.vstack([jacp[:, self.arm_dof_ids], weight * jacr[:, self.arm_dof_ids]])
-        lhs = arm_jacobian @ arm_jacobian.T + (self.ik_damping**2) * np.eye(6)
+        damping = self._effective_damping(arm_jacobian)
+        lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(6)
         delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
         self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
         self._clip_arm_joints()
+
+    def _effective_damping(self, jacobian: np.ndarray) -> float:
+        """Smoothly increase DLS damping only as solver Jacobian quality falls."""
+
+        damping = self.ik_damping
+        if self.adaptive_damping_sigma_start > 0.0:
+            sigma_min = float(np.linalg.svd(jacobian, compute_uv=False)[-1])
+            ratio = np.clip(
+                (self.adaptive_damping_sigma_start - sigma_min)
+                / (
+                    self.adaptive_damping_sigma_start
+                    - self.adaptive_damping_sigma_full
+                ),
+                0.0,
+                1.0,
+            )
+            smooth = float(ratio * ratio * (3.0 - 2.0 * ratio))
+            damping += smooth * (self.adaptive_damping_max - self.ik_damping)
+        self.last_effective_damping = damping
+        return damping

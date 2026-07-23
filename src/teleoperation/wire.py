@@ -152,6 +152,45 @@ def joint_position_target_packet(
     )
 
 
+def heartbeat_target_packet(
+    *,
+    sequence: int,
+    input_sequence: int,
+    local_receive_ns: int,
+    processing_ns: int,
+    dispatch_ns: int,
+    last_accepted_target_sequence: int,
+    control_state_code: int,
+    allow_motion: bool = False,
+) -> TargetPacket:
+    """Encode producer liveness without changing the current joint target."""
+
+    if sequence < 0 or input_sequence < 0 or last_accepted_target_sequence < 0:
+        raise ValueError("heartbeat sequences must be non-negative")
+    if not 0 < local_receive_ns <= processing_ns <= dispatch_ns:
+        raise ValueError("heartbeat host timestamps must be positive and monotonic")
+    return TargetPacket(
+        TargetKind.HEARTBEAT,
+        TargetFlags.ALLOW_MOTION if allow_motion else TargetFlags.NONE,
+        FrameId.NONE,
+        sequence,
+        0,
+        local_receive_ns,
+        processing_ns,
+        dispatch_ns,
+        (
+            float(input_sequence),
+            float(last_accepted_target_sequence),
+            float(control_state_code),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ),
+    )
+
+
 def stop_target_packet(*, sequence: int, monotonic_ns: int) -> TargetPacket:
     if sequence < 0 or monotonic_ns < 0:
         raise ValueError("stop sequence and timestamp must be non-negative")

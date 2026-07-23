@@ -230,11 +230,13 @@ Reference 的意义是：按下时的过滤后 Quest wrist 为输入参考 `T_Q_
 |---|---:|---|---:|---|---|---|---|
 | `ik_gain` | `0.70` | ratio | solver `0.65` | YAML:112、`palm_target_ik.py` | DLS IK correction gain | 收敛更激进 | 收敛更慢 |
 | `ik_damping` | `0.05` | ratio | `0.05` | YAML:113、solver | 奇异附近阻尼 | 更稳但精度/响应降低 | 更敏感、可能大关节步 |
+| adaptive damping sigma start/full/max | `0.025/0.0125/0.10` | scaled solver Jacobian | disabled | live-demo YAML、solver | σ 下降时用 smoothstep 将 DLS damping 从 0.05 连续升到 0.10 | 更早/更强阻尼 | 更接近固定阻尼 |
 | `ik_max_step_rad` | `0.04` | rad/iteration | `0.025` | YAML:114、solver | 单次 IK iteration joint step | 更快但不连续风险增 | 更稳但可能不收敛 |
 | `ik_iterations` | `24` | count | `4` | YAML:115、solver | 每 target solve 上限 | 更可能收敛但 CPU 增 | 更快但拒绝可能增 |
 | position/orientation tolerance | `0.0025` / `3` | m/deg | position 必填；orientation `180` | YAML:116/139、`simulation.py` | IK acceptance error | 放宽会接受误差较大解 | 收紧会增加 IK rejected |
 | Jacobian condition / min singular value | `60` / `0.0125` | ratio/scaled m | 必填 | live-demo YAML、`simulation.py` | 6×6 scaled spatial **硬**奇异性 gate；与运动快慢无关 | condition 大/min singular 小更宽松 | 反向更早 `NEAR_SINGULARITY` |
-| `minimum_wrist_bend_deg` | `15` | deg | `0` | YAML:124、`simulation.py` | 避免 J5≈0 时 J4/J6 counter-wind | 更保守、工作域缩小 | 更接近 spherical-wrist singularity |
+| `wrist_proximity_warning_deg` | `15` | deg | `0` | live-demo YAML、`simulation.py` | J5 接近 0 的告警元数据；**不独立拒绝** | 更早告警 | 更晚告警 |
+| Jacobian slowdown/recovery | condition `48/45`, σ `0.015625/0.016875` | ratio/scaled m | derived from hard limits | live-demo YAML、`simulation.py` | 仅对 Jacobian 继续恶化的增量回退；切向/远离放行；恢复滞回防抖 | 更早介入 | 更靠近硬边界介入 |
 | `maximum_target_jump_m/deg` | `0.04` / `8` | m/deg per tick | m 必填；deg `180` | YAML:126/140、`smooth_session.py` | 硬 Cartesian jump gate；MuJoCo demo 也用它推导单 tick SE(3) continuation 上限 | 更宽松、异常跳变风险增 | continuation 更细、backlog 可能增 |
 | TCP velocity limits | `1.0` / `5.0` | m/s, rad/s | 必填 | YAML:127/128、`smooth_session.py` | 硬 target velocity gate；MuJoCo demo 在 gate 前沿同一 6D 路径分段，不再因一帧略超限形成拒绝雪崩 | 更快追上 requested target | continuation 更慢、backlog 增 |
 | IK candidate joint velocity/accel | `14` / `1000` | rad/s, rad/s² | legacy keys必填 | YAML:132/133 | 病态 IK 连续性 gate，不是 actuator 命令 | 更宽松 | 更容易 IK discontinuity/accel rejection |
@@ -330,10 +332,11 @@ roll/pitch/yaw 或组合平移中 J4/J5/J6 与上游关节共同运动是正常�
 当前 DLS 是 6 关节满足 6D pose 的 continuation IK，没有可任意重分配姿态的冗余
 null-space；每帧 seed 始终是上一接受解，实测日志中没有 `>=90°` branch switch。
 
-通用 scaled-Jacobian condition `>60`、最小奇异值 `<0.0125`，或 J5 距球腕奇异点
-小于 15° 时，candidate 得到 `NEAR_SINGULARITY` 并 hold last。warning 区为 condition
-达到硬阈值 80%、最小奇异值低于硬阈值 1.25 倍，或 J5 距硬边界小于 5°；warning 只做
-telemetry。MuJoCo demo 从 last-safe 到 requested target 使用同一个 fraction 对 XYZ 线性
+通用 scaled-Jacobian condition `>60` 或最小奇异值 `<0.0125` 才是硬几何边界。
+J5 绝对值小于 15° 只记录 proximity warning，不再独立生成 `NEAR_SINGULARITY`。
+condition `48` / σ `0.015625` 起，candidate 相对 last-safe 的 Jacobian 风险被分为
+`TOWARD/TANGENT/AWAY`：只对继续恶化的 `TOWARD` 增量执行回退，切向和远离动作可继续；
+condition `45` / σ `0.016875` 的恢复阈值提供滞回。MuJoCo demo 从 last-safe 到 requested target 使用同一个 fraction 对 XYZ 线性
 插值、对 quaternion 做 shortest-path SLERP；候选失败时沿同一 6D segment 最多减半 5 次。
 因此没有降级 pitch/yaw/roll，也没有放宽硬阈值。若所有回退点仍不安全，机械臂保持 last
 safe、index 仍为 engaged；操作者向 reference/安全区退回后可自动恢复 accepted，无需先
