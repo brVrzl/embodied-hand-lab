@@ -345,6 +345,7 @@ Options parse_options(int argc, char** argv) {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s-per-joint J1,J2,J3,J4,J5,J6\n";
+      std::cout << "  --output-joint-jerk-limit-rad-s3 VALUE (project-selected transition shaper)\n";
       std::cout << "  --recover-output-acceleration-transition\n";
       std::cout << "  --diagnostic-joint-acceleration-boundary-rad-s2 VALUE (shared recoverable boundary)\n";
       std::cout << "  --maximum-output-joint-acceleration-rad-s2 VALUE (native final hard boundary)\n";
