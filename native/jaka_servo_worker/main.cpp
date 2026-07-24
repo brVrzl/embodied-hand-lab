@@ -172,6 +172,10 @@ struct Options {
   std::uint32_t excessive_tracking_error_consecutive_cycles = 2;
   double startup_alignment_tolerance_rad = 0.001;
   double maximum_output_joint_velocity_rad_s = M_PI;
+  std::array<double, 6> maximum_output_joint_velocity_rad_s_per_joint{
+      M_PI, M_PI, M_PI, M_PI, M_PI, M_PI};
+  bool maximum_output_joint_velocity_scalar_set = false;
+  bool maximum_output_joint_velocity_per_joint_set = false;
   double diagnostic_joint_acceleration_boundary_rad_s2 = 4.0 * M_PI;
   bool abort_on_diagnostic_acceleration_boundary = false;
   bool monitor_controller_health_each_cycle = false;
@@ -310,12 +314,23 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--excessive-tracking-error-abort-rad") o.excessive_tracking_error_abort_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--excessive-tracking-error-consecutive-cycles") o.excessive_tracking_error_consecutive_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--startup-alignment-tolerance-rad") o.startup_alignment_tolerance_rad = std::stod(value_after(i, argc, argv));
-    else if (a == "--maximum-output-joint-velocity-rad-s") o.maximum_output_joint_velocity_rad_s = std::stod(value_after(i, argc, argv));
+    else if (a == "--maximum-output-joint-velocity-rad-s") {
+      o.maximum_output_joint_velocity_rad_s = std::stod(value_after(i, argc, argv));
+      o.maximum_output_joint_velocity_scalar_set = true;
+    }
+    else if (a == "--maximum-output-joint-velocity-rad-s-per-joint") {
+      o.maximum_output_joint_velocity_rad_s_per_joint =
+          parse_six(value_after(i, argc, argv),
+                    "per-joint output velocity boundaries");
+      o.maximum_output_joint_velocity_per_joint_set = true;
+    }
     else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
     else if (a == "--abort-on-diagnostic-acceleration-boundary") o.abort_on_diagnostic_acceleration_boundary = true;
     else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
+      std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
+      std::cout << "  --maximum-output-joint-velocity-rad-s-per-joint J1,J2,J3,J4,J5,J6\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
@@ -347,6 +362,24 @@ Options parse_options(int argc, char** argv) {
       throw std::runtime_error("bounded TeleDex session may not exceed 10 seconds");
   }
   if (is_joint_mode(o.mode)) {
+    if (o.maximum_output_joint_velocity_scalar_set &&
+        o.maximum_output_joint_velocity_per_joint_set)
+      throw std::runtime_error(
+          "scalar and per-joint output velocity boundaries are mutually exclusive");
+    if (!o.maximum_output_joint_velocity_per_joint_set)
+      o.maximum_output_joint_velocity_rad_s_per_joint.fill(
+          o.maximum_output_joint_velocity_rad_s);
+    else
+      o.maximum_output_joint_velocity_rad_s = *std::max_element(
+          o.maximum_output_joint_velocity_rad_s_per_joint.begin(),
+          o.maximum_output_joint_velocity_rad_s_per_joint.end());
+    const bool valid_per_joint_output_velocity = std::all_of(
+        o.maximum_output_joint_velocity_rad_s_per_joint.begin(),
+        o.maximum_output_joint_velocity_rad_s_per_joint.end(),
+        [](double value) {
+          return std::isfinite(value) && value > 0.0 &&
+                 value <= 2.0 * M_PI;
+        });
     if (!(std::isfinite(o.excessive_tracking_error_abort_rad) &&
           o.excessive_tracking_error_abort_rad >= 0.25 &&
           o.excessive_tracking_error_abort_rad <= 1.0 &&
@@ -358,6 +391,7 @@ Options parse_options(int argc, char** argv) {
           std::isfinite(o.maximum_output_joint_velocity_rad_s) &&
           o.maximum_output_joint_velocity_rad_s > 0.0 &&
           o.maximum_output_joint_velocity_rad_s <= 2.0 * M_PI &&
+          valid_per_joint_output_velocity &&
           std::isfinite(o.diagnostic_joint_acceleration_boundary_rad_s2) &&
           o.diagnostic_joint_acceleration_boundary_rad_s2 > 0.0))
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
@@ -729,12 +763,16 @@ class OutputMotionDiagnostics {
       if (!std::isfinite(sample.velocity[joint]) || !std::isfinite(sample.acceleration[joint]) ||
           !std::isfinite(sample.jerk[joint]))
         throw std::runtime_error("non-finite controller-visible output diagnostic");
-      if (std::abs(sample.velocity[joint]) > options_.maximum_output_joint_velocity_rad_s + 1e-12) {
+      if (std::abs(sample.velocity[joint]) >
+          options_.maximum_output_joint_velocity_rad_s_per_joint[joint] +
+              1e-12) {
         ++speed_boundary_rejections_[joint];
         throw std::runtime_error(
             "internal output-feasibility contract violation before SDK call: J" +
             std::to_string(joint + 1) + " velocity=" + std::to_string(sample.velocity[joint]) +
-            " rad/s limit=" + std::to_string(options_.maximum_output_joint_velocity_rad_s) +
+            " rad/s limit=" +
+            std::to_string(
+                options_.maximum_output_joint_velocity_rad_s_per_joint[joint]) +
             " from_sequence=" + std::to_string(point.from_sequence) +
             " to_sequence=" + std::to_string(point.to_sequence) +
             " alpha=" + std::to_string(point.alpha));
@@ -1474,6 +1512,8 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
     for (std::size_t joint = 0; joint < 6; ++joint) out << (joint ? "," : "") << values[joint];
     out << "]" << (comma ? "," : "") << "\n";
   };
+  write_six("output_joint_velocity_boundary_rad_s_per_joint",
+            o.maximum_output_joint_velocity_rad_s_per_joint, true);
   write_six("output_maximum_adjacent_delta_rad", output_diagnostics.maximum_delta(), true);
   write_six("output_maximum_velocity_rad_s", output_diagnostics.maximum_velocity(), true);
   write_six("output_maximum_acceleration_rad_s2", output_diagnostics.maximum_acceleration(), true);

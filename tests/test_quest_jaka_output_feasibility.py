@@ -172,6 +172,62 @@ def test_output_contract_authority_is_separate_from_ik_pathology_guard() -> None
     assert config.output_contract.servo_period_ns == PERIOD_NS
 
 
+def test_per_joint_output_velocity_boundaries_preserve_scalar_hard_contract() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=math.pi,
+        maximum_velocity_rad_s_per_joint=(
+            1.5,
+            1.5,
+            1.5,
+            1.2,
+            1.2,
+            1.2,
+        ),
+        maximum_acceleration_rad_s2=math.inf,
+        servo_period_ns=PERIOD_NS,
+    )
+    tracker.reset((0.0,) * 6)
+    exact = tracker.preview(
+        (0.012, 0.0, 0.0, 0.0096, 0.0, 0.0),
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert exact.feasible
+    assert exact.predicted_velocity_rad_s == pytest.approx(
+        (1.5, 0.0, 0.0, 1.2, 0.0, 0.0)
+    )
+    assert exact.boundary_rad_s == pytest.approx(math.pi)
+    assert exact.boundary_rad_s_per_joint == pytest.approx(
+        (1.5, 1.5, 1.5, 1.2, 1.2, 1.2)
+    )
+
+    wrist_above = tracker.preview(
+        (0.0, 0.0, 0.0, 0.009600_001, 0.0, 0.0),
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert not wrist_above.feasible
+    assert wrist_above.violating_joint_indices == (3,)
+
+    shoulder_same_speed = tracker.preview(
+        (0.009600_001, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert shoulder_same_speed.feasible
+
+
+def test_legacy_scalar_output_velocity_boundary_remains_compatible() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=1.0,
+        servo_period_ns=PERIOD_NS,
+    )
+    tracker.reset((0.0,) * 6)
+    result = tracker.preview(
+        (0.008,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert result.feasible
+    assert result.boundary_rad_s_per_joint == pytest.approx((1.0,) * 6)
+
+
 def test_output_acceleration_boundary_is_checked_before_commit() -> None:
     boundary = 4.0 * math.pi
     tracker = JointOutputFeasibilityTracker(

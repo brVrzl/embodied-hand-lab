@@ -66,6 +66,38 @@ Exact operator command after separate authorization:
 Verify both addresses first. This wrapper is intentionally limited to
 `post-payload-diagnostic`; it does not expose automatic P4 escalation.
 
+## Bounded normal-speed physical teleoperation
+
+This independent entry uses the production immutable `AcceptedArmTarget` and
+native 8 ms piecewise-linear output path. It does not replace the post-payload
+diagnostic:
+
+```bash
+./scripts/run_quest_jaka_bounded_teleop.sh \
+  --robot-ip 192.168.71.50 \
+  --edg-state-ip 192.168.71.19 \
+  --duration-sec 30 \
+  --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
+  --output-generator pwl-8ms \
+  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+  --log-dir logs \
+  --no-auto-retry \
+  --estop-accessible \
+  --workspace-clear \
+  --rh56-command-path-absent
+```
+
+The wrapper creates timestamped accepted-target, summary, worker, capture,
+native-cycle, and event-extract logs under `logs/`. The J1–J3 1.5 rad/s and
+J4–J6 1.2 rad/s limits are project-selected bounded normal-teleoperation
+parameters, not official JAKA Mini2 maximum speeds. Shared and native hard
+velocity/acceleration checks, controller/SDK/timing/tracking hard stops, and
+clutch/keyboard stop remain active. This entry never commands RH56 and never
+writes payload, COM, TCP, installation, or controller safety settings.
+
+Validate a complete invocation without opening sockets or connecting hardware
+by adding `--plant-free-no-network-check`.
+
 ---
 
 # 中文版：命令参考
@@ -127,3 +159,33 @@ build/jaka_servo_worker/jaka_servo_worker --help
 ```
 
 运行前核实两个 IP。该 wrapper 只支持 `post-payload-diagnostic`，不会自动升级到 P4。
+
+## 有界正常速度真机遥操作
+
+这是独立入口，使用 production 不可变 `AcceptedArmTarget` 和 native 8 ms 分段线性输出
+路径，不替换 post-payload diagnostic：
+
+```bash
+./scripts/run_quest_jaka_bounded_teleop.sh \
+  --robot-ip 192.168.71.50 \
+  --edg-state-ip 192.168.71.19 \
+  --duration-sec 30 \
+  --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
+  --output-generator pwl-8ms \
+  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+  --log-dir logs \
+  --no-auto-retry \
+  --estop-accessible \
+  --workspace-clear \
+  --rh56-command-path-absent
+```
+
+wrapper 会在 `logs/` 下生成带时间戳的 accepted-target、summary、worker、capture、native
+cycle 和 event-extract 日志。J1–J3 的 1.5 rad/s、J4–J6 的 1.2 rad/s 是项目选择的有界
+正常遥操作参数，不是 JAKA Mini2 官方最大速度。
+
+共享和 native 的硬速度/加速度检查、控制器/SDK/时序/跟踪硬停止以及 clutch/键盘停止仍然
+有效。该入口不会命令 RH56，也不会写入 payload、COM、TCP、安装方向或控制器安全参数。
+
+在命令末尾增加 `--plant-free-no-network-check`，可在不创建 socket、不连接硬件的条件下
+验证整条命令。

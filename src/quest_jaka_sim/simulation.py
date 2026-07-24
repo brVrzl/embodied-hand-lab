@@ -256,6 +256,7 @@ class CandidateMetrics:
     predicted_output_joint_velocity_rad_s: tuple[float, ...] = ()
     predicted_output_maximum_joint_velocity_rad_s: float = 0.0
     output_velocity_violating_joint_indices: tuple[int, ...] = ()
+    output_velocity_boundary_rad_s_per_joint: tuple[float, ...] = ()
     previous_emitted_output_joint_velocity_rad_s: tuple[float, ...] = ()
     predicted_output_joint_acceleration_rad_s2: tuple[float, ...] = ()
     predicted_output_maximum_joint_acceleration_rad_s2: float = 0.0
@@ -463,6 +464,16 @@ class ReplayConfig:
                 simulation.get("command_maximum_joint_velocity_rad_s", math.pi),
             )
         )
+        maximum_output_velocity_per_joint_raw = shared_target.get(
+            "maximum_output_joint_velocity_rad_s_per_joint"
+        )
+        maximum_output_velocity_per_joint = (
+            None
+            if maximum_output_velocity_per_joint_raw is None
+            else tuple(
+                float(value) for value in maximum_output_velocity_per_joint_raw
+            )
+        )
         maximum_output_acceleration = float(
             shared_target.get(
                 "maximum_output_joint_acceleration_rad_s2",
@@ -484,6 +495,9 @@ class ReplayConfig:
                 maximum_velocity_rad_s=maximum_output_velocity,
                 servo_period_ns=servo_period_ns,
                 maximum_acceleration_rad_s2=maximum_output_acceleration,
+                maximum_velocity_rad_s_per_joint=(
+                    maximum_output_velocity_per_joint
+                ),
             ),
             stale_after_s=float(raw["input"]["stale_after_ms"]) / 1000.0,
             engagement_schedule_s=tuple(
@@ -896,6 +910,9 @@ class SharedJakaTargetGenerator:
             ),
             output_velocity_violating_joint_indices=(
                 output_prediction.violating_joint_indices
+            ),
+            output_velocity_boundary_rad_s_per_joint=(
+                output_prediction.boundary_rad_s_per_joint
             ),
             previous_emitted_output_joint_velocity_rad_s=(
                 output_prediction.previous_emitted_velocity_rad_s

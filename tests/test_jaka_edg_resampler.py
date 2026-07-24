@@ -477,6 +477,29 @@ def test_excessive_output_velocity_is_rejected_before_fake_sdk_call(tmp_path) ->
     assert all(row["joint_position_rad"][0] == 0.0 for row in points)
 
 
+def test_per_joint_output_velocity_boundary_rejects_before_fake_sdk_call(
+    tmp_path: Path,
+) -> None:
+    result, metrics, points = _run_stream(
+        tmp_path,
+        [
+            (0.0, 0, (0.0,) * 6),
+            (0.025, 20_000_000, (0.0, 0.0, 0.0, 0.026, 0.0, 0.0)),
+        ],
+        extra=(
+            "--maximum-output-joint-velocity-rad-s-per-joint",
+            "1.5,1.5,1.5,1.2,1.2,1.2",
+        ),
+    )
+    assert result.returncode == 2
+    assert "internal output-feasibility contract violation" in metrics["outcome"]
+    assert metrics["output_joint_velocity_boundary_rad_s_per_joint"] == pytest.approx(
+        [1.5, 1.5, 1.5, 1.2, 1.2, 1.2]
+    )
+    assert metrics["output_speed_boundary_rejections"][3] == 1
+    assert all(row["joint_position_rad"][3] < 0.026 for row in points)
+
+
 def test_nonfinite_output_is_rejected_before_fake_sdk_call(tmp_path) -> None:
     metrics = tmp_path / "nan-metrics.json"
     emitted = tmp_path / "nan-emitted.jsonl"

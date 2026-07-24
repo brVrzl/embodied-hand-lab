@@ -23,6 +23,7 @@ class JointOutputContractConfig:
     servo_period_ns: int
     maximum_acceleration_rad_s2: float = math.inf
     numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S
+    maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.maximum_velocity_rad_s) or self.maximum_velocity_rad_s <= 0.0:
@@ -33,6 +34,28 @@ class JointOutputContractConfig:
             raise ValueError("output acceleration boundary must be positive")
         if not math.isfinite(self.numeric_tolerance_rad_s) or self.numeric_tolerance_rad_s < 0.0:
             raise ValueError("output feasibility tolerance must be finite and non-negative")
+        if self.maximum_velocity_rad_s_per_joint is not None:
+            boundaries = tuple(
+                float(value) for value in self.maximum_velocity_rad_s_per_joint
+            )
+            if len(boundaries) != 6 or not all(
+                math.isfinite(value)
+                and 0.0 < value <= self.maximum_velocity_rad_s
+                for value in boundaries
+            ):
+                raise ValueError(
+                    "per-joint output velocity boundaries must contain six "
+                    "finite positive values no greater than the shared hard boundary"
+                )
+            object.__setattr__(
+                self, "maximum_velocity_rad_s_per_joint", boundaries
+            )
+
+    @property
+    def velocity_boundaries_rad_s(self) -> tuple[float, ...]:
+        if self.maximum_velocity_rad_s_per_joint is None:
+            return (self.maximum_velocity_rad_s,) * 6
+        return self.maximum_velocity_rad_s_per_joint
 
 
 def continuous_joint_delta(candidate_rad: float, previous_rad: float) -> float:
@@ -69,6 +92,7 @@ class JointOutputFeasibility:
     maximum_acceleration_rad_s2: float
     boundary_rad_s: float
     acceleration_boundary_rad_s2: float
+    boundary_rad_s_per_joint: tuple[float, ...] = ()
 
     @property
     def feasible(self) -> bool:
@@ -90,6 +114,7 @@ class JointOutputFeasibilityTracker:
         servo_period_ns: int,
         maximum_acceleration_rad_s2: float = math.inf,
         numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S,
+        maximum_velocity_rad_s_per_joint: Sequence[float] | None = None,
     ) -> None:
         boundary = float(maximum_velocity_rad_s)
         tolerance = float(numeric_tolerance_rad_s)
@@ -100,6 +125,21 @@ class JointOutputFeasibilityTracker:
         if not math.isfinite(tolerance) or tolerance < 0.0:
             raise ValueError("output feasibility tolerance must be finite and non-negative")
         self.maximum_velocity_rad_s = boundary
+        if maximum_velocity_rad_s_per_joint is None:
+            self.maximum_velocity_rad_s_per_joint = (boundary,) * 6
+        else:
+            per_joint = tuple(
+                float(value) for value in maximum_velocity_rad_s_per_joint
+            )
+            if len(per_joint) != 6 or not all(
+                math.isfinite(value) and 0.0 < value <= boundary
+                for value in per_joint
+            ):
+                raise ValueError(
+                    "per-joint output velocity boundaries must contain six "
+                    "finite positive values no greater than the shared hard boundary"
+                )
+            self.maximum_velocity_rad_s_per_joint = per_joint
         self.maximum_acceleration_rad_s2 = float(maximum_acceleration_rad_s2)
         if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
             raise ValueError("output acceleration boundary must be positive")
@@ -119,6 +159,9 @@ class JointOutputFeasibilityTracker:
             servo_period_ns=config.servo_period_ns,
             maximum_acceleration_rad_s2=config.maximum_acceleration_rad_s2,
             numeric_tolerance_rad_s=config.numeric_tolerance_rad_s,
+            maximum_velocity_rad_s_per_joint=(
+                config.maximum_velocity_rad_s_per_joint
+            ),
         )
 
     @property
@@ -169,9 +212,15 @@ class JointOutputFeasibilityTracker:
         )
         violating = tuple(
             index
-            for index, value in enumerate(velocity)
+            for index, (value, boundary) in enumerate(
+                zip(
+                    velocity,
+                    self.maximum_velocity_rad_s_per_joint,
+                    strict=True,
+                )
+            )
             if abs(value)
-            > self.maximum_velocity_rad_s + self.numeric_tolerance_rad_s
+            > boundary + self.numeric_tolerance_rad_s
         )
         acceleration_violating = tuple(
             index
@@ -193,6 +242,7 @@ class JointOutputFeasibilityTracker:
             maximum_acceleration_rad_s2=max(map(abs, acceleration), default=0.0),
             boundary_rad_s=self.maximum_velocity_rad_s,
             acceleration_boundary_rad_s2=self.maximum_acceleration_rad_s2,
+            boundary_rad_s_per_joint=self.maximum_velocity_rad_s_per_joint,
         )
 
     def commit(self, prediction: JointOutputFeasibility) -> None:

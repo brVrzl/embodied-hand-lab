@@ -39,11 +39,24 @@ P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
 E2_APPROVAL = "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 POST_PAYLOAD_APPROVAL = "I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
+BOUNDED_NORMAL_APPROVAL = (
+    "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
+)
+PWL_OUTPUT_GENERATOR = "pwl-8ms"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("p2-shadow", "e2-isolated", "p4-live", "post-payload-diagnostic"))
+    parser.add_argument(
+        "stage",
+        choices=(
+            "p2-shadow",
+            "e2-isolated",
+            "p4-live",
+            "post-payload-diagnostic",
+            "bounded-normal-teleop",
+        ),
+    )
     parser.add_argument("--config", type=Path, default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"))
     parser.add_argument("--worker", type=Path, default=Path("build/jaka_servo_worker/jaka_servo_worker"))
     parser.add_argument("--robot-ip", required=True)
@@ -62,8 +75,35 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture", type=Path, required=True)
     parser.add_argument("--native-telemetry", type=Path)
     parser.add_argument("--event-extract", type=Path)
-    parser.add_argument("--run-output-joint-velocity-limit-rad-s", type=float)
+    velocity_group = parser.add_mutually_exclusive_group()
+    velocity_group.add_argument(
+        "--run-output-joint-velocity-limit-rad-s",
+        type=float,
+        help="legacy scalar run boundary applied to all six joints",
+    )
+    velocity_group.add_argument(
+        "--run-output-joint-velocity-limits-rad-s",
+        type=float,
+        nargs=6,
+        metavar=("J1", "J2", "J3", "J4", "J5", "J6"),
+        help="six run-specific output velocity boundaries in J1-J6 order",
+    )
     parser.add_argument("--abort-on-diagnostic-acceleration-boundary", action="store_true")
+    parser.add_argument(
+        "--output-generator",
+        choices=(PWL_OUTPUT_GENERATOR,),
+        help="hardware transport output generator",
+    )
+    parser.add_argument(
+        "--no-auto-retry",
+        action="store_true",
+        help="confirm that this process performs one attempt only",
+    )
+    parser.add_argument(
+        "--plant-free-no-network-check",
+        action="store_true",
+        help="validate the complete bounded command and exit before sockets or hardware",
+    )
     return parser
 
 
@@ -98,13 +138,41 @@ def main() -> int:
             output_contract=replace(
                 config.output_contract,
                 maximum_velocity_rad_s=args.run_output_joint_velocity_limit_rad_s,
+                maximum_velocity_rad_s_per_joint=None,
+            ),
+        )
+    if args.run_output_joint_velocity_limits_rad_s is not None:
+        run_boundaries = tuple(args.run_output_joint_velocity_limits_rad_s)
+        hard_boundaries = config.output_contract.velocity_boundaries_rad_s
+        if not all(
+            math.isfinite(value)
+            and 0.0 < value <= hard
+            for value, hard in zip(
+                run_boundaries, hard_boundaries, strict=True
+            )
+        ):
+            raise SystemExit(
+                "each run output velocity limit must be finite, positive, "
+                "and no greater than its shared per-joint hard contract"
+            )
+        config = replace(
+            config,
+            output_contract=replace(
+                config.output_contract,
+                maximum_velocity_rad_s_per_joint=run_boundaries,
             ),
         )
     hardware = config.raw["hardware_adapter"]
-    live = args.stage in ("e2-isolated", "p4-live", "post-payload-diagnostic")
+    live = args.stage in (
+        "e2-isolated",
+        "p4-live",
+        "post-payload-diagnostic",
+        "bounded-normal-teleop",
+    )
     expected_approval = (
         E2_APPROVAL if args.stage == "e2-isolated"
         else POST_PAYLOAD_APPROVAL if args.stage == "post-payload-diagnostic"
+        else BOUNDED_NORMAL_APPROVAL if args.stage == "bounded-normal-teleop"
         else P4_APPROVAL if live else P2_APPROVAL
     )
     if args.approval != expected_approval:
@@ -123,6 +191,38 @@ def main() -> int:
             raise SystemExit("post-payload diagnostic requires a shared output limit no greater than 1.0 rad/s")
         if not args.abort_on_diagnostic_acceleration_boundary:
             raise SystemExit("post-payload diagnostic requires the pre-SDK acceleration abort")
+    if args.stage == "bounded-normal-teleop":
+        if args.duration_sec > 60.0:
+            raise SystemExit("bounded normal teleoperation is limited to 60 seconds")
+        if args.native_telemetry is None or args.event_extract is None:
+            raise SystemExit(
+                "bounded normal teleoperation requires native telemetry "
+                "and event extract paths"
+            )
+        if args.run_output_joint_velocity_limits_rad_s is None:
+            raise SystemExit(
+                "bounded normal teleoperation requires six per-joint "
+                "run output velocity limits"
+            )
+        if args.output_generator != PWL_OUTPUT_GENERATOR:
+            raise SystemExit(
+                f"bounded normal teleoperation requires --output-generator "
+                f"{PWL_OUTPUT_GENERATOR}"
+            )
+        if not args.no_auto_retry:
+            raise SystemExit(
+                "bounded normal teleoperation requires --no-auto-retry"
+            )
+        if not args.abort_on_diagnostic_acceleration_boundary:
+            raise SystemExit(
+                "bounded normal teleoperation requires the native "
+                "pre-SDK acceleration hard stop"
+            )
+    elif args.plant_free_no_network_check:
+        raise SystemExit(
+            "--plant-free-no-network-check is only available for "
+            "bounded-normal-teleop"
+        )
     print(f"STAGE={args.stage} STOP=Ctrl+C or release the left-index arm clutch")
 
     rates = config.raw["rates"]
@@ -137,6 +237,35 @@ def main() -> int:
         abs_tol=1e-12,
     ):
         raise SystemExit("JAKA transport rate and servo period disagree")
+    if args.plant_free_no_network_check:
+        print(
+            json.dumps(
+                {
+                    "stage": args.stage,
+                    "validation": "plant-free-no-network",
+                    "network_attempted": False,
+                    "hardware_commands_sent": 0,
+                    "rh56_commands": 0,
+                    "output_generator": args.output_generator,
+                    "native_mode": "joint-teleop",
+                    "native_ik_calls": 0,
+                    "servo_period_ms": float(hardware["servo_period_ms"]),
+                    "step_num": 1,
+                    "run_output_joint_velocity_limits_rad_s": list(
+                        config.output_contract.velocity_boundaries_rad_s
+                    ),
+                    "shared_hard_output_joint_velocity_limit_rad_s": (
+                        config.output_contract.maximum_velocity_rad_s
+                    ),
+                    "shared_and_native_acceleration_boundary_rad_s2": (
+                        config.output_contract.maximum_acceleration_rad_s2
+                    ),
+                    "no_auto_retry": args.no_auto_retry,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     args.capture.parent.mkdir(parents=True, exist_ok=True)
@@ -206,9 +335,21 @@ def main() -> int:
             "--startup-alignment-tolerance-rad", str(hardware["startup_alignment_tolerance_rad"]),
             # One authority: the EDG pass-through diagnostic consumes the
             # existing shared command contract rather than hardware-only copies.
-            "--maximum-output-joint-velocity-rad-s", str(config.output_contract.maximum_velocity_rad_s),
             "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.output_contract.maximum_acceleration_rad_s2),
         ]
+        if config.output_contract.maximum_velocity_rad_s_per_joint is None:
+            worker_args.extend((
+                "--maximum-output-joint-velocity-rad-s",
+                str(config.output_contract.maximum_velocity_rad_s),
+            ))
+        else:
+            worker_args.extend((
+                "--maximum-output-joint-velocity-rad-s-per-joint",
+                ",".join(
+                    str(value)
+                    for value in config.output_contract.velocity_boundaries_rad_s
+                ),
+            ))
         if live:
             worker_args.append("--monitor-controller-health-each-cycle")
         if args.native_telemetry is not None:
@@ -399,6 +540,15 @@ def main() -> int:
         "schema_version": "quest_jaka_physical_gate.v1",
         "stage": args.stage,
         "shared_config": str(args.config),
+        "output_generator": (
+            args.output_generator
+            if args.output_generator is not None
+            else PWL_OUTPUT_GENERATOR
+        ),
+        "run_output_joint_velocity_limits_rad_s": list(
+            config.output_contract.velocity_boundaries_rad_s
+        ),
+        "no_auto_retry": True,
         "accepted_targets_dispatched": accepted,
         "adapter_dispatch_count": jaka_adapter.applied_count,
         "native_mode": metrics["mode"],

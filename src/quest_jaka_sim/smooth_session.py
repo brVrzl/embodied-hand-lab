@@ -474,6 +474,9 @@ class SmoothQuestJakaSession:
             output_velocity_boundary_rad_s=(
                 self.config.output_contract.maximum_velocity_rad_s
             ),
+            output_velocity_boundary_rad_s_per_joint=list(
+                self.config.output_contract.velocity_boundaries_rad_s
+            ),
             output_acceleration_boundary_rad_s2=(
                 self.config.output_contract.maximum_acceleration_rad_s2
             ),
