@@ -41,6 +41,8 @@ class StatusFlags(enum.IntFlag):
     ACCEPTED_SINCE_STATUS = 1 << 4
     REJECTED_SINCE_STATUS = 1 << 5
     TARGET_AGE_WARNING = 1 << 6
+    OUTPUT_ACCELERATION_HOLD = 1 << 7
+    OUTPUT_ACCELERATION_RECOVERED = 1 << 8
 
 
 class FrameId(enum.IntEnum):

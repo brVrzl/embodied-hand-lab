@@ -213,6 +213,8 @@ def _fake_replay(
     worker: Path,
     points: list[AcceptedPoint],
     output_dir: Path,
+    *,
+    recover_output_acceleration_transition: bool,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     metrics = output_dir / "corrected_fake_worker_metrics.json"
@@ -220,8 +222,7 @@ def _fake_replay(
     with tempfile.TemporaryDirectory(prefix="jaka_edg_offline_replay_") as directory:
         target_socket = Path(directory) / "target.sock"
         duration_s = (points[-1].timestamp_ns - points[0].timestamp_ns) / 1e9 + 0.5
-        process = subprocess.Popen(
-            [
+        command = [
                 str(worker), "--mode", "joint-teleop-dry-run",
                 "--duration-s", str(duration_s),
                 "--warning-ms", "80", "--hold-ms", "200",
@@ -232,14 +233,21 @@ def _fake_replay(
                 "--emitted-points-file", str(emitted),
                 "--maximum-output-joint-velocity-rad-s", str(SPEED_BOUNDARY_RAD_S),
                 "--diagnostic-joint-acceleration-boundary-rad-s2", str(ACCELERATION_DIAGNOSTIC_RAD_S2),
+                "--maximum-output-joint-acceleration-rad-s2", str(ACCELERATION_DIAGNOSTIC_RAD_S2),
             ]
-        )
+        if recover_output_acceleration_transition:
+            command.append("--recover-output-acceleration-transition")
+        process = subprocess.Popen(command)
         deadline = time.monotonic() + 2.0
         while not target_socket.exists() and time.monotonic() < deadline:
             time.sleep(0.001)
         if not target_socket.exists():
             process.terminate()
             raise RuntimeError("fake worker target socket did not appear")
+        # The target socket is bound before fake EDG startup and its atomic
+        # q_hold timestamp have completed. Keep the replay epoch strictly newer
+        # than that internal hold, as the production launcher does.
+        time.sleep(0.05)
         processing_base = time.monotonic_ns()
         started = time.monotonic()
         source_base = points[0].timestamp_ns
@@ -275,6 +283,11 @@ def main() -> int:
         "--accepted-snapshot",
         type=Path,
         help="write the compact immutable target stream used by the comparison",
+    )
+    parser.add_argument(
+        "--recover-output-acceleration-transition",
+        action="store_true",
+        help="enable the production native PWL acceleration recovery policy",
     )
     args = parser.parse_args()
     accepted = _load(args.accepted_log)
@@ -314,7 +327,12 @@ def main() -> int:
         ),
     }
     report["corrected_native_fake_worker"] = _fake_replay(
-        args.worker, accepted, args.fake_output_dir
+        args.worker,
+        accepted,
+        args.fake_output_dir,
+        recover_output_acceleration_transition=(
+            args.recover_output_acceleration_transition
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")

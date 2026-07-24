@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Native acceleration-transition faults are classified explicitly; the legacy
+# accepted_target_transport_failure label is retained only for compatibility
+# with older summaries and is never used for this event.
 """Run Quest/JAKA P2 command shadow or explicitly approved P4 arm teleoperation.
 
 P0 never invokes this entry point.  P2 connects read-only and sends accepted
@@ -90,6 +93,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--abort-on-diagnostic-acceleration-boundary", action="store_true")
     parser.add_argument(
+        "--recover-output-acceleration-transition",
+        action="store_true",
+        help=(
+            "hold back a PWL point that crosses the recoverable acceleration "
+            "boundary and emit a bounded transition from the last native output"
+        ),
+    )
+    parser.add_argument(
         "--output-generator",
         choices=(PWL_OUTPUT_GENERATOR,),
         help="hardware transport output generator",
@@ -123,6 +134,21 @@ def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
     """Treat accepted-target or heartbeat transport failure as fatal, not disengagement."""
 
     return reason != "DISENGAGED" and not output_applied
+
+
+def _classify_worker_exit(metrics_path: Path, return_code: int | None) -> str:
+    """Prefer the worker's typed terminal reason over a generic transport symptom."""
+
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return f"worker_exit:{return_code}"
+    classification = metrics.get("stop_classification")
+    return (
+        str(classification)
+        if classification
+        else f"worker_exit:{return_code}"
+    )
 
 
 def main() -> int:
@@ -189,8 +215,11 @@ def main() -> int:
             raise SystemExit("post-payload diagnostic requires native telemetry and event extract paths")
         if args.run_output_joint_velocity_limit_rad_s is None or args.run_output_joint_velocity_limit_rad_s > 1.0:
             raise SystemExit("post-payload diagnostic requires a shared output limit no greater than 1.0 rad/s")
-        if not args.abort_on_diagnostic_acceleration_boundary:
-            raise SystemExit("post-payload diagnostic requires the pre-SDK acceleration abort")
+        if not args.recover_output_acceleration_transition:
+            raise SystemExit(
+                "post-payload diagnostic requires native recoverable output "
+                "acceleration transitions"
+            )
     if args.stage == "bounded-normal-teleop":
         if args.duration_sec > 60.0:
             raise SystemExit("bounded normal teleoperation is limited to 60 seconds")
@@ -213,12 +242,20 @@ def main() -> int:
             raise SystemExit(
                 "bounded normal teleoperation requires --no-auto-retry"
             )
-        if not args.abort_on_diagnostic_acceleration_boundary:
+        if not args.recover_output_acceleration_transition:
             raise SystemExit(
-                "bounded normal teleoperation requires the native "
-                "pre-SDK acceleration hard stop"
+                "bounded normal teleoperation requires native recoverable "
+                "output acceleration transitions"
             )
-    elif args.plant_free_no_network_check:
+    if (
+        args.recover_output_acceleration_transition
+        and args.abort_on_diagnostic_acceleration_boundary
+    ):
+        raise SystemExit(
+            "recoverable transition and legacy diagnostic acceleration abort "
+            "are mutually exclusive"
+        )
+    if args.plant_free_no_network_check and args.stage != "bounded-normal-teleop":
         raise SystemExit(
             "--plant-free-no-network-check is only available for "
             "bounded-normal-teleop"
@@ -237,6 +274,26 @@ def main() -> int:
         abs_tol=1e-12,
     ):
         raise SystemExit("JAKA transport rate and servo period disagree")
+    native_hard_acceleration = float(
+        hardware["native_hard_output_joint_acceleration_rad_s2"]
+    )
+    hold_degraded_ms = float(
+        hardware["output_acceleration_hold_degraded_ms"]
+    )
+    hold_hard_stop_ms = float(
+        hardware["output_acceleration_hold_hard_stop_ms"]
+    )
+    maximum_hold_cycles = int(
+        hardware["maximum_consecutive_output_acceleration_hold_cycles"]
+    )
+    if not (
+        math.isfinite(native_hard_acceleration)
+        and native_hard_acceleration
+        >= config.output_contract.maximum_acceleration_rad_s2
+        and 0.0 < hold_degraded_ms < hold_hard_stop_ms
+        and 2 <= maximum_hold_cycles <= 10_000
+    ):
+        raise SystemExit("output acceleration recovery policy is invalid")
     if args.plant_free_no_network_check:
         print(
             json.dumps(
@@ -257,8 +314,18 @@ def main() -> int:
                     "shared_hard_output_joint_velocity_limit_rad_s": (
                         config.output_contract.maximum_velocity_rad_s
                     ),
-                    "shared_and_native_acceleration_boundary_rad_s2": (
+                    "shared_recoverable_output_acceleration_boundary_rad_s2": (
                         config.output_contract.maximum_acceleration_rad_s2
+                    ),
+                    "native_output_acceleration_hard_boundary_rad_s2": (
+                        float(
+                            hardware[
+                                "native_hard_output_joint_acceleration_rad_s2"
+                            ]
+                        )
+                    ),
+                    "recover_output_acceleration_transition": (
+                        args.recover_output_acceleration_transition
                     ),
                     "no_auto_retry": args.no_auto_retry,
                 },
@@ -336,6 +403,20 @@ def main() -> int:
             # One authority: the EDG pass-through diagnostic consumes the
             # existing shared command contract rather than hardware-only copies.
             "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.output_contract.maximum_acceleration_rad_s2),
+            "--maximum-output-joint-acceleration-rad-s2", str(
+                hardware["native_hard_output_joint_acceleration_rad_s2"]
+            ),
+            "--output-acceleration-hold-degraded-ms", str(
+                hardware["output_acceleration_hold_degraded_ms"]
+            ),
+            "--output-acceleration-hold-hard-stop-ms", str(
+                hardware["output_acceleration_hold_hard_stop_ms"]
+            ),
+            "--maximum-consecutive-output-acceleration-hold-cycles", str(
+                hardware[
+                    "maximum_consecutive_output_acceleration_hold_cycles"
+                ]
+            ),
         ]
         if config.output_contract.maximum_velocity_rad_s_per_joint is None:
             worker_args.extend((
@@ -356,6 +437,8 @@ def main() -> int:
             worker_args.extend(("--cycle-telemetry-file", str(args.native_telemetry)))
         if args.abort_on_diagnostic_acceleration_boundary:
             worker_args.append("--abort-on-diagnostic-acceleration-boundary")
+        if args.recover_output_acceleration_transition:
+            worker_args.append("--recover-output-acceleration-transition")
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
         stop_reason = "duration_complete"
@@ -369,6 +452,9 @@ def main() -> int:
         minimum_continuation_fraction = 1.0
         clutch_release_monotonic_ns: int | None = None
         measured_joint_samples: list[tuple[float, ...]] = []
+        native_output_acceleration_hold_status_count = 0
+        native_output_acceleration_recovery_status_count = 0
+        native_output_acceleration_hold_active = False
         native.start()
         try:
             status = _wait_status(runtime, native)
@@ -395,7 +481,9 @@ def main() -> int:
                     while time.monotonic() - started < args.duration_sec:
                         if native.process is None or native.process.poll() is not None:
                             return_code = None if native.process is None else native.process.returncode
-                            abort_reason = f"native_worker_exited:{return_code}"
+                            abort_reason = _classify_worker_exit(
+                                args.metrics, return_code
+                            )
                             stop_reason = abort_reason
                             jaka_adapter.stop()
                             break
@@ -411,6 +499,20 @@ def main() -> int:
                         latest_status = runtime.latest_status()
                         if latest_status is not None:
                             status = latest_status
+                            status_flags = StatusFlags(status.flags)
+                            if (
+                                status_flags
+                                & StatusFlags.OUTPUT_ACCELERATION_HOLD
+                                and not native_output_acceleration_hold_active
+                            ):
+                                native_output_acceleration_hold_status_count += 1
+                                native_output_acceleration_hold_active = True
+                            if (
+                                status_flags
+                                & StatusFlags.OUTPUT_ACCELERATION_RECOVERED
+                            ):
+                                native_output_acceleration_recovery_status_count += 1
+                                native_output_acceleration_hold_active = False
                             sample = tuple(status.joint_position_rad)
                             if not measured_joint_samples or sample != measured_joint_samples[-1]:
                                 measured_joint_samples.append(sample)
@@ -432,15 +534,24 @@ def main() -> int:
                             elif tick.accepted_target is None:
                                 abort_reason = "control_heartbeat_transport_failure"
                             else:
-                                abort_reason = (
-                                    jaka_adapter.abort_reason
-                                    if isinstance(
+                                if (
+                                    isinstance(
                                         jaka_adapter,
                                         E2IsolatedForwardTranslationGuard,
                                     )
                                     and jaka_adapter.abort_reason is not None
-                                    else "accepted_target_transport_failure"
-                                )
+                                ):
+                                    abort_reason = jaka_adapter.abort_reason
+                                elif (
+                                    native.process is not None
+                                    and native.process.poll() is not None
+                                ):
+                                    abort_reason = _classify_worker_exit(
+                                        args.metrics,
+                                        native.process.returncode,
+                                    )
+                                else:
+                                    abort_reason = "IPC_failure"
                             stop_reason = abort_reason
                             jaka_adapter.stop()
                         engaged = session.arm_clutch.state.value == "engaged"
@@ -478,6 +589,22 @@ def main() -> int:
                                 )
                             ],
                             command_timestamp_ns=None if status is None else status.command_monotonic_ns,
+                            native_output_acceleration_hold=(
+                                False
+                                if status is None
+                                else bool(
+                                    StatusFlags(status.flags)
+                                    & StatusFlags.OUTPUT_ACCELERATION_HOLD
+                                )
+                            ),
+                            native_output_acceleration_recovered=(
+                                False
+                                if status is None
+                                else bool(
+                                    StatusFlags(status.flags)
+                                    & StatusFlags.OUTPUT_ACCELERATION_RECOVERED
+                                )
+                            ),
                             stop_or_abort_reason=(
                                 stop_reason if disengaged or dispatch_failed else None
                             ),
@@ -553,6 +680,27 @@ def main() -> int:
         "adapter_dispatch_count": jaka_adapter.applied_count,
         "native_mode": metrics["mode"],
         "native_outcome": metrics["outcome"],
+        "native_stop_classification": metrics.get(
+            "stop_classification", "worker_exit"
+        ),
+        "recoverable_output_acceleration_hold_count": metrics.get(
+            "recoverable_output_acceleration_hold_count", 0
+        ),
+        "recovered_from_output_acceleration_hold_count": metrics.get(
+            "recovered_from_output_acceleration_hold_count", 0
+        ),
+        "output_acceleration_hold_total_duration_ns": metrics.get(
+            "output_acceleration_hold_total_duration_ns", 0
+        ),
+        "output_acceleration_hold_longest_duration_ns": metrics.get(
+            "output_acceleration_hold_longest_duration_ns", 0
+        ),
+        "native_output_acceleration_hold_status_count": (
+            native_output_acceleration_hold_status_count
+        ),
+        "native_output_acceleration_recovery_status_count": (
+            native_output_acceleration_recovery_status_count
+        ),
         "native_ik_calls": metrics["ik_calls"],
         "native_command_max_ns": metrics["statistics"]["command_write_duration"]["max_ns"],
         "tracking_difference_definition": "current_8ms_emitted_command_minus_same_cycle_measured_joint_shortest_valid_revolute_delta",

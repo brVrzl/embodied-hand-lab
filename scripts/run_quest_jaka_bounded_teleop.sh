@@ -81,8 +81,13 @@ These are not official JAKA Mini2 maximum speeds.
 
 Retained hard stops / 保留硬停止:
   controller alarm, SDK error, hard timing fault, tracking fault, shared/native
-  velocity or acceleration contract violation, stale input/heartbeat, clutch
-  release, and Ctrl+C.
+  velocity or final acceleration contract violation, sustained recoverable
+  acceleration hold, stale input/heartbeat, clutch release, and Ctrl+C.
+
+Recoverable transition / 可恢复过渡:
+  an isolated PWL acceleration transition is held back before SDK dispatch;
+  the worker emits a bounded continuation from its last safe output and keeps
+  processing the latest fresh target without restarting EDG or IK.
 EOF
 }
 
@@ -208,7 +213,7 @@ CMD=(
   --estop-accessible
   --workspace-clear
   --rh56-command-path-absent
-  --abort-on-diagnostic-acceleration-boundary
+  --recover-output-acceleration-transition
   --log "${LOG_PREFIX}.jsonl"
   --summary "${LOG_PREFIX}_summary.json"
   --metrics "${LOG_PREFIX}_worker.json"

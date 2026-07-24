@@ -47,7 +47,7 @@ exact gate, the operator may run:
 ./scripts/run_quest_jaka_post_payload_manual.sh \
   --robot-ip 192.168.71.50 \
   --edg-state-ip 192.168.71.19 \
-  --duration-sec 30 \
+  --duration-sec 60 \
   --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
   --estop-accessible \
   --workspace-clear \
@@ -104,7 +104,7 @@ stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live` 和
 ./scripts/run_quest_jaka_post_payload_manual.sh \
   --robot-ip 192.168.71.50 \
   --edg-state-ip 192.168.71.19 \
-  --duration-sec 30 \
+  --duration-sec 60 \
   --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
   --estop-accessible \
   --workspace-clear \

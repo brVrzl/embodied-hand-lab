@@ -59,7 +59,8 @@ Options / 可选:
 Fixed safety arguments / 固定安全参数:
   stage: post-payload-diagnostic
   shared output joint velocity limit: 1.0 rad/s
-  abort before SDK dispatch on acceleration boundary
+  recover before SDK dispatch from isolated PWL acceleration transitions;
+  sustained holds and final hard-boundary violations still stop
 
 Stop / 停止:
   Release the left-index clutch or press Ctrl+C. Any controller/SDK fault is a
@@ -157,7 +158,7 @@ CMD=(
   --workspace-clear
   --rh56-command-path-absent
   --run-output-joint-velocity-limit-rad-s 1.0
-  --abort-on-diagnostic-acceleration-boundary
+  --recover-output-acceleration-transition
   --log "${LOG_PREFIX}.jsonl"
   --summary "${LOG_PREFIX}_summary.json"
   --metrics "${LOG_PREFIX}_worker.json"

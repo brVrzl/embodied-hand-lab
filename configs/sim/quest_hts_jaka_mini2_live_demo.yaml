@@ -91,10 +91,12 @@ shared_target_generation:
   maximum_backtracks: 5
   minimum_continuation_fraction: 0.03125
   rejection_policy: hold_last_accepted_and_allow_operator_retreat
-  # Authoritative pre-adapter J1..J6 feasibility contract. Both simulation and
-  # hardware reject/backtrack before AcceptedArmTarget construction. The native
-  # worker consumes this same value as a final defensive assertion.
+  # Official generic ServoJ speed ceiling (180 deg/s), used as the shared outer
+  # boundary. Launchers may select lower normal per-joint operating values.
   maximum_output_joint_velocity_rad_s: 3.141592653589793
+  # Project-selected recoverable PWL transition boundary. This value originated
+  # as the July 20 MuJoCo command-shaper acceleration setting; it is not a
+  # published Mini2 hardware/controller acceleration maximum.
   maximum_output_joint_acceleration_rad_s2: 12.5663706144
 
 hand_retargeting:
@@ -187,6 +189,21 @@ hardware_adapter:
   excessive_tracking_error_abort_rad: 0.35
   excessive_tracking_error_consecutive_cycles: 2
   startup_alignment_tolerance_rad: 0.001
+  # Native final hard assertion. It intentionally remains at the existing
+  # project-selected 4*pi value: no official Mini2 ServoJ acceleration maximum
+  # or controller readback was found, so this task does not raise it.
+  native_hard_output_joint_acceleration_rad_s2: 12.5663706144
+  output_acceleration_hold_degraded_ms: 250.0
+  output_acceleration_hold_hard_stop_ms: 2000.0
+  maximum_consecutive_output_acceleration_hold_cycles: 250
+  limit_provenance:
+    servo_period: official_jaka_servoj_documentation
+    output_joint_speed_ceiling: official_jaka_servoj_documentation
+    configured_joint_speed_readback: unavailable_in_installed_sdk_v2_2_7
+    recoverable_output_joint_acceleration: project_selected
+    native_hard_output_joint_acceleration: project_selected
+    normal_output_joint_velocity: launcher_selected
+    nlf_defaults: official_filter_planner_defaults_not_hardware_limits
   # Confirmed by the 2026-07-22 P2 direction shadow plus side-by-side
   # physical-seed twin review. Translation absolute directions and relative
   # roll/pitch/yaw directions matched after accounting for the fixed 180 deg

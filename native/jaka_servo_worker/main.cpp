@@ -59,6 +59,8 @@ constexpr std::uint32_t kStatusHasTarget = 1u << 3;
 constexpr std::uint32_t kStatusAccepted = 1u << 4;
 constexpr std::uint32_t kStatusRejected = 1u << 5;
 constexpr std::uint32_t kStatusTargetWarning = 1u << 6;
+constexpr std::uint32_t kStatusOutputAccelerationHold = 1u << 7;
+constexpr std::uint32_t kStatusOutputAccelerationRecovered = 1u << 8;
 
 #pragma pack(push, 1)
 struct TargetPacket {
@@ -178,6 +180,11 @@ struct Options {
   bool maximum_output_joint_velocity_per_joint_set = false;
   double diagnostic_joint_acceleration_boundary_rad_s2 = 4.0 * M_PI;
   bool abort_on_diagnostic_acceleration_boundary = false;
+  double maximum_output_joint_acceleration_rad_s2 = 4.0 * M_PI;
+  bool recover_output_acceleration_transition = false;
+  std::uint64_t output_acceleration_hold_degraded_ns = 250'000'000;
+  std::uint64_t output_acceleration_hold_hard_stop_ns = 2'000'000'000;
+  std::uint32_t maximum_consecutive_output_acceleration_hold_cycles = 250;
   bool monitor_controller_health_each_cycle = false;
 };
 
@@ -326,11 +333,19 @@ Options parse_options(int argc, char** argv) {
     }
     else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
     else if (a == "--abort-on-diagnostic-acceleration-boundary") o.abort_on_diagnostic_acceleration_boundary = true;
+    else if (a == "--maximum-output-joint-acceleration-rad-s2") o.maximum_output_joint_acceleration_rad_s2 = std::stod(value_after(i, argc, argv));
+    else if (a == "--recover-output-acceleration-transition") o.recover_output_acceleration_transition = true;
+    else if (a == "--output-acceleration-hold-degraded-ms") o.output_acceleration_hold_degraded_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
+    else if (a == "--output-acceleration-hold-hard-stop-ms") o.output_acceleration_hold_hard_stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
+    else if (a == "--maximum-consecutive-output-acceleration-hold-cycles") o.maximum_consecutive_output_acceleration_hold_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s-per-joint J1,J2,J3,J4,J5,J6\n";
+      std::cout << "  --recover-output-acceleration-transition\n";
+      std::cout << "  --diagnostic-joint-acceleration-boundary-rad-s2 VALUE (shared recoverable boundary)\n";
+      std::cout << "  --maximum-output-joint-acceleration-rad-s2 VALUE (native final hard boundary)\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
@@ -378,7 +393,7 @@ Options parse_options(int argc, char** argv) {
         o.maximum_output_joint_velocity_rad_s_per_joint.end(),
         [](double value) {
           return std::isfinite(value) && value > 0.0 &&
-                 value <= 2.0 * M_PI;
+                 value <= M_PI + 1e-12;
         });
     if (!(std::isfinite(o.excessive_tracking_error_abort_rad) &&
           o.excessive_tracking_error_abort_rad >= 0.25 &&
@@ -390,10 +405,21 @@ Options parse_options(int argc, char** argv) {
           o.startup_alignment_tolerance_rad <= 0.01 &&
           std::isfinite(o.maximum_output_joint_velocity_rad_s) &&
           o.maximum_output_joint_velocity_rad_s > 0.0 &&
-          o.maximum_output_joint_velocity_rad_s <= 2.0 * M_PI &&
+          o.maximum_output_joint_velocity_rad_s <= M_PI + 1e-12 &&
           valid_per_joint_output_velocity &&
           std::isfinite(o.diagnostic_joint_acceleration_boundary_rad_s2) &&
-          o.diagnostic_joint_acceleration_boundary_rad_s2 > 0.0))
+          o.diagnostic_joint_acceleration_boundary_rad_s2 > 0.0 &&
+          std::isfinite(o.maximum_output_joint_acceleration_rad_s2) &&
+          o.maximum_output_joint_acceleration_rad_s2 > 0.0 &&
+          o.maximum_output_joint_acceleration_rad_s2 + 1e-12 >=
+              o.diagnostic_joint_acceleration_boundary_rad_s2 &&
+          o.output_acceleration_hold_degraded_ns > 0 &&
+          o.output_acceleration_hold_hard_stop_ns >
+              o.output_acceleration_hold_degraded_ns &&
+          o.maximum_consecutive_output_acceleration_hold_cycles >= 2 &&
+          o.maximum_consecutive_output_acceleration_hold_cycles <= 10'000 &&
+          !(o.recover_output_acceleration_transition &&
+            o.abort_on_diagnostic_acceleration_boundary)))
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
     if (!o.emitted_points_file.empty() && !uses_fake_backend(o.mode))
       throw std::runtime_error("emitted point recording is fake-backend/offline only");
@@ -690,19 +716,32 @@ class JointServoResampler {
   void commit(const ResampledServoPoint& point, std::uint64_t command_ns) {
     if (point.servo_time_ns < last_servo_time_ns_)
       throw std::runtime_error("committed servo point moved backwards in time");
-    bool repeated = true;
-    for (std::size_t joint = 0; joint < emitted_.size(); ++joint)
-      repeated = repeated && point.position[joint] == emitted_[joint];
-    repeated_points_ += repeated ? 1 : 0;
-    emitted_ = point.position;
-    last_servo_time_ns_ = point.servo_time_ns;
-    ++emitted_points_;
+    commit_emitted(point);
     if (point.endpoint && active_) {
       active_ = false;
       ++endpoint_points_;
       if (command_ns >= to_accepted_ns_)
         maximum_endpoint_latency_ns_ = std::max(maximum_endpoint_latency_ns_, command_ns - to_accepted_ns_);
     }
+  }
+
+  void commit_transition_limited(const ResampledServoPoint& point) {
+    if (point.servo_time_ns < last_servo_time_ns_)
+      throw std::runtime_error("transition-limited servo point moved backwards in time");
+    commit_emitted(point);
+    // The raw PWL point was not emitted. Rebase the one retained destination
+    // on the actual emitted state and try it again on the next 8 ms tick.
+    // A newer AcceptedArmTarget still replaces this destination immediately;
+    // no historical destination queue is introduced.
+    start_ = emitted_;
+    segment_start_ns_ = last_servo_time_ns_;
+    if (kPeriodNs > std::numeric_limits<std::uint64_t>::max() - segment_start_ns_)
+      throw std::runtime_error("transition-limited segment duration overflows servo time");
+    segment_end_ns_ = segment_start_ns_ + kPeriodNs;
+    from_sequence_ = to_sequence_;
+    from_accepted_ns_ = to_accepted_ns_;
+    active_ = true;
+    ++transition_limited_points_;
   }
 
   const std::array<double, 6>& emitted() const { return emitted_; }
@@ -713,9 +752,20 @@ class JointServoResampler {
   std::uint64_t endpoint_points() const { return endpoint_points_; }
   std::uint64_t maximum_segment_duration_ns() const { return maximum_segment_duration_ns_; }
   std::uint64_t maximum_endpoint_latency_ns() const { return maximum_endpoint_latency_ns_; }
+  std::uint64_t transition_limited_points() const { return transition_limited_points_; }
   bool active() const { return active_; }
 
  private:
+  void commit_emitted(const ResampledServoPoint& point) {
+    bool repeated = true;
+    for (std::size_t joint = 0; joint < emitted_.size(); ++joint)
+      repeated = repeated && point.position[joint] == emitted_[joint];
+    repeated_points_ += repeated ? 1 : 0;
+    emitted_ = point.position;
+    last_servo_time_ns_ = point.servo_time_ns;
+    ++emitted_points_;
+  }
+
   std::array<double, 6> emitted_{}, start_{}, destination_{};
   std::uint64_t last_servo_time_ns_ = 0;
   std::uint64_t segment_start_ns_ = 0, segment_end_ns_ = 0;
@@ -724,6 +774,7 @@ class JointServoResampler {
   std::uint64_t from_sequence_ = 0, to_sequence_ = 0;
   std::uint64_t emitted_points_ = 0, repeated_points_ = 0;
   std::uint64_t destination_switches_ = 0, preemptions_ = 0, endpoint_points_ = 0;
+  std::uint64_t transition_limited_points_ = 0;
   std::uint64_t maximum_segment_duration_ns_ = 0, maximum_endpoint_latency_ns_ = 0;
   bool initialized_ = false, has_accepted_ = false, internal_hold_ = false, active_ = false;
 };
@@ -747,7 +798,92 @@ class OutputMotionDiagnostics {
     initialized_ = true;
   }
 
-  OutputMotionSample check(const ResampledServoPoint& point, std::uint64_t command_ns) {
+  OutputMotionSample check_candidate(const ResampledServoPoint& point,
+                                     std::uint64_t command_ns) {
+    OutputMotionSample sample = measure(point, command_ns);
+    require_velocity_boundary(point, sample);
+    const bool recoverable_crossing = record_recoverable_crossings(sample);
+    if (recoverable_crossing && options_.recover_output_acceleration_transition)
+      return sample;
+    if (recoverable_crossing && options_.abort_on_diagnostic_acceleration_boundary)
+      throw std::runtime_error(
+          "diagnostic output acceleration boundary crossed before SDK call: J" +
+          std::to_string(first_recoverable_violating_joint_ + 1) +
+          " acceleration=" +
+          std::to_string(sample.acceleration[first_recoverable_violating_joint_]) +
+          " rad/s2 limit=" +
+          std::to_string(options_.diagnostic_joint_acceleration_boundary_rad_s2));
+    if (options_.recover_output_acceleration_transition ||
+        options_.abort_on_diagnostic_acceleration_boundary)
+      require_hard_acceleration_boundary(point, sample);
+    return sample;
+  }
+
+  OutputMotionSample check_final(const ResampledServoPoint& point,
+                                 std::uint64_t command_ns) {
+    OutputMotionSample sample = measure(point, command_ns);
+    require_velocity_boundary(point, sample);
+    require_hard_acceleration_boundary(point, sample);
+    return sample;
+  }
+
+  bool recoverable_acceleration_crossing(
+      const OutputMotionSample& sample) const {
+    return std::any_of(
+        sample.acceleration.begin(), sample.acceleration.end(),
+        [this](double value) {
+          return std::abs(value) >
+              options_.diagnostic_joint_acceleration_boundary_rad_s2 + 1e-12;
+        });
+  }
+
+  ResampledServoPoint transition_limited_point(
+      const ResampledServoPoint& proposed,
+      const OutputMotionSample& proposed_motion) const {
+    if (!initialized_)
+      throw std::runtime_error("output transition limiter is not initialized");
+    if (proposed_motion.command_ns <= previous_command_ns_)
+      throw std::runtime_error("output transition limiter timestamp is invalid");
+    const double dt_s =
+        static_cast<double>(proposed_motion.command_ns - previous_command_ns_) / 1e9;
+    const double selected_boundary =
+        std::min(options_.diagnostic_joint_acceleration_boundary_rad_s2,
+                 options_.maximum_output_joint_acceleration_rad_s2);
+    // Leave deterministic floating-point headroom for reconstructing velocity
+    // from the selected position on the same command timestamp.
+    const double acceleration_boundary = selected_boundary -
+        std::max(1e-9, selected_boundary * 1e-9);
+    ResampledServoPoint limited = proposed;
+    limited.endpoint = false;
+    for (std::size_t joint = 0; joint < limited.position.size(); ++joint) {
+      const double maximum_velocity_change = acceleration_boundary * dt_s;
+      const double velocity = std::clamp(
+          proposed_motion.velocity[joint],
+          previous_velocity_[joint] - maximum_velocity_change,
+          previous_velocity_[joint] + maximum_velocity_change);
+      limited.position[joint] =
+          previous_position_[joint] + velocity * dt_s;
+    }
+    validate_manufacturer_joint_position_limits(limited.position);
+    return limited;
+  }
+
+  const std::array<double, 6>& previous_position() const {
+    return previous_position_;
+  }
+  const std::array<double, 6>& previous_velocity() const {
+    return previous_velocity_;
+  }
+  const std::array<double, 6>& previous_acceleration() const {
+    return previous_acceleration_;
+  }
+  std::size_t first_recoverable_violating_joint() const {
+    return first_recoverable_violating_joint_;
+  }
+
+ private:
+  OutputMotionSample measure(const ResampledServoPoint& point,
+                             std::uint64_t command_ns) const {
     validate_manufacturer_joint_position_limits(point.position);
     if (command_ns == 0) throw std::runtime_error("output command timestamp is invalid");
     OutputMotionSample sample{};
@@ -763,12 +899,20 @@ class OutputMotionDiagnostics {
       if (!std::isfinite(sample.velocity[joint]) || !std::isfinite(sample.acceleration[joint]) ||
           !std::isfinite(sample.jerk[joint]))
         throw std::runtime_error("non-finite controller-visible output diagnostic");
+    }
+    return sample;
+  }
+
+  void require_velocity_boundary(const ResampledServoPoint& point,
+                                 const OutputMotionSample& sample) {
+    for (std::size_t joint = 0; joint < point.position.size(); ++joint) {
       if (std::abs(sample.velocity[joint]) >
           options_.maximum_output_joint_velocity_rad_s_per_joint[joint] +
               1e-12) {
         ++speed_boundary_rejections_[joint];
         throw std::runtime_error(
-            "internal output-feasibility contract violation before SDK call: J" +
+            "internal output-feasibility contract violation before SDK call: "
+            "native output velocity hard boundary crossed before SDK call: J" +
             std::to_string(joint + 1) + " velocity=" + std::to_string(sample.velocity[joint]) +
             " rad/s limit=" +
             std::to_string(
@@ -777,20 +921,42 @@ class OutputMotionDiagnostics {
             " to_sequence=" + std::to_string(point.to_sequence) +
             " alpha=" + std::to_string(point.alpha));
       }
-      if (options_.abort_on_diagnostic_acceleration_boundary &&
-          std::abs(sample.acceleration[joint]) >
-              options_.diagnostic_joint_acceleration_boundary_rad_s2 + 1e-12) {
-        ++acceleration_boundary_rejections_[joint];
-        throw std::runtime_error(
-            "diagnostic output acceleration boundary crossed before SDK call: J" +
-            std::to_string(joint + 1) + " acceleration=" +
-            std::to_string(sample.acceleration[joint]) + " rad/s2 limit=" +
-            std::to_string(options_.diagnostic_joint_acceleration_boundary_rad_s2));
-      }
     }
-    return sample;
   }
 
+  bool record_recoverable_crossings(const OutputMotionSample& sample) {
+    bool crossing = false;
+    for (std::size_t joint = 0; joint < sample.acceleration.size(); ++joint) {
+      if (std::abs(sample.acceleration[joint]) >
+          options_.diagnostic_joint_acceleration_boundary_rad_s2 + 1e-12) {
+        ++acceleration_boundary_rejections_[joint];
+        if (!crossing) first_recoverable_violating_joint_ = joint;
+        crossing = true;
+      }
+    }
+    return crossing;
+  }
+
+  void require_hard_acceleration_boundary(
+      const ResampledServoPoint& point, const OutputMotionSample& sample) {
+    for (std::size_t joint = 0; joint < sample.acceleration.size(); ++joint) {
+      if (std::abs(sample.acceleration[joint]) >
+          options_.maximum_output_joint_acceleration_rad_s2 + 1e-12) {
+        ++hard_acceleration_boundary_rejections_[joint];
+        throw std::runtime_error(
+            "internal output-feasibility contract violation before SDK call: "
+            "native output acceleration hard boundary crossed before SDK call: J" +
+            std::to_string(joint + 1) + " acceleration=" +
+            std::to_string(sample.acceleration[joint]) + " rad/s2 limit=" +
+            std::to_string(options_.maximum_output_joint_acceleration_rad_s2) +
+            " from_sequence=" + std::to_string(point.from_sequence) +
+            " to_sequence=" + std::to_string(point.to_sequence) +
+            " alpha=" + std::to_string(point.alpha));
+      }
+    }
+  }
+
+ public:
   void commit(const ResampledServoPoint& point, const OutputMotionSample& sample) {
     if (initialized_) {
       for (std::size_t joint = 0; joint < point.position.size(); ++joint) {
@@ -816,6 +982,7 @@ class OutputMotionDiagnostics {
   const std::array<std::uint64_t, 6>& acceleration_boundary_crossings() const { return acceleration_boundary_crossings_; }
   const std::array<std::uint64_t, 6>& speed_boundary_rejections() const { return speed_boundary_rejections_; }
   const std::array<std::uint64_t, 6>& acceleration_boundary_rejections() const { return acceleration_boundary_rejections_; }
+  const std::array<std::uint64_t, 6>& hard_acceleration_boundary_rejections() const { return hard_acceleration_boundary_rejections_; }
 
  private:
   const Options& options_;
@@ -823,9 +990,122 @@ class OutputMotionDiagnostics {
   std::array<double, 6> maximum_delta_{}, maximum_velocity_{}, maximum_acceleration_{}, maximum_jerk_{};
   std::array<std::uint64_t, 6> acceleration_boundary_crossings_{};
   std::array<std::uint64_t, 6> acceleration_boundary_rejections_{};
+  std::array<std::uint64_t, 6> hard_acceleration_boundary_rejections_{};
   std::array<std::uint64_t, 6> speed_boundary_rejections_{};
   std::uint64_t previous_command_ns_ = 0;
+  std::size_t first_recoverable_violating_joint_ = 0;
   bool initialized_ = false;
+};
+
+struct OutputAccelerationHoldUpdate {
+  bool started = false;
+  bool degraded = false;
+  std::uint64_t duration_ns = 0;
+  std::uint32_t consecutive_cycles = 0;
+};
+
+class OutputAccelerationHoldTracker {
+ public:
+  explicit OutputAccelerationHoldTracker(const Options& options)
+      : options_(options) {}
+
+  OutputAccelerationHoldUpdate hold(std::uint64_t command_ns,
+                                    std::uint64_t destination_sequence) {
+    OutputAccelerationHoldUpdate update{};
+    if (!active_) {
+      active_ = true;
+      start_ns_ = command_ns;
+      start_sequence_ = destination_sequence;
+      current_consecutive_cycles_ = 0;
+      degraded_reported_ = false;
+      ++hold_count_;
+      update.started = true;
+    }
+    last_ns_ = command_ns;
+    ++current_consecutive_cycles_;
+    maximum_consecutive_cycles_ = std::max(
+        maximum_consecutive_cycles_, current_consecutive_cycles_);
+    update.duration_ns = command_ns - start_ns_;
+    update.consecutive_cycles = current_consecutive_cycles_;
+    if (!degraded_reported_ &&
+        update.duration_ns >= options_.output_acceleration_hold_degraded_ns) {
+      degraded_reported_ = true;
+      update.degraded = true;
+      ++degraded_count_;
+    }
+    if (update.duration_ns >=
+            options_.output_acceleration_hold_hard_stop_ns ||
+        current_consecutive_cycles_ >
+            options_.maximum_consecutive_output_acceleration_hold_cycles) {
+      throw std::runtime_error(
+          "sustained output acceleration hold exceeded escalation policy: "
+          "duration_ns=" + std::to_string(update.duration_ns) +
+          " consecutive_cycles=" +
+          std::to_string(current_consecutive_cycles_) +
+          " start_sequence=" + std::to_string(start_sequence_) +
+          " latest_sequence=" + std::to_string(destination_sequence));
+    }
+    return update;
+  }
+
+  std::uint64_t recover(std::uint64_t command_ns,
+                        std::uint64_t destination_sequence) {
+    if (!active_) return 0;
+    const std::uint64_t duration_ns = command_ns - start_ns_;
+    total_hold_duration_ns_ += duration_ns;
+    longest_hold_duration_ns_ =
+        std::max(longest_hold_duration_ns_, duration_ns);
+    recovery_sequence_ = destination_sequence;
+    ++recovery_count_;
+    active_ = false;
+    current_consecutive_cycles_ = 0;
+    return duration_ns;
+  }
+
+  void finalize(std::uint64_t end_ns) {
+    if (!active_) return;
+    const std::uint64_t duration_ns =
+        end_ns >= start_ns_ ? end_ns - start_ns_ : 0;
+    total_hold_duration_ns_ += duration_ns;
+    longest_hold_duration_ns_ =
+        std::max(longest_hold_duration_ns_, duration_ns);
+    active_ = false;
+  }
+
+  bool active() const { return active_; }
+  std::uint64_t start_ns() const { return start_ns_; }
+  std::uint64_t hold_count() const { return hold_count_; }
+  std::uint64_t recovery_count() const { return recovery_count_; }
+  std::uint64_t degraded_count() const { return degraded_count_; }
+  std::uint64_t total_hold_duration_ns() const {
+    return total_hold_duration_ns_;
+  }
+  std::uint64_t longest_hold_duration_ns() const {
+    return longest_hold_duration_ns_;
+  }
+  std::uint32_t current_consecutive_cycles() const {
+    return current_consecutive_cycles_;
+  }
+  std::uint32_t maximum_consecutive_cycles() const {
+    return maximum_consecutive_cycles_;
+  }
+  std::uint64_t recovery_sequence() const { return recovery_sequence_; }
+
+ private:
+  const Options& options_;
+  bool active_ = false;
+  bool degraded_reported_ = false;
+  std::uint64_t start_ns_ = 0;
+  std::uint64_t last_ns_ = 0;
+  std::uint64_t start_sequence_ = 0;
+  std::uint64_t recovery_sequence_ = 0;
+  std::uint64_t hold_count_ = 0;
+  std::uint64_t recovery_count_ = 0;
+  std::uint64_t degraded_count_ = 0;
+  std::uint64_t total_hold_duration_ns_ = 0;
+  std::uint64_t longest_hold_duration_ns_ = 0;
+  std::uint32_t current_consecutive_cycles_ = 0;
+  std::uint32_t maximum_consecutive_cycles_ = 0;
 };
 
 struct RecordedServoPoint {
@@ -838,10 +1118,19 @@ struct CycleTelemetry {
   std::uint64_t wall_ns = 0;
   std::uint64_t last_sequence = 0;
   std::uint64_t heartbeat_age_ns = 0;
+  std::string event = "normal_output";
   std::array<double, 6> emitted{}, destination{}, measured{}, tracking{};
+  std::array<double, 6> prior_emitted{}, proposed_emitted{}, continuity_error{};
+  OutputMotionSample prior_motion{}, proposed_motion{};
   ResampledServoPoint point{};
   OutputMotionSample motion{};
   ControllerHealth health{};
+  std::size_t violating_joint = 0;
+  std::uint64_t hold_start_ns = 0;
+  std::uint64_t hold_duration_ns = 0;
+  std::uint32_t consecutive_hold_cycles = 0;
+  std::uint64_t recovery_sequence = 0;
+  bool hold_degraded = false;
 };
 
 void write_six_json(std::ostream& out, const std::array<double, 6>& values) {
@@ -860,6 +1149,7 @@ void write_cycle_telemetry(const Options& options,
   for (const auto& row : rows) {
     out << "{\"host_monotonic_ns\":" << row.monotonic_ns
         << ",\"local_wall_clock_unix_ns\":" << row.wall_ns
+        << ",\"output_event\":\"" << row.event << "\""
         << ",\"controller_health_monotonic_ns\":" << row.health.monotonic_ns
         << ",\"controller_health_age_ns\":"
         << (row.monotonic_ns >= row.health.monotonic_ns ? row.monotonic_ns - row.health.monotonic_ns : 0)
@@ -876,7 +1166,36 @@ void write_cycle_telemetry(const Options& options,
         << ",\"resampler_from_sequence\":" << row.point.from_sequence
         << ",\"resampler_to_sequence\":" << row.point.to_sequence
         << ",\"resampler_alpha\":" << row.point.alpha
-        << ",\"emitted_command_rad\":";
+        << ",\"violating_joint_one_based\":"
+        << (row.violating_joint + 1)
+        << ",\"recoverable_output_acceleration_boundary_rad_s2\":"
+        << options.diagnostic_joint_acceleration_boundary_rad_s2
+        << ",\"native_output_acceleration_hard_boundary_rad_s2\":"
+        << options.maximum_output_joint_acceleration_rad_s2
+        << ",\"output_acceleration_hold_start_ns\":" << row.hold_start_ns
+        << ",\"output_acceleration_hold_duration_ns\":"
+        << row.hold_duration_ns
+        << ",\"consecutive_output_acceleration_hold_cycles\":"
+        << row.consecutive_hold_cycles
+        << ",\"output_acceleration_hold_degraded\":"
+        << (row.hold_degraded ? "true" : "false")
+        << ",\"output_acceleration_recovery_sequence\":"
+        << row.recovery_sequence
+        << ",\"prior_emitted_command_rad\":";
+    write_six_json(out, row.prior_emitted);
+    out << ",\"prior_emitted_velocity_rad_s\":";
+    write_six_json(out, row.prior_motion.velocity);
+    out << ",\"prior_emitted_acceleration_rad_s2\":";
+    write_six_json(out, row.prior_motion.acceleration);
+    out << ",\"proposed_emitted_command_rad\":";
+    write_six_json(out, row.proposed_emitted);
+    out << ",\"proposed_emitted_velocity_rad_s\":";
+    write_six_json(out, row.proposed_motion.velocity);
+    out << ",\"proposed_emitted_acceleration_rad_s2\":";
+    write_six_json(out, row.proposed_motion.acceleration);
+    out << ",\"proposed_minus_selected_continuity_error_rad\":";
+    write_six_json(out, row.continuity_error);
+    out << ",\"emitted_command_rad\":";
     write_six_json(out, row.emitted);
     out << ",\"active_segment_destination_rad\":";
     write_six_json(out, row.destination);
@@ -890,6 +1209,8 @@ void write_cycle_telemetry(const Options& options,
     write_six_json(out, row.motion.velocity);
     out << ",\"emitted_acceleration_rad_s2\":";
     write_six_json(out, row.motion.acceleration);
+    out << ",\"emitted_jerk_rad_s3\":";
+    write_six_json(out, row.motion.jerk);
     out << "}\n";
   }
 }
@@ -1420,6 +1741,42 @@ const char* mode_name(Mode mode) {
   return "unknown";
 }
 
+std::string stop_classification(const std::string& outcome, int error_code) {
+  if (outcome == "operator_stop_command")
+    return "normal_clutch_release";
+  if (outcome.find("native output velocity hard boundary") !=
+      std::string::npos)
+    return "native_output_velocity_hard_fault";
+  if (outcome.find("native output acceleration hard boundary") !=
+          std::string::npos ||
+      outcome.find("diagnostic output acceleration boundary") !=
+          std::string::npos ||
+      outcome.find("sustained output acceleration hold") !=
+          std::string::npos)
+    return "native_output_acceleration_hard_fault";
+  if (outcome.find("controller ") != std::string::npos ||
+      outcome.find("robot is in E-stop or collision") != std::string::npos ||
+      outcome.find("powered, and servo-enabled") != std::string::npos)
+    return "controller_alarm";
+  if (outcome.find("edg_servo_j failed") != std::string::npos ||
+      outcome.find("injected fake SDK failure") != std::string::npos)
+    return "SDK_command_failure";
+  if (outcome == "target_transport_failure" ||
+      outcome == "invalid_command")
+    return "IPC_failure";
+  if (outcome.find("target_timeout") != std::string::npos ||
+      outcome == "command_stream_timeout")
+    return "producer_liveness_loss";
+  if (outcome.find("timing_miss") != std::string::npos ||
+      outcome == "control_loop_overrun")
+    return "hard_timing_fault";
+  if (outcome.find("tracking") != std::string::npos)
+    return "tracking_hard_fault";
+  if (outcome.find("non-finite") != std::string::npos)
+    return "non_finite_output_hard_fault";
+  return error_code == 0 ? "normal_completion" : "worker_exit";
+}
+
 void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, std::uint64_t rejected,
                    std::uint64_t warning_cycles,
                    double elapsed_s, double cpu_s, double maximum_command_delta_rad,
@@ -1429,14 +1786,18 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
                    const std::array<double, 6>& initial_joint_position_rad,
                    const JointServoResampler& resampler,
                    const OutputMotionDiagnostics& output_diagnostics,
+                   const OutputAccelerationHoldTracker& output_acceleration_hold,
                    const std::array<double, 6>& final_accepted_target_rad) {
   std::ofstream file;
   std::ostream* output = &std::cout;
   if (!o.metrics_file.empty()) { file.open(o.metrics_file); if (!file) throw std::runtime_error("cannot open metrics file"); output = &file; }
   auto& out = *output;
-  out << std::setprecision(12) << "{\n  \"schema_version\":\"jaka_worker_metrics.v2\",\n"
+  out << std::setprecision(12) << "{\n  \"schema_version\":\"jaka_worker_metrics.v3\",\n"
       << "  \"mode\":\"" << mode_name(o.mode) << "\",\n"
-      << "  \"outcome\":\"" << outcome << "\",\n  \"requested_period_ns\":" << kPeriodNs << ",\n"
+      << "  \"outcome\":\"" << outcome << "\",\n"
+      << "  \"stop_classification\":\""
+      << stop_classification(outcome, error_code) << "\",\n"
+      << "  \"requested_period_ns\":" << kPeriodNs << ",\n"
       << "  \"elapsed_s\":" << elapsed_s << ",\n  \"worker_cpu_s\":" << cpu_s << ",\n  \"worker_cpu_percent\":" << (elapsed_s > 0 ? cpu_s / elapsed_s * 100.0 : 0.0) << ",\n"
       << "  \"loop_rate_hz\":" << (elapsed_s > 0 ? s.count / elapsed_s : 0.0) << ",\n"
       << "  \"accepted_target_rate_hz\":" << (elapsed_s > 0 ? accepted / elapsed_s : 0.0) << ",\n"
@@ -1481,11 +1842,30 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"resampler_destination_switches\":" << resampler.destination_switches() << ",\n"
       << "  \"resampler_preemptions\":" << resampler.preemptions() << ",\n"
       << "  \"resampler_endpoint_points\":" << resampler.endpoint_points() << ",\n"
+      << "  \"resampler_transition_limited_points\":"
+      << resampler.transition_limited_points() << ",\n"
       << "  \"resampler_maximum_segment_duration_ns\":" << resampler.maximum_segment_duration_ns() << ",\n"
       << "  \"resampler_maximum_endpoint_latency_ns\":" << resampler.maximum_endpoint_latency_ns() << ",\n"
       << "  \"resampler_active_segment\":" << (resampler.active() ? "true" : "false") << ",\n"
       << "  \"output_joint_velocity_boundary_rad_s\":" << o.maximum_output_joint_velocity_rad_s << ",\n"
+      << "  \"output_joint_velocity_boundary_provenance\":\"project-selected normal operating boundary, bounded by official ServoJ 180 deg/s ceiling\",\n"
+      << "  \"official_servoj_joint_speed_ceiling_rad_s\":" << M_PI << ",\n"
+      << "  \"official_servoj_joint_speed_ceiling_provenance\":\"JAKA ServoJ documentation\",\n"
+      << "  \"recoverable_output_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"diagnostic_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
+      << "  \"native_output_joint_acceleration_hard_boundary_rad_s2\":" << o.maximum_output_joint_acceleration_rad_s2 << ",\n"
+      << "  \"output_joint_acceleration_boundary_provenance\":\"project-selected; no Mini2 ServoJ acceleration maximum was found in official documentation or installed SDK readback\",\n"
+      << "  \"recover_output_acceleration_transition\":" << (o.recover_output_acceleration_transition ? "true" : "false") << ",\n"
+      << "  \"output_acceleration_hold_degraded_ns\":" << o.output_acceleration_hold_degraded_ns << ",\n"
+      << "  \"output_acceleration_hold_hard_stop_ns\":" << o.output_acceleration_hold_hard_stop_ns << ",\n"
+      << "  \"maximum_consecutive_output_acceleration_hold_cycles\":" << o.maximum_consecutive_output_acceleration_hold_cycles << ",\n"
+      << "  \"recoverable_output_acceleration_hold_count\":" << output_acceleration_hold.hold_count() << ",\n"
+      << "  \"recovered_from_output_acceleration_hold_count\":" << output_acceleration_hold.recovery_count() << ",\n"
+      << "  \"output_acceleration_hold_degraded_count\":" << output_acceleration_hold.degraded_count() << ",\n"
+      << "  \"output_acceleration_hold_total_duration_ns\":" << output_acceleration_hold.total_hold_duration_ns() << ",\n"
+      << "  \"output_acceleration_hold_longest_duration_ns\":" << output_acceleration_hold.longest_hold_duration_ns() << ",\n"
+      << "  \"output_acceleration_hold_maximum_consecutive_cycles\":" << output_acceleration_hold.maximum_consecutive_cycles() << ",\n"
+      << "  \"output_acceleration_hold_last_recovery_sequence\":" << output_acceleration_hold.recovery_sequence() << ",\n"
       << "  \"maximum_joint_velocity_rad_s\":" << tracker.maximum_velocity() << ",\n"
       << "  \"maximum_joint_acceleration_rad_s2\":" << tracker.maximum_acceleration() << ",\n"
       << "  \"maximum_joint_jerk_rad_s3\":" << tracker.maximum_jerk() << ",\n"
@@ -1521,6 +1901,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
   write_six("output_speed_boundary_rejections", output_diagnostics.speed_boundary_rejections(), true);
   write_six("output_acceleration_boundary_crossings", output_diagnostics.acceleration_boundary_crossings(), true);
   write_six("output_acceleration_boundary_rejections", output_diagnostics.acceleration_boundary_rejections(), true);
+  write_six("output_acceleration_hard_boundary_rejections", output_diagnostics.hard_acceleration_boundary_rejections(), true);
   std::array<double, 6> endpoint_error{};
   if (resampler.emitted_points() > 0)
     for (std::size_t joint = 0; joint < 6; ++joint)
@@ -1563,6 +1944,7 @@ int run(const Options& o) {
   JerkBoundedJointTracker tracker(o);
   JointServoResampler joint_resampler;
   OutputMotionDiagnostics output_diagnostics(o);
+  OutputAccelerationHoldTracker output_acceleration_hold(o);
   std::vector<RecordedServoPoint> recorded_servo_points;
   if (!o.emitted_points_file.empty()) recorded_servo_points.reserve(4096);
   std::vector<CycleTelemetry> cycle_telemetry;
@@ -1574,6 +1956,8 @@ int run(const Options& o) {
   std::uint64_t consecutive_timing_warnings = 0, consecutive_completion_misses = 0;
   std::uint64_t warning_cycles = 0;
   std::uint64_t status_accepted = 0, status_rejected = 0;
+  bool output_acceleration_hold_status_pending = false;
+  bool output_acceleration_recovery_status_pending = false;
   std::array<double, 6> initial{}, observed{}, target{}, ik_target{};
   std::array<double, 6> tracking_reference{}, command_reference{};
   bool has_ik_target = false;
@@ -1922,7 +2306,37 @@ int run(const Options& o) {
         // expired historical ticks are never emitted in a catch-up burst.
         const std::uint64_t servo_evaluation_time = timing_rearmed_after_edg
             ? previous : (schedule_realign ? cycle_start : deadline);
-        const ResampledServoPoint servo_point = joint_resampler.evaluate(servo_evaluation_time);
+        const ResampledServoPoint proposed_servo_point =
+            joint_resampler.evaluate(servo_evaluation_time);
+        ResampledServoPoint servo_point = proposed_servo_point;
+        const auto write_start = now_ns();
+        const auto prior_emitted = output_diagnostics.previous_position();
+        OutputMotionSample prior_motion{};
+        prior_motion.velocity = output_diagnostics.previous_velocity();
+        prior_motion.acceleration = output_diagnostics.previous_acceleration();
+        const OutputMotionSample proposed_motion =
+            output_diagnostics.check_candidate(
+                proposed_servo_point, write_start);
+        const bool transition_limited =
+            o.recover_output_acceleration_transition &&
+            output_diagnostics.recoverable_acceleration_crossing(
+                proposed_motion);
+        OutputAccelerationHoldUpdate hold_update{};
+        OutputMotionSample motion_sample = proposed_motion;
+        bool recovered_from_output_acceleration_hold = false;
+        std::uint64_t recovered_hold_duration_ns = 0;
+        if (transition_limited) {
+          servo_point = output_diagnostics.transition_limited_point(
+              proposed_servo_point, proposed_motion);
+          motion_sample =
+              output_diagnostics.check_final(servo_point, write_start);
+          hold_update = output_acceleration_hold.hold(
+              write_start, proposed_servo_point.to_sequence);
+          output_acceleration_hold_status_pending = true;
+          state = State::Holding;
+        } else if (output_acceleration_hold.active()) {
+          recovered_from_output_acceleration_hold = true;
+        }
         target = servo_point.position;
         bool hard_crossing = false;
         for (std::size_t joint = 0; joint < target.size(); ++joint) {
@@ -1960,27 +2374,57 @@ int run(const Options& o) {
         }
         if (consecutive_tracking_crossings >= o.excessive_tracking_error_consecutive_cycles)
           throw std::runtime_error("clearly excessive measured joint tracking error");
-        const auto write_start = now_ns();
-        const OutputMotionSample motion_sample = output_diagnostics.check(servo_point, write_start);
         backend->command(target);
         command_time = now_ns();
         write_duration = command_time - write_start;
         output_diagnostics.commit(servo_point, motion_sample);
-        joint_resampler.commit(servo_point, command_time);
+        if (transition_limited) {
+          joint_resampler.commit_transition_limited(servo_point);
+        } else {
+          joint_resampler.commit(servo_point, command_time);
+          if (recovered_from_output_acceleration_hold) {
+            recovered_hold_duration_ns = output_acceleration_hold.recover(
+                write_start, servo_point.to_sequence);
+            output_acceleration_recovery_status_pending = true;
+            state = State::Running;
+          }
+        }
         if (!o.cycle_telemetry_file.empty()) {
           CycleTelemetry row{};
           row.monotonic_ns = command_time;
           row.wall_ns = wall_now_ns();
           row.last_sequence = last_sequence;
           row.heartbeat_age_ns = age;
+          row.event = transition_limited
+              ? "recoverable_output_acceleration_hold"
+              : (recovered_from_output_acceleration_hold
+                    ? "recovered_from_output_acceleration_hold"
+                    : "normal_output");
           row.emitted = target;
           row.destination = ik_target;
           row.measured = observed;
+          row.prior_emitted = prior_emitted;
+          row.proposed_emitted = proposed_servo_point.position;
+          row.prior_motion = prior_motion;
+          row.proposed_motion = proposed_motion;
+          for (std::size_t joint = 0; joint < target.size(); ++joint)
+            row.continuity_error[joint] =
+                proposed_servo_point.position[joint] - target[joint];
           for (std::size_t joint = 0; joint < target.size(); ++joint)
             row.tracking[joint] = shortest_joint_difference(target[joint], observed[joint]);
           row.point = servo_point;
           row.motion = motion_sample;
           row.health = cycle_health;
+          row.violating_joint =
+              output_diagnostics.first_recoverable_violating_joint();
+          row.hold_start_ns = output_acceleration_hold.start_ns();
+          row.hold_duration_ns = transition_limited
+              ? hold_update.duration_ns : recovered_hold_duration_ns;
+          row.consecutive_hold_cycles =
+              transition_limited ? hold_update.consecutive_cycles : 0;
+          row.recovery_sequence = recovered_from_output_acceleration_hold
+              ? servo_point.to_sequence : 0;
+          row.hold_degraded = hold_update.degraded;
           cycle_telemetry.push_back(row);
         }
         if (is_joint_zero_motion_mode(o.mode)) {
@@ -2060,7 +2504,8 @@ int run(const Options& o) {
         deadline = cycle_start;
         ++samples.schedule_realignments;
       }
-      if ((i % 13) == 0) {
+      if ((i % 13) == 0 || output_acceleration_hold_status_pending ||
+          output_acceleration_recovery_status_pending) {
         std::uint32_t flags = kStatusConnected;
         if (backend->edg_active()) flags |= kStatusEdgActive;
         if (state == State::Holding) flags |= kStatusHolding;
@@ -2068,10 +2513,17 @@ int run(const Options& o) {
         if (accepted != status_accepted) flags |= kStatusAccepted;
         if (rejected != status_rejected) flags |= kStatusRejected;
         if (ever_received && age >= o.warning_ns) flags |= kStatusTargetWarning;
+        if (output_acceleration_hold.active() ||
+            output_acceleration_hold_status_pending)
+          flags |= kStatusOutputAccelerationHold;
+        if (output_acceleration_recovery_status_pending)
+          flags |= kStatusOutputAccelerationRecovered;
         StatusPacket status{kStatusMagic, kWireVersion, static_cast<std::uint16_t>(state), flags, last_sequence, i,
                             cycle_end, command_time, read_end, {}, error_code, 0};
         std::copy(observed.begin(), observed.end(), status.joint_position_rad); status_sender.send_status(status);
         status_accepted = accepted; status_rejected = rejected;
+        output_acceleration_hold_status_pending = false;
+        output_acceleration_recovery_status_pending = false;
       }
       if (exit_after_cycle) break;
     }
@@ -2085,6 +2537,7 @@ int run(const Options& o) {
     fault_outcome = std::string("fault: ") + e.what();
     outcome = fault_outcome.c_str();
   }
+  output_acceleration_hold.finalize(now_ns());
   backend->cleanup();
   const int cleanup_error_code = backend->cleanup_error_code();
   if (cleanup_error_code != 0 && error_code == 0) {
@@ -2103,7 +2556,8 @@ int run(const Options& o) {
   write_metrics(o, samples, accepted, rejected, warning_cycles, (end - start) / 1e9,
                 cpu_seconds(usage_end) - cpu_seconds(usage_start), maximum_command_delta_rad,
                 maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker,
-                initial, joint_resampler, output_diagnostics, ik_target);
+                initial, joint_resampler, output_diagnostics,
+                output_acceleration_hold, ik_target);
   return error_code == 0 ? 0 : 2;
 }
 }  // namespace
