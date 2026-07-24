@@ -111,3 +111,84 @@ Renderer options include `--hide-camera-placeholders`, `--clean-preview`, and ex
 The sweep evaluated 130 static configurations and nine actuator-driven trajectories (31,995 MuJoCo steps). Zero pose remains free of environment contact, no floor contact occurred, the operational yaw stayed 180°, and the simulation remained finite without solver warnings. Three trajectories failed the configured policy: low-table approach (persistent hand/table contact), RH56 open-to-close and close-to-open (non-adjacent thumb/index CoACD self-contact). Forward P -x reach warned on persistent shallow Link5/table contact. Static diagnostic samples reached 81.894 mm environment penetration and 63.370 kN simulated normal constraint force; these are deliberately infeasible sampled states, not hardware-force predictions. Symmetric rail contacts also require rail-spacing/primitive review.
 
 The scene therefore does **not** qualify as Simulation Ready. The next task is to review the rail/table primitive placement and the failing event renders, then decide whether each finding is a scene-geometry error, an overly conservative collision primitive, or a pose that must be excluded. Eye-to-hand calibration, wrist-camera calibration and final robot/world registration remain Manipulation Ready blockers. This sweep is simulation-only characterization, not safety certification.
+
+---
+
+# 中文版：Real-to-Sim 数字孪生
+
+## 当前状态
+
+第一次确定性离线碰撞 sweep 后，成熟度仍为 **Integrated Workspace**。默认 MuJoCo 场景
+是干净的 P-frame 工程视图：JAKA Mini2 + Inspire RH56、参数化桌面和铝型材框架、地面、
+灯光、可选相机占位、坐标/debug axis 以及空的未来物体层。稀疏 COLMAP marker 默认关闭。
+
+此子系统不命令真机，也不实现抓取、规划、学习或最终相机/机器人标定。
+
+## 坐标系与运行放置
+
+World = P。P 是最低固定安装面上 110 mm 安装孔 PCD 的中心；+z 向上，+x 沿两条纵向
+铝轨指向前横梁/操作者侧。`annotated_P_frame.jpg` 确认固定通信线缆位于 P -x 侧。
+
+B 仍是内部 `jaka_Link_0`。场景使用独立变换：
+
+```text
+T_P_B_operational
+translation: [0, 0, 0] m
+yaw: 180 deg
+quaternion xyzw: [0, 0, 1, 0]
+status: physically_constrained_provisional
+```
+
+这不是已标定的 `T_B_P`；`T_B_P` 仍为空。区别记录在
+`digital_twin/configs/transforms.yaml` 和 `robot_operational_placement.yaml`。
+
+JAKA/RH56 全零时，RH56 local +y 是掌心外法向。仓库 `T_F_H` 将其映射到 B +x；
+180° operational root yaw 再映射到 P -x，数值误差 0.000211°。`T_F_H`、关节零位、
+mesh、collision 和 actuator 未改变。
+
+## 可视层策略
+
+默认启用机器人、桌面、铝框、地面、灯光、工程坐标轴和相机占位；默认禁用 sparse
+reconstruction、线缆、标定板、杂物和未经验证的永久背景。
+
+可选 `colmap_sparse_debug` 层经过裁剪、track/filter、component filter 和降采样，单独
+保存且始终 `contype=0`、`conaffinity=0`。它不是表面，不能成为碰撞几何。
+
+## 复现
+
+英文部分的命令直接复用已接受的 reconstruction 输出，不会重新运行 COLMAP、ChArUco 或
+metric scale estimation。主要步骤是：
+
+1. `build_workspace_visual.py` 生成稀疏 debug visual；
+2. `build_mujoco_workspace_scene.py` 生成默认/稀疏 debug scene；
+3. `render_workspace_scene.py` 生成工程视图；
+4. `validate_integrated_workspace.py` 验证 scene 和变换；
+5. `run_joint_space_collision_sweep.py` 执行离线碰撞 sweep。
+
+默认 scene builder 只有显式传入 `--show-sparse-debug` 才会加入稀疏 marker。
+
+## 重要输出
+
+- 默认场景：`models/digital_twin/workspace_scene.xml`
+- 可选 debug 场景：`models/digital_twin/workspace_scene_sparse_debug.xml`
+- 验证：`artifacts/digital_twin/validation_report.{json,md}`
+- 碰撞 sweep：`artifacts/digital_twin/collision_sweep/summary.{json,md}`
+
+## 当前边界与下一步
+
+sweep 检查了 130 个静态配置和 9 条 actuator trajectory，共 31,995 个 MuJoCo step。
+zero pose 没有环境接触或地面接触，operational yaw 保持 180°，仿真无非有限值或 solver
+warning。三条 trajectory 不符合策略：
+
+- low-table approach：持续 hand/table 接触；
+- RH56 open-to-close；
+- RH56 close-to-open：非相邻 thumb/index CoACD 自接触。
+
+P -x reach 还出现持续浅 Link5/table warning。静态诊断中的 81.894 mm penetration 和
+63.370 kN 模拟 constraint force 来自故意采样的不可行状态，不是真机力预测。对称 rail
+接触也需要检查 rail spacing/primitive。
+
+因此场景尚不满足 **Simulation Ready**。下一步是审阅 rail/table primitive 和失败事件
+render，区分场景几何错误、过度保守 collision primitive 或必须排除的位姿。eye-to-hand、
+wrist camera 和最终 robot/world registration 仍是 Manipulation Ready blocker。本 sweep
+只是仿真表征，不是安全认证。

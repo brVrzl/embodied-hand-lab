@@ -55,3 +55,49 @@ Do not repeat the approximately 128 mm multi-axis/large-wrist run, combine axes,
 approach a hard singularity, change payload/TCP/controller settings, or expand
 the envelope in the same gate. This maintenance session does not authorize the
 test.
+
+---
+
+# 中文版：当前状态
+
+## 已实现并可用
+
+Quest HTS/CTRL 输入边界、release-before-press clutch、新鲜 wrist/head/TCP 参考捕获、
+坐标映射、滤波、有界 continuation IK、基于 Jacobian 的奇异性处理、碰撞/限位/分支检查、
+输出速度/加速度可行性、`HOLD_REJECTED`、不可变已接受目标、MuJoCo/JAKA adapter 和
+native latest-destination resampler 均已实现并有离线测试。
+
+实时 Quest/MuJoCo 机械臂和仿真 RH56 grip retarget 已通过仿真验证。默认测试和 fake
+native worker 不需要硬件。
+
+## 最新真机证据
+
+一次较大的 Quest/JAKA 历史运行在约 128 mm Quest/TCP 位移和较大 wrist 运动后触发了
+J4 servo collision alarm，原因未完全确定。之后操作者报告已应用 payload 0.8 kg 和
+COM `[9.289, 12.427, 36.961]` mm。
+
+双 SDK 会话健康监控尝试没有产生运动：第二次登录阻止主 worker 进入 `CONNECTED`。
+设计已改为在唯一 SDK 会话中做轻量轮询。后续受限真机运行持续 27.09 秒、3377 个命令
+tick，无时序 warning/hard miss/控制器报警，验证了该范围内的轮询时序。但运行在 J4
+目标前停止，因为已接受目标包含 14.199679 rad/s² 的控制器可见加速度。
+
+当前 HEAD 在构造 `AcceptedArmTarget` 前增加共享 4π rad/s² 输出加速度 gate。离线回放
+会进入安全 `HOLD_REJECTED`，并在下一可行 tick 恢复。此修复尚未完成真机验证；TCP 仍
+记录为零。
+
+## 下一受限真机 Gate
+
+需要新的显式授权，最多约 30 秒，在已知健康姿态执行 post-payload diagnostic：
+
+- 只读取并确认 payload/COM、安装、零 TCP 记录、安全限制、报警、工作区和 stop access；
+- release-before-press，首次 engage 静止且无跳变；
+- 一次轻柔 forward-and-return 平移，然后单独一次小幅单轴 wrist；
+- 加速度不可行候选必须保持 `HOLD_REJECTED`，可行撤退后立即恢复；
+- native defensive acceleration reject 应保持为零，tracking/timing/health 有界；
+- release 必须停止并清理；
+- 保存 accepted/emitted target、metrics、控制器状态和停止原因。
+
+当前手动入口见[真机遥操作文档](../operation/jaka_arm_teleoperation.md)。
+
+不要重复约 128 mm 多轴/大 wrist 运行，不要组合轴、接近硬奇异点、修改 payload/TCP/
+控制器设置或在同一 gate 扩大范围。阅读文档不构成授权。

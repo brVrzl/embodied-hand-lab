@@ -5,6 +5,10 @@ status page, then use the topic-specific page. Historical reports retain the
 claims and paths that were true when written; they do not override current code
 or this index.
 
+Important current reading pages place a corresponding Chinese version after
+the English text. Historical evidence remains in its original language so that
+the recorded result is not rewritten after the fact.
+
 ## Current project documentation
 
 ### Architecture
@@ -69,3 +73,72 @@ evidence is intentionally not mixed into normal operator instructions.
 - Never rewrite raw evidence or a failed historical outcome.
 - Move superseded material to history and update its index; delete only when
   complete duplication and absence of active references are proven.
+
+---
+
+# 中文版：文档索引
+
+本索引把当前操作说明与历史证据分开。建议先阅读“当前状态”，再进入具体主题。历史报告只
+保留其生成时真实的结论和路径，不覆盖当前代码和本索引。
+
+## 当前项目文档
+
+### 架构
+
+- [架构概览](architecture/overview.md)
+- [共享目标管线](architecture/shared_target_pipeline.md)
+- [仿真/真机一致性](architecture/simulation_hardware_parity.md)
+- [坐标系](architecture/coordinate_frames.md)
+
+### 操作
+
+- [Quest/JAKA MuJoCo 仿真](operation/simulation_demo.md)
+- [Quest 主机设置](operation/quest_setup.md)
+- [真机前置条件](operation/hardware_prerequisites.md)
+- [JAKA 机械臂遥操作](operation/jaka_arm_teleoperation.md)
+- [RH56 操作](operation/rh56_operation.md)
+- [故障排查](operation/troubleshooting.md)
+
+### 安全与状态
+
+- [安全模型](safety/safety_model.md)
+- [真机测试 gate](safety/physical_test_gates.md)
+- [控制器配置边界](safety/controller_configuration.md)
+- [事故响应](safety/incident_response.md)
+- [当前状态](status/current_status.md)
+- [已知限制](status/known_limitations.md)
+- [验证矩阵](status/validation_matrix.md)
+
+### 开发与参考
+
+- [仓库布局](development/repository_layout.md)
+- [环境设置](development/setup.md)
+- [构建](development/build.md)
+- [测试](development/testing.md)
+- [配置](development/configuration.md)
+- [日志与回放](development/logging_and_replay.md)
+- [贡献流程](development/contribution_workflow.md)
+- [仓库整理审计](development/repository_consolidation_audit.md)
+- [命令参考](reference/command_reference.md)
+- [配置参考](reference/config_reference.md)
+- [日志结构](reference/log_schemas.md)
+- [术语表](reference/glossary.md)
+
+## 其他当前区域
+
+- [数字孪生工作区](digital_twin/README.md)
+- [运动输入平台](motion_input/README.md)
+- [RGB-D 准备状态](d435_depth_pointcloud_readiness.md)
+
+## 历史证据
+
+[历史索引](history/README.md)对真机 gate、事故、原始测量和已取代设计进行分类。历史证据
+不会混入普通操作说明。
+
+## 文档规则
+
+- 每个主题只保留一个当前权威页面。
+- 使用仓库相对路径，并用当前 `--help` 核实命令。
+- 明确区分离线、仿真、真机、失败和未验证状态。
+- 不重写原始证据或历史失败结果。
+- 被取代材料进入历史区；只有证明完全重复且无活动引用时才删除。

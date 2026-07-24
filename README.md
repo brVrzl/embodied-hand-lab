@@ -97,3 +97,92 @@ The worktree may contain untracked datasets, models, captures, calibration
 assets, or concurrent experiments. They are not part of the repository merely
 because they are present locally; preserve them and stage changes
 intentionally.
+
+---
+
+# 中文版
+
+Embodied Lab 是面向 JAKA Mini2 机械臂、Inspire RH56DFX 灵巧手、Meta Quest 3
+输入、MuJoCo 仿真、感知和机器人学习实验的研发仓库。目前最成熟的链路是一条共享的
+Quest 到 JAKA 目标生成管线；它产生的已接受关节目标既可以驱动 MuJoCo，也可以交给
+需要单独授权的真机 ServoJ/EDG 适配器。
+
+```text
+Quest 手腕/头部 + 左 Touch 控制器
+  -> 输入验证与 clutch/参考位姿捕获
+  -> 坐标映射与滤波
+  -> continuation IK 与安全可行性检查
+  -> 不可变 AcceptedArmTarget
+  -> MuJoCo 仿真 | JAKA 真机适配器
+```
+
+仿真和真机在输出适配器之前完全共用同一条逻辑。真机路径不跟随 MuJoCo `qpos`，
+不独立求解 IK，也不写入 payload、TCP、安装方向或控制器安全配置。
+
+## 从这里开始
+
+- [文档索引](docs/README.md)
+- [当前状态和下一安全步骤](docs/status/current_status.md)
+- [架构概览](docs/architecture/overview.md)
+- [仿真演示](docs/operation/simulation_demo.md)
+- [开发环境与测试](docs/development/setup.md)
+- [安全模型](docs/safety/safety_model.md)
+- [验证矩阵](docs/status/validation_matrix.md)
+- [JAKA 真机遥操作](docs/operation/jaka_arm_teleoperation.md)
+
+## 仿真优先快速开始
+
+创建支持的 Python 环境：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+```
+
+运行离线测试：
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
+只检查仿真入口，不连接设备：
+
+```bash
+./scripts/run_quest_jaka_sim_demo.sh --help
+.venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
+```
+
+实时仿真接收 Quest UDP 数据，但不会导入或初始化 JAKA/RH56 真机 SDK。左手食指采用
+release-before-press：按下时捕获机械臂参考并保持运行；左手 grip 独立控制仿真 RH56。
+完整说明见[仿真指南](docs/operation/simulation_demo.md)。
+
+## 当前验证边界
+
+共享目标生成、continuation IK、基于 Jacobian 的奇异性策略、`HOLD_REJECTED`、输出速度/
+加速度可行性、原生线性重采样、启动连续性和 native zero-IK joint mode 均有离线覆盖。
+Quest/MuJoCo 路径已经过仿真验证。
+
+历史上的受限真机 gate 验证了部分 JAKA 基础能力并执行过 Quest 遥操作。一次较大范围运行
+触发了 J4 collision alarm。操作者修正 payload 后，单 SDK 会话轻量健康轮询在一个受限
+运行中通过了时序验证，但该运行又暴露了已接受目标的输出加速度过大。当前加速度可行性修复
+仅完成离线验证，尚未完成修复后的真机验证；J4 碰撞原因仍未完全确定。
+
+真机运行不是普通 quick start。每次都必须针对精确 gate 获得新的显式授权，并满足
+[硬件前置条件](docs/operation/hardware_prerequisites.md)。仓库维护或运行 `--help` 永远不
+代表允许登录机器人、enable、进入 servo/EDG 或执行运动。
+
+## 当前项目区域
+
+- `src/quest_jaka_sim`、`src/teleoperation`、`src/motion_input`：当前 Quest 输入和共享
+  机械臂目标管线。
+- `native/jaka_servo_worker`：125 Hz JAKA EDG 传输和安全 worker。
+- `src/rh56_driver`、`src/jaka_driver_adapter`、`src/robot_bringup`：机器人/灵巧手适配器
+  以及并行 bring-up 工具。
+- `data/sim_assets`、`models`：MuJoCo 机器人和集成工作区资产。
+- `src/vision_interface`：感知和 RealSense 标定。
+- `docs/digital_twin`：数字孪生；在完成所记录的标定和碰撞问题前仍未达到
+  “Simulation Ready”。
+- `docs/history`：保留的 gate、事故、审计和设计证据，不是当前命令入口。
+
+工作区中可能存在未跟踪的数据集、模型、采集、标定资产或并行实验。它们不会因为存在于本地
+就自动成为仓库内容；修改和暂存时必须明确区分。
