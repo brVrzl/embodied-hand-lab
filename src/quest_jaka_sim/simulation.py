@@ -35,6 +35,7 @@ from teleoperation.output_feasibility import (
     JointOutputContractConfig,
     JointOutputFeasibility,
     JointOutputFeasibilityTracker,
+    PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
 )
 
 from .mapping import MappingRejection, ProvisionalMappingConfig, ProvisionalOperatorToRobotMapper
@@ -224,7 +225,10 @@ class CommandTrajectoryLimits:
                 values.get("command_maximum_joint_acceleration_rad_s2", 4.0 * math.pi)
             ),
             maximum_jerk_rad_s3=float(
-                values.get("command_maximum_joint_jerk_rad_s3", 20.0 * math.pi)
+                values.get(
+                    "command_maximum_joint_jerk_rad_s3",
+                    PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
+                )
             ),
             position_tracking_frequency_rad_s=float(
                 values.get("command_position_tracking_frequency_rad_s", 10.0)
@@ -483,6 +487,7 @@ class ReplayConfig:
         servo_period_ns = int(
             round(1e9 / float(rates.get("jaka_transport_hz", 125.0)))
         )
+        command_limits = CommandTrajectoryLimits.from_mapping(simulation)
         return cls(
             raw=raw,
             mapping=provisional,
@@ -490,11 +495,12 @@ class ReplayConfig:
                 simulation,
                 maximum_target_displacement_m=provisional.maximum_target_displacement_m,
             ),
-            command_limits=CommandTrajectoryLimits.from_mapping(simulation),
+            command_limits=command_limits,
             output_contract=JointOutputContractConfig(
                 maximum_velocity_rad_s=maximum_output_velocity,
                 servo_period_ns=servo_period_ns,
                 maximum_acceleration_rad_s2=maximum_output_acceleration,
+                maximum_jerk_rad_s3=command_limits.maximum_jerk_rad_s3,
                 maximum_velocity_rad_s_per_joint=(
                     maximum_output_velocity_per_joint
                 ),

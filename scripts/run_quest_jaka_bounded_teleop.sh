@@ -23,6 +23,7 @@ WORKSPACE_CLEAR="false"
 RH56_PATH_ABSENT="false"
 NO_AUTO_RETRY="false"
 PLANT_FREE_NO_NETWORK_CHECK="false"
+OUTPUT_JERK_LIMIT_RAD_S3=""
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 
 EXPECTED_APPROVAL="I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
@@ -67,6 +68,8 @@ Options / 可选:
                           J1-J3 default 1.5; J4-J6 default 1.2 rad/s
   --config PATH           Shared production live configuration
   --worker PATH           Native JAKA worker
+  --output-joint-jerk-limit-rad-s3 VALUE
+                          Override the config project-selected jerk shaper
   --log-dir PATH          Timestamped output directory parent (default: logs)
   --python PATH           Python interpreter (default: .venv/bin/python)
   --plant-free-no-network-check
@@ -118,6 +121,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
     --worker) require_value "$@"; WORKER="$2"; shift 2 ;;
+    --output-joint-jerk-limit-rad-s3) require_value "$@"; OUTPUT_JERK_LIMIT_RAD_S3="$2"; shift 2 ;;
     --log-dir) require_value "$@"; LOG_DIR="$2"; shift 2 ;;
     --python) require_value "$@"; PYTHON_BIN="$2"; shift 2 ;;
     --no-auto-retry) NO_AUTO_RETRY="true"; shift ;;
@@ -222,6 +226,7 @@ CMD=(
   --event-extract "${LOG_PREFIX}_events.jsonl"
 )
 [[ -n "${ALLOWED_SENDER}" ]] && CMD+=(--allowed-sender "${ALLOWED_SENDER}")
+[[ -n "${OUTPUT_JERK_LIMIT_RAD_S3}" ]] && CMD+=(--output-joint-jerk-limit-rad-s3 "${OUTPUT_JERK_LIMIT_RAD_S3}")
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == "true" ]]; then
   CMD+=(--plant-free-no-network-check)
 fi

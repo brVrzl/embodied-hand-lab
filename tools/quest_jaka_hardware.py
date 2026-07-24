@@ -36,6 +36,10 @@ from teleoperation.jaka.quest_adapter import (
 )
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
 from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusReceiver
+from teleoperation.output_feasibility import (
+    NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3,
+    PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
+)
 
 
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
@@ -92,6 +96,15 @@ def _parser() -> argparse.ArgumentParser:
         help="six run-specific output velocity boundaries in J1-J6 order",
     )
     parser.add_argument("--abort-on-diagnostic-acceleration-boundary", action="store_true")
+    parser.add_argument(
+        "--output-joint-jerk-limit-rad-s3",
+        type=float,
+        default=None,
+        help=(
+            "project-selected native PWL jerk shaper; CLI overrides config "
+            f"(default {PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3:g})"
+        ),
+    )
     parser.add_argument(
         "--recover-output-acceleration-transition",
         action="store_true",
@@ -151,11 +164,36 @@ def _classify_worker_exit(metrics_path: Path, return_code: int | None) -> str:
     )
 
 
+def _resolve_output_jerk_limit(args: argparse.Namespace, config: ReplayConfig) -> float:
+    """Resolve CLI > typed config > project default before any I/O."""
+
+    configured = config.command_limits.maximum_jerk_rad_s3
+    value = (
+        configured
+        if args.output_joint_jerk_limit_rad_s3 is None
+        else float(args.output_joint_jerk_limit_rad_s3)
+    )
+    if (
+        not math.isfinite(value)
+        or value <= 0.0
+        or value > NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3
+    ):
+        raise SystemExit(
+            "output jerk shaper must be finite, positive, and no greater than "
+            f"{NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3:g} rad/s^3"
+        )
+    return value
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.duration_sec <= 0.0:
         raise SystemExit("duration must be positive")
-    config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+    try:
+        config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+    except (KeyError, TypeError, ValueError) as exc:
+        raise SystemExit(f"invalid Quest/JAKA configuration before I/O: {exc}") from exc
+    jerk_limit = _resolve_output_jerk_limit(args, config)
     if args.run_output_joint_velocity_limit_rad_s is not None:
         if not 0.0 < args.run_output_joint_velocity_limit_rad_s <= config.output_contract.maximum_velocity_rad_s:
             raise SystemExit("run output velocity limit must be positive and no greater than the shared contract")
@@ -317,6 +355,16 @@ def main() -> int:
                     "shared_recoverable_output_acceleration_boundary_rad_s2": (
                         config.output_contract.maximum_acceleration_rad_s2
                     ),
+                    "output_joint_jerk_limit_rad_s3": jerk_limit,
+                    "output_joint_jerk_limit_provenance": (
+                        "cli" if args.output_joint_jerk_limit_rad_s3 is not None
+                        else (
+                            "config"
+                            if "command_maximum_joint_jerk_rad_s3"
+                            in config.raw.get("simulation", {})
+                            else "project_default"
+                        )
+                    ),
                     "native_output_acceleration_hard_boundary_rad_s2": (
                         float(
                             hardware[
@@ -406,9 +454,7 @@ def main() -> int:
             "--maximum-output-joint-acceleration-rad-s2", str(
                 hardware["native_hard_output_joint_acceleration_rad_s2"]
             ),
-            "--output-joint-jerk-limit-rad-s3", str(
-                config.raw["control"]["command_maximum_joint_jerk_rad_s3"]
-            ),
+            "--output-joint-jerk-limit-rad-s3", str(jerk_limit),
             "--output-acceleration-hold-degraded-ms", str(
                 hardware["output_acceleration_hold_degraded_ms"]
             ),
@@ -682,6 +728,16 @@ def main() -> int:
         "accepted_targets_dispatched": accepted,
         "adapter_dispatch_count": jaka_adapter.applied_count,
         "native_mode": metrics["mode"],
+        "output_joint_jerk_limit_rad_s3": jerk_limit,
+        "output_joint_jerk_limit_provenance": (
+            "cli" if args.output_joint_jerk_limit_rad_s3 is not None
+            else (
+                "config"
+                if "command_maximum_joint_jerk_rad_s3"
+                in config.raw.get("simulation", {})
+                else "project_default"
+            )
+        ),
         "native_outcome": metrics["outcome"],
         "native_stop_classification": metrics.get(
             "stop_classification", "worker_exit"

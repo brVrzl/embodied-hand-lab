@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import subprocess
+import argparse
+
+import pytest
+
+from quest_jaka_sim import ReplayConfig
+from tools.quest_jaka_hardware import _parser, _resolve_output_jerk_limit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,6 +131,55 @@ def test_complete_plant_free_command_uses_pwl_and_zero_rh56(
     ]
     assert report["no_auto_retry"] is True
     assert not (tmp_path / "logs").exists()
+
+
+def test_jerk_resolution_uses_typed_config_and_project_default(tmp_path: Path) -> None:
+    source = (ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml").read_text()
+    missing_jerk = tmp_path / "missing_jerk.yaml"
+    missing_jerk.write_text(
+        source.replace("  command_maximum_joint_jerk_rad_s3: 62.8318530718\n", "")
+    )
+    config = ReplayConfig.load(missing_jerk)
+    args = argparse.Namespace(output_joint_jerk_limit_rad_s3=None)
+    assert _resolve_output_jerk_limit(args, config) == pytest.approx(
+        20.0 * 3.141592653589793
+    )
+
+
+def test_jerk_resolution_cli_overrides_config_and_rejects_invalid_values() -> None:
+    config = ReplayConfig.load(ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    assert _resolve_output_jerk_limit(
+        argparse.Namespace(output_joint_jerk_limit_rad_s3=80.0), config
+    ) == 80.0
+    for value in (0.0, -1.0, float("nan"), 1000.0001):
+        with pytest.raises(SystemExit, match="output jerk shaper"):
+            _resolve_output_jerk_limit(
+                argparse.Namespace(output_joint_jerk_limit_rad_s3=value), config
+            )
+
+
+def test_invalid_config_jerk_is_rejected_before_network(tmp_path: Path) -> None:
+    source = (ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml").read_text()
+    invalid = tmp_path / "invalid_jerk.yaml"
+    invalid.write_text(
+        source.replace(
+            "  command_maximum_joint_jerk_rad_s3: 62.8318530718",
+            "  command_maximum_joint_jerk_rad_s3: 1001.0",
+        )
+    )
+    with pytest.raises(ValueError, match="output jerk shaper"):
+        ReplayConfig.load(invalid)
+
+
+def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
+    parser = _parser()
+    common = [
+        "post-payload-diagnostic", "--robot-ip", "192.0.2.1",
+        "--approval", "x", "--log", "x", "--summary", "x",
+        "--metrics", "x", "--capture", "x",
+    ]
+    parsed = parser.parse_args([*common, "--output-joint-jerk-limit-rad-s3", "70"])
+    assert parsed.output_joint_jerk_limit_rad_s3 == 70.0
 
 
 def test_output_generator_is_explicit_and_not_diagnostic_disguise(

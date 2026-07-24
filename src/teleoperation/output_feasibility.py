@@ -15,6 +15,12 @@ from typing import Sequence
 
 
 OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S = 1e-12
+# Project policy defaults for the production 8 ms transition shaper.  This is
+# deliberately not presented as a Mini2 hardware jerk maximum.
+PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3 = 20.0 * math.pi
+# Parsing guard only: this prevents an accidental unit/decimal error from
+# bypassing the bounded native transition shaper.  It is not a robot limit.
+NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3 = 1000.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +28,7 @@ class JointOutputContractConfig:
     maximum_velocity_rad_s: float
     servo_period_ns: int
     maximum_acceleration_rad_s2: float = math.inf
+    maximum_jerk_rad_s3: float = PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3
     numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S
     maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
 
@@ -32,6 +39,16 @@ class JointOutputContractConfig:
             raise ValueError("servo period must be a positive integer nanosecond count")
         if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
             raise ValueError("output acceleration boundary must be positive")
+        if (
+            not math.isfinite(self.maximum_jerk_rad_s3)
+            or self.maximum_jerk_rad_s3 <= 0.0
+            or self.maximum_jerk_rad_s3 > NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3
+        ):
+            raise ValueError(
+                "output jerk shaper must be finite, positive, and no greater "
+                f"than the native defensive parsing bound "
+                f"{NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3:g} rad/s^3"
+            )
         if not math.isfinite(self.numeric_tolerance_rad_s) or self.numeric_tolerance_rad_s < 0.0:
             raise ValueError("output feasibility tolerance must be finite and non-negative")
         if self.maximum_velocity_rad_s_per_joint is not None:
