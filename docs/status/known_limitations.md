@@ -16,7 +16,7 @@
   external facts; repository source audits do not prove the deployed build.
 - The digital-twin workspace remains “Integrated Workspace,” not “Simulation
   Ready”; its documented failed trajectories and calibration tasks remain.
-- Several Xbox, HEBI, iPhone, and TeleDex paths are maintained parallel or
-  compatibility workflows and do not share every Quest/JAKA contract.
+- HEBI and iPhone paths remain parallel/compatibility workflows and do not
+  share every Quest/JAKA contract.
 - Vendor reference sources are retained as supplied and are not necessarily
   importable project modules.

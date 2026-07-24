@@ -26,7 +26,7 @@ class CentralFrameMapping:
     conversion; orientations use ``C R C^-1`` and therefore remain proper.
 
     Frame chain:
-    ``TeleDex source -> normalized input -> operator control -> robot base -> TCP``.
+    ``source device -> normalized input -> operator control -> robot base -> TCP``.
     The output target is the configured JAKA TCP (tool/user IDs are checked at
     the native boundary).  No axis swap is permitted downstream of this class.
     """

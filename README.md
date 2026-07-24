@@ -86,8 +86,7 @@ mode, EDG, or motion.
 - `src/rh56_driver`, `src/jaka_driver_adapter`, `src/robot_bringup`: robot and
   hand adapters plus legacy/parallel bring-up tools.
 - `data/sim_assets`, `models`: MuJoCo robot and integrated-workspace assets.
-- `src/pregrasp`, `src/vision_interface`, `src/data_recorder`: pregrasp,
-  perception, and data workflows.
+- `src/vision_interface`: perception and RealSense calibration workflows.
 - `docs/digital_twin`: current integrated-workspace project, which remains
   below “Simulation Ready” pending its documented calibration and collision
   issues.

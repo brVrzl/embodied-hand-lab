@@ -70,6 +70,5 @@ dynamic:
 
 named_pose_sources:
   robot_presets: configs/robot/jaka_mini2_real.yaml
-  tennis_pregrasp: tools/preview_mujoco_tennis_ball_lift.py
   hand_open_close: tools/debug_mujoco_jaka_rh56_viewer.py
   directional_poses: deterministic_sample_set_FK_extrema

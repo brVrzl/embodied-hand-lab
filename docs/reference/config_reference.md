@@ -9,8 +9,7 @@
 | `configs/robot/jaka_mini2_real.yaml` | physical connection example; not controller truth |
 | `configs/hand/rh56_real.yaml` | RH56 physical example; separately gated |
 | `configs/teleoperation/jaka_foundation.yaml` | dated foundation-gate policy |
-| `configs/teleoperation/teledex_jaka_arm_bounded.yaml` | older bounded TeleDex path |
-| `configs/workspace/tennis_ball_lift_current.yaml` | integrated digital-twin workspace |
+| `digital_twin/configs/static_environment.yaml` | provisional integrated-workspace geometry |
 
 The live Quest config documents freshness, clutch, mapping, filter,
 continuation, IK, singularity, output velocity/acceleration, native period, and

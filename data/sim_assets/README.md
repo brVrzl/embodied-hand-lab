@@ -22,23 +22,18 @@
 .venv/bin/python tools/build_rh56_visual_coacd_runtime_asset.py --check
 ```
 
-## 派生源与比较模式
+## 派生源
 
-`jaka_rh56.xml` 保留为 mounted integration/derivation source，供以下显式比较和诊断模式使用：
-
-- `tools/mujoco_rh56_grasp_benchmark.py`
-- `tools/view_mujoco_rh56_pose_contact.py`
-- Stage 1/Stage 2 collision diagnostics
-- `correll_mesh`、`unifuc_pad_proxy` 和 legacy/proxy comparison modes
-
-不要把 `jaka_rh56.xml` 直接作为普通 runtime 默认资产；它包含用于派生比较模式的历史几何。
-`src/sim_maniskill/rh56_collision.py` 保留这些隔离比较模式，但其默认 patch 同样选择 `visual_coacd`。
+`jaka_rh56.xml` 是 mounted integration 源模型，
+`src/rh56_collision_model.py` 只支持派生已审阅的 `visual_coacd` runtime。
+旧 analytic proxy、Correll mounted comparison 和多模式碰撞研究已移除。
+不要直接把源模型当作运行时安全资产。
 
 后续仍需要审计：
 
 - RH56 运动学和 coupling
 - JAKA flange 到手基座的 mount transform
-- collision proxy 位置
+- CoACD collision hull 保守性
 - fingertip/contact geometry
 - actuator limit 和物理命令映射
 
@@ -58,29 +53,22 @@
 - `assets/visual/` 和 `assets/collision/`：手部 mesh
 - `LICENSE`：上游 MIT license
 
-这些资产有两类用途：
-
-- 通过 `pregrasp.correll_rh56dfx` 使用，用于参考 FK 规划和验证。
-  - 通过 `src/sim_maniskill/rh56_collision.py` 注入到派生模型中，作为隔离的比较模式。
-
-它们不能直接替换整个 `jaka_rh56.xml`，因为它们不包含 JAKA 机械臂、当前 mount transform，也不使用项目里的 `rh56_R_*` joint/body 命名。
+它们仅作为上游许可证和几何/传感器接口参考，不是当前 mounted
+runtime 碰撞模式。它们不包含 JAKA、当前 mount transform，也不使用
+项目的 `rh56_R_*` body/joint 命名。
 
 ## 验证
 
 ```bash
-.venv/bin/python -m pytest tests/test_correll_rh56dfx_assets.py tests/test_mujoco_rh56_collision_modes.py
+.venv/bin/python -m pytest -q tests/test_rh56_visual_coacd_default_asset.py
 ```
 
-该测试覆盖：
-
-- Correll XML 资产能被 MuJoCo 编译。
-- Correll actuator、fingertip site、force/torque sensor 接口存在。
-- `correll_mesh` 模式能在 mounted model 中编译并禁用旧 analytic proxy。
-- committed `visual_coacd` runtime asset 与可重复派生结果及哈希清单一致。
+该测试覆盖 committed `visual_coacd` runtime asset 的可重复派生、质量/惯量保持、
+审阅后 exclusion 和哈希清单。
 
 ## 资产约定
 
 - 按来源和用途给资产分目录。
 - 导入第三方资产时保留 license。
-- 不要删除或破坏 `jaka_rh56.xml`，它仍是隔离比较模式的派生源。
+- 不要删除或破坏 `jaka_rh56.xml`，它仍是 runtime asset 的派生源。
 - 文档中要明确资产是 reference model、mounted integration model，还是 temporary recovery artifact。

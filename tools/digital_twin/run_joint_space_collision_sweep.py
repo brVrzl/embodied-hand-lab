@@ -94,8 +94,6 @@ def _load_repository_poses(model: mujoco.MjModel, robot_config_path: Path) -> li
             continue
         role = "nominal_safe_repository" if name in {"upright", "teleop_ready"} else "repository_task_pose"
         rows.append(PoseSample(name, tuple(q), (0.0,) * 6, f"{robot_config_path}:{name}", role))
-    tennis = np.asarray([0.123, 0.429, 1.496, -1.447, -0.019, -2.164])
-    rows.append(PoseSample("tennis_pregrasp", tuple(tennis), (0.0,) * 6, "tools/preview_mujoco_tennis_ball_lift.py:ARM_PREGRASP_QPOS", "repository_task_pose"))
     return rows
 
 

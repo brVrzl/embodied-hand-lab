@@ -14,11 +14,12 @@ import imageio.v3 as iio
 import mujoco
 import numpy as np
 
-from mujoco_rh56_grasp_benchmark import COLLISION_MODES, _configure_collision_model
+from rh56_collision_model import patch_rh56_visual_coacd_collision_model
 
 
 BASE_XML = Path("data/sim_assets/jaka_rh56.xml")
 DEBUG_DIR = Path("data/mujoco_debug")
+COLLISION_MODES = ("visual_coacd",)
 PREGRASP_QPOS = np.asarray(
     [0.123, 0.429, 1.496, -1.447, -0.019, -2.164] + [0.0] * 12,
     dtype=np.float64,
@@ -40,6 +41,20 @@ TIP_BODY_NAMES = [
     "rh56_R_ring_distal",
     "rh56_R_pinky_distal",
 ]
+
+
+def _configure_collision_model(
+    root: ET.Element,
+    *,
+    collision_mode: str,
+    include_calibration_markers: bool = False,
+) -> None:
+    """Select the sole retained RH56 runtime collision representation."""
+
+    del include_calibration_markers
+    if collision_mode != "visual_coacd":
+        raise ValueError("only the committed visual_coacd collision model is retained")
+    patch_rh56_visual_coacd_collision_model(root)
 
 
 def _body_pos(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.ndarray:

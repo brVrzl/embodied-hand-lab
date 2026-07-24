@@ -41,7 +41,6 @@ or this index.
 - [Testing](development/testing.md)
 - [Configuration](development/configuration.md)
 - [Logging and replay](development/logging_and_replay.md)
-- [Real-robot data collection schema](development/real_robot_data_collection.md)
 - [Contribution workflow](development/contribution_workflow.md)
 - [Repository consolidation audit](development/repository_consolidation_audit.md)
 - [Command reference](reference/command_reference.md)
@@ -53,15 +52,7 @@ or this index.
 
 - [Digital twin workspace](digital_twin/README.md)
 - [Motion-input platform](motion_input/README.md)
-- [RH56 pregrasp protocol](rh56_pregrasp_prediction_protocol.md)
-- [Correll RH56DFX assessment](rh56dfx_correll_integration_assessment.md)
 - [RGB-D readiness](d435_depth_pointcloud_readiness.md)
-- [LeRobot data and workspace calibration](lerobot_data_and_workspace_calibration.md)
-- [Literature and asset reviews](literature/)
-
-The dated Jetson integration and original tennis-ball digital-twin plans are
-archived under `history/archived_designs/plans/`; they are not validation
-evidence.
 
 ## History and evidence
 

@@ -38,19 +38,11 @@ procedures; it is not proof of current Quest teleoperation.
 Read the dated documents chronologically. The current status page is the
 authoritative synthesis.
 
-### Archived designs and handoffs
+### Archived input designs
 
-`archived_designs/teledex/` holds bounded TeleDex architecture, foundation
-audits/reports, and old handoffs. `archived_designs/project_rebuild/` holds the
-pre-Quest repository rebuild snapshot. `archived_designs/motion_input/` holds
-the original input repository audit, streamer integration gate, offline
-simulation gate, and dual-clutch design. They contain useful provenance and
-parallel-project context but stale branch names, paths, or test totals must not
-be used as current instructions.
-
-`archived_designs/plans/` contains the dated Jetson integration and initial
-tennis-ball digital-twin plans. Current digital-twin status is under
-`docs/digital_twin/`.
+`archived_designs/motion_input/` retains the streamer integration, offline
+simulation and dual-clutch design records that explain the current Quest input
+path. Stale branch names, paths, or test totals are not current instructions.
 
 ## Retention policy
 

@@ -1,6 +1,6 @@
 """Clean-slate, arm-only teleoperation foundation.
 
-This package must not import :mod:`teleop_tools`, HEBI, TeleDex, or RH56.  Input
+This package must not import :mod:`teleop_tools`, HEBI, or RH56.  Input
 devices and robot transports are adapters at the package boundary; the active
 Gates 1-2 runtime is synthetic/fake by default.
 """

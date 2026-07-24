@@ -4,7 +4,7 @@ The repository has three distinct RH56 roles:
 
 1. Mounted MuJoCo RH56 in the Quest/JAKA simulation, with left grip retargeting.
 2. A PC-direct USB-RS485 driver/ROS2 bridge in `src/rh56_driver`.
-3. Legacy and experimental iPhone, Xbox, HEBI, and JAKA-tool-RS485 workflows.
+3. Experimental iPhone, HEBI, and JAKA-tool-RS485 workflows.
 
 Canonical command order is:
 
@@ -29,5 +29,4 @@ Quest grip control is simulation-validated; it is not a validated
 Quest-to-physical-RH56 path.
 
 Current model roles and limitations are documented in
-`data/sim_assets/README.md` and
-`docs/rh56dfx_correll_integration_assessment.md`.
+`data/sim_assets/README.md`.

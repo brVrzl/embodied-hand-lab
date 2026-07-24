@@ -13,7 +13,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 from build_rh56_visual_coacd_runtime_asset import build_manifest, build_runtime_xml
-from sim_maniskill.rh56_collision import (
+from rh56_collision_model import (
     DEFAULT_RH56_COLLISION_MODE,
     REVIEWED_INTERNAL_EXCLUDED_BODY_PAIRS,
     patch_rh56_collision_model,
@@ -100,12 +100,6 @@ def test_default_patch_and_runtime_configs_select_visual_coacd() -> None:
     for relative_path in (
         "configs/teleop/hebi_mobile_io_jaka_rh56_mount_v2.yaml",
         "configs/teleop/hebi_mobile_io_jaka_rh56.yaml",
-        "configs/teleop/xbox_jaka_rh56.yaml",
     ):
         config = yaml.safe_load((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
         assert config["shadow"]["mjcf_path"] == "data/sim_assets/jaka_rh56_visual_coacd.xml"
-
-    lift_config = yaml.safe_load(
-        (PROJECT_ROOT / "configs/sim/mujoco_jaka_rh56_tennis_ball_lift.yaml").read_text(encoding="utf-8")
-    )
-    assert lift_config["collision_mode"] == "visual_coacd"

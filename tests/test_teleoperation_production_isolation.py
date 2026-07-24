@@ -34,7 +34,7 @@ def test_production_tree_has_no_legacy_hebi_rh56_or_quest_imports() -> None:
     assert violations == []
 
 
-def test_production_runtime_imports_when_legacy_modules_are_unavailable(monkeypatch) -> None:
+def test_production_supervision_imports_when_legacy_modules_are_unavailable(monkeypatch) -> None:
     for name in (
         "hebi",
         "teleop_tools",
@@ -42,6 +42,4 @@ def test_production_runtime_imports_when_legacy_modules_are_unavailable(monkeypa
         "rh56_driver",
     ):
         monkeypatch.setitem(sys.modules, name, None)
-    importlib.import_module("teleoperation.input.teledex")
-    importlib.import_module("teleoperation.runtime.teledex_arm")
     importlib.import_module("teleoperation.supervision")

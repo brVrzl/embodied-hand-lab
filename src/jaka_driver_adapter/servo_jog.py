@@ -190,7 +190,7 @@ def find_servo_safety_blockers(flags: dict[str, Any]) -> list[str]:
 
 
 class JakaServoJogController:
-    """Own the bounded EDG servo lifecycle for Xbox-style joint jogging."""
+    """Own the bounded EDG servo lifecycle for legacy joint jogging."""
 
     def __init__(
         self,

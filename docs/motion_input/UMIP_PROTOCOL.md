@@ -14,7 +14,7 @@ device SDK -> provider-private value -> MotionInputSample
 ```
 
 Consumers import `motion_input.model` and `motion_input.provider`. Providers may
-import device SDKs. The reverse dependency is forbidden. A provider for TeleDex,
+import device SDKs. The reverse dependency is forbidden. A future input provider,
 Vision Pro, DexUMI, UMI, leader arms, SpaceMouse, vision, or mocap implements
 `MotionInputProvider`; it does not add a downstream device branch.
 

@@ -42,7 +42,7 @@ class SafetyAction(str, Enum):
 class TrackingState(str, Enum):
     """Device-neutral source tracking state.
 
-    ``UNKNOWN`` is intentionally distinct from ``VALID``.  TeleDex 0.0.7 does
+    ``UNKNOWN`` is intentionally distinct from ``VALID``. Some input providers do
     not transmit ARKit tracking quality, so the adapter must not manufacture a
     quality claim from a well-formed pose packet.
     """

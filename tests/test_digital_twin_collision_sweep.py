@@ -151,7 +151,7 @@ def test_pose_source_loading_and_report_aggregation(model: mujoco.MjModel) -> No
 
     poses = _load_repository_poses(model, ROOT / "configs/robot/jaka_mini2_real.yaml")
     names = {pose.name for pose in poses}
-    assert {"upright", "teleop_ready", "tennis_pregrasp"} <= names
+    assert {"upright", "teleop_ready"} <= names
     rows = [
         {"phase": "dynamic", "trajectory_id": 2, "sample_id": "", "status": "WARN", "geom_a": "a", "geom_b": "b", "body_a": "A", "body_b": "B", "category": "arm_table_contact", "simulation_time_s": time, "step": index, "penetration_depth_m": depth, "normal_force_n": 3.0, "contact_duration_s": time, "qpos": [index], "contact_position_m": [0, 0, 0], "trajectory_name": "test"}
         for index, (time, depth) in enumerate(((0.1, 0.001), (0.2, 0.002)))

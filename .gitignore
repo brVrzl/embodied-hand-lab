@@ -14,6 +14,9 @@ data/sim_assets/*
 !data/sim_assets/jaka_rh56_visual_coacd.xml
 !data/sim_assets/jaka_rh56_visual_coacd.manifest.json
 !data/sim_assets/README.md
+!data/sim_assets/correll_rh56dfx/
+!data/sim_assets/correll_rh56dfx/**
+data/sim_assets/correll_rh56dfx/assets/h1_2_meshes
 !data/sim_assets/meshes/
 !data/sim_assets/meshes/**
 papers/

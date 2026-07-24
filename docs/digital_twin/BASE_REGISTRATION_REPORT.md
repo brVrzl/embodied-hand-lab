@@ -1,6 +1,6 @@
 # JAKA base fitting and provisional P registration
 
-Date: 2026-07-15. This historical registration report records the accepted 01/02 evidence. The later integrated workspace uses P as the engineering/MuJoCo world and enables provisional primitive collisions; see `DIGITAL_TW.md` for current status.
+Date: 2026-07-15. This historical registration report records the accepted 01/02 evidence. The later integrated workspace uses P as the engineering/MuJoCo world and enables provisional primitive collisions; see `README.md` for current status.
 
 ## Evidence and provenance
 

@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from sim_maniskill.rh56_collision import (  # noqa: E402
+from rh56_collision_model import (  # noqa: E402
     REVIEWED_INTERNAL_EXCLUDED_BODY_PAIRS,
     VISUAL_COACD_ASSET_DIR,
     VISUAL_COACD_SOURCE_STEMS,

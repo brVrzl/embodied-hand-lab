@@ -53,6 +53,6 @@ MuJoCo plant or copy its `qpos`.
 | native transport | `native/jaka_servo_worker/main.cpp` | CLI plus shared-memory protocol | native worker/resampler tests |
 | RH56 | `src/rh56_driver`, simulation retargeter | `configs/hand`, `configs/sim/quest_rh56_retarget.yaml` | RH56 schema/backend/simulation tests |
 
-Other current project areas—digital twin, vision, pregrasp, data recording, and
-legacy Xbox/HEBI/TeleDex experiments—remain in the repository, but they are not
-inside the primary Quest/JAKA shared pipeline.
+Other current project areas—digital twin, vision, HEBI phone teleoperation,
+iPhone RH56 experiments, and ROS2/RViz bring-up—remain outside the primary
+Quest/JAKA shared pipeline.

@@ -28,12 +28,6 @@ class AxisMapping:
         }
 
 
-DEFAULT_XBOX_TRANSLATION_MAP: tuple[AxisMapping, ...] = (
-    AxisMapping("x", "left_y", -1.0),
-    AxisMapping("y", "left_x", -1.0),
-    AxisMapping("z", "right_y", -1.0),
-)
-DEFAULT_XBOX_WRIST_ROLL_MAP = AxisMapping("wrist_roll", "right_x", 1.0)
 DEFAULT_PHONE_TO_ROBOT_TRANSLATION_MAP: tuple[AxisMapping, ...] = (
     AxisMapping("x", "y", -1.0),
     AxisMapping("y", "x", 1.0),

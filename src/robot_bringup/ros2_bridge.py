@@ -399,7 +399,7 @@ def run_real_arm_hand_ros2_node(
                     self._tick_arm_servo,
                 )
                 self.get_logger().warning(
-                    "Arm Xbox palm-target IK subscription enabled on "
+                    "Arm palm-target IK subscription enabled on "
                     f"{topics.jaka_teleop_palm_target_jog}"
                 )
 
@@ -552,7 +552,7 @@ def run_real_arm_hand_ros2_node(
                         {
                             "timestamp_sec": time.time(),
                             "schema_version": SCHEMA_VERSION,
-                            "source": "xbox_ros2_bridge_arm_teleop",
+                            "source": "ros2_bridge_arm_teleop",
                             "status": status,
                             "arm_command": (
                                 None

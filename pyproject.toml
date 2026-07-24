@@ -19,11 +19,6 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
-data = [
-  "huggingface_hub>=0.24",
-  "pandas>=2.0",
-  "pyarrow>=15.0",
-]
 vision-teleop = [
   "mediapipe>=0.10.35",
   "opencv-contrib-python>=4.13",
@@ -36,16 +31,6 @@ phone-teleop = [
 ]
 motion-input-viz = [
   "matplotlib>=3.8",
-]
-teledex-teleop = [
-  "teledex>=0.0.6,<0.1",
-]
-gamepad = [
-  "pygame>=2.6",
-]
-sim = [
-  "gymnasium>=1.0",
-  "mani_skill>=3.0",
 ]
 asset-tools = [
   "trimesh>=4.0",

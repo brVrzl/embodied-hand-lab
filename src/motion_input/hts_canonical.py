@@ -99,7 +99,7 @@ class ClutchState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class FutureTeleopInput:
-    """Inactive boundary for a later reviewed TeleDex/JAKA integration.
+    """Inactive boundary for a later reviewed robot-control integration.
 
     The adapter below always outputs a disengaged clutch and emergency-neutral
     state.  It deliberately cannot enable motion.

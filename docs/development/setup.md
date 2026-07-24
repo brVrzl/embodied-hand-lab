@@ -9,10 +9,9 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-Optional extras are declared in `pyproject.toml`: `data`, `vision-teleop`,
-`realsense`, `phone-teleop`, `motion-input-viz`, `teledex-teleop`, `gamepad`,
-`sim`, and `asset-tools`. Install only the extras needed for the current
-offline task.
+Optional extras are declared in `pyproject.toml`: `vision-teleop`, `realsense`,
+`phone-teleop`, `motion-input-viz`, and `asset-tools`. Install only the extras
+needed for the current offline task.
 
 ROS2 Humble and vendor SDK dependencies are system/environment concerns and are
 not fully installed by pip. The default pytest suite uses fake/offline
