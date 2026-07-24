@@ -13,6 +13,7 @@ import numpy as np
 
 from debug_mujoco_jaka_rh56_viewer import (
     BASE_XML,
+    COLLISION_MODES,
     DEBUG_DIR,
     HAND_ACTUATOR_NAMES,
     HAND_OPEN_CTRL,
@@ -101,9 +102,20 @@ def _add_teleop_target(xml_path: str | Path, out_xml: str | Path) -> None:
     tree.write(out_xml, encoding="utf-8", xml_declaration=False)
 
 
-def build_teleop_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str) -> dict[str, object]:
+def build_teleop_xml(
+    base_xml: str | Path,
+    out_xml: str | Path,
+    *,
+    scenario: str,
+    collision_mode: str = "visual_coacd",
+) -> dict[str, object]:
     tmp_xml = Path(out_xml).with_name(Path(out_xml).stem + "_debug_base.xml")
-    summary = build_debug_xml(base_xml, tmp_xml, scenario=scenario)
+    summary = build_debug_xml(
+        base_xml,
+        tmp_xml,
+        scenario=scenario,
+        collision_mode=collision_mode,
+    )
     _add_teleop_target(tmp_xml, out_xml)
     summary["teleop_xml"] = str(Path(out_xml).resolve())
     return summary
@@ -388,6 +400,7 @@ def main() -> None:
     parser.add_argument("--base-xml", default=str(BASE_XML))
     parser.add_argument("--out-xml", default=str(TELEOP_XML))
     parser.add_argument("--scenario", choices=["hand_close", "cube_in_hand", "table_cube"], default="cube_in_hand")
+    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
     parser.add_argument("--duration", type=float, default=600.0)
     parser.add_argument("--no-viewer", action="store_true")
     parser.add_argument("--target-step", type=float, default=0.005)
@@ -398,7 +411,12 @@ def main() -> None:
     parser.add_argument("--snapshot-path", default=str(TELEOP_SNAPSHOT))
     args = parser.parse_args()
 
-    summary = build_teleop_xml(args.base_xml, args.out_xml, scenario=args.scenario)
+    summary = build_teleop_xml(
+        args.base_xml,
+        args.out_xml,
+        scenario=args.scenario,
+        collision_mode=args.collision_mode,
+    )
     print(json.dumps(summary, indent=2), flush=True)
     run_teleop(
         args.out_xml,
