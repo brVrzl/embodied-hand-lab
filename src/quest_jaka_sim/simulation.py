@@ -51,6 +51,7 @@ from .se3 import (
 DESIRED_MARKER_BODY = "quest_jaka_desired_tcp_marker"
 ACTUAL_MARKER_BODY = "quest_jaka_actual_tcp_marker"
 PHYSICAL_SEED_TWIN_PREFIX = "physical_seed_"
+PROJECT_DEFAULT_STARTUP_TIMING_GRACE_CYCLES = 25
 
 
 class FeasibilityReason(str, Enum):
@@ -454,6 +455,7 @@ class ReplayConfig:
     ik_iterations: int
     zero_gravity: bool
     axis_analysis: Mapping[str, Any]
+    startup_timing_grace_cycles: int
 
     @classmethod
     def load(cls, path: str | Path) -> "ReplayConfig":
@@ -488,6 +490,14 @@ class ReplayConfig:
             round(1e9 / float(rates.get("jaka_transport_hz", 125.0)))
         )
         command_limits = CommandTrajectoryLimits.from_mapping(simulation)
+        startup_timing_grace_cycles = int(
+            raw.get("hardware_adapter", {}).get(
+                "startup_timing_grace_cycles",
+                PROJECT_DEFAULT_STARTUP_TIMING_GRACE_CYCLES,
+            )
+        )
+        if not 1 <= startup_timing_grace_cycles <= 1_000:
+            raise ValueError("startup_timing_grace_cycles must be between 1 and 1000")
         return cls(
             raw=raw,
             mapping=provisional,
@@ -519,6 +529,7 @@ class ReplayConfig:
             ik_iterations=int(simulation["ik_iterations"]),
             zero_gravity=bool(simulation.get("zero_gravity", True)),
             axis_analysis=raw.get("axis_analysis", {}),
+            startup_timing_grace_cycles=startup_timing_grace_cycles,
         )
 
 

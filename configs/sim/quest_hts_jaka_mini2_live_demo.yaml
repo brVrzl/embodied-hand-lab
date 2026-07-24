@@ -196,6 +196,9 @@ hardware_adapter:
   output_acceleration_hold_degraded_ms: 250.0
   output_acceleration_hold_hard_stop_ms: 2000.0
   maximum_consecutive_output_acceleration_hold_cycles: 250
+  # Project timing policy: startup q_hold may absorb a small isolated
+  # completion miss; severe/continued misses remain hard stops.
+  startup_timing_grace_cycles: 25
   limit_provenance:
     servo_period: official_jaka_servoj_documentation
     output_joint_speed_ceiling: official_jaka_servoj_documentation

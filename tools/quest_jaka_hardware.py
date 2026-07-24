@@ -372,6 +372,7 @@ def main() -> int:
                             ]
                         )
                     ),
+                    "startup_timing_grace_cycles": config.startup_timing_grace_cycles,
                     "recover_output_acceleration_transition": (
                         args.recover_output_acceleration_transition
                     ),
@@ -466,6 +467,8 @@ def main() -> int:
                     "maximum_consecutive_output_acceleration_hold_cycles"
                 ]
             ),
+            "--startup-timing-grace-cycles",
+            str(config.startup_timing_grace_cycles),
         ]
         if config.output_contract.maximum_velocity_rad_s_per_joint is None:
             worker_args.extend((

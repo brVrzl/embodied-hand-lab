@@ -369,6 +369,41 @@ def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
     assert payload["statistics"]["actual_cycle_period"]["max_ns"] < 12_000_000
 
 
+def test_joint_teleop_startup_q_hold_grace_recovers_one_completion_warning(tmp_path) -> None:
+    metrics = tmp_path / "startup-grace.json"
+    result = subprocess.run(
+        [
+            str(WORKER), "--mode", "joint-teleop-dry-run", "--duration-s", "0.12",
+            "--fake-write-delay-us", "9000", "--startup-timing-grace-cycles", "100",
+            "--target-socket", str(tmp_path / "startup-grace.sock"),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    assert result.returncode == 0
+    assert payload["hard_timing_misses"] == 0
+    assert payload["timing_warning_events"] >= 1
+    assert payload["accepted_targets"] == 0
+
+
+def test_joint_teleop_startup_grace_escalates_persistent_misses(tmp_path) -> None:
+    metrics = tmp_path / "startup-grace-hard.json"
+    result = subprocess.run(
+        [
+            str(WORKER), "--mode", "joint-teleop-dry-run", "--duration-s", "0.12",
+            "--fake-write-delay-us", "9000", "--startup-timing-grace-cycles", "3",
+            "--target-socket", str(tmp_path / "startup-grace-hard.sock"),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    assert result.returncode == 2
+    assert payload["hard_timing_misses"] >= 1
+    assert payload["accepted_targets"] == 0
+
+
 def test_quest_joint_teleop_time_resamples_latest_target_without_ik_or_endpoint_change(tmp_path) -> None:
     metrics = tmp_path / "joint-teleop.json"
     target = tmp_path / "joint-teleop.sock"

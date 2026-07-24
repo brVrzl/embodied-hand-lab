@@ -29,6 +29,12 @@ Never copy an old historical invocation without reconciling it with current
   or hard timing failure stops and cleans up.
 - The sole SDK session performs lightweight health polling every two command
   cycles; extended collision/estop queries occur only after unhealthy status.
+- During joint-teleop startup, the worker sends only the captured `q_hold`.
+  A bounded grace window (25 cycles by default) records isolated sub-period
+  wake/completion lateness and re-aligns the absolute schedule without catch-up
+  or backlog. Lateness beyond the 12 ms completion hard boundary, persistent
+  misses after grace, controller/SDK faults, stale input, and tracking faults
+  remain hard stops.
 
 See [current status](../status/current_status.md) before proposing a physical
 stage. The next recommended gate is not yet authorized and must occur in a new

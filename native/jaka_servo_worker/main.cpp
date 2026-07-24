@@ -186,6 +186,7 @@ struct Options {
   std::uint64_t output_acceleration_hold_degraded_ns = 250'000'000;
   std::uint64_t output_acceleration_hold_hard_stop_ns = 2'000'000'000;
   std::uint32_t maximum_consecutive_output_acceleration_hold_cycles = 250;
+  std::uint32_t startup_timing_grace_cycles = 25;
   bool monitor_controller_health_each_cycle = false;
 };
 
@@ -340,6 +341,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--output-acceleration-hold-degraded-ms") o.output_acceleration_hold_degraded_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--output-acceleration-hold-hard-stop-ms") o.output_acceleration_hold_hard_stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--maximum-consecutive-output-acceleration-hold-cycles") o.maximum_consecutive_output_acceleration_hold_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
+    else if (a == "--startup-timing-grace-cycles") o.startup_timing_grace_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
@@ -423,6 +425,8 @@ Options parse_options(int argc, char** argv) {
               o.output_acceleration_hold_degraded_ns &&
           o.maximum_consecutive_output_acceleration_hold_cycles >= 2 &&
           o.maximum_consecutive_output_acceleration_hold_cycles <= 10'000 &&
+          o.startup_timing_grace_cycles >= 1 &&
+          o.startup_timing_grace_cycles <= 1'000 &&
           !(o.recover_output_acceleration_transition &&
             o.abort_on_diagnostic_acceleration_boundary)))
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
@@ -1133,6 +1137,14 @@ struct RecordedServoPoint {
 struct CycleTelemetry {
   std::uint64_t monotonic_ns = 0;
   std::uint64_t wall_ns = 0;
+  std::uint64_t cycle_start_ns = 0;
+  std::uint64_t scheduled_deadline_ns = 0;
+  std::uint64_t cycle_end_ns = 0;
+  std::uint64_t wake_lateness_ns = 0;
+  std::uint64_t completion_lateness_ns = 0;
+  std::uint64_t command_start_ns = 0;
+  std::uint64_t command_end_ns = 0;
+  std::uint64_t command_duration_ns = 0;
   std::uint64_t last_sequence = 0;
   std::uint64_t heartbeat_age_ns = 0;
   std::string event = "normal_output";
@@ -1166,6 +1178,14 @@ void write_cycle_telemetry(const Options& options,
   for (const auto& row : rows) {
     out << "{\"host_monotonic_ns\":" << row.monotonic_ns
         << ",\"local_wall_clock_unix_ns\":" << row.wall_ns
+        << ",\"cycle_start_ns\":" << row.cycle_start_ns
+        << ",\"scheduled_deadline_ns\":" << row.scheduled_deadline_ns
+        << ",\"cycle_end_ns\":" << row.cycle_end_ns
+        << ",\"wake_lateness_ns\":" << row.wake_lateness_ns
+        << ",\"completion_lateness_ns\":" << row.completion_lateness_ns
+        << ",\"command_start_ns\":" << row.command_start_ns
+        << ",\"command_end_ns\":" << row.command_end_ns
+        << ",\"command_duration_ns\":" << row.command_duration_ns
         << ",\"output_event\":\"" << row.event << "\""
         << ",\"controller_health_monotonic_ns\":" << row.health.monotonic_ns
         << ",\"controller_health_age_ns\":"
@@ -1868,6 +1888,10 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"output_joint_velocity_boundary_provenance\":\"project-selected normal operating boundary, bounded by official ServoJ 180 deg/s ceiling\",\n"
       << "  \"official_servoj_joint_speed_ceiling_rad_s\":" << M_PI << ",\n"
       << "  \"official_servoj_joint_speed_ceiling_provenance\":\"JAKA ServoJ documentation\",\n"
+      << "  \"startup_timing_grace_cycles\":" << o.startup_timing_grace_cycles << ",\n"
+      << "  \"completion_warning_lateness_ns\":" << kPeriodNs << ",\n"
+      << "  \"completion_hard_lateness_ns\":12000000,\n"
+      << "  \"timing_policy_provenance\":\"project-selected bounded 8 ms policy; not a JAKA acceleration/latency maximum\",\n"
       << "  \"recoverable_output_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"diagnostic_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"native_output_joint_acceleration_hard_boundary_rad_s2\":" << o.maximum_output_joint_acceleration_rad_s2 << ",\n"
@@ -1971,6 +1995,8 @@ int run(const Options& o) {
   TargetPacket latest{}; bool ever_received = false;
   std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, last_target_dispatch = 0, consecutive_overruns = 0;
   std::uint64_t consecutive_timing_warnings = 0, consecutive_completion_misses = 0;
+  std::uint32_t startup_timing_cycles = 0;
+  bool startup_timing_grace_active = is_joint_teleop_mode(o.mode);
   std::uint64_t warning_cycles = 0;
   std::uint64_t status_accepted = 0, status_rejected = 0;
   bool output_acceleration_hold_status_pending = false;
@@ -2069,6 +2095,12 @@ int run(const Options& o) {
         fake_start_delay_injected = true;
       }
       const auto cycle_start = now_ns();
+      if (startup_timing_grace_active) {
+        if (ever_received || startup_timing_cycles >= o.startup_timing_grace_cycles)
+          startup_timing_grace_active = false;
+        else
+          ++startup_timing_cycles;
+      }
       if (cycle_start - start >= static_cast<std::uint64_t>(o.duration_s * 1e9)) {
         if (is_joint_zero_motion_mode(o.mode) && backend->edg_active()) {
           state = State::ControlledStop;
@@ -2095,7 +2127,9 @@ int run(const Options& o) {
         // A single sub-period scheduler delay is recoverable by re-aligning the
         // absolute deadline. Fault only after a full 8 ms wake is missed, a
         // complete 16 ms start interval is exceeded, or warnings repeat.
-        if (start_period > 16'000'000 || wake_lateness >= kPeriodNs) {
+        const bool startup_grace = startup_timing_grace_active && !ever_received;
+        if (start_period > 16'000'000 ||
+            (wake_lateness >= kPeriodNs && !startup_grace)) {
           const std::size_t row = samples.count++;
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
@@ -2110,7 +2144,7 @@ int run(const Options& o) {
           ++consecutive_timing_warnings;
           schedule_realign = true;
         } else consecutive_timing_warnings = 0;
-        if (consecutive_timing_warnings >= 2) {
+        if (consecutive_timing_warnings >= 2 && !startup_grace) {
           const std::size_t row = samples.count++;
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
@@ -2288,7 +2322,7 @@ int run(const Options& o) {
             teleop.maximum_observed_joint_delta_rad_per_joint[joint], displacement);
         maximum_observed_delta_rad = std::max(maximum_observed_delta_rad, displacement);
       }
-      std::uint64_t write_duration = 0, command_time = 0;
+      std::uint64_t write_duration = 0, command_time = 0, command_start = 0;
       if (is_bounded_mode(o.mode) && backend->edg_active()) {
         const std::array<double, 6>& desired =
             (has_ik_target && age < o.hold_ns && !stop_requested) ? ik_target : tracker.position();
@@ -2326,14 +2360,14 @@ int run(const Options& o) {
         const ResampledServoPoint proposed_servo_point =
             joint_resampler.evaluate(servo_evaluation_time);
         ResampledServoPoint servo_point = proposed_servo_point;
-        const auto write_start = now_ns();
+        command_start = now_ns();
         const auto prior_emitted = output_diagnostics.previous_position();
         OutputMotionSample prior_motion{};
         prior_motion.velocity = output_diagnostics.previous_velocity();
         prior_motion.acceleration = output_diagnostics.previous_acceleration();
         const OutputMotionSample proposed_motion =
             output_diagnostics.check_candidate(
-                proposed_servo_point, write_start);
+                proposed_servo_point, command_start);
         const bool transition_limited =
             o.recover_output_acceleration_transition &&
             (output_diagnostics.recoverable_acceleration_crossing(
@@ -2351,9 +2385,9 @@ int run(const Options& o) {
           servo_point = output_diagnostics.transition_limited_point(
               proposed_servo_point, proposed_motion);
           motion_sample =
-              output_diagnostics.check_final(servo_point, write_start);
+              output_diagnostics.check_final(servo_point, command_start);
           hold_update = output_acceleration_hold.hold(
-              write_start, proposed_servo_point.to_sequence);
+              command_start, proposed_servo_point.to_sequence);
           output_acceleration_hold_status_pending = true;
           state = State::Holding;
         } else if (output_acceleration_hold.active()) {
@@ -2398,7 +2432,7 @@ int run(const Options& o) {
           throw std::runtime_error("clearly excessive measured joint tracking error");
         backend->command(target);
         command_time = now_ns();
-        write_duration = command_time - write_start;
+        write_duration = command_time - command_start;
         output_diagnostics.commit(servo_point, motion_sample);
         if (transition_limited) {
           joint_resampler.commit_transition_limited(servo_point);
@@ -2406,7 +2440,7 @@ int run(const Options& o) {
           joint_resampler.commit(servo_point, command_time);
           if (recovered_from_output_acceleration_hold) {
             recovered_hold_duration_ns = output_acceleration_hold.recover(
-                write_start, servo_point.to_sequence);
+                command_start, servo_point.to_sequence);
             output_acceleration_recovery_status_pending = true;
             state = State::Running;
           }
@@ -2415,6 +2449,9 @@ int run(const Options& o) {
           CycleTelemetry row{};
           row.monotonic_ns = command_time;
           row.wall_ns = wall_now_ns();
+          row.cycle_start_ns = cycle_start;
+          row.scheduled_deadline_ns = deadline;
+          row.wake_lateness_ns = wake_lateness;
           row.last_sequence = last_sequence;
           row.heartbeat_age_ns = age;
           row.event = transition_limited
@@ -2447,6 +2484,9 @@ int run(const Options& o) {
           row.recovery_sequence = recovered_from_output_acceleration_hold
               ? servo_point.to_sequence : 0;
           row.hold_degraded = hold_update.degraded;
+          row.command_start_ns = command_start;
+          row.command_end_ns = command_time;
+          row.command_duration_ns = write_duration;
           cycle_telemetry.push_back(row);
         }
         if (is_joint_zero_motion_mode(o.mode)) {
@@ -2489,6 +2529,12 @@ int run(const Options& o) {
         }
       }
       const std::size_t i = samples.count++;
+      if (!cycle_telemetry.empty()) {
+        auto& row = cycle_telemetry.back();
+        row.cycle_end_ns = cycle_end;
+        row.completion_lateness_ns =
+            cycle_end > deadline ? cycle_end - deadline : 0;
+      }
       samples.periods[i] = start_period; samples.wakes[i] = wake_lateness;
       if (!timing_rearmed_after_edg) previous = cycle_start;
       samples.reads[i] = read_end - read_start; samples.writes[i] = write_duration;
@@ -2504,7 +2550,9 @@ int run(const Options& o) {
           ++consecutive_completion_misses;
           schedule_realign = true;
           samples.maximum_consecutive = std::max(samples.maximum_consecutive, consecutive_completion_misses);
-          if (cycle_end > deadline + 12'000'000 || consecutive_completion_misses >= 2) {
+          const bool startup_grace = startup_timing_grace_active && !ever_received;
+          if (cycle_end > deadline + 12'000'000 ||
+              (!startup_grace && consecutive_completion_misses >= 2)) {
             ++samples.hard_timing_misses;
             state = State::Fault;
             outcome = "hard_completion_timing_miss";
