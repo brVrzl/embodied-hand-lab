@@ -20,6 +20,9 @@ Never copy an old historical invocation without reconciling it with current
 - Output is absolute `edg_servo_j(..., ABS, 1)`.
 - Resampling is piecewise-linear toward the latest destination with no stale
   queue replay.
+- Production PWL destination changes use a short jerk-limited velocity
+  transition (`command_maximum_joint_jerk_rad_s3`); this is a project-selected
+  smoothing value, not a claimed Mini2 hardware limit.
 - Post-EDG `q_hold` is authoritative and first engagement must be continuous.
 - `HOLD_REJECTED` holds the last safe target with a fresh heartbeat.
 - Actual liveness loss, tracking fault, controller alarm, collision, SDK error,

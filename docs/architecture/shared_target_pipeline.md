@@ -18,6 +18,12 @@ Checks cover:
 - accepted-output joint acceleration, including the first 8 ms emitted step
   and replacement of an active native interpolation segment.
 
+The native production adapter additionally applies the project-selected
+`command_maximum_joint_jerk_rad_s3` as a low-latency transition shaper. It is
+not claimed as a Mini2 hardware maximum and is not a replacement for the
+final velocity, acceleration, timing, tracking, controller, or SDK hard-stop
+checks.
+
 The configured continuation allows at most five backtracks and a minimum
 fraction of 1/32. The output boundaries are currently π rad/s velocity and
 4π rad/s² acceleration. These are shared policy values, not native

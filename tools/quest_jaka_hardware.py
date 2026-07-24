@@ -406,6 +406,9 @@ def main() -> int:
             "--maximum-output-joint-acceleration-rad-s2", str(
                 hardware["native_hard_output_joint_acceleration_rad_s2"]
             ),
+            "--output-joint-jerk-limit-rad-s3", str(
+                config.raw["control"]["command_maximum_joint_jerk_rad_s3"]
+            ),
             "--output-acceleration-hold-degraded-ms", str(
                 hardware["output_acceleration_hold_degraded_ms"]
             ),
@@ -427,8 +430,8 @@ def main() -> int:
             worker_args.extend((
                 "--maximum-output-joint-velocity-rad-s-per-joint",
                 ",".join(
-                    str(value)
-                    for value in config.output_contract.velocity_boundaries_rad_s
+                    str(config.output_contract.maximum_velocity_rad_s)
+                    for _ in config.output_contract.velocity_boundaries_rad_s
                 ),
             ))
         if live:

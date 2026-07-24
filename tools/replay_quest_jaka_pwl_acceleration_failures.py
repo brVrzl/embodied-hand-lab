@@ -22,6 +22,10 @@ def main() -> int:
         ),
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--jerk-limit-rad-s3", type=float, default=None,
+        help="also replay the continuous jerk-limited transition candidate",
+    )
     args = parser.parse_args()
     fixture = json.loads(args.fixture.read_text(encoding="utf-8"))
     results = []
@@ -36,6 +40,7 @@ def main() -> int:
             destination_position_rad=case["destination_position_rad"],
             first_dt_s=case["command_interval_ns"] / 1e9,
             boundary_rad_s2=case["boundary_rad_s2"],
+            jerk_limit_rad_s3=args.jerk_limit_rad_s3,
         )
         result = asdict(replay)
         result.pop("selected_samples")

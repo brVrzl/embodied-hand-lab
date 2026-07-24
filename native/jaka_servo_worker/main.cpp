@@ -181,6 +181,7 @@ struct Options {
   double diagnostic_joint_acceleration_boundary_rad_s2 = 4.0 * M_PI;
   bool abort_on_diagnostic_acceleration_boundary = false;
   double maximum_output_joint_acceleration_rad_s2 = 4.0 * M_PI;
+  double output_joint_jerk_limit_rad_s3 = 20.0 * M_PI;
   bool recover_output_acceleration_transition = false;
   std::uint64_t output_acceleration_hold_degraded_ns = 250'000'000;
   std::uint64_t output_acceleration_hold_hard_stop_ns = 2'000'000'000;
@@ -334,6 +335,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--diagnostic-joint-acceleration-boundary-rad-s2") o.diagnostic_joint_acceleration_boundary_rad_s2 = std::stod(value_after(i, argc, argv));
     else if (a == "--abort-on-diagnostic-acceleration-boundary") o.abort_on_diagnostic_acceleration_boundary = true;
     else if (a == "--maximum-output-joint-acceleration-rad-s2") o.maximum_output_joint_acceleration_rad_s2 = std::stod(value_after(i, argc, argv));
+    else if (a == "--output-joint-jerk-limit-rad-s3") o.output_joint_jerk_limit_rad_s3 = std::stod(value_after(i, argc, argv));
     else if (a == "--recover-output-acceleration-transition") o.recover_output_acceleration_transition = true;
     else if (a == "--output-acceleration-hold-degraded-ms") o.output_acceleration_hold_degraded_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--output-acceleration-hold-hard-stop-ms") o.output_acceleration_hold_hard_stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
@@ -411,6 +413,8 @@ Options parse_options(int argc, char** argv) {
           o.diagnostic_joint_acceleration_boundary_rad_s2 > 0.0 &&
           std::isfinite(o.maximum_output_joint_acceleration_rad_s2) &&
           o.maximum_output_joint_acceleration_rad_s2 > 0.0 &&
+          std::isfinite(o.output_joint_jerk_limit_rad_s3) &&
+          o.output_joint_jerk_limit_rad_s3 > 0.0 &&
           o.maximum_output_joint_acceleration_rad_s2 + 1e-12 >=
               o.diagnostic_joint_acceleration_boundary_rad_s2 &&
           o.output_acceleration_hold_degraded_ns > 0 &&
@@ -857,8 +861,20 @@ class OutputMotionDiagnostics {
     limited.endpoint = false;
     for (std::size_t joint = 0; joint < limited.position.size(); ++joint) {
       const double maximum_velocity_change = acceleration_boundary * dt_s;
-      const double velocity = std::clamp(
+      const double desired_velocity = std::clamp(
           proposed_motion.velocity[joint],
+          previous_velocity_[joint] - maximum_velocity_change,
+          previous_velocity_[joint] + maximum_velocity_change);
+      const double desired_acceleration =
+          (desired_velocity - previous_velocity_[joint]) / dt_s;
+      const double maximum_acceleration_change =
+          options_.output_joint_jerk_limit_rad_s3 * dt_s;
+      const double acceleration = std::clamp(
+          desired_acceleration,
+          previous_acceleration_[joint] - maximum_acceleration_change,
+          previous_acceleration_[joint] + maximum_acceleration_change);
+      const double velocity = std::clamp(
+          previous_velocity_[joint] + acceleration * dt_s,
           previous_velocity_[joint] - maximum_velocity_change,
           previous_velocity_[joint] + maximum_velocity_change);
       limited.position[joint] =
@@ -2319,8 +2335,13 @@ int run(const Options& o) {
                 proposed_servo_point, write_start);
         const bool transition_limited =
             o.recover_output_acceleration_transition &&
-            output_diagnostics.recoverable_acceleration_crossing(
-                proposed_motion);
+            (output_diagnostics.recoverable_acceleration_crossing(
+                 proposed_motion) ||
+             std::any_of(proposed_motion.jerk.begin(), proposed_motion.jerk.end(),
+                         [&o](double value) {
+                           return std::abs(value) >
+                               o.output_joint_jerk_limit_rad_s3 + 1e-12;
+                         }));
         OutputAccelerationHoldUpdate hold_update{};
         OutputMotionSample motion_sample = proposed_motion;
         bool recovered_from_output_acceleration_hold = false;

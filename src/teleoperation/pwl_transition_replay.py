@@ -91,6 +91,7 @@ def replay_transition_case(
     destination_position_rad: Sequence[float],
     first_dt_s: float,
     boundary_rad_s2: float,
+    jerk_limit_rad_s3: float | None = None,
     servo_period_s: float = 0.008,
     maximum_cycles: int = 250,
 ) -> TransitionReplay:
@@ -98,6 +99,10 @@ def replay_transition_case(
 
     if not math.isfinite(boundary_rad_s2) or boundary_rad_s2 <= 0.0:
         raise ValueError("acceleration boundary must be finite and positive")
+    if jerk_limit_rad_s3 is not None and (
+        not math.isfinite(jerk_limit_rad_s3) or jerk_limit_rad_s3 <= 0.0
+    ):
+        raise ValueError("jerk limit must be finite and positive")
     current = motion_from_position(
         previous_position_rad=previous_position_rad,
         previous_velocity_rad_s=previous_velocity_rad_s,
@@ -144,6 +149,11 @@ def replay_transition_case(
             abs(value) > boundary_rad_s2 + 1e-12
             for value in raw.acceleration_rad_s2
         )
+        if jerk_limit_rad_s3 is not None:
+            crossing = crossing or any(
+                abs(value) > jerk_limit_rad_s3 + 1e-12
+                for value in raw.jerk_rad_s3
+            )
         if not crossing:
             selected.append(raw)
             position = raw.position_rad
@@ -165,6 +175,26 @@ def replay_transition_case(
                 raw.velocity_rad_s, velocity, strict=True
             )
         )
+        if jerk_limit_rad_s3 is not None:
+            maximum_acceleration_change = jerk_limit_rad_s3 * dt_s
+            limited_acceleration = tuple(
+                max(
+                    previous - maximum_acceleration_change,
+                    min(
+                        previous + maximum_acceleration_change,
+                        (desired - previous_velocity) / dt_s,
+                    ),
+                )
+                for desired, previous_velocity, previous in zip(
+                    limited_velocity, velocity, acceleration, strict=True
+                )
+            )
+            limited_velocity = tuple(
+                previous_velocity + current_acceleration * dt_s
+                for previous_velocity, current_acceleration in zip(
+                    velocity, limited_acceleration, strict=True
+                )
+            )
         limited_position = tuple(
             previous + selected_velocity * dt_s
             for previous, selected_velocity in zip(
