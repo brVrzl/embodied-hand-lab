@@ -69,10 +69,23 @@ class _BaseJerkServo:
         self.velocity: Joint = (0.0,) * 6
         self.acceleration: Joint = (0.0,) * 6
         self.target = self.position
+        self.target_timestamp_ns: int | None = None
         self._stopping = False
 
-    def set_target(self, target_rad: Iterable[float]) -> None:
+    def set_target(
+        self,
+        target_rad: Iterable[float],
+        *,
+        timestamp_ns: int | None = None,
+    ) -> None:
+        if timestamp_ns is not None and (
+            isinstance(timestamp_ns, bool)
+            or not isinstance(timestamp_ns, int)
+            or timestamp_ns < 0
+        ):
+            raise ValueError("target timestamp must be a non-negative integer nanosecond value")
         self.target = _joint(target_rad)
+        self.target_timestamp_ns = timestamp_ns
         self._stopping = False
 
     def request_controlled_stop(self) -> None:
@@ -166,17 +179,40 @@ class JerkBoundedPositionServo(_BaseJerkServo):
 
     def __init__(self, initial_position_rad: Iterable[float], limits: ShaperLimits) -> None:
         super().__init__(initial_position_rad, limits)
-        self._previous_target = self.target
         self._target_velocity: Joint = (0.0,) * 6
 
-    def set_target(self, target_rad: Iterable[float]) -> None:
+    @property
+    def target_velocity_rad_s(self) -> Joint:
+        """One-replacement feed-forward velocity derived from source time."""
+
+        return self._target_velocity
+
+    def set_target(
+        self,
+        target_rad: Iterable[float],
+        *,
+        timestamp_ns: int | None = None,
+    ) -> None:
         target = _joint(target_rad)
-        self._target_velocity = _joint(
-            (new - old) / self.limits.period_s
-            for new, old in zip(target, self.target, strict=True)
-        )
-        self._previous_target = self.target
-        super().set_target(target)
+        if timestamp_ns is not None and self.target_timestamp_ns is not None:
+            delta_ns = timestamp_ns - self.target_timestamp_ns
+            if delta_ns <= 0:
+                raise ValueError("target timestamps must increase")
+            delta_s = delta_ns / 1e9
+            self._target_velocity = _joint(
+                (new - old) / delta_s
+                for new, old in zip(target, self.target, strict=True)
+            )
+        else:
+            self._target_velocity = (0.0,) * 6
+        super().set_target(target, timestamp_ns=timestamp_ns)
+
+    def request_controlled_stop(self) -> None:
+        # A clutch release supersedes any not-yet-consumed target replacement.
+        # Otherwise one stale feed-forward impulse could be applied after the
+        # stop request when release lands between set_target() and tick().
+        self._target_velocity = (0.0,) * 6
+        super().request_controlled_stop()
 
     def _desired_acceleration(self) -> Joint:
         result = _joint(

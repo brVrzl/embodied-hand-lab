@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -20,6 +21,10 @@ def main() -> int:
     result = run_replay(
         load_accepted_targets(args.accepted_targets), prototype=args.prototype, xml_path=args.model
     )
+    result["source"] = {
+        "path": str(args.accepted_targets),
+        "sha256": hashlib.sha256(args.accepted_targets.read_bytes()).hexdigest(),
+    }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, sort_keys=True))
