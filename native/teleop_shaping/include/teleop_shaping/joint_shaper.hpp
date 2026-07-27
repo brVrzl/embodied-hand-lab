@@ -41,6 +41,14 @@ enum class ShaperMode : std::uint8_t {
   kHardStopped = 4,
 };
 
+enum class BrakePlanningFailure : std::uint8_t {
+  kNone = 0,
+  kPositionLimit = 1,
+  kVelocityLimit = 2,
+  kNumerical = 3,
+  kInvalidDynamicState = 4,
+};
+
 struct ShaperSnapshot {
   ShaperMode mode;
   std::uint8_t dof;
@@ -52,6 +60,9 @@ struct ShaperSnapshot {
   std::int64_t last_tick_ns;
   std::int64_t liveness_monotonic_ns;
   StopReason stop_reason;
+  BrakePlanningFailure brake_planning_failure;
+  std::uint8_t brake_planning_failure_axis;
+  std::uint8_t acceleration_neutralization_axis_count;
   std::array<double, kMaxDof> position_rad;
   std::array<double, kMaxDof> velocity_rad_s;
   std::array<double, kMaxDof> acceleration_rad_s2;
@@ -92,16 +103,19 @@ class ReferenceJointShaperV1 final : public IJointShaper {
 
  private:
   struct BrakeAxis {
-    std::array<double, 3> duration_s;
-    std::array<double, 3> jerk_rad_s3;
+    std::array<double, 4> duration_s;
+    std::array<double, 4> jerk_rad_s3;
     std::uint8_t phase;
     double phase_elapsed_s;
     bool complete;
+    bool uses_acceleration_neutralization;
   };
 
   OperationResult FailClosed(teleop_command_abi::ValidationResult validation,
                              StopReason reason, std::int64_t now_ns) noexcept;
   bool PlanBrakeAxis(std::size_t axis, BrakeAxis* plan) noexcept;
+  bool PlanAccelerationNeutralizedBrakeAxis(std::size_t axis,
+                                            BrakeAxis* plan) noexcept;
   bool SynchronizeBrakeAxis(std::size_t axis, double duration_s,
                             BrakeAxis* plan) noexcept;
   void AdvanceBrakeAxis(std::size_t axis, double dt_s) noexcept;
@@ -121,6 +135,9 @@ class ReferenceJointShaperV1 final : public IJointShaper {
   std::int64_t target_valid_until_ns_;
   std::int64_t last_target_source_ns_;
   StopReason stop_reason_;
+  BrakePlanningFailure brake_planning_failure_;
+  std::uint8_t brake_planning_failure_axis_;
+  std::uint8_t acceleration_neutralization_axis_count_;
   JointDynamicLimitsV1 limits_;
   std::array<double, kMaxDof> position_;
   std::array<double, kMaxDof> velocity_;

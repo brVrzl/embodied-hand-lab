@@ -62,6 +62,9 @@ ReferenceJointShaperV1::ReferenceJointShaperV1() noexcept
       target_valid_until_ns_(-1),
       last_target_source_ns_(-1),
       stop_reason_(StopReason::kNone),
+      brake_planning_failure_(BrakePlanningFailure::kNone),
+      brake_planning_failure_axis_(static_cast<std::uint8_t>(kMaxDof)),
+      acceleration_neutralization_axis_count_(0),
       limits_{},
       position_{},
       velocity_{},
@@ -109,13 +112,17 @@ OperationResult ReferenceJointShaperV1::Initialize(
   target_valid_until_ns_ = -1;
   last_target_source_ns_ = -1;
   stop_reason_ = StopReason::kNone;
+  brake_planning_failure_ = BrakePlanningFailure::kNone;
+  brake_planning_failure_axis_ = static_cast<std::uint8_t>(kMaxDof);
+  acceleration_neutralization_axis_count_ = 0;
   limits_ = limits;
   position_ = measured.position_rad;
   velocity_ = measured.velocity_rad_s;
   acceleration_ = measured.acceleration_rad_s2;
   target_ = measured.position_rad;
   target_velocity_.fill(0.0);
-  brake_.fill(BrakeAxis{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0U, 0.0, true});
+  brake_.fill(BrakeAxis{{0.0, 0.0, 0.0, 0.0},
+                        {0.0, 0.0, 0.0, 0.0}, 0U, 0.0, true, false});
   return Result(OperationCode::kOk);
 }
 
@@ -185,7 +192,8 @@ OperationResult ReferenceJointShaperV1::ReplaceTarget(
 
 bool ReferenceJointShaperV1::PlanBrakeAxis(std::size_t axis, BrakeAxis* plan) noexcept {
   if (plan == nullptr) return false;
-  *plan = BrakeAxis{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0U, 0.0, false};
+  *plan = BrakeAxis{{0.0, 0.0, 0.0, 0.0},
+                    {0.0, 0.0, 0.0, 0.0}, 0U, 0.0, false, false};
   const double velocity = velocity_[axis];
   const double acceleration = acceleration_[axis];
   if (std::abs(velocity) <= kNumericalEpsilon) {
@@ -226,8 +234,8 @@ bool ReferenceJointShaperV1::PlanBrakeAxis(std::size_t axis, BrakeAxis* plan) no
     return false;
   }
   plan->duration_s = {std::max(0.0, first_duration), std::max(0.0, hold_duration),
-                      std::max(0.0, final_duration)};
-  plan->jerk_rad_s3 = {-sign * maximum_jerk, 0.0, sign * maximum_jerk};
+                      std::max(0.0, final_duration), 0.0};
+  plan->jerk_rad_s3 = {-sign * maximum_jerk, 0.0, sign * maximum_jerk, 0.0};
 
   double predicted_position = position_[axis];
   double predicted_velocity = velocity;
@@ -245,6 +253,159 @@ bool ReferenceJointShaperV1::PlanBrakeAxis(std::size_t axis, BrakeAxis* plan) no
       std::abs(predicted_acceleration) > acceleration_tolerance ||
       predicted_position < limits_.minimum_position_rad[axis] ||
       predicted_position > limits_.maximum_position_rad[axis]) {
+    return false;
+  }
+  return true;
+}
+
+bool ReferenceJointShaperV1::PlanAccelerationNeutralizedBrakeAxis(
+    std::size_t axis, BrakeAxis* plan) noexcept {
+  if (plan == nullptr) return false;
+  *plan = BrakeAxis{{0.0, 0.0, 0.0, 0.0},
+                    {0.0, 0.0, 0.0, 0.0}, 0U, 0.0, false, true};
+  const double initial_velocity = velocity_[axis];
+  const double initial_acceleration = acceleration_[axis];
+  const double maximum_velocity = limits_.maximum_velocity_rad_s[axis];
+  const double maximum_acceleration = limits_.maximum_acceleration_rad_s2[axis];
+  const double maximum_jerk = limits_.maximum_jerk_rad_s3[axis];
+  if (!std::isfinite(initial_velocity) || !std::isfinite(initial_acceleration) ||
+      std::abs(initial_velocity) > maximum_velocity + 1e-12 ||
+      std::abs(initial_acceleration) > maximum_acceleration + 1e-12) {
+    brake_planning_failure_ = BrakePlanningFailure::kInvalidDynamicState;
+    brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+    return false;
+  }
+
+  const double neutralization_duration =
+      std::abs(initial_acceleration) / maximum_jerk;
+  const double neutralization_jerk =
+      std::abs(initial_acceleration) <= kNumericalEpsilon
+          ? 0.0
+          : -std::copysign(maximum_jerk, initial_acceleration);
+  double neutral_position = position_[axis];
+  double residual_velocity = initial_velocity;
+  double neutral_acceleration = initial_acceleration;
+  IntegrateConstantJerk(neutralization_jerk, neutralization_duration,
+                        &neutral_position, &residual_velocity,
+                        &neutral_acceleration);
+  neutral_acceleration = 0.0;
+  // Exact cancellation states commonly leave a sub-ulp velocity residue.
+  // Do not turn that numerical residue into a second microscopic brake.
+  if (std::abs(residual_velocity) <= 1e-10) {
+    residual_velocity = 0.0;
+  }
+  if (!std::isfinite(neutral_position) || !std::isfinite(residual_velocity)) {
+    brake_planning_failure_ = BrakePlanningFailure::kNumerical;
+    brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+    return false;
+  }
+  if (std::abs(residual_velocity) > maximum_velocity + 1e-10) {
+    brake_planning_failure_ = BrakePlanningFailure::kVelocityLimit;
+    brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+    return false;
+  }
+
+  plan->duration_s[0] = neutralization_duration;
+  plan->jerk_rad_s3[0] = neutralization_jerk;
+  if (residual_velocity == 0.0) {
+    if (neutral_position < limits_.minimum_position_rad[axis] ||
+        neutral_position > limits_.maximum_position_rad[axis]) {
+      brake_planning_failure_ = BrakePlanningFailure::kPositionLimit;
+      brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+      return false;
+    }
+    return true;
+  }
+  if (std::abs(residual_velocity) > kNumericalEpsilon) {
+    const double sign = std::copysign(1.0, residual_velocity);
+    const double speed = std::abs(residual_velocity);
+    const double triangular_peak = std::sqrt(maximum_jerk * speed);
+    if (triangular_peak <= maximum_acceleration) {
+      const double ramp_duration = triangular_peak / maximum_jerk;
+      plan->duration_s[1] = ramp_duration;
+      plan->duration_s[2] = 0.0;
+      plan->duration_s[3] = ramp_duration;
+    } else {
+      const double ramp_duration = maximum_acceleration / maximum_jerk;
+      plan->duration_s[1] = ramp_duration;
+      plan->duration_s[2] =
+          (speed - maximum_acceleration * maximum_acceleration / maximum_jerk) /
+          maximum_acceleration;
+      plan->duration_s[3] = ramp_duration;
+    }
+    plan->jerk_rad_s3[1] = -sign * maximum_jerk;
+    plan->jerk_rad_s3[2] = 0.0;
+    plan->jerk_rad_s3[3] = sign * maximum_jerk;
+  }
+
+  double predicted_position = position_[axis];
+  double predicted_velocity = initial_velocity;
+  double predicted_acceleration = initial_acceleration;
+  for (std::size_t phase = 0; phase < plan->duration_s.size(); ++phase) {
+    const double duration = plan->duration_s[phase];
+    const double jerk = plan->jerk_rad_s3[phase];
+    if (!std::isfinite(duration) || duration < 0.0 ||
+        !std::isfinite(jerk) || std::abs(jerk) > maximum_jerk + 1e-10) {
+      brake_planning_failure_ = BrakePlanningFailure::kNumerical;
+      brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+      return false;
+    }
+    if (duration > 0.0) {
+      const double discriminant =
+          predicted_acceleration * predicted_acceleration -
+          2.0 * jerk * predicted_velocity;
+      if (std::abs(jerk) > kNumericalEpsilon && discriminant >= 0.0) {
+        const double root = std::sqrt(discriminant);
+        for (double candidate : {
+                 (-predicted_acceleration + root) / jerk,
+                 (-predicted_acceleration - root) / jerk}) {
+          if (candidate > 0.0 && candidate < duration) {
+            const double turning_position =
+                predicted_position + predicted_velocity * candidate +
+                0.5 * predicted_acceleration * candidate * candidate +
+                jerk * candidate * candidate * candidate / 6.0;
+            if (turning_position < limits_.minimum_position_rad[axis] ||
+                turning_position > limits_.maximum_position_rad[axis]) {
+              brake_planning_failure_ = BrakePlanningFailure::kPositionLimit;
+              brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+              return false;
+            }
+          }
+        }
+      } else if (std::abs(predicted_acceleration) > kNumericalEpsilon) {
+        const double candidate = -predicted_velocity / predicted_acceleration;
+        if (candidate > 0.0 && candidate < duration) {
+          const double turning_position =
+              predicted_position + predicted_velocity * candidate +
+              0.5 * predicted_acceleration * candidate * candidate;
+          if (turning_position < limits_.minimum_position_rad[axis] ||
+              turning_position > limits_.maximum_position_rad[axis]) {
+            brake_planning_failure_ = BrakePlanningFailure::kPositionLimit;
+            brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+            return false;
+          }
+        }
+      }
+    }
+    IntegrateConstantJerk(jerk, duration, &predicted_position,
+                          &predicted_velocity, &predicted_acceleration);
+    if (predicted_position < limits_.minimum_position_rad[axis] ||
+        predicted_position > limits_.maximum_position_rad[axis]) {
+      brake_planning_failure_ = BrakePlanningFailure::kPositionLimit;
+      brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+      return false;
+    }
+    if (std::abs(predicted_velocity) > maximum_velocity + 1e-9 ||
+        std::abs(predicted_acceleration) > maximum_acceleration + 1e-9) {
+      brake_planning_failure_ = BrakePlanningFailure::kVelocityLimit;
+      brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
+      return false;
+    }
+  }
+  if (std::abs(predicted_velocity) > 1e-8 ||
+      std::abs(predicted_acceleration) > 1e-8) {
+    brake_planning_failure_ = BrakePlanningFailure::kNumerical;
+    brake_planning_failure_axis_ = static_cast<std::uint8_t>(axis);
     return false;
   }
   return true;
@@ -280,8 +441,9 @@ bool ReferenceJointShaperV1::SynchronizeBrakeAxis(std::size_t axis, double durat
     return false;
   }
   *plan = BrakeAxis{{std::max(0.0, first_duration), 0.0,
-                     std::max(0.0, final_duration)},
-                    {-sign * jerk, 0.0, sign * jerk}, 0U, 0.0, false};
+                     std::max(0.0, final_duration), 0.0},
+                    {-sign * jerk, 0.0, sign * jerk, 0.0},
+                    0U, 0.0, false, false};
 
   double predicted_position = position_[axis];
   double predicted_velocity = velocity;
@@ -307,29 +469,59 @@ OperationResult ReferenceJointShaperV1::RequestControlledStop(
       now_ns < last_tick_ns_) {
     return Result(OperationCode::kInvalidState);
   }
+  brake_planning_failure_ = BrakePlanningFailure::kNone;
+  brake_planning_failure_axis_ = static_cast<std::uint8_t>(kMaxDof);
+  acceleration_neutralization_axis_count_ = 0;
+  bool uses_acceleration_neutralization = false;
   for (std::size_t i = 0; i < dof_; ++i) {
     if (!PlanBrakeAxis(i, &brake_[i])) {
-      HardStop(StopReason::kInvalidCommand, now_ns);
-      return Result(OperationCode::kPlanningFailed);
+      if (!PlanAccelerationNeutralizedBrakeAxis(i, &brake_[i])) {
+        HardStop(StopReason::kInvalidCommand, now_ns);
+        return Result(OperationCode::kPlanningFailed);
+      }
+      uses_acceleration_neutralization = true;
+      ++acceleration_neutralization_axis_count_;
     }
   }
   double synchronized_duration_s = 0.0;
   for (std::size_t i = 0; i < dof_; ++i) {
     synchronized_duration_s = std::max(
         synchronized_duration_s,
-        brake_[i].duration_s[0] + brake_[i].duration_s[1] + brake_[i].duration_s[2]);
+        brake_[i].duration_s[0] + brake_[i].duration_s[1] +
+            brake_[i].duration_s[2] + brake_[i].duration_s[3]);
   }
-  synchronized_duration_s =
-      std::ceil(synchronized_duration_s / kPeriodS - 1e-12) * kPeriodS;
-  for (std::size_t i = 0; i < dof_; ++i) {
-    if (!brake_[i].complete &&
-        !SynchronizeBrakeAxis(i, synchronized_duration_s, &brake_[i])) {
-      HardStop(StopReason::kInvalidCommand, now_ns);
-      return Result(OperationCode::kPlanningFailed);
+  if (!uses_acceleration_neutralization) {
+    synchronized_duration_s =
+        std::ceil(synchronized_duration_s / kPeriodS - 1e-12) * kPeriodS;
+    bool synchronization_failed = false;
+    for (std::size_t i = 0; i < dof_; ++i) {
+      if (!brake_[i].complete &&
+          !SynchronizeBrakeAxis(i, synchronized_duration_s, &brake_[i])) {
+        synchronization_failed = true;
+        break;
+      }
+    }
+    // Some valid near-zero states have a direct per-axis stop but no solution
+    // under the legacy common-duration synchronization equation.  Re-plan the
+    // complete stop as independent acceleration-neutralized axes instead of
+    // promoting a normal clutch release to a hard fault.
+    if (synchronization_failed) {
+      acceleration_neutralization_axis_count_ = 0;
+      for (std::size_t i = 0; i < dof_; ++i) {
+        if (!PlanAccelerationNeutralizedBrakeAxis(i, &brake_[i])) {
+          HardStop(StopReason::kInvalidCommand, now_ns);
+          return Result(OperationCode::kPlanningFailed);
+        }
+        if (std::abs(acceleration_[i]) > kNumericalEpsilon) {
+          ++acceleration_neutralization_axis_count_;
+        }
+      }
+      uses_acceleration_neutralization = true;
     }
   }
   for (std::size_t i = dof_; i < kMaxDof; ++i) {
-    brake_[i] = BrakeAxis{{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, 0U, 0.0, true};
+    brake_[i] = BrakeAxis{{0.0, 0.0, 0.0, 0.0},
+                          {0.0, 0.0, 0.0, 0.0}, 0U, 0.0, true, false};
   }
   last_input_sequence_ = release_sequence;
   release_sequence_ = release_sequence;
@@ -344,7 +536,7 @@ void ReferenceJointShaperV1::AdvanceBrakeAxis(std::size_t axis, double dt_s) noe
   BrakeAxis& plan = brake_[axis];
   double remaining = dt_s;
   std::size_t bounded_iterations = 0;
-  while (!plan.complete && remaining > kNumericalEpsilon && bounded_iterations < 4U) {
+  while (!plan.complete && remaining > kNumericalEpsilon && bounded_iterations < 6U) {
     ++bounded_iterations;
     while (plan.phase < plan.duration_s.size() &&
            plan.duration_s[plan.phase] - plan.phase_elapsed_s <= kNumericalEpsilon) {
@@ -459,7 +651,6 @@ OperationResult ReferenceJointShaperV1::Tick(std::int64_t now_ns,
             StopClass::kControlled, stop_reason_, now_ns, output);
     return Result(complete ? OperationCode::kCompleted : OperationCode::kOk);
   }
-
   last_tick_ns_ = now_ns;
   Publish(OutputMode::kStopped, StopClass::kControlled, stop_reason_, now_ns, output);
   return Result(OperationCode::kCompleted);
@@ -484,6 +675,9 @@ ShaperSnapshot ReferenceJointShaperV1::Snapshot() const noexcept {
                         last_tick_ns_,
                         liveness_monotonic_ns_,
                         stop_reason_,
+                        brake_planning_failure_,
+                        brake_planning_failure_axis_,
+                        acceleration_neutralization_axis_count_,
                         position_,
                         velocity_,
                         acceleration_};

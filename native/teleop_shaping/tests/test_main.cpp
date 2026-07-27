@@ -1,5 +1,6 @@
 #include "teleop_command_abi/abi_v1.hpp"
 #include "teleop_shaping/fake_consumer.hpp"
+#include "teleop_shaping/fake_jaka_lifecycle.hpp"
 #include "teleop_shaping/joint_shaper.hpp"
 
 #include <atomic>
@@ -240,6 +241,46 @@ ShapedJointCommandV1 Command(std::uint64_t output_sequence, std::int64_t now_ns)
   return value;
 }
 
+ShapedJointCommandV1 CommandForMode(std::uint64_t output_sequence,
+                                    std::uint64_t epoch,
+                                    std::int64_t now_ns,
+                                    OutputMode mode) {
+  auto value = Command(output_sequence, now_ns);
+  value.safety_epoch = epoch;
+  value.output_mode = mode;
+  if (mode == OutputMode::kControlledBraking || mode == OutputMode::kStopped) {
+    value.stop_class = StopClass::kControlled;
+    value.stop_reason = StopReason::kClutchRelease;
+  }
+  return value;
+}
+
+TransportHealthV1 Health(std::uint64_t sequence, std::uint64_t epoch,
+                         std::int64_t now_ns) {
+  TransportHealthV1 value{};
+  value.header = MakeHeaderV1<TransportHealthV1>();
+  value.health_sequence = sequence;
+  value.safety_epoch = epoch;
+  value.sampled_monotonic_ns = now_ns;
+  value.transport_state = TransportState::kReady;
+  value.controller_state = ControllerState::kReady;
+  value.servo_enabled = 1;
+  value.vendor_status_category = VendorStatusCategory::kNone;
+  return value;
+}
+
+FakeJakaLifecycleAdapter StreamingAdapter(std::int64_t now, std::uint64_t epoch = 7) {
+  FakeJakaLifecycleAdapter adapter;
+  CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.CompleteConnect(true, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.PrepareServo(now) == FakeLifecycleCode::kOk);
+  auto measured = Measured(now);
+  measured.safety_epoch = epoch;
+  CHECK(adapter.ArmEpoch(measured, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.StartStreaming(epoch, now) == FakeLifecycleCode::kOk);
+  return adapter;
+}
+
 void TestFakeConsumerLatestWinsAndFaults() {
   const std::int64_t now = 3'000'000'000;
   InMemoryFakeConsumerV1 consumer(6, 7);
@@ -310,6 +351,257 @@ void TestHardFaultAndFreshnessPreemption() {
   CHECK(timing.Tick(start + kReferencePeriodNs, &output).code ==
         OperationCode::kTerminalNoOutput);
   CHECK(timing.Snapshot().stop_reason == StopReason::kTimingFault);
+}
+
+void TestResidualAccelerationNeutralization() {
+  const std::int64_t start = 3'750'000'000;
+  int neutralized_cases = 0;
+  for (double velocity : {0.0, 1e-6, -1e-6, 1e-4, -1e-4, 1e-3, -1e-3,
+                          1e-2, -1e-2}) {
+    for (double acceleration : {0.0, 0.1, -0.1, 0.5, -0.5, 1.0, -1.0,
+                                4.0, -4.0, 12.0, -12.0}) {
+      ReferenceJointShaperV1 shaper;
+      CHECK(shaper.Initialize(Measured(start, velocity, acceleration), Limits(), start).code ==
+            OperationCode::kOk);
+      CHECK(shaper.ReplaceTarget(Target(1, start, start), start).code ==
+            OperationCode::kOk);
+      const auto request =
+          shaper.RequestControlledStop(2, StopReason::kClutchRelease, start);
+      CHECK(request.code == OperationCode::kOk);
+      if (request.code != OperationCode::kOk) {
+        continue;
+      }
+      neutralized_cases += shaper.Snapshot().acceleration_neutralization_axis_count > 0U;
+      ShapedJointCommandV1 output{};
+      std::array<double, kMaxDof> previous_acceleration{};
+      previous_acceleration[1] = acceleration;
+      bool completed = false;
+      for (int tick = 0; tick < 500; ++tick) {
+        const auto result = shaper.Tick(start + tick * kReferencePeriodNs, &output);
+        CHECK(result.code == OperationCode::kOk || result.code == OperationCode::kCompleted);
+        CHECK(std::isfinite(output.position_rad[1]));
+        CHECK(std::abs(output.velocity_rad_s[1]) <=
+              Limits().maximum_velocity_rad_s[1] + 1e-10);
+        CHECK(std::abs(output.acceleration_rad_s2[1]) <=
+              Limits().maximum_acceleration_rad_s2[1] + 1e-10);
+        CHECK(std::abs(output.acceleration_rad_s2[1] - previous_acceleration[1]) /
+                  (static_cast<double>(kReferencePeriodNs) / 1e9) <=
+              Limits().maximum_jerk_rad_s3[1] + 1e-8);
+        previous_acceleration[1] = output.acceleration_rad_s2[1];
+        if (output.output_mode == OutputMode::kStopped) {
+          completed = true;
+          break;
+        }
+      }
+      CHECK(completed);
+    }
+  }
+  CHECK(neutralized_cases > 0);
+
+  ReferenceJointShaperV1 limited;
+  auto measured = Measured(start, 0.0, 1.0);
+  measured.position_rad[1] = 2.9999;
+  CHECK(limited.Initialize(measured, Limits(), start).code == OperationCode::kOk);
+  auto target = Target(1, start, start);
+  target.position_rad[1] = measured.position_rad[1];
+  CHECK(limited.ReplaceTarget(target, start).code == OperationCode::kOk);
+  CHECK(limited.RequestControlledStop(2, StopReason::kClutchRelease, start).code ==
+        OperationCode::kPlanningFailed);
+  CHECK(limited.Snapshot().brake_planning_failure ==
+        BrakePlanningFailure::kPositionLimit);
+  CHECK(limited.Snapshot().mode == ShaperMode::kHardStopped);
+}
+
+void TestFakeJakaLifecycleHappyPathAndRecovery() {
+  const std::int64_t now = 3'900'000'000;
+  auto adapter = StreamingAdapter(now);
+  CHECK(adapter.Send(CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.SampleHealth(Health(1, 7, now), now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Send(CommandForMode(2, 7, now, OutputMode::kControlledBraking),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Snapshot().lifecycle_state ==
+        FakeJakaLifecycleState::kControlledStopping);
+  CHECK(adapter.ArmEpoch(Measured(now), now) == FakeLifecycleCode::kInvalidState);
+  CHECK(adapter.Send(CommandForMode(3, 7, now, OutputMode::kStopped),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Snapshot().lifecycle_state == FakeJakaLifecycleState::kStopped);
+  CHECK(adapter.Send(CommandForMode(4, 7, now, OutputMode::kStopped),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kInvalidState);
+  CHECK(adapter.Snapshot().accepted_command_count == 3U);
+
+  auto measured = Measured(now);
+  measured.safety_epoch = 8;
+  CHECK(adapter.ArmEpoch(measured, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.StartStreaming(8, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Send(CommandForMode(1, 8, now, OutputMode::kActiveTracking),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Send(CommandForMode(2, 7, now, OutputMode::kActiveTracking),
+                     FakeSendOutcome::kOk, now) == FakeLifecycleCode::kEpochMismatch);
+  CHECK(adapter.Snapshot().hard_stop_latched);
+  CHECK(adapter.has_terminal_fault_record());
+  CHECK(adapter.terminal_fault_record().safety_epoch == 7);
+  CHECK(adapter.Snapshot().safety_epoch == 8);
+  CHECK(adapter.BeginCleanup(now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.CompleteCleanup(now) == FakeLifecycleCode::kOk);
+  CHECK(adapter.Snapshot().lifecycle_state == FakeJakaLifecycleState::kDisconnected);
+  CHECK(!adapter.Snapshot().session_owned);
+}
+
+void TestFakeJakaLifecycleFaultMatrixAndTelemetry() {
+  const std::int64_t now = 4'000'000'000;
+  int fault_cases = 0;
+  {
+    FakeJakaLifecycleAdapter adapter;
+    CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.CompleteConnect(false, now) == FakeLifecycleCode::kTransportFailure);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    ++fault_cases;
+  }
+  {
+    FakeJakaLifecycleAdapter adapter;
+    CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.CompleteConnect(true, now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.PrepareServo(now) == FakeLifecycleCode::kOk);
+    auto invalid_measured = Measured(now);
+    invalid_measured.velocity_rad_s[0] = std::numeric_limits<double>::quiet_NaN();
+    CHECK(adapter.ArmEpoch(invalid_measured, now) == FakeLifecycleCode::kInvalidCommand);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    ++fault_cases;
+  }
+  {
+    FakeJakaLifecycleAdapter adapter;
+    CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.CompleteConnect(true, now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.PrepareServo(now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.ArmEpoch(Measured(now), now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.ArmEpoch(Measured(now), now) == FakeLifecycleCode::kEpochMismatch);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    ++fault_cases;
+  }
+  auto expect_fault = [&](FakeJakaLifecycleAdapter adapter,
+                          ShapedJointCommandV1 command,
+                          FakeSendOutcome outcome,
+                          std::int64_t send_now) {
+    const auto result = adapter.Send(command, outcome, send_now);
+    CHECK(result != FakeLifecycleCode::kOk);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    CHECK(adapter.has_terminal_fault_record());
+    CHECK(adapter.terminal_fault_record().output_sequence == command.output_sequence);
+    CHECK(adapter.terminal_fault_record().source_sequence == command.source_sequence);
+    CHECK(adapter.terminal_fault_record().safety_epoch == command.safety_epoch);
+    CHECK(adapter.terminal_fault_record().command_age_ns ==
+          send_now - command.generated_monotonic_ns);
+    CHECK(adapter.terminal_fault_record().deadline_slack_ns ==
+          command.valid_until_monotonic_ns - send_now);
+    ++fault_cases;
+  };
+
+  {
+    auto adapter = StreamingAdapter(now);
+    CHECK(adapter.Send(CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+                       FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+    expect_fault(adapter, CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+                 FakeSendOutcome::kOk, now);
+  }
+  expect_fault(StreamingAdapter(now),
+               CommandForMode(1, 8, now, OutputMode::kActiveTracking),
+               FakeSendOutcome::kOk, now);
+  expect_fault(StreamingAdapter(now),
+               CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+               FakeSendOutcome::kOk, now + 16'000'001);
+  expect_fault(StreamingAdapter(now),
+               CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+               FakeSendOutcome::kOk, now - 1);
+  {
+    auto invalid = CommandForMode(1, 7, now, OutputMode::kActiveTracking);
+    invalid.position_rad[0] = std::numeric_limits<double>::quiet_NaN();
+    expect_fault(StreamingAdapter(now), invalid, FakeSendOutcome::kOk, now);
+  }
+  expect_fault(StreamingAdapter(now),
+               CommandForMode(1, 7, now, OutputMode::kStopped),
+               FakeSendOutcome::kOk, now);
+  for (FakeSendOutcome outcome : {FakeSendOutcome::kRejected,
+                                  FakeSendOutcome::kTransportFailure,
+                                  FakeSendOutcome::kControllerAlarm}) {
+    expect_fault(StreamingAdapter(now),
+                 CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+                 outcome, now);
+  }
+
+  auto expect_health_fault = [&](TransportHealthV1 health) {
+    auto adapter = StreamingAdapter(now);
+    CHECK(adapter.SampleHealth(health, now) != FakeLifecycleCode::kOk);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    CHECK(adapter.has_terminal_fault_record());
+    ++fault_cases;
+  };
+  auto health = Health(1, 7, now);
+  health.producer_stale = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.command_stale = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.deadline_missed = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.alarm = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.estop = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.collision = 1;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.transport_state = TransportState::kFaulted;
+  expect_health_fault(health);
+  health = Health(1, 7, now);
+  health.servo_enabled = 0;
+  expect_health_fault(health);
+  {
+    auto adapter = StreamingAdapter(now);
+    CHECK(adapter.SampleHealth(Health(1, 7, now), now) == FakeLifecycleCode::kOk);
+    CHECK(adapter.SampleHealth(Health(1, 7, now), now) != FakeLifecycleCode::kOk);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    ++fault_cases;
+  }
+  CHECK(fault_cases == 21);
+
+  auto latest_wins_adapter = StreamingAdapter(now);
+  CHECK(latest_wins_adapter.Send(
+            CommandForMode(1, 7, now, OutputMode::kActiveTracking),
+            FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(latest_wins_adapter.Send(
+            CommandForMode(4, 7, now, OutputMode::kActiveTracking),
+            FakeSendOutcome::kOk, now) == FakeLifecycleCode::kOk);
+  CHECK(latest_wins_adapter.Snapshot().accepted_command_count == 2U);
+  CHECK(latest_wins_adapter.Snapshot().skipped_output_sequence_count == 2U);
+
+  auto telemetry_adapter = StreamingAdapter(now);
+  const std::uint64_t allocations_before = g_allocations.load();
+  for (std::uint64_t sequence = 1; sequence <= 300; ++sequence) {
+    const std::int64_t tick = now + static_cast<std::int64_t>(sequence - 1) * 1'000;
+    CHECK(telemetry_adapter.Send(
+              CommandForMode(sequence, 7, tick, OutputMode::kActiveTracking),
+              FakeSendOutcome::kOk, tick) == FakeLifecycleCode::kOk);
+  }
+  CHECK(g_allocations.load() == allocations_before);
+  CHECK(telemetry_adapter.telemetry_size() ==
+        FakeJakaLifecycleAdapter::kTelemetryCapacity);
+  CHECK(telemetry_adapter.Snapshot().telemetry_overflow_count > 0U);
+  telemetry_adapter.InjectFault(StopReason::kControllerAlarm, now + 1'000'000);
+  const auto terminal_sequence =
+      telemetry_adapter.terminal_fault_record().record_sequence;
+  CHECK(telemetry_adapter.BeginCleanup(now + 1'000'001) == FakeLifecycleCode::kOk);
+  CHECK(telemetry_adapter.CompleteCleanup(now + 1'000'002) == FakeLifecycleCode::kOk);
+  CHECK(telemetry_adapter.has_terminal_fault_record());
+  CHECK(telemetry_adapter.terminal_fault_record().record_sequence == terminal_sequence);
+  std::cout << "fake_lifecycle_fault_matrix_cases=" << fault_cases
+            << " telemetry_capacity=" << FakeJakaLifecycleAdapter::kTelemetryCapacity
+            << " overflow_count="
+            << telemetry_adapter.Snapshot().telemetry_overflow_count << '\n';
 }
 
 void TestDeterministicPropertyAndNoAllocation() {
@@ -396,6 +688,9 @@ int main() {
   TestControlledBrakingAndStateMachine();
   TestFakeConsumerLatestWinsAndFaults();
   TestHardFaultAndFreshnessPreemption();
+  TestResidualAccelerationNeutralization();
+  TestFakeJakaLifecycleHappyPathAndRecovery();
+  TestFakeJakaLifecycleFaultMatrixAndTelemetry();
   TestDeterministicPropertyAndNoAllocation();
   if (g_failures != 0) {
     std::cerr << g_failures << " test checks failed\n";

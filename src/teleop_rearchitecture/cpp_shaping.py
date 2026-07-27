@@ -65,6 +65,14 @@ class OperationCode(IntEnum):
     TERMINAL_NO_OUTPUT = 6
 
 
+class BrakePlanningFailure(IntEnum):
+    NONE = 0
+    POSITION_LIMIT = 1
+    VELOCITY_LIMIT = 2
+    NUMERICAL = 3
+    INVALID_DYNAMIC_STATE = 4
+
+
 class AbiHeader(ctypes.Structure):
     _fields_ = [
         ("magic", ctypes.c_uint32),
@@ -190,6 +198,9 @@ class ShaperSnapshot(ctypes.Structure):
         ("last_tick_ns", ctypes.c_int64),
         ("liveness_monotonic_ns", ctypes.c_int64),
         ("stop_reason", ctypes.c_uint8),
+        ("brake_planning_failure", ctypes.c_uint8),
+        ("brake_planning_failure_axis", ctypes.c_uint8),
+        ("acceleration_neutralization_axis_count", ctypes.c_uint8),
         ("position_rad", ctypes.c_double * MAX_DOF),
         ("velocity_rad_s", ctypes.c_double * MAX_DOF),
         ("acceleration_rad_s2", ctypes.c_double * MAX_DOF),
@@ -218,6 +229,23 @@ class CppShaperPoint:
     source_sequence: int
     output_mode: OutputMode
     stop_reason: StopReason
+    position_rad: tuple[float, ...]
+    velocity_rad_s: tuple[float, ...]
+    acceleration_rad_s2: tuple[float, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CppShaperSnapshot:
+    mode: int
+    safety_epoch: int
+    last_input_sequence: int
+    source_sequence: int
+    output_sequence: int
+    release_sequence: int
+    stop_reason: StopReason
+    brake_planning_failure: BrakePlanningFailure
+    brake_planning_failure_axis: int
+    acceleration_neutralization_axis_count: int
     position_rad: tuple[float, ...]
     velocity_rad_s: tuple[float, ...]
     acceleration_rad_s2: tuple[float, ...]
@@ -415,6 +443,30 @@ class CppReferenceShaper:
 
     def hard_stop(self, reason: StopReason, now_ns: int) -> None:
         self.library.teleop_reference_shaper_hard_stop(self.handle, reason, now_ns)
+
+    def snapshot(self) -> CppShaperSnapshot:
+        value = ShaperSnapshot()
+        if not self.library.teleop_reference_shaper_snapshot(
+            self.handle, ctypes.byref(value)
+        ):
+            raise RuntimeError("unable to read C++ shaper snapshot")
+        return CppShaperSnapshot(
+            mode=value.mode,
+            safety_epoch=value.safety_epoch,
+            last_input_sequence=value.last_input_sequence,
+            source_sequence=value.source_sequence,
+            output_sequence=value.output_sequence,
+            release_sequence=value.release_sequence,
+            stop_reason=StopReason(value.stop_reason),
+            brake_planning_failure=BrakePlanningFailure(value.brake_planning_failure),
+            brake_planning_failure_axis=value.brake_planning_failure_axis,
+            acceleration_neutralization_axis_count=(
+                value.acceleration_neutralization_axis_count
+            ),
+            position_rad=tuple(value.position_rad[: self.dof]),
+            velocity_rad_s=tuple(value.velocity_rad_s[: self.dof]),
+            acceleration_rad_s2=tuple(value.acceleration_rad_s2[: self.dof]),
+        )
 
 
 def default_cpp_library(repository_root: Path) -> Path:

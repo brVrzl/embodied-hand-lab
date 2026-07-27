@@ -5,6 +5,17 @@ connection was made for this work.  This page is current for the isolated
 `feature/quest-jaka-teleop-rearchitecture` worktree; it is not an operator
 procedure and does not authorize physical execution.
 
+The research branch now has three local-only audit checkpoints above the
+fetched remote `3e911f80ba8b02260fd68c1e7c8a9641521b3622`:
+
+- `6f08b09b3a3d7584c517f8aec1ee9306cbb5003b` — corrected replay metric semantics;
+- `d7661cc4d8d6e5c835d801a62114d8220bee5364` — unified evaluator and controlled-stop analysis;
+- `afb54b3326cca482b508607f78dd3ab0bf5bd786` — ABI v1 and C++ shaping core.
+
+They have not been pushed. The recoverable-clutch, residual-acceleration, and
+fake-lifecycle work described later remains an auditable diff above the third
+checkpoint.
+
 ## Scope, baseline, and evidence boundary
 
 The research worktree was created with `git worktree add` from production
@@ -31,8 +42,9 @@ After `git fetch --prune origin`, `origin/HEAD` pointed to `origin/main` at
 `feature/quest-jaka-pwl-acceleration-recovery` both remained at
 `7a02aa6fbdb01efddcc09605bc8e1e22eaf3bc8b`.  Before this correction, the
 research local branch, its upstream, and the fetched remote branch all matched
-at `3e911f80ba8b02260fd68c1e7c8a9641521b3622`.  This round deliberately leaves
-the correction as an uncommitted research-worktree diff and does not push it.
+at `3e911f80ba8b02260fd68c1e7c8a9641521b3622`. The local checkpoints above were
+then created without changing the upstream or fetched remote; nothing was
+pushed.
 
 All linked worktrees were inspected.  Production, ACT/Thor, MoveIt, Quest
 input, Ruckig, TeleDex, and repository-cleanup were clean.  Four unrelated
@@ -431,6 +443,97 @@ practical completion telemetry, stop distance, direction consistency, and
 hard-stop preemption.  This still is not a production shaper.  The complete artifact is
 [`results/controlled_stop_policy_sweep.json`](teleop_rearchitecture/results/controlled_stop_policy_sweep.json).
 
+## Recoverable pause, residual acceleration, and fake lifecycle
+
+Normal clutch release is now explicitly different from a fault. The
+robot-independent engagement coordinator moves `ActiveTracking` or
+`HoldRejected` into `ControlledBraking`, freezes the last accepted source
+sequence, and emits no new active target until the shaper reports stopped.
+Input remains a depth-one latest observation, so controller motion while
+released is neither queued nor replayed. At `StoppedReady`, re-engagement
+captures current measured q/dq/ddq and current controller pose, increments the
+safety epoch, clears old target/feed-forward/filter/relative/rejection/brake
+history, then emits an identity relative pose. Re-engagement while still
+braking returns `WAIT_FOR_STOPPED`. A hard stop requires an explicit valid
+measured-state reset; a clutch press alone cannot recover it.
+
+Tests cover stationary, 0.75 m translated, and 90° rotated input movement
+while paused; release from `HoldRejected`; repeated release and engagement;
+long stopped dwell; residual measured velocity; invalid measured state;
+delayed old-epoch targets; and 100 latest-slot replacements. With zero
+measured dq/ddq, the first re-engaged C++ tick has exactly zero joint delta,
+zero `rh56_R_hand_base_link` palm-model displacement, velocity, and
+acceleration. This is model/command continuity evidence, not physical
+continuity. The checked recovery artifact also records capture-to-first-output
+as tick 0, zero first-tick jerk, one old-epoch rejection, mailbox depth one,
+and zero queued release motion:
+[`results/reengagement_continuity.json`](teleop_rearchitecture/results/reengagement_continuity.json).
+
+The C++ stop planner also covers the previously unplannable
+`|dq| approximately 0, |ddq| > 0` boundary. If the legacy common-duration
+equation has no solution, it explicitly neutralizes acceleration at bounded
+jerk, validates velocity and position excursion, then brakes residual velocity
+independently per axis. The 115-case sweep includes 99 cross-products of
+`dq={0, ±1e-6, ±1e-4, ±1e-3, ±1e-2}` rad/s and
+`ddq={0, ±0.1, ±0.5, ±1, ±4, ±12}` rad/s², plus mixed axes, shoulder/wrist,
+three jerk limits, 8 ms phase boundaries, and joint-limit cases.
+
+| residual-acceleration result | value |
+| --- | ---: |
+| completed legal cases | 113 / 113 |
+| expected outward position-limit failures | 2 / 2 |
+| unexpected planning failures | 0 |
+| direction-consistent completed cases | 113 / 113 |
+| maximum stop time | 584 ms |
+| maximum velocity excursion | 1.4513 rad/s |
+| maximum joint displacement | 0.4854 rad |
+| maximum palm-model displacement | 283.0 mm |
+| observed peak v / a / jerk | 1.4584 / 12.0 / 100.0 SI |
+
+The large worst-case displacement is the policy result: acceleration
+neutralization prevents a spurious hard fault, but high residual acceleration
+requires a wide stopping envelope. Upstream admission must avoid creating such
+release states; the planner cannot promise a small stop merely because
+instantaneous velocity is near zero. The complete artifact is
+[`results/residual_acceleration_stop_sweep.json`](teleop_rearchitecture/results/residual_acceleration_stop_sweep.json).
+
+`FakeJakaLifecycleAdapter` is a fully SDK-free lifecycle-shaped test double,
+not a JAKA adapter. It owns one abstract session, validates only already-shaped
+ABI commands and normalized health, enforces epoch/sequence/freshness/deadline,
+classifies abstract send results, latches hard faults, and checks cleanup
+ordering. It does no IK, collision/singularity, mapping, filtering,
+interpolation, shaping, braking, Quest logic, JSON, or file I/O. Its states are
+`Disconnected`, `Connecting`, `Connected`, `ServoReady`, `Streaming`,
+`ControlledStopping`, `Stopped`, `Faulted`, and `CleaningUp`. A stopped session
+may re-arm only with a newer epoch and valid measured state.
+
+| injected condition | fake classification | recovery |
+| --- | --- | --- |
+| clutch release / stopped command | controlled lifecycle | newer epoch + measured state |
+| rejected feasible target | upstream `HoldRejected` | next accepted target or release |
+| duplicate/old output or health sequence | invalid-command hard fault | cleanup + reconnect/re-arm |
+| stale command or producer disappearance | stale-input hard fault | cleanup + reconnect/re-arm |
+| missed deadline | timing-fault hard stop | cleanup + reconnect/re-arm |
+| epoch mismatch / old epoch | epoch-mismatch hard stop | cleanup + newer epoch |
+| non-finite/invalid ABI or measurement | invalid-command hard stop | cleanup + valid reinitialize |
+| normalized controller alarm / estop / collision | controller hard stop | cleanup; external cause unresolved |
+| abstract transport/send failure | SDK-failure category hard stop | cleanup + reconnect |
+
+The C++ matrix injects 21 terminal cases. A skipped output sequence is accepted
+as latest-wins and counted rather than queued. The fixed 256-record telemetry
+ring wraps without allocation or blocking; the 300-command test observed 52
+overwrites, and a separate terminal record survives wrap and cleanup. Records
+include output/source sequence, epoch, mode, age, deadline slack, validation
+result, lifecycle result, and cleanup event.
+
+The executable no-SDK manifest is `tests/no_sdk_test_manifest.json`. It names
+36 allowed Python files and explicitly forbids
+`tests/test_native_jaka_servo_worker.py`, whose historical ELF dependency
+would load `libjakaAPI.so`. The runner checks both new ELF files with `readelf`
+and `nm`, runs CTest and pytest in one process, then audits `/proc/self/maps`.
+The current 340-test run loaded no JAKA SDK image and found no JAKA/ServoJ/EDG
+dependency or symbol.
+
 ## JAKA and Thor assessment
 
 The local JAKA C SDK 2.2.7 documents `edg_init`, servo enable, status/estop/
@@ -462,9 +565,10 @@ be a future manual/container feasibility gate, not a `sudo` action here.
 3. Choose a production OTG only after CPU, jitter, target replacement, stop,
    output-limit, collision/singularity, and replay benchmarks on Thor.  Do not
    merge prototype code into production yet.
-4. Next build a thin **fake-only JAKA lifecycle adapter** around the ABI and
-   fixed ring telemetry; do not add a real SDK transport yet.  Prove no SDK
-   calls in XR/safety layers and zero native IK.  Keep ROS/MoveIt separate.
+4. Retain the completed **fake-only lifecycle adapter** and executable no-SDK
+   manifest as boundary tests. Next define a process/IPC design and a separate
+   thin fake transport only after scheduler/deadline requirements are agreed;
+   do not add a real SDK transport yet. Keep ROS/MoveIt separate.
 5. Before any separately authorized physical gate: verify model/TCP/payload
    state without writes, controller alarms/workspace/stop access, exact
    `q_hold` continuity, 8 ms deadline under load, stale input, clutch release,
@@ -473,9 +577,10 @@ be a future manual/container feasibility gate, not a `sudo` action here.
    unvalidated post-fix acceleration gate remain blockers to expansion.
 
 The versioned ABI, independent in-process C++ shaping core, conformance bridge,
-and robot-independent in-memory fake consumer are complete offline.  No
-independent shaping process, network IPC, real transport, or fake JAKA
-lifecycle adapter is implemented.  Those remain separately scoped work.
+recoverable engagement coordinator, robot-independent in-memory consumer, and
+SDK-free lifecycle-shaped fake are complete offline. No independent shaping
+process, network IPC, real transport, or real JAKA adapter is implemented.
+Those remain separately scoped work.
 
 ## Validation performed
 
@@ -513,6 +618,12 @@ Offline only:
   It made no hardware connection or SDK command, but the dynamic loader loads
   that library when the executable starts.  It was therefore not rerun in the final no-SDK subset;
   the new ABI/C++ library itself has no JAKA symbol or dependency.
+- The recoverable-lifecycle round adds the 115-case residual sweep, engagement
+  continuity tests, 21-case fake lifecycle fault matrix, latest-wins/epoch
+  recovery, ring wrap/terminal retention, and the explicit no-SDK manifest.
+  The current manifest run is CTest 1/1 plus 340 Python tests. Both native ELF
+  files list only standard C/C++ runtime dependencies, expose no forbidden
+  symbols, and `/proc/self/maps` contains no JAKA library after the suite.
 
 Rebuild commands:
 
@@ -530,6 +641,12 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
   tools/run_teleop_stop_sweep.py \
   --output docs/research/teleop_rearchitecture/results/controlled_stop_policy_sweep.json \
   --cpp-library build/teleop_shaping/libteleop_shaping_c_api.so
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/run_residual_acceleration_sweep.py
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/run_reengagement_evidence.py
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/run_no_sdk_test_manifest.py
 ```
 
 No real hardware was used, no actuator setting was read or written, and this
