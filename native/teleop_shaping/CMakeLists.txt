@@ -11,6 +11,7 @@ add_library(teleop_shaping_core STATIC
   src/fake_jaka_lifecycle.cpp
   src/fake_consumer.cpp
   src/reference_joint_shaper.cpp
+  src/thin_jaka_transport_adapter.cpp
 )
 set_target_properties(teleop_shaping_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(teleop_shaping_core PUBLIC include)
@@ -25,5 +26,10 @@ add_executable(teleop_shaping_tests tests/test_main.cpp)
 target_link_libraries(teleop_shaping_tests PRIVATE teleop_shaping_core)
 target_compile_options(teleop_shaping_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 
+add_executable(thin_jaka_transport_tests tests/test_thin_jaka_transport.cpp)
+target_link_libraries(thin_jaka_transport_tests PRIVATE teleop_shaping_core)
+target_compile_options(thin_jaka_transport_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
 enable_testing()
 add_test(NAME teleop_shaping_tests COMMAND teleop_shaping_tests)
+add_test(NAME thin_jaka_transport_tests COMMAND thin_jaka_transport_tests)

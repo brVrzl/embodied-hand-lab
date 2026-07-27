@@ -479,7 +479,7 @@ void TestSdkFreeClutchRecoveryContract() {
   const std::int64_t now = 4'100'000'000;
   CHECK(!SupportsSessionHeldRecovery(PauseCommandPolicy::kUnverified));
   CHECK(SupportsSessionHeldRecovery(PauseCommandPolicy::kNoCommandRequired));
-  CHECK(!SupportsSessionHeldRecovery(
+  CHECK(SupportsSessionHeldRecovery(
       PauseCommandPolicy::kRepeatStoppedPositionRequired));
 
   InMemoryFakeJakaSdkInterface sdk;

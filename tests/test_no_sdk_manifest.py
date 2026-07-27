@@ -21,14 +21,15 @@ def test_no_sdk_manifest_is_explicit_complete_and_excludes_linked_worker() -> No
     assert "tests/test_no_sdk_manifest.py" in paths
     assert "tests/test_teleop_engagement_recovery.py" in paths
     assert "tests/test_residual_acceleration_braking.py" in paths
+    assert "build/teleop_shaping/thin_jaka_transport_tests" in manifest["native_artifacts"]
 
 
 def test_reference_native_targets_have_no_jaka_dependency_or_symbol() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     patterns = tuple(value.lower() for value in manifest["forbidden_library_patterns"])
     symbol_patterns = tuple(value.lower() for value in manifest["forbidden_symbol_patterns"])
-    for key in ("native_library", "native_test_binary"):
-        path = ROOT / manifest[key]
+    for relative_path in manifest["native_artifacts"]:
+        path = ROOT / relative_path
         dynamic = subprocess.run(
             ["readelf", "-d", str(path)], check=True, text=True, capture_output=True
         ).stdout.lower()

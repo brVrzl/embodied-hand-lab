@@ -206,6 +206,13 @@ and lifecycle result. Ring wrap increments an overflow counter. A separate
 terminal-fault slot survives ring wrap and cleanup. No send-path JSON, file
 I/O, allocation, blocking, or logging formatter is present.
 
+The follow-on `ThinJakaTransportAdapter` remains SDK-free but exercises the
+future real boundary through a fixed function table. It preserves q/dq,
+enforces default-closed pause/restart policies, first-command measured-q
+continuity, latest-only delivery, 125 Hz timing/status counters, and explicit
+cleanup/reset. See
+[`jaka_clutch_recovery_transport_contract.md`](jaka_clutch_recovery_transport_contract.md).
+
 ## Offline conformance result and limitations
 
 The checked unified benchmark adds `candidate_c_cpp_reference`. Its active,

@@ -25,7 +25,8 @@ RecoveryMeasurementResult Result(RecoveryMeasurementCode code,
 }  // namespace
 
 bool SupportsSessionHeldRecovery(PauseCommandPolicy policy) noexcept {
-  return policy == PauseCommandPolicy::kNoCommandRequired;
+  return policy == PauseCommandPolicy::kNoCommandRequired ||
+         policy == PauseCommandPolicy::kRepeatStoppedPositionRequired;
 }
 
 InMemoryFakeJakaSdkInterface::InMemoryFakeJakaSdkInterface() noexcept

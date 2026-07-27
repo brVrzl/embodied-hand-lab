@@ -56,11 +56,12 @@ health, arms a newer safety epoch, and consumes only already-shaped commands.
 - Exact freshness/timestamp behavior of EDG feedback across a pause.
 - Cleanup and restart behavior after each controller alarm class.
 
-The reference fake therefore defaults `PauseCommandPolicy` to `Unverified`.
-Only `NoCommandRequired` currently enables session-held recovery. A
-`RepeatStoppedPositionRequired` result is represented but intentionally not
-implemented; repeatedly sending a position is a controller-specific behavior,
-not something to guess offline.
+The thin skeleton therefore defaults both `PauseCommandPolicy` and
+`ResumePreparationPolicy` to `Unverified` and refuses servo preparation until
+both are selected explicitly. Its fake-only tests cover `NoCommandRequired`
+and `RepeatStoppedPositionRequired`; the latter repeats only the already-shaped
+final stopped q and is valid only with `KeepPrepared`. Supporting both offline
+does not select either policy for a real controller.
 
 ## Contract
 
@@ -128,14 +129,52 @@ stale state, servo disabled, alarm, collision, E-stop, cleanup, and explicit
 reset. The existing fixed telemetry ring continues to preserve the terminal
 fault record.
 
+## Thin adapter skeleton
+
+`ThinJakaTransportAdapter` is a standalone C++ transport state machine backed
+only by `JakaSdkFunctionTable`. The table has fixed callbacks for login,
+EDG/servo enable, shaped-q send, q/dq read, normalized status read, hard stop,
+and logout. It contains a caller-owned opaque context but no JAKA header,
+handle, return type, library, network, IK, shaping, braking, Quest mapping, or
+reference capture.
+
+Its recoverable path is:
+
+```text
+Streaming -> ControlledStopping -> StoppedReady
+          -> MeasuredStateRefresh -> ServoReady -> Streaming
+```
+
+Its terminal path is:
+
+```text
+Faulted -> Cleanup -> ResetRequired -> explicit reset -> Disconnected
+```
+
+The adapter keeps a depth-one shaped-command mailbox, validates ABI epoch,
+sequence, freshness and first-command q continuity, preserves q and dq from
+feedback, polls normalized health, and records fixed counters for tick timing,
+command age, replacement, status, pause keepalive, and clutch cycles. It never
+creates a joint target. The `RestartEdg` and `RestartEdgAndServo` policies make
+the disable/re-enable sequence explicit; unexpected servo/EDG loss remains a
+hard fault.
+
+The deterministic fake load executes 1,000 release/refresh/resume cycles over
+7,000 exact 8 ms ticks with one login, no logout, 7,000 health polls, 1,000
+latest-target replacements, zero deadline misses, zero first-frame q delta,
+and zero observed allocations in the measured loop. A separate matrix covers
+15 hard/recovery faults, including send timeout, status/measurement staleness,
+session loss, pause alarm, cleanup failure, old epoch and discontinuous resume.
+These are executable state-machine results, not SDK or controller evidence.
+
 ## Minimum gates before first physical recovery attempt
 
 1. Obtain vendor-confirmed pause/watchdog and EDG restart semantics for SDK
    2.2.7/controller firmware, including whether no command or repeated stopped
    q is required. Keep recovery disabled if this remains unknown.
-2. Implement the real thin adapter in a separate gated change, retaining sole
-   session ownership and the responsibility boundary above. Add no-SDK unit
-   tests plus an isolated build/link audit before linking it to the SDK.
+2. Add a separately reviewed vendor translation unit behind the existing thin
+   function table, retaining sole-session ownership. Keep the no-SDK build and
+   tests as a mandatory isolated target before any SDK-linked test is run.
 3. Establish trustworthy EDG q/dq timing and freshness. Validate multi-sample
    stability and the ddq initialization rule without substituting commanded q.
 4. Add a restart-continuity gate that compares the first shaped q/dq/ddq with

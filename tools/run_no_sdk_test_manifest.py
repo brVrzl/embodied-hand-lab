@@ -68,8 +68,11 @@ def main() -> int:
     if matches := matching(before, patterns):
         raise RuntimeError(f"JAKA SDK already loaded before tests: {matches}")
     native_reports = [
-        inspect_native(ROOT / manifest[key], patterns, symbol_patterns)
-        for key in ("native_library", "native_test_binary")
+        inspect_native(ROOT / path, patterns, symbol_patterns)
+        for path in manifest.get(
+            "native_artifacts",
+            [manifest["native_library"], manifest["native_test_binary"]],
+        )
     ]
     if not args.skip_ctest:
         subprocess.run(

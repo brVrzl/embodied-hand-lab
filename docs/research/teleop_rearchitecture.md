@@ -517,6 +517,14 @@ EDG must be reinitialized. The resulting default-disabled recovery contract,
 measured-state hierarchy, fake SDK seam, and pre-physical gates are documented
 in [`jaka_clutch_recovery_transport_contract.md`](jaka_clutch_recovery_transport_contract.md).
 
+An SDK-free `ThinJakaTransportAdapter` now makes that proposed boundary
+executable through a fixed fake function table. It implements the retained-
+session stopped/measurement-refresh/new-epoch path, both explicit pause
+policies, optional explicit EDG/servo restart, q/dq preservation, latest-only
+consumption, and terminal cleanup/reset. Its 1,000-cycle fake run covers 7,000
+exact 8 ms ticks with zero observed allocations or deadline misses. This is
+still a skeleton: there is no vendor translation unit and no controller call.
+
 | injected condition | fake classification | recovery |
 | --- | --- | --- |
 | clutch release / stopped command | controlled lifecycle | newer epoch + measured state |
@@ -539,8 +547,9 @@ result, lifecycle result, and cleanup event.
 The executable no-SDK manifest is `tests/no_sdk_test_manifest.json`. It names
 36 allowed Python files and explicitly forbids
 `tests/test_native_jaka_servo_worker.py`, whose historical ELF dependency
-would load `libjakaAPI.so`. The runner checks both new ELF files with `readelf`
-and `nm`, runs CTest and pytest in one process, then audits `/proc/self/maps`.
+would load `libjakaAPI.so`. The runner checks every listed research ELF file
+with `readelf` and `nm`, runs CTest and pytest in one process, then audits
+`/proc/self/maps`.
 The current 340-test run loaded no JAKA SDK image and found no JAKA/ServoJ/EDG
 dependency or symbol.
 
