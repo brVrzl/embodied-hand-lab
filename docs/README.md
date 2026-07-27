@@ -47,6 +47,7 @@ the recorded result is not rewritten after the fact.
 - [Logging and replay](development/logging_and_replay.md)
 - [Contribution workflow](development/contribution_workflow.md)
 - [Repository consolidation audit](development/repository_consolidation_audit.md)
+- [Quest/JAKA teleoperation rearchitecture research (offline)](research/teleop_rearchitecture.md)
 - [Command reference](reference/command_reference.md)
 - [Configuration reference](reference/config_reference.md)
 - [Log schemas](reference/log_schemas.md)
