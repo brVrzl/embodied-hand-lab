@@ -19,6 +19,9 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+teleop-research = [
+  "ruckig==0.19.4",
+]
 vision-teleop = [
   "mediapipe>=0.10.35",
   "opencv-contrib-python>=4.13",
