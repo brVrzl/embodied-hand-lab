@@ -1,0 +1,27 @@
+cmake_minimum_required(VERSION 3.20)
+project(teleop_shaping LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+add_library(teleop_shaping_core STATIC
+  src/abi_v1.cpp
+  src/fake_consumer.cpp
+  src/reference_joint_shaper.cpp
+)
+set_target_properties(teleop_shaping_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(teleop_shaping_core PUBLIC include)
+target_compile_options(teleop_shaping_core PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_library(teleop_shaping_c_api SHARED src/c_api.cpp)
+target_link_libraries(teleop_shaping_c_api PRIVATE teleop_shaping_core)
+target_include_directories(teleop_shaping_c_api PUBLIC include)
+target_compile_options(teleop_shaping_c_api PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+add_executable(teleop_shaping_tests tests/test_main.cpp)
+target_link_libraries(teleop_shaping_tests PRIVATE teleop_shaping_core)
+target_compile_options(teleop_shaping_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+enable_testing()
+add_test(NAME teleop_shaping_tests COMMAND teleop_shaping_tests)
