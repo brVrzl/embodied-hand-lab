@@ -1,0 +1,71 @@
+{
+  "command_age_ms": {
+    "mean": 691.0523415977962,
+    "peak": 1996.0
+  },
+  "cpu_tick_us": {
+    "mean": 30.85376859504132,
+    "peak": 510.631
+  },
+  "direction_reversals": [
+    3,
+    3,
+    3,
+    3,
+    2,
+    5
+  ],
+  "endpoint_settling_rad_before_release": 7.82261602845502e-06,
+  "feasible_at_125_hz": true,
+  "input_target_count": 55,
+  "joint_acceleration_rad_s2_peak": [
+    0.4118422546473912,
+    1.172821996509788,
+    1.651569094362383,
+    1.22522014802575,
+    0.3856047072016716,
+    0.8235945537443358
+  ],
+  "joint_jerk_rad_s3_peak": [
+    11.831355281905466,
+    26.161435678737686,
+    38.83372048477157,
+    32.19905617957958,
+    12.202323854312205,
+    21.72014187487671
+  ],
+  "joint_velocity_rad_s_peak": [
+    0.067966813338578,
+    0.2189763907609455,
+    0.3479264367584044,
+    0.15252274181215936,
+    0.10344276535097492,
+    0.07865738811527957
+  ],
+  "limits": {
+    "maximum_acceleration_rad_s2": 12.566370614359172,
+    "maximum_jerk_rad_s3": 50.0,
+    "maximum_velocity_rad_s": 3.141592653589793,
+    "period_s": 0.008,
+    "target_horizon_s": 0.25
+  },
+  "mailbox_max_depth": 1,
+  "mailbox_replaced_targets": 0,
+  "native_ik_calls": 0,
+  "output_ticks": 364,
+  "period_hz": 125.0,
+  "prototype": "resolved_rate_velocity",
+  "rh56_commands": 0,
+  "rotation_latency_ms": "not identifiable without a physical/network timestamp; command-age reported instead",
+  "stop_time_ms": 8.0,
+  "tcp_orientation_error_rad": {
+    "peak": 0.052544468569213645,
+    "rms": 0.014108175060189042
+  },
+  "tcp_position_error_m": {
+    "peak": 0.019107162690740653,
+    "rms": 0.0057164818670831195
+  },
+  "tracking_model_error": "command-vs-accepted kinematic error only; no physical plant asserted",
+  "translation_latency_ms": "not identifiable without a physical/network timestamp; command-age reported instead"
+}
