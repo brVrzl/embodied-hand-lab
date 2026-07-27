@@ -581,7 +581,20 @@ def main() -> int:
                             control_state = session.event_records[-1].get(
                                 "control_state"
                             )
-                            if control_state == "HARD_STOP":
+                            if (
+                                native.process is not None
+                                and native.process.poll() is not None
+                            ):
+                                # The worker's typed terminal reason is
+                                # authoritative. Do not collapse a native
+                                # output-feasibility fault into IPC failure
+                                # merely because the producer no longer has a
+                                # live target socket.
+                                abort_reason = _classify_worker_exit(
+                                    args.metrics,
+                                    native.process.returncode,
+                                )
+                            elif control_state == "HARD_STOP":
                                 abort_reason = f"shared_hard_stop:{tick.reason}"
                             elif tick.accepted_target is None:
                                 abort_reason = "control_heartbeat_transport_failure"
@@ -594,14 +607,6 @@ def main() -> int:
                                     and jaka_adapter.abort_reason is not None
                                 ):
                                     abort_reason = jaka_adapter.abort_reason
-                                elif (
-                                    native.process is not None
-                                    and native.process.poll() is not None
-                                ):
-                                    abort_reason = _classify_worker_exit(
-                                        args.metrics,
-                                        native.process.returncode,
-                                    )
                                 else:
                                     abort_reason = "IPC_failure"
                             stop_reason = abort_reason
