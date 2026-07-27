@@ -500,6 +500,26 @@ def test_per_joint_output_velocity_boundary_rejects_before_fake_sdk_call(
     assert all(row["joint_position_rad"][3] < 0.026 for row in points)
 
 
+def test_recoverable_velocity_crossing_uses_bounded_transition_before_final_hard_check(
+    tmp_path: Path,
+) -> None:
+    result, metrics, points = _run_stream(
+        tmp_path,
+        [
+            (0.0, 0, (0.0,) * 6),
+            (0.020, 20_000_000, (0.03, 0.0, 0.0, 0.0, 0.0, 0.0)),
+        ],
+        extra=("--recover-output-acceleration-transition",),
+    )
+    assert result.returncode == 0, result.stderr
+    assert metrics["output_speed_boundary_rejections"] == [0] * 6
+    assert metrics["recoverable_output_acceleration_hold_count"] >= 1
+    assert all(
+        abs(point["joint_velocity_rad_s"][0]) <= math.pi + 1e-9
+        for point in points
+    )
+
+
 def test_nonfinite_output_is_rejected_before_fake_sdk_call(tmp_path) -> None:
     metrics = tmp_path / "nan-metrics.json"
     emitted = tmp_path / "nan-emitted.jsonl"

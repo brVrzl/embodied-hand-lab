@@ -810,7 +810,15 @@ class OutputMotionDiagnostics {
   OutputMotionSample check_candidate(const ResampledServoPoint& point,
                                      std::uint64_t command_ns) {
     OutputMotionSample sample = measure(point, command_ns);
-    require_velocity_boundary(point, sample);
+    const bool velocity_crossing = velocity_boundary_crossing(sample);
+    // A raw latest-segment slope can cross the final velocity boundary even
+    // though a bounded transition point from the last emitted state is safe.
+    // Let the recoverable transition path evaluate that point; check_final()
+    // still enforces the final native boundary before SDK dispatch.
+    if (velocity_crossing && !options_.recover_output_acceleration_transition)
+      require_velocity_boundary(point, sample);
+    if (velocity_crossing && options_.recover_output_acceleration_transition)
+      return sample;
     const bool recoverable_crossing = record_recoverable_crossings(sample);
     if (recoverable_crossing && options_.recover_output_acceleration_transition)
       return sample;
@@ -844,6 +852,16 @@ class OutputMotionDiagnostics {
           return std::abs(value) >
               options_.diagnostic_joint_acceleration_boundary_rad_s2 + 1e-12;
         });
+  }
+
+  bool velocity_boundary_crossing(const OutputMotionSample& sample) const {
+    for (std::size_t joint = 0; joint < sample.velocity.size(); ++joint) {
+      const double limit = options_.maximum_output_joint_velocity_per_joint_set
+          ? options_.maximum_output_joint_velocity_rad_s_per_joint[joint]
+          : options_.maximum_output_joint_velocity_rad_s;
+      if (std::abs(sample.velocity[joint]) > limit + 1e-12) return true;
+    }
+    return false;
   }
 
   ResampledServoPoint transition_limited_point(
@@ -2370,7 +2388,8 @@ int run(const Options& o) {
                 proposed_servo_point, command_start);
         const bool transition_limited =
             o.recover_output_acceleration_transition &&
-            (output_diagnostics.recoverable_acceleration_crossing(
+            (output_diagnostics.velocity_boundary_crossing(proposed_motion) ||
+             output_diagnostics.recoverable_acceleration_crossing(
                  proposed_motion) ||
              std::any_of(proposed_motion.jerk.begin(), proposed_motion.jerk.end(),
                          [&o](double value) {
