@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(teleop_shaping_core STATIC
   src/abi_v1.cpp
+  src/clutch_recovery_transport.cpp
   src/fake_jaka_lifecycle.cpp
   src/fake_consumer.cpp
   src/reference_joint_shaper.cpp

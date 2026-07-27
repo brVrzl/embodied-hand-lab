@@ -1,4 +1,5 @@
 #include "teleop_command_abi/abi_v1.hpp"
+#include "teleop_shaping/clutch_recovery_transport.hpp"
 #include "teleop_shaping/fake_consumer.hpp"
 #include "teleop_shaping/fake_jaka_lifecycle.hpp"
 #include "teleop_shaping/joint_shaper.hpp"
@@ -269,6 +270,25 @@ TransportHealthV1 Health(std::uint64_t sequence, std::uint64_t epoch,
   return value;
 }
 
+FakeSdkJointSample JointSample(std::uint64_t sequence, std::int64_t now_ns,
+                               JointSampleFields fields, double position,
+                               double velocity = 0.0,
+                               double acceleration = 0.0) {
+  FakeSdkJointSample value{};
+  value.sample_sequence = sequence;
+  value.sampled_monotonic_ns = now_ns;
+  value.dof = 6;
+  value.fields = fields;
+  value.position_rad[1] = position;
+  if (fields != JointSampleFields::kPositionOnly) {
+    value.velocity_rad_s[1] = velocity;
+  }
+  if (fields == JointSampleFields::kPositionVelocityAcceleration) {
+    value.acceleration_rad_s2[1] = acceleration;
+  }
+  return value;
+}
+
 FakeJakaLifecycleAdapter StreamingAdapter(std::int64_t now, std::uint64_t epoch = 7) {
   FakeJakaLifecycleAdapter adapter;
   CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
@@ -446,6 +466,216 @@ void TestFakeJakaLifecycleHappyPathAndRecovery() {
   CHECK(adapter.CompleteCleanup(now) == FakeLifecycleCode::kOk);
   CHECK(adapter.Snapshot().lifecycle_state == FakeJakaLifecycleState::kDisconnected);
   CHECK(!adapter.Snapshot().session_owned);
+  CHECK(adapter.Snapshot().hard_stop_latched);
+  CHECK(adapter.Snapshot().reset_required);
+  CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kInvalidState);
+  CHECK(adapter.ResetAfterCleanup(now) == FakeLifecycleCode::kOk);
+  CHECK(!adapter.Snapshot().hard_stop_latched);
+  CHECK(!adapter.Snapshot().reset_required);
+  CHECK(adapter.BeginConnect(now) == FakeLifecycleCode::kOk);
+}
+
+void TestSdkFreeClutchRecoveryContract() {
+  const std::int64_t now = 4'100'000'000;
+  CHECK(!SupportsSessionHeldRecovery(PauseCommandPolicy::kUnverified));
+  CHECK(SupportsSessionHeldRecovery(PauseCommandPolicy::kNoCommandRequired));
+  CHECK(!SupportsSessionHeldRecovery(
+      PauseCommandPolicy::kRepeatStoppedPositionRequired));
+
+  InMemoryFakeJakaSdkInterface sdk;
+  sdk.SetPauseCommandPolicy(PauseCommandPolicy::kNoCommandRequired);
+  CHECK(sdk.Connect() == FakeSdkIoCode::kOk);
+  CHECK(sdk.PrepareStreaming() == FakeSdkIoCode::kOk);
+  auto adapter = StreamingAdapter(now);
+
+  auto old_active = CommandForMode(1, 7, now, OutputMode::kActiveTracking);
+  old_active.position_rad[1] = 1.0;
+  auto braking = CommandForMode(2, 7, now + 8'000'000,
+                                 OutputMode::kControlledBraking);
+  braking.position_rad[1] = 0.8;
+  auto stopped = CommandForMode(3, 7, now + 16'000'000, OutputMode::kStopped);
+  stopped.position_rad[1] = 0.7;
+  for (auto* command : {&old_active, &braking, &stopped}) {
+    const auto io = sdk.SendShaped(*command);
+    CHECK(adapter.Send(*command, ClassifyFakeSdkSend(io),
+                       command->generated_monotonic_ns) == FakeLifecycleCode::kOk);
+  }
+  CHECK(adapter.Snapshot().lifecycle_state == FakeJakaLifecycleState::kStopped);
+  CHECK(sdk.session_alive());
+  CHECK(sdk.connect_count() == 1U);
+  CHECK(sdk.prepare_count() == 1U);
+  CHECK(sdk.send_count() == 3U);
+  CHECK(sdk.cleanup_count() == 0U);
+
+  RecoveryMeasurementGate gate(RecoveryMeasurementPolicy{});
+  MeasuredJointStateV1 measured{};
+  for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+    const std::int64_t sample_time =
+        now + 24'000'000 + static_cast<std::int64_t>(sequence) * 8'000'000;
+    sdk.SetJointSample(JointSample(sequence, sample_time,
+                                   JointSampleFields::kPositionVelocity,
+                                   0.25, 0.0005));
+    const auto result =
+        ReadRecoveryMeasurement(&sdk, &gate, 8, sample_time, &measured);
+    CHECK(result.code == (sequence < 3
+                              ? RecoveryMeasurementCode::kNeedMoreSamples
+                              : RecoveryMeasurementCode::kReady));
+    if (sequence == 3) {
+      CHECK(result.quality == RecoveryMeasurementQuality::
+                                  kDirectQVelocityZeroAccelerationAfterStable);
+    }
+  }
+  CHECK(measured.safety_epoch == 8U);
+  CHECK(measured.position_rad[1] == 0.25);
+  CHECK(measured.velocity_rad_s[1] == 0.0005);
+  CHECK(measured.acceleration_rad_s2[1] == 0.0);
+  CHECK(adapter.ArmEpoch(measured, now + 48'000'000) == FakeLifecycleCode::kOk);
+  CHECK(adapter.StartStreaming(8, now + 48'000'000) == FakeLifecycleCode::kOk);
+  auto resumed = CommandForMode(1, 8, now + 48'000'000,
+                                OutputMode::kActiveTracking);
+  resumed.position_rad = measured.position_rad;
+  resumed.velocity_rad_s = measured.velocity_rad_s;
+  CHECK(sdk.SendShaped(resumed) == FakeSdkIoCode::kOk);
+  CHECK(adapter.Send(resumed, FakeSendOutcome::kOk, now + 48'000'000) ==
+        FakeLifecycleCode::kOk);
+  CHECK(resumed.position_rad[1] == measured.position_rad[1]);
+  CHECK(resumed.position_rad[1] != old_active.position_rad[1]);
+  CHECK(sdk.connect_count() == 1U);
+  CHECK(sdk.prepare_count() == 1U);
+  CHECK(sdk.cleanup_count() == 0U);
+
+  auto old_epoch = CommandForMode(2, 7, now + 56'000'000,
+                                  OutputMode::kActiveTracking);
+  CHECK(adapter.Send(old_epoch, FakeSendOutcome::kOk, now + 56'000'000) ==
+        FakeLifecycleCode::kEpochMismatch);
+  CHECK(adapter.Snapshot().hard_stop_latched);
+  CHECK(adapter.BeginCleanup(now + 56'000'001) == FakeLifecycleCode::kOk);
+  CHECK(sdk.Cleanup() == FakeSdkIoCode::kOk);
+  CHECK(adapter.CompleteCleanup(now + 56'000'002) == FakeLifecycleCode::kOk);
+  CHECK(adapter.BeginConnect(now + 56'000'003) == FakeLifecycleCode::kInvalidState);
+  CHECK(adapter.ResetAfterCleanup(now + 56'000'004) == FakeLifecycleCode::kOk);
+  CHECK(adapter.BeginConnect(now + 56'000'005) == FakeLifecycleCode::kOk);
+}
+
+void TestRecoveryMeasurementFallbacksAndFaults() {
+  const std::int64_t now = 4'200'000'000;
+  MeasuredJointStateV1 measured{};
+  {
+    RecoveryMeasurementGate gate(RecoveryMeasurementPolicy{});
+    auto sample = JointSample(1, now,
+                              JointSampleFields::kPositionVelocityAcceleration,
+                              0.4, 0.03, -0.2);
+    const auto result = gate.Observe(sample, 9, now, &measured);
+    CHECK(result.code == RecoveryMeasurementCode::kReady);
+    CHECK(result.quality ==
+          RecoveryMeasurementQuality::kDirectQVelocityAcceleration);
+    CHECK(measured.position_rad[1] == 0.4);
+    CHECK(measured.velocity_rad_s[1] == 0.03);
+    CHECK(measured.acceleration_rad_s2[1] == -0.2);
+  }
+  {
+    RecoveryMeasurementGate gate(RecoveryMeasurementPolicy{});
+    for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
+      const std::int64_t tick = now + static_cast<std::int64_t>(sequence) * 8'000'000;
+      auto sample = JointSample(sequence, tick, JointSampleFields::kPositionOnly,
+                                0.5 + static_cast<double>(sequence) * 4e-6);
+      const auto result = gate.Observe(sample, 10, tick, &measured);
+      CHECK(result.code == (sequence < 3
+                                ? RecoveryMeasurementCode::kNeedMoreSamples
+                                : RecoveryMeasurementCode::kReady));
+      if (sequence == 3) {
+        CHECK(result.quality == RecoveryMeasurementQuality::
+                                    kEstimatedVelocityZeroAccelerationAfterStable);
+        CHECK(std::abs(measured.velocity_rad_s[1] - 0.0005) < 1e-9);
+      }
+    }
+  }
+  {
+    RecoveryMeasurementGate gate(RecoveryMeasurementPolicy{});
+    auto sample = JointSample(1, now, JointSampleFields::kPositionOnly, 0.0);
+    CHECK(gate.Observe(sample, 10, now + 32'000'001, &measured).code ==
+          RecoveryMeasurementCode::kStale);
+    sample.sampled_monotonic_ns = now + 40'000'000;
+    CHECK(gate.Observe(sample, 10, now + 40'000'000, &measured).code ==
+          RecoveryMeasurementCode::kNeedMoreSamples);
+    sample.sample_sequence = 2;
+    sample.sampled_monotonic_ns += 8'000'000;
+    sample.position_rad[1] = 0.1;
+    CHECK(gate.Observe(sample, 10, sample.sampled_monotonic_ns, &measured).code ==
+          RecoveryMeasurementCode::kUnstable);
+    CHECK(gate.Observe(sample, 10, sample.sampled_monotonic_ns, &measured).code ==
+          RecoveryMeasurementCode::kSequenceError);
+  }
+  {
+    InMemoryFakeJakaSdkInterface sdk;
+    CHECK(sdk.Connect() == FakeSdkIoCode::kOk);
+    CHECK(sdk.PrepareStreaming() == FakeSdkIoCode::kOk);
+    sdk.SetNextReadResult(FakeSdkIoCode::kStale);
+    RecoveryMeasurementGate gate(RecoveryMeasurementPolicy{});
+    CHECK(ReadRecoveryMeasurement(&sdk, &gate, 11, now, &measured).code ==
+          RecoveryMeasurementCode::kIoFailure);
+    sdk.SetNextSendResult(FakeSdkIoCode::kTransportFailure);
+    CHECK(ClassifyFakeSdkSend(sdk.SendShaped(Command(1, now))) ==
+          FakeSendOutcome::kTransportFailure);
+  }
+}
+
+void TestFakeSdkHealthFaultsCannotClutchRecover() {
+  const std::int64_t now = 4'300'000'000;
+  int cases = 0;
+  for (int fault = 0; fault < 4; ++fault) {
+    InMemoryFakeJakaSdkInterface sdk;
+    CHECK(sdk.Connect() == FakeSdkIoCode::kOk);
+    CHECK(sdk.PrepareStreaming() == FakeSdkIoCode::kOk);
+    auto adapter = StreamingAdapter(now);
+    auto health = Health(1, 7, now);
+    if (fault == 0) health.alarm = 1;
+    if (fault == 1) health.estop = 1;
+    if (fault == 2) health.collision = 1;
+    if (fault == 3) health.servo_enabled = 0;
+    sdk.SetHealth(health);
+    TransportHealthV1 sampled{};
+    CHECK(sdk.ReadHealth(&sampled) == FakeSdkIoCode::kOk);
+    CHECK(adapter.SampleHealth(sampled, now) != FakeLifecycleCode::kOk);
+    auto new_measured = Measured(now);
+    new_measured.safety_epoch = 8;
+    CHECK(adapter.ArmEpoch(new_measured, now) == FakeLifecycleCode::kInvalidState);
+    CHECK(adapter.StartStreaming(8, now) == FakeLifecycleCode::kInvalidState);
+    CHECK(adapter.BeginCleanup(now + 1) == FakeLifecycleCode::kOk);
+    CHECK(sdk.Cleanup() == FakeSdkIoCode::kOk);
+    CHECK(adapter.CompleteCleanup(now + 2) == FakeLifecycleCode::kOk);
+    CHECK(adapter.BeginConnect(now + 3) == FakeLifecycleCode::kInvalidState);
+    CHECK(adapter.ResetAfterCleanup(now + 4) == FakeLifecycleCode::kOk);
+    ++cases;
+  }
+  {
+    InMemoryFakeJakaSdkInterface sdk;
+    CHECK(sdk.Connect() == FakeSdkIoCode::kOk);
+    CHECK(sdk.PrepareStreaming() == FakeSdkIoCode::kOk);
+    auto adapter = StreamingAdapter(now);
+    sdk.SetNextHealthResult(FakeSdkIoCode::kStale);
+    TransportHealthV1 sampled{};
+    CHECK(sdk.ReadHealth(&sampled) == FakeSdkIoCode::kStale);
+    adapter.InjectFault(StopReason::kStaleInput, now);
+    CHECK(adapter.Snapshot().hard_stop_latched);
+    auto new_measured = Measured(now);
+    new_measured.safety_epoch = 8;
+    CHECK(adapter.ArmEpoch(new_measured, now) == FakeLifecycleCode::kInvalidState);
+    ++cases;
+  }
+  CHECK(cases == 5);
+
+  auto adapter = StreamingAdapter(now);
+  InMemoryFakeJakaSdkInterface sdk;
+  CHECK(sdk.Connect() == FakeSdkIoCode::kOk);
+  CHECK(sdk.PrepareStreaming() == FakeSdkIoCode::kOk);
+  sdk.SetNextSendResult(FakeSdkIoCode::kTransportFailure);
+  auto command = CommandForMode(1, 7, now, OutputMode::kActiveTracking);
+  CHECK(adapter.Send(command, ClassifyFakeSdkSend(sdk.SendShaped(command)), now) ==
+        FakeLifecycleCode::kTransportFailure);
+  auto new_measured = Measured(now);
+  new_measured.safety_epoch = 8;
+  CHECK(adapter.ArmEpoch(new_measured, now) == FakeLifecycleCode::kInvalidState);
 }
 
 void TestFakeJakaLifecycleFaultMatrixAndTelemetry() {
@@ -691,6 +921,9 @@ int main() {
   TestResidualAccelerationNeutralization();
   TestFakeJakaLifecycleHappyPathAndRecovery();
   TestFakeJakaLifecycleFaultMatrixAndTelemetry();
+  TestSdkFreeClutchRecoveryContract();
+  TestRecoveryMeasurementFallbacksAndFaults();
+  TestFakeSdkHealthFaultsCannotClutchRecover();
   TestDeterministicPropertyAndNoAllocation();
   if (g_failures != 0) {
     std::cerr << g_failures << " test checks failed\n";

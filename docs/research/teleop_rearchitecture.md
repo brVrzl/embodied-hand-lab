@@ -5,16 +5,17 @@ connection was made for this work.  This page is current for the isolated
 `feature/quest-jaka-teleop-rearchitecture` worktree; it is not an operator
 procedure and does not authorize physical execution.
 
-The research branch now has three local-only audit checkpoints above the
+The research branch now has four local-only audit checkpoints above the
 fetched remote `3e911f80ba8b02260fd68c1e7c8a9641521b3622`:
 
 - `6f08b09b3a3d7584c517f8aec1ee9306cbb5003b` — corrected replay metric semantics;
 - `d7661cc4d8d6e5c835d801a62114d8220bee5364` — unified evaluator and controlled-stop analysis;
-- `afb54b3326cca482b508607f78dd3ab0bf5bd786` — ABI v1 and C++ shaping core.
+- `afb54b3326cca482b508607f78dd3ab0bf5bd786` — ABI v1 and C++ shaping core;
+- `a53ece339b945a79accaa70687f22c8f853c9344` — recoverable clutch lifecycle
+  and SDK-free fake adapter.
 
-They have not been pushed. The recoverable-clutch, residual-acceleration, and
-fake-lifecycle work described later remains an auditable diff above the third
-checkpoint.
+They have not been pushed. The JAKA transport-contract audit and fake SDK seam
+described later remain an auditable diff above the fourth checkpoint.
 
 ## Scope, baseline, and evidence boundary
 
@@ -506,6 +507,15 @@ interpolation, shaping, braking, Quest logic, JSON, or file I/O. Its states are
 `Disconnected`, `Connecting`, `Connected`, `ServoReady`, `Streaming`,
 `ControlledStopping`, `Stopped`, `Faulted`, and `CleaningUp`. A stopped session
 may re-arm only with a newer epoch and valid measured state.
+
+The follow-on read-only transport audit found that the current real native
+worker cannot do this recovery: every stop exits its loop and the common path
+disables servo, disables EDG, logs out, and terminates. SDK 2.2.7 exposes EDG
+q+dq but no ddq; the worker currently discards dq. The header does not prove
+whether a stopped session can remain command-free or must repeat q, nor whether
+EDG must be reinitialized. The resulting default-disabled recovery contract,
+measured-state hierarchy, fake SDK seam, and pre-physical gates are documented
+in [`jaka_clutch_recovery_transport_contract.md`](jaka_clutch_recovery_transport_contract.md).
 
 | injected condition | fake classification | recovery |
 | --- | --- | --- |

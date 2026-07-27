@@ -195,6 +195,10 @@ a newer epoch and a valid `MeasuredJointStateV1`; output sequence restarts only
 inside that new epoch. It validates shaped commands and normalized health,
 classifies stale/deadline/epoch/sequence/transport/controller failures, and
 never performs IK, mapping, filtering, interpolation, shaping, or braking.
+Cleanup now leaves both the hard-fault latch and an explicit reset requirement;
+reconnection is impossible until `ResetAfterCleanup` is called. The audited
+future transport boundary and unresolved controller pause semantics are in
+[`jaka_clutch_recovery_transport_contract.md`](jaka_clutch_recovery_transport_contract.md).
 
 The send path writes only a fixed 256-record ring. Records contain output and
 source sequence, epoch, mode, command age, deadline slack, validation reason,

@@ -26,6 +26,7 @@ FakeJakaLifecycleAdapter::FakeJakaLifecycleAdapter() noexcept
       dof_(0),
       session_owned_(false),
       hard_stop_latched_(false),
+      reset_required_(false),
       safety_epoch_(0),
       last_output_sequence_(0),
       last_health_sequence_(0),
@@ -93,7 +94,7 @@ FakeLifecycleCode FakeJakaLifecycleAdapter::Fault(
 
 FakeLifecycleCode FakeJakaLifecycleAdapter::BeginConnect(std::int64_t now_ns) noexcept {
   if (lifecycle_state_ != FakeJakaLifecycleState::kDisconnected || session_owned_ ||
-      hard_stop_latched_) {
+      hard_stop_latched_ || reset_required_) {
     return FakeLifecycleCode::kInvalidState;
   }
   lifecycle_state_ = FakeJakaLifecycleState::kConnecting;
@@ -339,7 +340,7 @@ FakeLifecycleCode FakeJakaLifecycleAdapter::CompleteCleanup(
   }
   session_owned_ = false;
   lifecycle_state_ = FakeJakaLifecycleState::kDisconnected;
-  hard_stop_latched_ = false;
+  reset_required_ = true;
   safety_epoch_ = 0;
   dof_ = 0;
   last_output_sequence_ = 0;
@@ -350,11 +351,26 @@ FakeLifecycleCode FakeJakaLifecycleAdapter::CompleteCleanup(
   return FakeLifecycleCode::kOk;
 }
 
+FakeLifecycleCode FakeJakaLifecycleAdapter::ResetAfterCleanup(
+    std::int64_t now_ns) noexcept {
+  if (lifecycle_state_ != FakeJakaLifecycleState::kDisconnected || session_owned_ ||
+      !reset_required_) {
+    return FakeLifecycleCode::kInvalidState;
+  }
+  hard_stop_latched_ = false;
+  reset_required_ = false;
+  fault_reason_ = teleop_command_abi::StopReason::kNone;
+  Record(FakeTelemetryEvent::kLifecycle, FakeLifecycleCode::kOk, now_ns, nullptr,
+         Valid());
+  return FakeLifecycleCode::kOk;
+}
+
 FakeJakaLifecycleSnapshot FakeJakaLifecycleAdapter::Snapshot() const noexcept {
   return {lifecycle_state_,
           dof_,
           session_owned_,
           hard_stop_latched_,
+          reset_required_,
           safety_epoch_,
           last_output_sequence_,
           last_health_sequence_,

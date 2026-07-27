@@ -74,6 +74,7 @@ struct FakeJakaLifecycleSnapshot {
   std::uint8_t dof;
   bool session_owned;
   bool hard_stop_latched;
+  bool reset_required;
   std::uint64_t safety_epoch;
   std::uint64_t last_output_sequence;
   std::uint64_t last_health_sequence;
@@ -107,6 +108,7 @@ class FakeJakaLifecycleAdapter final {
                    std::int64_t now_ns) noexcept;
   FakeLifecycleCode BeginCleanup(std::int64_t now_ns) noexcept;
   FakeLifecycleCode CompleteCleanup(std::int64_t now_ns) noexcept;
+  FakeLifecycleCode ResetAfterCleanup(std::int64_t now_ns) noexcept;
 
   FakeJakaLifecycleSnapshot Snapshot() const noexcept;
   std::size_t telemetry_size() const noexcept { return telemetry_size_; }
@@ -130,6 +132,7 @@ class FakeJakaLifecycleAdapter final {
   std::uint8_t dof_;
   bool session_owned_;
   bool hard_stop_latched_;
+  bool reset_required_;
   std::uint64_t safety_epoch_;
   std::uint64_t last_output_sequence_;
   std::uint64_t last_health_sequence_;
