@@ -31,12 +31,21 @@ class JointOutputContractConfig:
     maximum_jerk_rad_s3: float = PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3
     numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S
     maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
+    # Simulation diagnostic only: the interval over which a 60 Hz target
+    # replacement changes predicted acceleration.  The transport servo period
+    # remains ``servo_period_ns``.
+    feasibility_acceleration_period_ns: int | None = None
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.maximum_velocity_rad_s) or self.maximum_velocity_rad_s <= 0.0:
             raise ValueError("output velocity boundary must be finite and positive")
         if not isinstance(self.servo_period_ns, int) or self.servo_period_ns <= 0:
             raise ValueError("servo period must be a positive integer nanosecond count")
+        if self.feasibility_acceleration_period_ns is not None and (
+            not isinstance(self.feasibility_acceleration_period_ns, int)
+            or self.feasibility_acceleration_period_ns <= 0
+        ):
+            raise ValueError("feasibility acceleration period must be positive")
         if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
             raise ValueError("output acceleration boundary must be positive")
         if (
@@ -132,6 +141,7 @@ class JointOutputFeasibilityTracker:
         maximum_acceleration_rad_s2: float = math.inf,
         numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S,
         maximum_velocity_rad_s_per_joint: Sequence[float] | None = None,
+        feasibility_acceleration_period_ns: int | None = None,
     ) -> None:
         boundary = float(maximum_velocity_rad_s)
         tolerance = float(numeric_tolerance_rad_s)
@@ -161,6 +171,7 @@ class JointOutputFeasibilityTracker:
         if self.maximum_acceleration_rad_s2 <= 0.0 or math.isnan(self.maximum_acceleration_rad_s2):
             raise ValueError("output acceleration boundary must be positive")
         self.servo_period_ns = servo_period_ns
+        self.feasibility_acceleration_period_ns = feasibility_acceleration_period_ns
         self.numeric_tolerance_rad_s = tolerance
         self._initial_rad: tuple[float, ...] | None = None
         self._last_accepted_ns: int | None = None
@@ -178,6 +189,9 @@ class JointOutputFeasibilityTracker:
             numeric_tolerance_rad_s=config.numeric_tolerance_rad_s,
             maximum_velocity_rad_s_per_joint=(
                 config.maximum_velocity_rad_s_per_joint
+            ),
+            feasibility_acceleration_period_ns=(
+                config.feasibility_acceleration_period_ns
             ),
         )
 
@@ -223,8 +237,13 @@ class JointOutputFeasibilityTracker:
         servo_period_s = self.servo_period_ns / 1e9
         first_tick_alpha = min(1.0, self.servo_period_ns / interval_ns)
         velocity = tuple(value * first_tick_alpha / servo_period_s for value in delta)
+        acceleration_period_s = (
+            self.feasibility_acceleration_period_ns / 1e9
+            if self.feasibility_acceleration_period_ns is not None
+            else servo_period_s
+        )
         acceleration = tuple(
-            (value - previous) / servo_period_s
+            (value - previous) / acceleration_period_s
             for value, previous in zip(velocity, previous_velocity, strict=True)
         )
         violating = tuple(

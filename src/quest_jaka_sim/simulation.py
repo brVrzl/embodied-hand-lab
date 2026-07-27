@@ -215,6 +215,7 @@ class CommandTrajectoryLimits:
     maximum_acceleration_rad_s2: float
     maximum_jerk_rad_s3: float
     position_tracking_frequency_rad_s: float
+    maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "CommandTrajectoryLimits":
@@ -234,10 +235,37 @@ class CommandTrajectoryLimits:
             position_tracking_frequency_rad_s=float(
                 values.get("command_position_tracking_frequency_rad_s", 10.0)
             ),
+            maximum_velocity_rad_s_per_joint=(
+                None
+                if values.get("command_maximum_joint_velocity_rad_s_per_joint") is None
+                else tuple(
+                    float(value)
+                    for value in values["command_maximum_joint_velocity_rad_s_per_joint"]
+                )
+            ),
         )
-        if not all(math.isfinite(value) and value > 0.0 for value in asdict(result).values()):
+        scalar_values = (
+            result.maximum_velocity_rad_s,
+            result.maximum_acceleration_rad_s2,
+            result.maximum_jerk_rad_s3,
+            result.position_tracking_frequency_rad_s,
+        )
+        if not all(math.isfinite(value) and value > 0.0 for value in scalar_values):
             raise ValueError("command trajectory limits must be finite and positive")
+        if result.maximum_velocity_rad_s_per_joint is not None and (
+            len(result.maximum_velocity_rad_s_per_joint) != 6
+            or not all(
+                math.isfinite(value)
+                and 0.0 < value <= result.maximum_velocity_rad_s
+                for value in result.maximum_velocity_rad_s_per_joint
+            )
+        ):
+            raise ValueError("per-joint command velocity limits must contain six values")
         return result
+
+    @property
+    def velocity_boundaries_rad_s(self) -> tuple[float, ...]:
+        return self.maximum_velocity_rad_s_per_joint or (self.maximum_velocity_rad_s,) * 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,8 +459,8 @@ def jerk_limited_position_step(
     )
     next_velocity = np.clip(
         qd + next_acceleration * dt,
-        -limits.maximum_velocity_rad_s,
-        limits.maximum_velocity_rad_s,
+        -np.asarray(limits.velocity_boundaries_rad_s, dtype=float),
+        np.asarray(limits.velocity_boundaries_rad_s, dtype=float),
     )
     next_position = q + next_velocity * dt
     return next_position, next_velocity, next_acceleration
@@ -458,8 +486,94 @@ class ReplayConfig:
     startup_timing_grace_cycles: int
 
     @classmethod
-    def load(cls, path: str | Path) -> "ReplayConfig":
+    def load(cls, path: str | Path, *, speed_profile: str | None = None) -> "ReplayConfig":
         raw = load_yaml(path)
+        if speed_profile is not None:
+            profiles = {
+                "current_live": {
+                    # JAKA ServoJ's official outer theoretical/legal boundary;
+                    # this is a simulation ceiling, not a calibrated physical
+                    # teleoperation work speed.
+                    "velocity": (math.pi,) * 6,
+                },
+                "baseline": {
+                    "velocity": (1.5, 1.5, 1.5, 1.2, 1.2, 1.2),
+                },
+                "moderate": {
+                    "velocity": (1.8, 1.8, 1.8, 1.8, 1.8, 1.8),
+                },
+                "fast": {
+                    "velocity": (2.2, 2.2, 2.2, 2.2, 1.8, 2.5),
+                },
+                "latency_default": {
+                    "velocity": (math.pi,) * 6,
+                },
+                "latency_reduced": {
+                    "velocity": (math.pi,) * 6,
+                    "interpolation_delay_ms": 8.0,
+                    "rotation_filter": {
+                        "rotation_min_cutoff": 3.0,
+                        "rotation_beta": 6.0,
+                        "rotation_derivative_cutoff": 2.0,
+                    },
+                },
+                "latency_raw_diagnostic": {
+                    "velocity": (math.pi,) * 6,
+                    "interpolation_delay_ms": 0.0,
+                    "rotation_filter": {
+                        "rotation_min_cutoff": 1_000_000.0,
+                        "rotation_beta": 0.0,
+                        "rotation_derivative_cutoff": 1.0,
+                    },
+                },
+                "root_cause_fix": {
+                    "velocity": (math.pi,) * 6,
+                    # Diagnostic-only: evaluate a 60 Hz target replacement
+                    # over its own interval.  The hardware/EDG contract stays
+                    # at the live 8 ms period.
+                    "feasibility_acceleration_hz": 60.0,
+                },
+                "root_cause_fix_plus_low_latency": {
+                    "velocity": (math.pi,) * 6,
+                    "feasibility_acceleration_hz": 60.0,
+                    "interpolation_delay_ms": 8.0,
+                    "rotation_filter": {
+                        "rotation_min_cutoff": 3.0,
+                        "rotation_beta": 6.0,
+                        "rotation_derivative_cutoff": 2.0,
+                    },
+                },
+            }
+            try:
+                profile = profiles[speed_profile]
+            except KeyError as exc:
+                raise ValueError(f"unknown simulation speed profile {speed_profile!r}") from exc
+            raw = copy.deepcopy(raw)
+            if "interpolation_delay_ms" in profile:
+                raw.setdefault("rates", {})["interpolation_delay_ms"] = profile[
+                    "interpolation_delay_ms"
+                ]
+            if "jaka_transport_hz" in profile:
+                raw.setdefault("rates", {})["jaka_transport_hz"] = profile[
+                    "jaka_transport_hz"
+                ]
+            if "feasibility_acceleration_hz" in profile:
+                raw.setdefault("shared_target_generation", {})[
+                    "feasibility_acceleration_period_ns"
+                ] = int(round(1e9 / float(profile["feasibility_acceleration_hz"])))
+            rotation_filter = profile.get("rotation_filter")
+            if rotation_filter:
+                selected = raw.setdefault("filter", {}).get("selected_profile")
+                values = raw.setdefault("filter", {}).setdefault("profiles", {}).setdefault(
+                    selected, {}
+                )
+                values.update(rotation_filter)
+            raw.setdefault("shared_target_generation", {})[
+                "maximum_output_joint_velocity_rad_s_per_joint"
+            ] = list(profile["velocity"])
+            raw.setdefault("simulation", {})[
+                "command_maximum_joint_velocity_rad_s_per_joint"
+            ] = list(profile["velocity"])
         provisional = ProvisionalMappingConfig.from_mapping(raw["provisional_calibration"])
         simulation = raw["simulation"]
         shared_target = raw.get("shared_target_generation", {})
@@ -514,6 +628,11 @@ class ReplayConfig:
                 maximum_velocity_rad_s_per_joint=(
                     maximum_output_velocity_per_joint
                 ),
+                feasibility_acceleration_period_ns=(
+                    None
+                    if shared_target.get("feasibility_acceleration_period_ns") is None
+                    else int(shared_target["feasibility_acceleration_period_ns"])
+                ),
             ),
             stale_after_s=float(raw["input"]["stale_after_ms"]) / 1000.0,
             engagement_schedule_s=tuple(
@@ -533,7 +652,12 @@ class ReplayConfig:
         )
 
 
-def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
+def build_viewer_mjcf(
+    base_path: str | Path,
+    output_path: str | Path,
+    *,
+    arm_only: bool = False,
+) -> Path:
     base = Path(base_path).resolve()
     output = Path(output_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -543,6 +667,12 @@ def build_viewer_mjcf(base_path: str | Path, output_path: str | Path) -> Path:
     if compiler is None:
         compiler = ET.SubElement(root, "compiler")
     compiler.set("meshdir", str(base.parent))
+    if arm_only:
+        actuator = root.find("actuator")
+        if actuator is not None:
+            for child in list(actuator):
+                if child.get("name", "").startswith("rh56_"):
+                    actuator.remove(child)
     world = root.find("worldbody")
     if world is None:
         raise RuntimeError("MuJoCo model has no worldbody")
@@ -1049,6 +1179,10 @@ class SharedJakaTargetGenerator:
             report["maximum_desired_to_simulated_tcp_error_m"] = max(
                 self.tracking_errors_m, default=0.0
             )
+            report["peak_actual_joint_velocity_rad_s"] = self.peak_actual_joint_velocity_rad_s.tolist()
+            report["simulated_velocity_limit_hits_per_joint"] = self.command_velocity_limit_hits.tolist()
+            report["simulated_acceleration_limit_hits_per_joint"] = self.command_acceleration_limit_hits.tolist()
+            report["simulated_jerk_limit_hits_per_joint"] = self.command_jerk_limit_hits.tolist()
         return report
 
     def _contact_pairs(self, data: mujoco.MjData) -> set[tuple[int, int]]:
@@ -1098,19 +1232,25 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
             "rh56_R_pinky_MCP_joint_act",
         )
         self.hand_actuator_ids = np.asarray(
-            [self._required_id(mujoco.mjtObj.mjOBJ_ACTUATOR, name) for name in self.hand_actuator_names],
+            [
+                actuator_id
+                for name in self.hand_actuator_names
+                if (actuator_id := mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)) >= 0
+            ],
             dtype=np.int32,
         )
+        self.hand_available = len(self.hand_actuator_ids) == 6
         self._set_position_actuator_gains(
             self.arm_actuator_ids,
             kp=float(simulation_values.get("arm_position_kp", 40.0)),
             kv=float(simulation_values.get("arm_position_kv", 0.0)),
         )
-        self._set_position_actuator_gains(
-            self.hand_actuator_ids,
-            kp=float(simulation_values.get("hand_position_kp", 8.0)),
-            kv=float(simulation_values.get("hand_position_kv", 0.0)),
-        )
+        if self.hand_available:
+            self._set_position_actuator_gains(
+                self.hand_actuator_ids,
+                kp=float(simulation_values.get("hand_position_kp", 8.0)),
+                kv=float(simulation_values.get("hand_position_kv", 0.0)),
+            )
         self.data.qpos[self.arm_qpos_ids] = config.initial_arm_joints_rad
         self.data.ctrl[self.arm_actuator_ids] = config.initial_arm_joints_rad
         mujoco.mj_forward(self.model, self.data)
@@ -1120,6 +1260,10 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         self.commanded_hand_target = np.zeros(6, dtype=np.float64)
         self.commanded_hand_velocity = np.zeros(6, dtype=np.float64)
         self.tracking_errors_m: list[float] = []
+        self.peak_actual_joint_velocity_rad_s = np.zeros(6, dtype=np.float64)
+        self.command_velocity_limit_hits = np.zeros(6, dtype=np.int64)
+        self.command_acceleration_limit_hits = np.zeros(6, dtype=np.int64)
+        self.command_jerk_limit_hits = np.zeros(6, dtype=np.int64)
         self.desired_marker_mocap_id = self._mocap_id(DESIRED_MARKER_BODY)
         self.actual_marker_mocap_id = self._mocap_id(ACTUAL_MARKER_BODY)
 
@@ -1173,6 +1317,10 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         self.commanded_joint_acceleration[:] = 0.0
         self.data.ctrl[self.arm_actuator_ids] = self.commanded_joint_target
         self.tracking_errors_m.clear()
+        self.peak_actual_joint_velocity_rad_s[:] = 0.0
+        self.command_velocity_limit_hits[:] = 0
+        self.command_acceleration_limit_hits[:] = 0
+        self.command_jerk_limit_hits[:] = 0
         return current
 
     def set_accepted_arm_joint_target(self, joints_rad: tuple[float, ...]) -> None:
@@ -1188,6 +1336,9 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
     def set_hand_actuator_target(self, targets_rad: Mapping[str, float]) -> None:
         """Set only the six simulated RH56 actuator goals in explicit model order."""
 
+        if not self.hand_available:
+            raise RuntimeError("this arm-only simulation has no RH56 actuator path")
+
         order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
         values = np.asarray([float(targets_rad[name]) for name in order], dtype=np.float64)
         if values.shape != (6,) or not np.all(np.isfinite(values)):
@@ -1201,6 +1352,29 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         steps = max(0, int(round(max(0.0, dt_s) / self.model.opt.timestep)))
         for _ in range(steps):
             timestep = float(self.model.opt.timestep)
+            limits = self.config.command_limits
+            omega = limits.position_tracking_frequency_rad_s
+            desired_jerk = (
+                omega**3 * (self.commanded_joint_target - self.data.ctrl[self.arm_actuator_ids])
+                - 3.0 * omega**2 * self.commanded_joint_velocity
+                - 3.0 * omega * self.commanded_joint_acceleration
+            )
+            bounded_jerk = np.clip(
+                desired_jerk, -limits.maximum_jerk_rad_s3, limits.maximum_jerk_rad_s3
+            )
+            acceleration_unbounded = self.commanded_joint_acceleration + bounded_jerk * timestep
+            acceleration_bounded = np.clip(
+                acceleration_unbounded,
+                -limits.maximum_acceleration_rad_s2,
+                limits.maximum_acceleration_rad_s2,
+            )
+            velocity_unbounded = self.commanded_joint_velocity + acceleration_bounded * timestep
+            velocity_bounds = np.asarray(limits.velocity_boundaries_rad_s, dtype=float)
+            self.command_jerk_limit_hits += np.abs(desired_jerk) > limits.maximum_jerk_rad_s3
+            self.command_acceleration_limit_hits += (
+                np.abs(acceleration_unbounded) > limits.maximum_acceleration_rad_s2
+            )
+            self.command_velocity_limit_hits += np.abs(velocity_unbounded) > velocity_bounds
             position, velocity, acceleration = jerk_limited_position_step(
                 self.data.ctrl[self.arm_actuator_ids],
                 self.commanded_joint_target,
@@ -1212,19 +1386,24 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
             self.data.ctrl[self.arm_actuator_ids] = position
             self.commanded_joint_velocity = velocity
             self.commanded_joint_acceleration = acceleration
-            hand_error = self.commanded_hand_target - self.data.ctrl[self.hand_actuator_ids]
-            desired_hand_velocity = np.clip(hand_error / timestep, -4.0, 4.0)
-            self.commanded_hand_velocity += np.clip(
-                desired_hand_velocity - self.commanded_hand_velocity,
-                -40.0 * timestep,
-                40.0 * timestep,
-            )
-            hand_increment = self.commanded_hand_velocity * timestep
-            hand_increment = np.where(
-                np.abs(hand_increment) > np.abs(hand_error), hand_error, hand_increment
-            )
-            self.data.ctrl[self.hand_actuator_ids] += hand_increment
+            if self.hand_available:
+                hand_error = self.commanded_hand_target - self.data.ctrl[self.hand_actuator_ids]
+                desired_hand_velocity = np.clip(hand_error / timestep, -4.0, 4.0)
+                self.commanded_hand_velocity += np.clip(
+                    desired_hand_velocity - self.commanded_hand_velocity,
+                    -40.0 * timestep,
+                    40.0 * timestep,
+                )
+                hand_increment = self.commanded_hand_velocity * timestep
+                hand_increment = np.where(
+                    np.abs(hand_increment) > np.abs(hand_error), hand_error, hand_increment
+                )
+                self.data.ctrl[self.hand_actuator_ids] += hand_increment
             mujoco.mj_step(self.model, self.data)
+            self.peak_actual_joint_velocity_rad_s = np.maximum(
+                self.peak_actual_joint_velocity_rad_s,
+                np.abs(self.data.qvel[self.arm_dof_ids]),
+            )
         self.tracking_errors_m.append(
             float(
                 np.linalg.norm(

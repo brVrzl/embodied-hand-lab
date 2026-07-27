@@ -85,6 +85,7 @@ class LatchedHeadYawArmMapper:
         self._yaw_rotation: np.ndarray | None = None
         self.raw_wrist: Pose6D | None = None
         self.filtered_wrist: Pose6D | None = None
+        self.filtered_mapped_target: Pose6D | None = None
         self.last_telemetry: ArmMappingTelemetry | None = None
 
     def clear(self) -> None:
@@ -93,6 +94,7 @@ class LatchedHeadYawArmMapper:
         self.latched_head_yaw_rad = None
         self._yaw_rotation = None
         self.filtered_wrist = None
+        self.filtered_mapped_target = None
         self.last_telemetry = None
         self._position_filter.reset()
         self._rotation_filter.reset()
@@ -106,6 +108,7 @@ class LatchedHeadYawArmMapper:
         filtered = Pose6D(tuple(float(v) for v in position), orientation)
         self.raw_wrist = wrist
         self.filtered_wrist = filtered
+        self.filtered_mapped_target = robot_tcp
         self.hand_reference = filtered
         self.robot_reference = robot_tcp
         self.latched_head_yaw_rad = yaw
@@ -192,4 +195,6 @@ class LatchedHeadYawArmMapper:
             quaternion_angle_rad(horizontal_delta.orientation_xyzw, (0.0, 0.0, 0.0, 1.0))
             >= 0.8 * self.config.maximum_relative_rotation_rad,
         )
-        return compose_pose(self.robot_reference, robot_delta)
+        mapped = compose_pose(self.robot_reference, robot_delta)
+        self.filtered_mapped_target = mapped
+        return mapped

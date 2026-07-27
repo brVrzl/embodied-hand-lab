@@ -63,6 +63,16 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
     )
+    smooth_live.add_argument(
+        "--speed-profile",
+        choices=(
+            "current_live", "baseline", "moderate", "fast",
+            "latency_default", "latency_reduced", "latency_raw_diagnostic",
+            "root_cause_fix", "root_cause_fix_plus_low_latency",
+        ),
+        default="root_cause_fix",
+        help="simulation-only overlay; default is the finalized single-arm policy",
+    )
     smooth_live.add_argument("--bind", default="0.0.0.0")
     smooth_live.add_argument("--port", type=int, default=9000)
     smooth_live.add_argument("--project-ip")
@@ -110,6 +120,16 @@ def _parser() -> argparse.ArgumentParser:
         "--config",
         type=Path,
         default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+    )
+    smooth_replay.add_argument(
+        "--speed-profile",
+        choices=(
+            "current_live", "baseline", "moderate", "fast",
+            "latency_default", "latency_reduced", "latency_raw_diagnostic",
+            "root_cause_fix", "root_cause_fix_plus_low_latency",
+        ),
+        default="root_cause_fix",
+        help="simulation-only overlay; default is the finalized single-arm policy",
     )
     smooth_replay.add_argument("--report", type=Path)
     smooth_replay.add_argument("--events", type=Path)
@@ -165,7 +185,7 @@ def _make_smooth_session(
 ) -> tuple[JakaMujocoSimulation, SmoothQuestJakaSession]:
     output = Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
     augmented = (
-        build_viewer_mjcf(config.mjcf_path, output)
+        build_viewer_mjcf(config.mjcf_path, output, arm_only=True)
         if twin_offset_m is None
         else build_twin_viewer_mjcf(
             config.mjcf_path,
@@ -459,7 +479,10 @@ def _live_6dof(args: argparse.Namespace) -> int:
         raise SystemExit("duration must be positive")
     if args.telemetry_hz < 0:
         raise SystemExit("telemetry-hz must be non-negative")
-    config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+    config = replace(
+        ReplayConfig.load(args.config, speed_profile=args.speed_profile),
+        engagement_schedule_s=(),
+    )
     if args.physical_seed_metrics is not None and (
         not math.isfinite(args.twin_offset_m) or abs(args.twin_offset_m) < 0.25
     ):
@@ -519,7 +542,8 @@ def _live_6dof(args: argparse.Namespace) -> int:
         f"RATES=input~30Hz target={target_hz:g}Hz "
         f"mujoco={1.0/simulation.model.opt.timestep:g}Hz viewer={viewer_hz:g}Hz"
     )
-    print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP hand clutch; both are independent hold-to-run")
+    _print_effective_speed_config(config, simulation, args.speed_profile)
+    print("CONTROL=LEFT INDEX arm clutch; RH56 command path disabled in the final arm-only entry")
     print("MODE=filtered relative 6-DoF; BLUE desired frame, GREEN simulated frame")
     print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
     if physical_seed_twin is not None:
@@ -543,7 +567,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     print("4. 右手进入视野；等待终端显示 right_valid=True、controller_valid=True。")
     print("5. 左手食指扳机先完全释放，再按住以捕获 reference 并进入 engaged。")
     print("6. 按住食指扳机移动/旋转右手；释放即 disengage，下一次按下会重新捕获。")
-    print("7. 左手 grip 仅控制仿真 RH56；退出请关闭 viewer 或按 Ctrl-C。")
+    print("7. 本入口不控制 RH56；退出请关闭 viewer 或按 Ctrl-C。")
     handle = (
         _viewer(
             simulation,
@@ -672,6 +696,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     report = session.report(str(capture_path.resolve()))
     report.update(
         mode="live_quest_to_smooth_6dof_simulation_only",
+        speed_profile=args.speed_profile or "config_default",
         event_log=str(events_path.resolve()),
         raw_receive_queue_drops=worker.dropped,
         simulation_overrun_steps=sim_overrun_steps,
@@ -716,7 +741,10 @@ def _replay_6dof(args: argparse.Namespace) -> int:
         or args.hand_cycle_count <= 0
     ):
         raise SystemExit("hand cycles require positive period/count and --hand-engage-at-sec")
-    config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+    config = replace(
+        ReplayConfig.load(args.config, speed_profile=args.speed_profile),
+        engagement_schedule_s=(),
+    )
     if args.hand_reacquisition_ms is not None:
         raw = copy.deepcopy(dict(config.raw))
         raw.setdefault("clutches", {})["hand_reacquisition_ms"] = args.hand_reacquisition_ms
@@ -810,6 +838,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     report = session.report(str(args.recording.resolve()))
     report.update(
         mode="recorded_smooth_6dof_simulation_only",
+        speed_profile=args.speed_profile or "config_default",
         deterministic=True,
         replay_speed=args.speed,
         viewer_update_count=viewer_updates,
@@ -820,6 +849,60 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     _write_events(session.event_records, events_path)
     _write_report(report, report_path)
     return 0 if report["accepted_target_count"] > 0 else 2
+
+
+def _print_effective_speed_config(
+    config: ReplayConfig,
+    simulation: JakaMujocoSimulation,
+    speed_profile: str | None = None,
+) -> None:
+    """Print all speed/latency values that affect the simulation run."""
+
+    raw = config.raw
+    mapping = raw.get("provisional_calibration", {})
+    filter_values = raw.get("filter", {}).get("profiles", {}).get(
+        raw.get("filter", {}).get("selected_profile", ""), {}
+    )
+    rates = raw.get("rates", {})
+    limits = config.feasibility
+    command = config.command_limits
+    contract = config.output_contract
+    selected_policy = speed_profile or "config_default"
+    print(f"SIM_POLICY={selected_policy}")
+    print(f"JOINT_SPEED_LIMITS_RAD_S={list(contract.velocity_boundaries_rad_s)}")
+    print(f"IK_JOINT_VELOCITY_GUARD_RAD_S={limits.maximum_joint_velocity_rad_s:g}")
+    print(f"JOINT_ACCELERATION_LIMITS_RAD_S2={[command.maximum_acceleration_rad_s2] * 6}")
+    print(f"JOINT_JERK_LIMITS_RAD_S3={[command.maximum_jerk_rad_s3] * 6}")
+    print(f"TCP_LINEAR_VELOCITY_LIMIT_M_S={limits.maximum_tcp_velocity_m_s:g}")
+    print(f"TCP_ANGULAR_VELOCITY_LIMIT_RAD_S={limits.maximum_tcp_angular_velocity_rad_s:g}")
+    print(f"QUEST_TRANSLATION_SCALE={mapping.get('translation_scale_per_axis')}")
+    print(f"QUEST_ROTATION_SCALE={mapping.get('orientation_scale_per_axis', mapping.get('orientation_scale'))}")
+    print(
+        "FILTER="
+        f"profile={raw.get('filter', {}).get('selected_profile')} "
+        f"translation_min_cutoff={filter_values.get('translation_min_cutoff')} "
+        f"translation_beta={filter_values.get('translation_beta')} "
+        f"translation_derivative_cutoff={filter_values.get('translation_derivative_cutoff')} "
+        f"rotation_min_cutoff={filter_values.get('rotation_min_cutoff')} "
+        f"rotation_beta={filter_values.get('rotation_beta')} "
+        f"rotation_derivative_cutoff={filter_values.get('rotation_derivative_cutoff')} "
+        f"maximum_dt={filter_values.get('maximum_filter_dt')}"
+    )
+    print(f"TRANSLATION_DEADBAND_M={mapping.get('translation_deadband_m')}")
+    print(f"ORIENTATION_DEADBAND_DEG={mapping.get('orientation_deadband_deg')}")
+    print(f"INPUT_INTERPOLATION_DELAY_MS={float(rates.get('interpolation_delay_ms', 20.0)):g}")
+    print(f"TARGET_IK_HZ={float(rates.get('target_generation_hz', 60.0)):g}")
+    print(f"MUJOCO_CONTROL_HZ={1.0 / float(simulation.model.opt.timestep):g}")
+    print(f"SERVO_CONTRACT_PERIOD_MS={contract.servo_period_ns / 1e6:g}")
+    print(
+        "OUTPUT_FEASIBILITY_ACCELERATION_PERIOD_MS="
+        f"{(contract.feasibility_acceleration_period_ns or contract.servo_period_ns) / 1e6:g}"
+    )
+    print(f"IK_MAX_STEP_RAD={config.ik_max_step_rad:g}")
+    print(f"MAXIMUM_JOINT_TARGET_JUMP_RAD={limits.maximum_joint_target_jump_rad:g}")
+    print(f"POSITION_TRACKING_FREQUENCY_RAD_S={command.position_tracking_frequency_rad_s:g}")
+    print("HARDWARE_CONTROL_ENABLED=false")
+    print(f"RH56_CONTROL_ENABLED={str(bool(getattr(simulation, 'hand_available', False))).lower()}")
 
 
 def main() -> int:

@@ -18,6 +18,16 @@ port 9000 (or the value explicitly selected on both ends).
 
 ## Live simulation
 
+The finalized single-arm policy is selected by default. It uses six joint speed
+limits of `pi` rad/s, the 60 Hz target-update feasibility interval (16.667 ms),
+the unchanged 8 ms ServoJ contract period, and the existing 500 Hz MuJoCo
+control loop. `pi` rad/s is the official outer theoretical/legal boundary used
+here as a simulation ceiling; it is not a project-calibrated normal teleoperation
+speed and does not change production hardware parameters.
+
+The normal entry creates one arm-only model with six arm actuators. RH56 is
+visual-only and has no actuator or command path.
+
 From a graphical host:
 
 ```bash
@@ -55,6 +65,16 @@ Use committed regression fixtures or an explicitly selected local recording.
 Recordings are not automatically committed. Add `--ik-debug` only when detailed
 joint, TCP, singularity, continuation, and rejection diagnostics are needed.
 
+The accepted timing diagnosis is: the viewer needed `handle.sync()` to display
+live MuJoCo state, and 60 Hz target replacement must not be evaluated with the
+8 ms acceleration interval. The finalized single-arm policy is
+`root_cause_fix`; low-latency/raw comparison profiles are not normal operation
+settings.
+
+Known limits remain: MuJoCo dynamics are approximate, Mini2 dynamics were not
+identified here, no physical ServoJ speed calibration was performed, and the
+official theoretical boundary is not a validated daily working speed.
+
 ## Acceptance checks
 
 - No physical SDK import or connection occurs.
@@ -87,6 +107,12 @@ hand-only streamer 不能触发当前 clutch。将 Quest 发送地址设置为�
 
 ## 实时仿真
 
+最终默认策略为 `root_cause_fix`：六轴仿真速度上限为 `pi` rad/s，60 Hz target 的输出
+可行性加速度评估周期为 16.667 ms，真机 ServoJ contract 仍为 8 ms，MuJoCo 控制周期为
+2 ms（500 Hz）。`pi` 是官方外层理论/合法性边界，仅作为仿真上限；它不是本项目真机标定
+出的日常遥操作速度，也不会自动修改 production 真机参数。正常入口只创建 6 actuator 的
+单台机械臂；RH56 仅保留视觉几何，不存在 actuator 或 command path。
+
 在图形桌面运行：
 
 ```bash
@@ -101,7 +127,7 @@ hand-only streamer 不能触发当前 clutch。将 Quest 发送地址设置为�
 ```
 
 左手食指是机械臂 release-before-press clutch/reference capture，并采用 hold-to-run。
-左 grip 独立控制仿真 RH56。首次 engage 前必须先完全释放 trigger，捕获参考时保持静止，
+正常单臂入口不初始化或控制 RH56。首次 engage 前必须先完全释放 trigger，捕获参考时保持静止，
 机械臂不得跳变。候选被拒绝时记录 `HOLD_REJECTED` 并保持最后安全目标。
 
 通过 SSH 启动时 wrapper 可以发现本地图形会话；如果识别不明确，应显式传入 `--display`

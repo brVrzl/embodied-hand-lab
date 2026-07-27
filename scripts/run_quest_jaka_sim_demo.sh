@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
+SPEED_PROFILE="root_cause_fix"
 BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 PROJECT_IP=""
@@ -32,6 +33,7 @@ simulation-only Quest 3 -> JAKA Mini2 MuJoCo 6D 相对遥操作演示。
 
 选项：
   --config PATH           演示 YAML（默认 configs/sim/quest_hts_jaka_mini2_live_demo.yaml）
+  --speed-profile NAME    仿真 overlay（默认 root_cause_fix；实验 profile 仅供诊断）
   --bind HOST             UDP bind host（默认 0.0.0.0）
   --port PORT             Quest/CTRL 共用 UDP 端口（默认 9000）
   --project-ip IPV4       显示给 Quest 操作者填写的主机 IPv4（默认由正式入口探测）
@@ -64,6 +66,7 @@ require_value() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
+    --speed-profile) require_value "$@"; SPEED_PROFILE="$2"; shift 2 ;;
     --bind) require_value "$@"; BIND_HOST="$2"; shift 2 ;;
     --port) require_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --project-ip) require_value "$@"; PROJECT_IP="$2"; shift 2 ;;
@@ -129,7 +132,7 @@ echo "CONFIG=${CONFIG}"
 echo "QUEST_UDP=${PROJECT_IP:-<自动探测>}:${UDP_PORT}（unicast；host bind=${BIND_HOST}）"
 [[ "${VIEWER_FLAG}" == "--viewer" ]] && echo "VIEWER_X11=DISPLAY=${DESKTOP_DISPLAY} XAUTHORITY=${DESKTOP_XAUTHORITY:-<未设置>}"
 echo "请先在 Quest 端打开带 CTRL sidecar 的 Hand Tracking Streamer，开启右手、Head Pose、Debug Info，确认 CTRL sender 后 Start Streaming。"
-echo "左控制器：INDEX=机械臂 hold-to-run/reference capture；GRIP=仿真手 hold-to-run；不是空格键。"
+echo "左控制器：INDEX=机械臂 hold-to-run/reference capture；GRIP=本单臂入口禁用；不是空格键。"
 echo "连续性：MuJoCo 入口沿完整 6D SE(3) 目标分段推进；奇异/限位拒绝时保持 index 并把手退回即可恢复，硬 gate 不变。"
 
 CMD=(
@@ -147,6 +150,7 @@ CMD=(
 [[ -n "${OUTPUT}" ]] && CMD+=(--output "${OUTPUT}")
 [[ -n "${EVENTS}" ]] && CMD+=(--events "${EVENTS}")
 [[ -n "${IK_DEBUG_FLAG}" ]] && CMD+=("${IK_DEBUG_FLAG}")
+[[ -n "${SPEED_PROFILE}" ]] && CMD+=(--speed-profile "${SPEED_PROFILE}")
 
 # exec keeps one foreground process, so Ctrl-C/window close reaches the Python
 # finally blocks that stop the receiver thread and close the viewer/socket.

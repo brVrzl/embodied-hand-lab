@@ -175,7 +175,11 @@ class SmoothQuestJakaSession:
             config.raw.get("simulation", {}).get("isolated_rejection_hold_count", 2)
         )
         hand_values = config.raw.get("hand_retargeting", {})
-        self.hand_enabled = bool(hand_values.get("enabled", False)) and self.mujoco_plant is not None
+        self.hand_enabled = (
+            bool(hand_values.get("enabled", False))
+            and self.mujoco_plant is not None
+            and bool(getattr(self.mujoco_plant, "hand_available", True))
+        )
         self.hand_retargeter: ProjectRh56Retargeter | None = None
         self.last_hand_result: InspireRetargetResult | None = None
         self.hand_valid_results = 0
@@ -197,6 +201,7 @@ class SmoothQuestJakaSession:
         self._last_index_sequence: int | None = None
         self._last_grip_sequence: int | None = None
         self._hand_updated_this_tick = False
+        self._shared_input_mode = False
 
     def set_clutch_samples(
         self,
@@ -269,9 +274,64 @@ class SmoothQuestJakaSession:
             return True
         return False
 
+    def ingest_shared_state(self, state: CanonicalQuestState) -> bool:
+        """Broadcast one already-canonical Quest sample into this policy state."""
+
+        self._shared_input_mode = True
+        self.latest_state = state
+        hand = state.right
+        if (
+            hand.tracking_valid
+            and hand.wrist_pose is not None
+            and len(hand.joints) == 21
+            and hand.host_sequence_number is not None
+            and hand.host_sequence_number != self.last_input_sequence
+        ):
+            self.last_input_sequence = hand.host_sequence_number
+            receive_ns = int(hand.host_receive_monotonic_ns or state.host_monotonic_ns)
+            self.input_timestamps_ns.append(receive_ns)
+            self.buffer.add(
+                TimedPoseSample(receive_ns, hand.host_sequence_number, hand.wrist_pose, state)
+            )
+            return True
+        return False
+
+    def _shared_state_at(self, now_ns: int) -> CanonicalQuestState:
+        """Refresh freshness without reparsing the broadcast Quest sample."""
+
+        assert self.latest_state is not None
+        state = self.latest_state
+        stale_ns = int(self.config.stale_after_s * 1e9)
+
+        def refresh_hand(hand: Any) -> Any:
+            age_ns = (
+                None
+                if hand.host_receive_monotonic_ns is None
+                else max(0, now_ns - hand.host_receive_monotonic_ns)
+            )
+            valid = bool(hand.tracking_valid and age_ns is not None and age_ns <= stale_ns)
+            return replace(hand, tracking_valid=valid, stream_age_s=None if age_ns is None else age_ns / 1e9)
+
+        right = refresh_hand(state.right)
+        left = refresh_hand(state.left)
+        head = state.head
+        if head is not None:
+            head_age_ns = max(0, now_ns - head.host_receive_monotonic_ns)
+            head = replace(
+                head,
+                tracking_valid=head.tracking_valid and head_age_ns <= stale_ns,
+                stream_age_s=head_age_ns / 1e9,
+            )
+        return replace(state, host_monotonic_ns=now_ns, right=right, left=left, head=head)
+
     def control_tick(self, now_ns: int) -> ArmControlTickResult:
         self.control_timestamps_ns.append(now_ns)
-        state = self.assembler.state(now_monotonic_ns=now_ns)
+        state = (
+            self._shared_state_at(now_ns)
+            if self._shared_input_mode
+            else self.assembler.state(now_monotonic_ns=now_ns)
+        )
+        raw_quest_wrist = state.right.wrist_pose
         interpolated = self.buffer.sample(now_ns - self.interpolation_delay_ns)
         if interpolated is not None and state.right.tracking_valid:
             state = replace(state, right=replace(state.right, wrist_pose=interpolated.pose))
@@ -325,6 +385,9 @@ class SmoothQuestJakaSession:
         self._update_hand(state, hand_action, now_ns)
         desired = self._arm_target(state, arm_action, now_ns)
         record = self._base_record(state, now_ns)
+        record["raw_quest_wrist"] = _pose_dict(raw_quest_wrist)
+        record["interpolated_wrist"] = _pose_dict(right.wrist_pose)
+        record["filtered_mapped_tcp"] = _pose_dict(self.arm_mapper.filtered_mapped_target)
         if desired is None:
             self._hold_rejected_started_ns = None
             record.update(
@@ -697,6 +760,7 @@ class SmoothQuestJakaSession:
             "input_sequence": state.right.host_sequence_number,
             "source_sequence": state.right.source_sequence_number,
             "source_timestamp_ns": state.right.source_timestamp_ns,
+            "raw_quest_wrist_timestamp_ns": state.right.host_receive_monotonic_ns,
             "right_wrist_valid": bool(state.right.tracking_valid and state.right.wrist_pose is not None),
             "right_wrist_age_s": state.right.stream_age_s,
             "hand_skeleton_valid": bool(state.right.tracking_valid and len(state.right.joints) == 21),
@@ -804,7 +868,61 @@ class SmoothQuestJakaSession:
             "hand_transitions": [asdict(item) for item in self.hand_clutch.transitions],
             "hardware_connections": False,
             "hardware_commands": False,
+            **self._motion_statistics(),
             **self.target_generator.metrics_report(),
+        }
+
+    def _motion_statistics(self) -> dict[str, Any]:
+        """Small aggregate diagnostics over the existing per-tick event log."""
+
+        predicted_peaks = np.zeros(6, dtype=float)
+        velocity_hits = np.zeros(6, dtype=int)
+        acceleration_hits = np.zeros(6, dtype=int)
+        for record in self.event_records:
+            metrics = record.get("metrics") or {}
+            predicted = metrics.get("predicted_output_joint_velocity_rad_s") or ()
+            if len(predicted) == 6:
+                predicted_peaks = np.maximum(predicted_peaks, np.abs(predicted))
+            for attempt in record.get("output_feasibility_attempts") or ():
+                for index in attempt.get("violating_joint_indices_zero_based") or ():
+                    velocity_hits[int(index)] += 1
+                for index in attempt.get("acceleration_violating_joint_indices_zero_based") or ():
+                    acceleration_hits[int(index)] += 1
+        fractions = [
+            float(record["continuation_fraction"])
+            for record in self.event_records
+            if record.get("continuation_fraction") is not None
+        ]
+        backlogs = [
+            (int(record["control_monotonic_ns"]), float(record["orientation_backlog_deg"]))
+            for record in self.event_records
+            if record.get("orientation_backlog_deg") is not None
+        ]
+        recovery_ms = None
+        for previous, current in zip(self.event_records, self.event_records[1:]):
+            if previous.get("arm_clutch_state") == "engaged" and current.get("arm_clutch_state") != "engaged":
+                release_ns = current.get("control_monotonic_ns")
+                if release_ns is None:
+                    continue
+                for candidate in self.event_records[self.event_records.index(current) :]:
+                    if candidate.get("orientation_backlog_deg", float("inf")) <= 1.0:
+                        recovery_ms = (candidate["control_monotonic_ns"] - release_ns) / 1e6
+                        break
+                if recovery_ms is not None:
+                    break
+        return {
+            "predicted_joint_peak_velocity_rad_s_per_joint": predicted_peaks.tolist(),
+            "predicted_velocity_limit_hit_count_per_joint": velocity_hits.tolist(),
+            "output_acceleration_limit_hit_count_per_joint": acceleration_hits.tolist(),
+            "continuation_fraction_min": min(fractions, default=None),
+            "continuation_fraction_below_one_ratio": (
+                sum(value < 1.0 for value in fractions) / len(fractions)
+                if fractions else None
+            ),
+            "maximum_tcp_orientation_backlog_deg": max(
+                (value for _, value in backlogs), default=0.0
+            ),
+            "orientation_backlog_recovery_to_1deg_ms_after_release": recovery_ms,
         }
 
 
