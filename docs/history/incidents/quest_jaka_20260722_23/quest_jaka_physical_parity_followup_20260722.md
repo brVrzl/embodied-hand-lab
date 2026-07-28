@@ -1,5 +1,10 @@
 # Quest-to-JAKA parity follow-up after `14b2909`
 
+> **Status: historical snapshot, 2026-07-22–23.** This document preserves the
+> incident chronology and dated validation evidence. It is not the current
+> operating guide. See
+> [`docs/status/current_status.md`](../../../status/current_status.md).
+
 Date: 2026-07-22
 
 Scope: offline audit and synchronization only. No JAKA connection, EDG entry,

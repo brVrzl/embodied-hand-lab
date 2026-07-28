@@ -1,5 +1,10 @@
 # Quest-to-JAKA AcceptedArmTarget output-feasibility follow-up — 2026-07-23
 
+> **Status: historical snapshot, 2026-07-23.** This document preserves the
+> incident diagnosis before the later `root_cause_fix` production baseline. It
+> is not the current operating guide. See
+> [`docs/status/current_status.md`](../../../status/current_status.md).
+
 ## Scope and confirmed root cause
 
 This checkpoint is offline-only. No JAKA connection, servo enable, EDG entry,

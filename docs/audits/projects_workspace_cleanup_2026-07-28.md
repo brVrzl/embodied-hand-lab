@@ -1,5 +1,13 @@
 # Projects workspace cleanup — 2026-07-28
 
+> **Status: historical snapshot dated 2026-07-28.** This report records the
+> cleanup state at that checkpoint. Later on the same date, RH56 was merged and
+> four legacy Quest worktrees plus three explicitly abandoned reference clones
+> were removed. See
+> [`legacy_quest_worktrees_audit_2026-07-28.md`](legacy_quest_worktrees_audit_2026-07-28.md)
+> and the current
+> [`docs/status/current_status.md`](../status/current_status.md).
+
 ## Scope and safety boundary
 
 This report records the local convergence of the `embodied-hand-lab`

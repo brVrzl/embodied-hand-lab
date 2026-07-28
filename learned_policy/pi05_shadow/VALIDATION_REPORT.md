@@ -1,5 +1,10 @@
 # OpenPI π0.5-DROID shadow validation on Jetson AGX Thor
 
+> **Status: historical environment snapshot dated 2026-07-22.** Versions,
+> device paths, resource measurements, and backend failures below apply to that
+> audit. For the current inference-only safety boundary, see
+> [`README.md`](README.md).
+
 Date: 2026-07-22 (Asia/Shanghai)
 
 ## Result

@@ -1,5 +1,9 @@
 # JAKA Gate 3B — zero-motion EDG validation
 
+> **Status: historical snapshot, 2026-07-16.** The PASS is limited to this
+> zero-motion gate and does not authorize current hardware operation. See
+> [`docs/status/validation_matrix.md`](../../../status/validation_matrix.md).
+
 Date: 2026-07-16  
 Current status: Gate 3B accepted complete after clean timing-corrected Stage 5
 and clean operator physical observation

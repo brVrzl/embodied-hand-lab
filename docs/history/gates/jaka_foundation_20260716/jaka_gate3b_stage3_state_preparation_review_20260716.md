@@ -1,5 +1,9 @@
 # JAKA Gate 3B Stage 3 State-Preparation Review
 
+> **Status: historical snapshot, 2026-07-16.** This static review records the
+> SDK interpretation used for that gate. It is not a current operating guide.
+> See [`docs/operation/hardware_prerequisites.md`](../../../operation/hardware_prerequisites.md).
+
 Date: 2026-07-16  
 Scope: documentation and static inspection only  
 Hardware connection: not performed  

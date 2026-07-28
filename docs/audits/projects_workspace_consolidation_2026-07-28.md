@@ -1,5 +1,12 @@
 # Projects workspace consolidation audit — 2026-07-28
 
+> **Status: historical snapshot dated 2026-07-28.** This report records the
+> pre-integration workspace. PWL/root-cause-fix and RH56 simulation hand work
+> have since entered `main`; several listed worktrees and reference clones have
+> been removed. See
+> [`docs/status/current_status.md`](../status/current_status.md) for current
+> behavior.
+
 ## Scope and evidence boundary
 
 This audit covers the 20 first-level Git directories under

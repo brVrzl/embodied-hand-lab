@@ -1,5 +1,12 @@
 # Quest 3 precision teleoperation: dual-clutch simulation design and audit
 
+> **Status: historical snapshot, 2026-07-23.** This document preserves the
+> original dual-clutch design, worktree paths, and validation results. Those
+> worktrees have since been removed. For current behavior, see
+> [`docs/operation/simulation_demo.md`](../../../operation/simulation_demo.md)
+> and
+> [`docs/operation/rh56_h0_self_test.md`](../../../operation/rh56_h0_self_test.md).
+
 Initial implementation audit date: 2026-07-20. Repository isolation was
 re-audited on the same date before the provider-independent checkpoint. This
 document describes simulation/offline behavior only. No physical JAKA or

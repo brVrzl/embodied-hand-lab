@@ -1,5 +1,10 @@
 # D435 Depth Algorithm Selection
 
+> **Status: historical measurement snapshot dated 2026-07-13.** It records the
+> compared algorithms and device evidence from that session. For the current
+> implementation boundary, see
+> [`d435_depth_pointcloud_readiness.md`](d435_depth_pointcloud_readiness.md).
+
 日期：2026-07-13
 
 ## 当前决策

@@ -1,5 +1,9 @@
 # JAKA Gate 3A — connected read-only validation
 
+> **Status: historical snapshot, 2026-07-16.** The PASS is limited to the exact
+> read-only gate below. This is not a current operating guide. See
+> [`docs/operation/hardware_prerequisites.md`](../../../operation/hardware_prerequisites.md).
+
 Date: 2026-07-16  
 Scope: physical state acquisition and SDK timing only  
 Motion performed: none

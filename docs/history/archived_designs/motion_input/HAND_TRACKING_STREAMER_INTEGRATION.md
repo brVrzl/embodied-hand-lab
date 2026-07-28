@@ -1,5 +1,11 @@
 # Hand Tracking Streamer input integration
 
+> **Status: historical snapshot, 2026-07-23.** This document preserves the
+> integration evidence and workspace state recorded at that time. It is not the
+> current operating guide. See
+> [`docs/motion_input/README.md`](../../../motion_input/README.md) and
+> [`docs/operation/quest_setup.md`](../../../operation/quest_setup.md).
+
 Status: implementation, live input validation, and offline replay validation
 complete. The required right-hand stream loss-and-recovery safety gate passes.
 Selective per-hand loss is not supported or not demonstrated by the streamer;

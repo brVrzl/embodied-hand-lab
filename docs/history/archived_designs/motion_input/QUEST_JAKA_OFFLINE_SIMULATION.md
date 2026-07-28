@@ -1,7 +1,9 @@
 # Quest right hand to JAKA MuJoCo offline integration
 
-> Historical recorded-input checkpoint. For the supported live 6-DoF demo,
-> use `docs/quest_jaka_sim_teleoperation.md` and its `live-6dof` entry.
+> **Status: historical snapshot, 2026-07-23.** This is a recorded-input
+> checkpoint, not the current operating guide. For the supported live 6-DoF
+> demo, use
+> [`docs/operation/simulation_demo.md`](../../../operation/simulation_demo.md).
 
 Status: **offline recorded-input gate PASS**. The mapping is explicitly
 uncalibrated and simulation-only. No physical JAKA or Inspire connection,
@@ -184,7 +186,8 @@ establish a physical direction calibration.
 
 The earlier translation-only live gate and its viewer keyboard clutch have
 been retired. The supported live entry is the filtered relative 6-DoF
-`live-6dof` path documented in `docs/quest_jaka_sim_teleoperation.md`. It
+`live-6dof` path documented in
+[`docs/operation/simulation_demo.md`](../../../operation/simulation_demo.md). It
 requires the explicit Quest CTRL v1 sidecar and never substitutes host keyboard
 input for controller state.
 

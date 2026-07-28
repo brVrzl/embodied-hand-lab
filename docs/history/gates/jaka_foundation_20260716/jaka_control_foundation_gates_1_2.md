@@ -1,5 +1,10 @@
 # JAKA control foundation — Migration Gates 1–2
 
+> **Status: historical snapshot, 2026-07-16.** This document records the exact
+> foundation gate at that date. It is not the current operating guide. See
+> [`docs/status/current_status.md`](../../../status/current_status.md) and
+> [`docs/operation/jaka_arm_teleoperation.md`](../../../operation/jaka_arm_teleoperation.md).
+
 Date: 2026-07-16  
 Status: implemented and validated without robot hardware
 

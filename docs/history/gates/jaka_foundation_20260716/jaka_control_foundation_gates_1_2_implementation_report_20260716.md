@@ -1,5 +1,9 @@
 # Gates 1–2 implementation report
 
+> **Status: historical snapshot, 2026-07-16.** This implementation inventory
+> records the repository at that gate and is not a current operating guide.
+> See [`docs/status/current_status.md`](../../../status/current_status.md).
+
 ## Added
 
 - `src/teleoperation`: contracts, timing/sequence validation, lifecycle and

@@ -1,5 +1,10 @@
 # Legacy Quest worktrees audit — 2026-07-28
 
+> **Status: historical audit with disposition resolved on 2026-07-28.** The
+> body preserves the read-only evidence and recommendations as written. The
+> user subsequently chose to abandon all four working trees; see
+> [Final disposition](#final-disposition-2026-07-28).
+
 ## Scope and safety boundary
 
 This report records:
@@ -359,3 +364,25 @@ User options:
 
 No disposition above was executed. The four worktrees remain registered and
 unchanged pending user instruction.
+
+## Final disposition — 2026-07-28
+
+After reviewing this audit, the user explicitly abandoned all staged,
+modified, and untracked content in the four worktrees. No file was extracted,
+checkpointed, archived, merged, or copied.
+
+The following linked worktrees were removed with exact-path
+`git worktree remove --force`:
+
+- `${PROJECTS_ROOT}/embodied_lab_quest_controller_transport`
+- `${PROJECTS_ROOT}/embodied_lab_quest_jaka_arm_audit`
+- `${PROJECTS_ROOT}/embodied_lab_quest_jaka_dual_clutch`
+- `${PROJECTS_ROOT}/embodied_lab_quest_jaka_sim`
+
+Their four local branches were deleted with `git branch -d` only after each
+branch HEAD was proven to be an ancestor of both local `main` and
+`origin/main`, no branch was checked out elsewhere, and no committed branch
+content was unique relative to `origin/main`. No same-name remote branch
+existed, so no remote deletion was performed. The historical paths and
+worktree-only findings above remain evidence, not current workspace
+requirements.

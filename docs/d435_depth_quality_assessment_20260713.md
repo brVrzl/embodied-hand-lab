@@ -1,5 +1,10 @@
 # D435 Depth Quality Assessment
 
+> **Status: historical measurement snapshot dated 2026-07-13.** It preserves
+> the observed scene and filter comparison at that time. For the current
+> implementation boundary, see
+> [`d435_depth_pointcloud_readiness.md`](d435_depth_pointcloud_readiness.md).
+
 日期：2026-07-13
 
 ## 结论

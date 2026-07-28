@@ -1,5 +1,9 @@
 # JAKA joint-6 +5-degree validation plan
 
+> **Status: historical snapshot, 2026-07-16.** This plan and its result apply
+> only to the exact bounded J6 gate. It is not a current operating guide. See
+> [`docs/status/validation_matrix.md`](../../../status/validation_matrix.md).
+
 Date: 2026-07-16  
 Status: successfully completed and physically accepted
 

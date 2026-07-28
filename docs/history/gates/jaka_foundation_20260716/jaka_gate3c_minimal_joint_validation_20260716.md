@@ -1,5 +1,9 @@
 # JAKA Gate 3C — minimal predefined joint motion
 
+> **Status: historical snapshot, 2026-07-16.** This result applies only to the
+> exact small J6 procedures below and does not authorize current operation.
+> See [`docs/operation/hardware_prerequisites.md`](../../../operation/hardware_prerequisites.md).
+
 Date: 2026-07-16  
 Current status: 0.25-degree Stage 3C-2 and the separately approved +5-degree
 joint-6 validation are successfully completed and physically accepted

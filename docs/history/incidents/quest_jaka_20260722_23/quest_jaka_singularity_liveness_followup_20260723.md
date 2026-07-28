@@ -1,5 +1,10 @@
 # Quest-to-JAKA singularity and rejected-target liveness follow-up (2026-07-23)
 
+> **Status: historical snapshot, 2026-07-23.** This document preserves the
+> offline correction evidence at that checkpoint. It is not the current
+> operating guide. See
+> [`docs/status/current_status.md`](../../../status/current_status.md).
+
 This is an offline-only follow-up to checkpoint `44424bf9e5dcec8a9415fa0d18a85e1390b6a2cd`.
 No JAKA connection, EDG entry, servo enable, Quest-controlled physical motion, RH56 command,
 payload write, tool-frame write, or user-frame write was performed.

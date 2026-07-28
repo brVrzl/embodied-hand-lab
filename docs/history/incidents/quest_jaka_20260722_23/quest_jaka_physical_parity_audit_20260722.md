@@ -1,5 +1,10 @@
 # Quest 3 to JAKA Mini2 physical parity audit
 
+> **Status: historical snapshot, 2026-07-22.** This audit records the
+> repository and gate state at that time. It is not the current operating
+> guide. See
+> [`docs/architecture/simulation_hardware_parity.md`](../../../architecture/simulation_hardware_parity.md).
+
 Date: 2026-07-22
 Scope: right-wrist JAKA arm control only; no Inspire RH56 command path
 Physical gate reached: P0 only
@@ -30,8 +35,9 @@ Physical gate reached: P0 only
 
 Concurrent user-owned edits to `README.md`, `tools/quest_jaka_mujoco_sim.py`,
 `tools/teleop_mujoco_jaka_rh56.py`, `scripts/run_quest_jaka_sim_demo.sh`, and
-`docs/quest_jaka_sim_teleoperation.md` were present during the audit and are
-intentionally excluded from the checkpoint.
+the then-local simulation guide were present during the audit and are
+intentionally excluded from the checkpoint. The current guide is
+[`docs/operation/simulation_demo.md`](../../../operation/simulation_demo.md).
 
 ## Pre-change architecture and one-sample trace
 
