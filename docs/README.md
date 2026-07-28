@@ -49,10 +49,13 @@ the recorded result is not rewritten after the fact.
 - [Contribution workflow](development/contribution_workflow.md)
 - [Repository consolidation audit](development/repository_consolidation_audit.md)
 - [Projects workspace consolidation audit (2026-07-28)](audits/projects_workspace_consolidation_2026-07-28.md)
+- [Projects workspace cleanup (2026-07-28)](audits/projects_workspace_cleanup_2026-07-28.md)
+- [Legacy Quest worktree audit (2026-07-28)](audits/legacy_quest_worktrees_audit_2026-07-28.md)
 - [Command reference](reference/command_reference.md)
 - [Configuration reference](reference/config_reference.md)
 - [Log schemas](reference/log_schemas.md)
 - [Glossary](reference/glossary.md)
+- [Third-party notices](../THIRD_PARTY_NOTICES.md)
 
 ## Other current project areas
 
@@ -123,10 +126,13 @@ evidence is intentionally not mixed into normal operator instructions.
 - [贡献流程](development/contribution_workflow.md)
 - [仓库整理审计](development/repository_consolidation_audit.md)
 - [Projects 工作区收敛审计（2026-07-28）](audits/projects_workspace_consolidation_2026-07-28.md)
+- [Projects 工作区清理（2026-07-28）](audits/projects_workspace_cleanup_2026-07-28.md)
+- [旧 Quest worktree 审计（2026-07-28）](audits/legacy_quest_worktrees_audit_2026-07-28.md)
 - [命令参考](reference/command_reference.md)
 - [配置参考](reference/config_reference.md)
 - [日志结构](reference/log_schemas.md)
 - [术语表](reference/glossary.md)
+- [第三方声明](../THIRD_PARTY_NOTICES.md)
 
 ## 其他当前区域
 
