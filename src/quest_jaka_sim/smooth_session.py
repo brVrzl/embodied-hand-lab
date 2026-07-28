@@ -1,4 +1,4 @@
-"""Fixed-rate, dual-clutch Quest-to-JAKA/RH56 MuJoCo session.
+"""Fixed-rate dual-clutch Quest-to-JAKA/RH56 MuJoCo session.
 
 The Quest HTS receiver and its validation remain unchanged.  Controller inputs
 arrive through the provider-independent ``set_clutch_samples`` boundary because
@@ -70,7 +70,12 @@ class ArmControlTickResult:
 
 
 class SmoothQuestJakaSession:
-    """One coherent fixed-rate session with independent arm and hand clutches."""
+    """One fixed-rate session with independent index and grip clutches.
+
+    Index controls only the arm reference lifecycle.  Grip controls only the
+    RH56 simulation reference lifecycle.  Their references are intentionally
+    independent so either channel can freeze while the other continues.
+    """
 
     def __init__(
         self,
@@ -139,8 +144,6 @@ class SmoothQuestJakaSession:
             pressed_at=pressed_at,
             released_at=released_at,
         )
-        # Compatibility name for older diagnostics; it is the arm sub-state
-        # machine, not a combined arm/hand mode.
         self.operator = self.arm_clutch
         self.arm_mapper = LatchedHeadYawArmMapper(config.mapping, self.profile)
         self.latest_state: CanonicalQuestState | None = None
@@ -186,12 +189,66 @@ class SmoothQuestJakaSession:
         if self.hand_enabled:
             backend, calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
             self.hand_retargeter = ProjectRh56Retargeter(calibration, backend=backend)
+        relative_values = hand_values.get("four_finger_relative", {})
+        self.four_finger_gain = float(relative_values.get("gain", 1.0))
+        self.four_finger_dead_zone_rad = float(relative_values.get("dead_zone_rad", 0.015))
+        self.four_finger_max_step_rad = float(relative_values.get("maximum_target_step_rad", 0.04))
+        if (
+            not math.isfinite(self.four_finger_gain)
+            or self.four_finger_gain <= 0.0
+            or not math.isfinite(self.four_finger_dead_zone_rad)
+            or self.four_finger_dead_zone_rad < 0.0
+            or not math.isfinite(self.four_finger_max_step_rad)
+            or self.four_finger_max_step_rad <= 0.0
+        ):
+            raise ValueError("invalid H1 four-finger relative hand policy")
+        thumb_values = hand_values.get("thumb_close_relative", {})
+        self.thumb_close_gain = float(thumb_values.get("gain", 1.0))
+        self.thumb_close_dead_zone_rad = float(thumb_values.get("dead_zone_rad", 0.008))
+        self.thumb_close_max_step_rad = float(thumb_values.get("maximum_target_step_rad", 0.025))
+        if (
+            not math.isfinite(self.thumb_close_gain)
+            or self.thumb_close_gain <= 0.0
+            or not math.isfinite(self.thumb_close_dead_zone_rad)
+            or self.thumb_close_dead_zone_rad < 0.0
+            or not math.isfinite(self.thumb_close_max_step_rad)
+            or self.thumb_close_max_step_rad <= 0.0
+        ):
+            raise ValueError("invalid H2 thumb-close relative hand policy")
+        lateral_values = hand_values.get("thumb_lateral_relative", {})
+        self.thumb_lateral_gain = float(lateral_values.get("gain", 1.0))
+        self.thumb_lateral_dead_zone = float(
+            lateral_values.get("dead_zone", 0.015)
+        )
+        self.thumb_lateral_max_step_rad = float(
+            lateral_values.get("maximum_target_step_rad", 0.025)
+        )
+        if (
+            not math.isfinite(self.thumb_lateral_gain)
+            or self.thumb_lateral_gain <= 0.0
+            or not math.isfinite(self.thumb_lateral_dead_zone)
+            or self.thumb_lateral_dead_zone < 0.0
+            or not math.isfinite(self.thumb_lateral_max_step_rad)
+            or self.thumb_lateral_max_step_rad <= 0.0
+        ):
+            raise ValueError("invalid thumb-lateral relative hand policy")
         self._held_hand_command = (
             self.mujoco_plant.commanded_hand_target.copy()
             if self.mujoco_plant is not None
             else np.zeros(6, dtype=np.float64)
         )
-        self._hand_reacquire_anchor = self._held_hand_command.copy()
+        self._hand_target_reference: np.ndarray | None = None
+        self._four_finger_feature_reference: np.ndarray | None = None
+        self._thumb_close_feature_reference: float | None = None
+        self._thumb_lateral_feature_reference: float | None = None
+        self._thumb_close_feature_delta: float | None = None
+        self._thumb_close_requested_target: float | None = None
+        self._thumb_close_clipped_target: float | None = None
+        self._thumb_close_saturated = False
+        self._thumb_lateral_feature_delta: float | None = None
+        self._thumb_lateral_requested_target: float | None = None
+        self._thumb_lateral_clipped_target: float | None = None
+        self._thumb_lateral_saturated = False
         self._hand_press_receive_ns: int | None = None
         self._index_sample = AnalogClutchSample(0.0, 0, 0, valid=False)
         self._grip_sample = AnalogClutchSample(0.0, 0, 0, valid=False)
@@ -211,7 +268,7 @@ class SmoothQuestJakaSession:
         left_controller_valid: bool,
         provider: str,
     ) -> None:
-        """Publish independent left-controller controls into the session.
+        """Publish controller samples into the session.
 
         ``provider`` is recorded so fake/replay sources cannot be mistaken for a
         live Quest controller.  Controller pose is intentionally absent.
@@ -246,10 +303,12 @@ class SmoothQuestJakaSession:
             )
         except SerializationError:
             # HTS wrist and skeleton share one inseparable hand datagram, so a
-            # malformed right-hand packet conservatively faults both channels.
+            # malformed right-hand packet conservatively faults both independent
+            # channels; each still requires its own later release before press.
             self.arm_clutch.fault(datagram.receive_monotonic_ns, "MALFORMED_SHARED_RIGHT_HAND_DATA")
             self.hand_clutch.fault(datagram.receive_monotonic_ns, "MALFORMED_SHARED_RIGHT_HAND_DATA")
             self.arm_mapper.clear()
+            self._clear_hand_reference()
             self.rejections[FeasibilityReason.INPUT_INVALID.value] += 1
             return False
         self.latest_state = state
@@ -333,7 +392,10 @@ class SmoothQuestJakaSession:
         )
         raw_quest_wrist = state.right.wrist_pose
         interpolated = self.buffer.sample(now_ns - self.interpolation_delay_ns)
-        if interpolated is not None and state.right.tracking_valid:
+        # Never substitute an old buffered wrist for a frame that explicitly
+        # lacks a wrist pose.  That would let an index-held arm extrapolate
+        # through wrist loss and would violate arm/hand fault isolation.
+        if interpolated is not None and state.right.tracking_valid and state.right.wrist_pose is not None:
             state = replace(state, right=replace(state.right, wrist_pose=interpolated.pose))
         right = state.right
         wrist_valid = bool(right.tracking_valid and right.wrist_pose is not None)
@@ -346,19 +408,14 @@ class SmoothQuestJakaSession:
                 self.arm_mapper.clear()
             if self.hand_clutch.state is not HandClutchState.TRACKING_FAULT:
                 self.hand_clutch.fault(now_ns, "LEFT_CONTROLLER_STALE_OR_INVALID")
+                self._clear_hand_reference()
 
-        # Current HTS validity is coupled: if its shared hand observation is
-        # lost, both channels fault.  Provider-independent tests can exercise
-        # independent faults directly on the sub-state machines.
-        if not right.tracking_valid and (
-            self.arm_clutch.state is ArmClutchState.ENGAGED
-            or self.hand_clutch.state in {HandClutchState.ENGAGED, HandClutchState.REACQUIRE}
-        ):
-            if self.arm_clutch.state is ArmClutchState.ENGAGED:
-                self.arm_clutch.fault(now_ns, "SHARED_RIGHT_HAND_TRACKING_LOST")
-                self.arm_mapper.clear()
-            if self.hand_clutch.state in {HandClutchState.ENGAGED, HandClutchState.REACQUIRE}:
-                self.hand_clutch.fault(now_ns, "SHARED_RIGHT_HAND_TRACKING_LOST")
+        # Wrist loss belongs to the arm channel. Landmark-only loss belongs to
+        # neither clutch state: H2 holds the last hand command without
+        # extrapolation while a valid index-held arm may continue.
+        if not right.tracking_valid and self.arm_clutch.state is ArmClutchState.ENGAGED:
+            self.arm_clutch.fault(now_ns, "RIGHT_WRIST_TRACKING_LOST")
+            self.arm_mapper.clear()
 
         arm_action = self.arm_clutch.step(
             self._index_sample,
@@ -367,22 +424,24 @@ class SmoothQuestJakaSession:
             continuous_inputs_valid=wrist_valid,
             capture_inputs_valid=wrist_valid and head_valid,
         )
-        hand_state_before = self.hand_clutch.state
+        # The hand state machine receives grip only. Skeleton validity is
+        # checked at capture below; during hold a transient landmark loss must
+        # freeze the hand target rather than fault arm or hand state.
         hand_action = self.hand_clutch.step(
             self._grip_sample,
             now_ns=now_ns,
             controller_valid=self.left_controller_valid,
-            skeleton_valid=skeleton_valid,
+            skeleton_valid=True,
         )
-        if (
-            hand_state_before is HandClutchState.REACQUIRE
-            and self.hand_clutch.state is HandClutchState.ENGAGED
-            and self._hand_press_receive_ns is not None
-        ):
-            self.hand_engagement_latencies_ns.append(max(0, now_ns - self._hand_press_receive_ns))
-
         self._hand_updated_this_tick = False
-        self._update_hand(state, hand_action, now_ns)
+        if hand_action is ClutchAction.START_HAND_REACQUISITION:
+            if not self._capture_hand_reference(state, now_ns):
+                self.hand_clutch.fault(now_ns, "HAND_REFERENCE_INPUT_INVALID")
+                self._clear_hand_reference()
+        else:
+            self._update_hand(state, hand_action, now_ns, skeleton_valid=skeleton_valid)
+            if self.hand_clutch.state not in {HandClutchState.REACQUIRE, HandClutchState.ENGAGED}:
+                self._clear_hand_reference()
         desired = self._arm_target(state, arm_action, now_ns)
         record = self._base_record(state, now_ns)
         record["raw_quest_wrist"] = _pose_dict(raw_quest_wrist)
@@ -717,32 +776,200 @@ class SmoothQuestJakaSession:
         self.last_reason = FeasibilityReason.DISENGAGED.value
         return None
 
-    def _update_hand(self, state: CanonicalQuestState, action: ClutchAction, now_ns: int) -> None:
-        if self.hand_retargeter is None or action is ClutchAction.FREEZE:
+    def _capture_hand_reference(self, state: CanonicalQuestState, now_ns: int) -> bool:
+        """Capture all enabled hand references on a grip edge without a jump."""
+
+        if self.hand_retargeter is None:
+            return True
+        # A new clutch cycle must reference the current pose, not a feature
+        # slew state carried from the previous engagement.
+        self.hand_retargeter.reset()
+        features = self._hand_features(state, now_ns)
+        if features is None:
+            return False
+        assert self.mujoco_plant is not None
+        self._four_finger_feature_reference = features[:4].copy()
+        self._thumb_close_feature_reference = float(features[4])
+        self._thumb_lateral_feature_reference = float(features[5])
+        self._hand_target_reference = self.mujoco_plant.commanded_hand_target.copy()
+        self._held_hand_command = self._hand_target_reference.copy()
+        self._thumb_close_feature_delta = 0.0
+        self._thumb_close_requested_target = float(self._hand_target_reference[1])
+        self._thumb_close_clipped_target = float(self._hand_target_reference[1])
+        self._thumb_close_saturated = False
+        self._thumb_lateral_feature_delta = 0.0
+        self._thumb_lateral_requested_target = float(self._hand_target_reference[0])
+        self._thumb_lateral_clipped_target = float(self._hand_target_reference[0])
+        self._thumb_lateral_saturated = False
+        self._hand_press_receive_ns = self._grip_sample.host_receive_monotonic_ns
+        self.hand_engagement_latencies_ns.append(max(0, now_ns - self._hand_press_receive_ns))
+        return True
+
+    def _update_hand(
+        self,
+        state: CanonicalQuestState,
+        action: ClutchAction,
+        now_ns: int,
+        *,
+        skeleton_valid: bool,
+    ) -> None:
+        if (
+            self.hand_retargeter is None
+            or action is not ClutchAction.UPDATE
+            or not skeleton_valid
+            or self._four_finger_feature_reference is None
+            or self._thumb_close_feature_reference is None
+            or self._thumb_lateral_feature_reference is None
+            or self._hand_target_reference is None
+        ):
             return
-        started = time.perf_counter_ns()
-        result = self.hand_retargeter.retarget(QuestHandSkeleton.from_observation(state.right))
-        elapsed = time.perf_counter_ns() - started
-        self.hand_retarget_durations_ns.append(elapsed)
-        self.hand_timestamps_ns.append(now_ns)
-        self.last_hand_result = result
-        if not result.valid:
-            self.hand_clutch.fault(now_ns, result.rejection_reason or "HAND_RETARGET_FAILED")
+        features = self._hand_features(state, now_ns)
+        if features is None:
             return
-        self.hand_valid_results += 1
+        finger_delta = features[:4] - self._four_finger_feature_reference
+        finger_delta[np.abs(finger_delta) <= self.four_finger_dead_zone_rad] = 0.0
+        thumb_delta = float(features[4] - self._thumb_close_feature_reference)
+        if abs(thumb_delta) <= self.thumb_close_dead_zone_rad:
+            thumb_delta = 0.0
+        lateral_delta = float(features[5] - self._thumb_lateral_feature_reference)
+        if abs(lateral_delta) <= self.thumb_lateral_dead_zone:
+            lateral_delta = 0.0
+        requested_fingers = self._hand_target_reference[2:] + self.four_finger_gain * finger_delta
+        requested_thumb_close = self._hand_target_reference[1] + self.thumb_close_gain * thumb_delta
+        _joint_range, _ctrl_range, valid_range = self._hand_channel_model_ranges(1)
+        clipped_thumb_close = float(
+            np.clip(requested_thumb_close, valid_range[0], valid_range[1])
+        )
+        _lateral_joint_range, _lateral_ctrl_range, lateral_valid_range = (
+            self._hand_channel_model_ranges(0)
+        )
+        lateral_span = lateral_valid_range[1] - lateral_valid_range[0]
+        requested_thumb_lateral = (
+            self._hand_target_reference[0]
+            + self.thumb_lateral_gain * lateral_delta * lateral_span
+        )
+        clipped_thumb_lateral = float(
+            np.clip(
+                requested_thumb_lateral,
+                lateral_valid_range[0],
+                lateral_valid_range[1],
+            )
+        )
+        self._thumb_close_feature_delta = thumb_delta
+        self._thumb_close_requested_target = float(requested_thumb_close)
+        self._thumb_close_clipped_target = clipped_thumb_close
+        self._thumb_close_saturated = not math.isclose(
+            requested_thumb_close,
+            clipped_thumb_close,
+            abs_tol=1e-12,
+        )
+        self._thumb_lateral_feature_delta = lateral_delta
+        self._thumb_lateral_requested_target = float(requested_thumb_lateral)
+        self._thumb_lateral_clipped_target = clipped_thumb_lateral
+        self._thumb_lateral_saturated = not math.isclose(
+            requested_thumb_lateral,
+            clipped_thumb_lateral,
+            abs_tol=1e-12,
+        )
+        target = self._held_hand_command.copy()
+        target[0] = clipped_thumb_lateral
+        target[1] = clipped_thumb_close
+        target[2:] = requested_fingers
+        channel_ranges = np.asarray(
+            [self._hand_channel_model_ranges(index)[2] for index in range(6)],
+            dtype=float,
+        )
+        target = np.clip(target, channel_ranges[:, 0], channel_ranges[:, 1])
+        step = np.clip(
+            target[2:] - self._held_hand_command[2:],
+            -self.four_finger_max_step_rad,
+            self.four_finger_max_step_rad,
+        )
+        target[2:] = self._held_hand_command[2:] + step
+        thumb_step = float(np.clip(
+            target[1] - self._held_hand_command[1],
+            -self.thumb_close_max_step_rad,
+            self.thumb_close_max_step_rad,
+        ))
+        target[1] = self._held_hand_command[1] + thumb_step
+        lateral_step = float(np.clip(
+            target[0] - self._held_hand_command[0],
+            -self.thumb_lateral_max_step_rad,
+            self.thumb_lateral_max_step_rad,
+        ))
+        target[0] = self._held_hand_command[0] + lateral_step
+        if not np.all(np.isfinite(target)):
+            return
         order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
-        target = np.asarray([result.actuator_targets[name] for name in order], dtype=float)
-        if action is ClutchAction.START_HAND_REACQUISITION:
-            self._hand_reacquire_anchor = self._held_hand_command.copy()
-            self._hand_press_receive_ns = self._grip_sample.host_receive_monotonic_ns
-        fraction = self.hand_clutch.reacquisition_fraction(now_ns)
-        if self.hand_clutch.state is HandClutchState.REACQUIRE:
-            target = self._hand_reacquire_anchor + fraction * (target - self._hand_reacquire_anchor)
         mapping = dict(zip(order, target.tolist(), strict=True))
         assert self.mujoco_plant is not None
         self.mujoco_plant.set_hand_actuator_target(mapping)
         self._held_hand_command = target.copy()
         self._hand_updated_this_tick = True
+
+    def _hand_features(self, state: CanonicalQuestState, now_ns: int) -> np.ndarray | None:
+        assert self.hand_retargeter is not None
+        started = time.perf_counter_ns()
+        result = self.hand_retargeter.retarget(QuestHandSkeleton.from_observation(state.right))
+        self.hand_retarget_durations_ns.append(time.perf_counter_ns() - started)
+        self.hand_timestamps_ns.append(now_ns)
+        self.last_hand_result = result
+        if not result.valid:
+            return None
+        lateral_feature = result.pinch_diagnostics.get(
+            "thumb_lateral_effective_feature"
+        )
+        features = np.asarray(
+            [
+                result.actuator_targets[name]
+                for name in ("index", "middle", "ring", "pinky", "thumb_close")
+            ]
+            + [float(lateral_feature) if lateral_feature is not None else math.nan],
+            dtype=float,
+        )
+        if features.shape != (6,) or not np.all(np.isfinite(features)):
+            return None
+        self.hand_valid_results += 1
+        return features
+
+    def _clear_hand_reference(self) -> None:
+        self._four_finger_feature_reference = None
+        self._thumb_close_feature_reference = None
+        self._thumb_lateral_feature_reference = None
+        self._hand_target_reference = None
+        self._thumb_close_feature_delta = None
+        self._thumb_close_requested_target = None
+        self._thumb_close_clipped_target = None
+        self._thumb_close_saturated = False
+        self._thumb_lateral_feature_delta = None
+        self._thumb_lateral_requested_target = None
+        self._thumb_lateral_clipped_target = None
+        self._thumb_lateral_saturated = False
+        self._hand_press_receive_ns = None
+
+    def _hand_channel_model_ranges(
+        self,
+        actuator_order_index: int,
+    ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+        assert self.mujoco_plant is not None
+        actuator_id = int(
+            self.mujoco_plant.hand_actuator_ids[actuator_order_index]
+        )
+        joint_id = int(self.mujoco_plant.model.actuator_trnid[actuator_id, 0])
+        joint_range = tuple(
+            float(value) for value in self.mujoco_plant.model.jnt_range[joint_id]
+        )
+        ctrl_range = tuple(
+            float(value)
+            for value in self.mujoco_plant.model.actuator_ctrlrange[actuator_id]
+        )
+        valid_range = (
+            max(joint_range[0], ctrl_range[0]),
+            min(joint_range[1], ctrl_range[1]),
+        )
+        if valid_range[0] > valid_range[1]:
+            raise ValueError("hand joint and actuator ranges do not overlap")
+        return joint_range, ctrl_range, valid_range
 
     def _base_record(self, state: CanonicalQuestState, now_ns: int) -> dict[str, Any]:
         mapping = self.arm_mapper.last_telemetry
@@ -754,6 +981,34 @@ class SmoothQuestJakaSession:
                     plant.model.actuator_trnid[plant.hand_actuator_ids, 0]
                 ]
             ].tolist()
+        thumb_diagnostics = (
+            {}
+            if self.last_hand_result is None
+            else self.last_hand_result.pinch_diagnostics
+        )
+        thumb_joint_range = thumb_ctrl_range = thumb_valid_range = None
+        lateral_joint_range = lateral_ctrl_range = lateral_valid_range = None
+        if plant is not None and plant.hand_available:
+            (
+                thumb_joint_range,
+                thumb_ctrl_range,
+                thumb_valid_range,
+            ) = self._hand_channel_model_ranges(1)
+            (
+                lateral_joint_range,
+                lateral_ctrl_range,
+                lateral_valid_range,
+            ) = self._hand_channel_model_ranges(0)
+        thumb_captured_target = (
+            None
+            if self._hand_target_reference is None
+            else float(self._hand_target_reference[1])
+        )
+        lateral_captured_target = (
+            None
+            if self._hand_target_reference is None
+            else float(self._hand_target_reference[0])
+        )
         return {
             "control_monotonic_ns": now_ns,
             "mujoco_time_s": None if plant is None else float(plant.data.time),
@@ -786,6 +1041,7 @@ class SmoothQuestJakaSession:
             "hand_retarget_status": None if self.last_hand_result is None else self.last_hand_result.rejection_reason or "VALID",
             "hand_command_updated": self._hand_updated_this_tick,
             "hand_reacquisition_fraction": self.hand_clutch.reacquisition_fraction(now_ns),
+            "hand_reference_captured": self._four_finger_feature_reference is not None,
             "active_arm_fault": None if self.arm_clutch.active_fault is None else self.arm_clutch.active_fault.reason,
             "active_hand_fault": None if self.hand_clutch.active_fault is None else self.hand_clutch.active_fault.reason,
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
@@ -799,6 +1055,88 @@ class SmoothQuestJakaSession:
             "simulated_joint_target_rad": None if plant is None else plant.commanded_joint_target.tolist(),
             "commanded_hand_target_rad": None if plant is None else plant.commanded_hand_target.tolist(),
             "actual_hand_actuator_position_rad": hand_positions,
+            "thumb_close_debug": {
+                "raw_thumb_bend_rad": thumb_diagnostics.get(
+                    "thumb_raw_bend_rad"
+                ),
+                "normalized_thumb_bend": thumb_diagnostics.get(
+                    "thumb_normalized_bend"
+                ),
+                "raw_pinch_distance_m": thumb_diagnostics.get(
+                    "thumb_raw_pinch_distance_m"
+                ),
+                "raw_pinch_distance_palm": thumb_diagnostics.get(
+                    "thumb_raw_pinch_distance_palm"
+                ),
+                "normalized_pinch": thumb_diagnostics.get(
+                    "thumb_normalized_pinch"
+                ),
+                "base_bend_contribution": thumb_diagnostics.get(
+                    "thumb_base_bend_contribution"
+                ),
+                "pinch_assist_contribution": thumb_diagnostics.get(
+                    "thumb_pinch_assist_contribution"
+                ),
+                "combined_feature_normalized": thumb_diagnostics.get(
+                    "thumb_close_feature"
+                ),
+                "effective_feature_normalized": thumb_diagnostics.get(
+                    "thumb_effective_feature"
+                ),
+                "captured_feature_reference_rad": self._thumb_close_feature_reference,
+                "feature_delta_rad": self._thumb_close_feature_delta,
+                "captured_rh56_reference_rad": thumb_captured_target,
+                "requested_target_rad": self._thumb_close_requested_target,
+                "clipped_target_rad": self._thumb_close_clipped_target,
+                "slew_limited_target_rad": float(self._held_hand_command[1]),
+                "actual_mujoco_joint_rad": (
+                    None if hand_positions is None else float(hand_positions[1])
+                ),
+                "saturation": self._thumb_close_saturated,
+                "joint_range_rad": thumb_joint_range,
+                "ctrl_range_rad": thumb_ctrl_range,
+                "valid_range_rad": thumb_valid_range,
+            },
+            "thumb_lateral_debug": {
+                "raw_across_palm": thumb_diagnostics.get(
+                    "thumb_lateral_raw_across_palm"
+                ),
+                "feature_normalized": thumb_diagnostics.get(
+                    "thumb_lateral_feature"
+                ),
+                "effective_feature_normalized": thumb_diagnostics.get(
+                    "thumb_lateral_effective_feature"
+                ),
+                "captured_feature_reference": self._thumb_lateral_feature_reference,
+                "feature_delta": self._thumb_lateral_feature_delta,
+                "captured_rh56_reference_rad": lateral_captured_target,
+                "requested_target_rad": self._thumb_lateral_requested_target,
+                "clipped_target_rad": self._thumb_lateral_clipped_target,
+                "slew_limited_target_rad": float(self._held_hand_command[0]),
+                "actual_mujoco_joint_rad": (
+                    None if hand_positions is None else float(hand_positions[0])
+                ),
+                "saturation": self._thumb_lateral_saturated,
+                "joint_range_rad": lateral_joint_range,
+                "ctrl_range_rad": lateral_ctrl_range,
+                "valid_range_rad": lateral_valid_range,
+                "palm_width_m": thumb_diagnostics.get("palm_width_m"),
+                "across_axis": [
+                    thumb_diagnostics.get("palm_across_x"),
+                    thumb_diagnostics.get("palm_across_y"),
+                    thumb_diagnostics.get("palm_across_z"),
+                ],
+                "forward_axis": [
+                    thumb_diagnostics.get("palm_forward_x"),
+                    thumb_diagnostics.get("palm_forward_y"),
+                    thumb_diagnostics.get("palm_forward_z"),
+                ],
+                "normal_axis": [
+                    thumb_diagnostics.get("palm_normal_x"),
+                    thumb_diagnostics.get("palm_normal_y"),
+                    thumb_diagnostics.get("palm_normal_z"),
+                ],
+            },
         }
 
     def _handle_rejection(self, timestamp_ns: int, reason: str) -> None:
@@ -817,7 +1155,7 @@ class SmoothQuestJakaSession:
 
     def report(self, replay_source: str) -> dict[str, Any]:
         return {
-            "schema_version": "quest_jaka_rh56_dual_clutch_precision.v1",
+            "schema_version": "quest_jaka_rh56_full_hand_grip.v1",
             "replay_source": replay_source,
             "input_frame_count": len(self.input_timestamps_ns),
             "control_tick_count": len(self.control_timestamps_ns),
@@ -850,7 +1188,35 @@ class SmoothQuestJakaSession:
                 self.maximum_requested_backlog_rad
             ),
             "arm_reference_capture_ms": _distribution_ms(self.arm_capture_durations_ns),
-            "hand_reacquisition_configured_ms": self.hand_clutch.reacquisition_duration_ns / 1e6,
+            "four_finger_relative_gain": self.four_finger_gain,
+            "four_finger_relative_dead_zone_rad": self.four_finger_dead_zone_rad,
+            "four_finger_relative_maximum_step_rad": self.four_finger_max_step_rad,
+            "thumb_close_relative_gain": self.thumb_close_gain,
+            "thumb_close_relative_dead_zone_rad": self.thumb_close_dead_zone_rad,
+            "thumb_close_relative_maximum_step_rad": self.thumb_close_max_step_rad,
+            "thumb_close_bend_gain": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_close_bend_gain
+            ),
+            "thumb_close_pinch_assist_gain": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_close_pinch_assist_gain
+            ),
+            "thumb_lateral_relative_gain": self.thumb_lateral_gain,
+            "thumb_lateral_relative_dead_zone": self.thumb_lateral_dead_zone,
+            "thumb_lateral_relative_maximum_step_rad": self.thumb_lateral_max_step_rad,
+            "thumb_lateral_open_across_palm": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_lateral_open_across_palm
+            ),
+            "thumb_lateral_opposed_across_palm": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_lateral_opposed_across_palm
+            ),
             "ik_computation_ms": _event_metric(self.event_records, "ik_computation_ms"),
             "hand_retarget_computation_ms": _distribution_ms(self.hand_retarget_durations_ns),
             "arm_trigger_to_engagement_ms": _distribution_ms(self.arm_engagement_latencies_ns),

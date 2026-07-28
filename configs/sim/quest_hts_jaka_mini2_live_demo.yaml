@@ -16,6 +16,8 @@ input:
 # timestamped left-controller samples through the provider-independent clutch
 # contract. With no such provider both channels remain frozen.
 clutches:
+  # Independent hold-to-run channels: index controls only the arm and grip
+  # controls only RH56 simulation hand channels.
   arm_source: left_index_trigger
   hand_source: left_grip_trigger
   pressed_at: 0.75
@@ -102,7 +104,27 @@ shared_target_generation:
 hand_retargeting:
   enabled: true
   calibration_path: configs/sim/quest_rh56_retarget.yaml
-  engagement: independent_left_grip_hold_to_run
+  engagement: independent_left_grip_relative_entire_hand
+  # The existing Quest retargeter supplies the four per-finger features in
+  # simulated radians.  H1 captures them on grip press and applies only their
+  # relative change to the captured RH56 target.
+  four_finger_relative:
+    gain: 1.0
+    dead_zone_rad: 0.015
+    maximum_target_step_rad: 0.04
+  # H2.1 uses a wrist-local, palm-normalized bend-primary feature. Pinch only
+  # assists the part not already represented by bend; there is no bend gate.
+  # The result is still used relatively, never as an absolute pose.
+  thumb_close_relative:
+    gain: 1.0
+    dead_zone_rad: 0.008
+    maximum_target_step_rad: 0.025
+  # H3 uses a normalized palm-local feature and explicitly multiplies the
+  # relative delta by the current MuJoCo actuator/joint range intersection.
+  thumb_lateral_relative:
+    gain: 1.0
+    dead_zone: 0.015
+    maximum_target_step_rad: 0.025
 
 simulation:
   mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml

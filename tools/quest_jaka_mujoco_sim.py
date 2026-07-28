@@ -71,7 +71,7 @@ def _parser() -> argparse.ArgumentParser:
             "root_cause_fix", "root_cause_fix_plus_low_latency",
         ),
         default="root_cause_fix",
-        help="simulation-only overlay; default is the finalized single-arm policy",
+        help="simulation-only overlay; default retains the finalized arm policy",
     )
     smooth_live.add_argument("--bind", default="0.0.0.0")
     smooth_live.add_argument("--port", type=int, default=9000)
@@ -129,7 +129,7 @@ def _parser() -> argparse.ArgumentParser:
             "root_cause_fix", "root_cause_fix_plus_low_latency",
         ),
         default="root_cause_fix",
-        help="simulation-only overlay; default is the finalized single-arm policy",
+        help="simulation-only overlay; default retains the finalized arm policy",
     )
     smooth_replay.add_argument("--report", type=Path)
     smooth_replay.add_argument("--events", type=Path)
@@ -140,27 +140,27 @@ def _parser() -> argparse.ArgumentParser:
     smooth_replay.add_argument(
         "--arm-cycle-period-sec",
         type=float,
-        help="explicit deterministic offline arm press/release cycle period",
+        help="explicit deterministic offline index press/release cycle period",
     )
     smooth_replay.add_argument("--arm-cycle-count", type=int, default=10)
     smooth_replay.add_argument(
         "--hand-engage-at-sec",
         type=float,
-        help="explicit deterministic fake grip press for offline validation",
+        help="explicit deterministic offline grip press for hand validation",
     )
     smooth_replay.add_argument(
         "--hand-cycle-period-sec",
         type=float,
-        help="explicit deterministic offline hand press/release cycle period",
+        help="explicit deterministic offline grip press/release cycle period",
     )
     smooth_replay.add_argument("--hand-cycle-count", type=int, default=4)
-    smooth_replay.add_argument("--duration-sec", type=float)
     smooth_replay.add_argument(
         "--hand-reacquisition-ms",
         type=float,
         choices=(150.0, 200.0, 250.0, 300.0),
-        help="offline-only fixed reacquisition-duration comparison",
+        help="offline-only hand reference-capture state duration",
     )
+    smooth_replay.add_argument("--duration-sec", type=float)
     return parser
 
 
@@ -184,8 +184,9 @@ def _make_smooth_session(
     twin_offset_m: float | None = None,
 ) -> tuple[JakaMujocoSimulation, SmoothQuestJakaSession]:
     output = Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
+    hand_enabled = bool(config.raw.get("hand_retargeting", {}).get("enabled", False))
     augmented = (
-        build_viewer_mjcf(config.mjcf_path, output, arm_only=True)
+        build_viewer_mjcf(config.mjcf_path, output, arm_only=not hand_enabled)
         if twin_offset_m is None
         else build_twin_viewer_mjcf(
             config.mjcf_path,
@@ -535,6 +536,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     capture_path = args.output or default_capture
     events_path = args.events or report_path.with_suffix(".events.jsonl")
     capture_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"EVENT_LOG={events_path.resolve()}")
     print(f"PROJECT_IP={project_ip}")
     print(f"PORT={args.port}")
     print("TRANSPORT=UDP")
@@ -543,7 +545,9 @@ def _live_6dof(args: argparse.Namespace) -> int:
         f"mujoco={1.0/simulation.model.opt.timestep:g}Hz viewer={viewer_hz:g}Hz"
     )
     _print_effective_speed_config(config, simulation, args.speed_profile)
-    print("CONTROL=LEFT INDEX arm clutch; RH56 command path disabled in the final arm-only entry")
+    print("JAKA hardware control disabled")
+    print("RH56 hardware control disabled")
+    print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP RH56 hand clutch")
     print("MODE=filtered relative 6-DoF; BLUE desired frame, GREEN simulated frame")
     print("SAFETY=Quest to MuJoCo only; JAKA and Inspire hardware paths are absent")
     if physical_seed_twin is not None:
@@ -565,9 +569,9 @@ def _live_6dof(args: argparse.Namespace) -> int:
     print(f"2. 确认 Quest 与主机同网，并将目标设为 {project_ip}:{args.port}/UDP unicast。")
     print("3. 开启右手追踪、Head Pose、Debug Info，确认扩展 CTRL sender 已启用，再点击 Start Streaming。")
     print("4. 右手进入视野；等待终端显示 right_valid=True、controller_valid=True。")
-    print("5. 左手食指扳机先完全释放，再按住以捕获 reference 并进入 engaged。")
-    print("6. 按住食指扳机移动/旋转右手；释放即 disengage，下一次按下会重新捕获。")
-    print("7. 本入口不控制 RH56；退出请关闭 viewer 或按 Ctrl-C。")
+    print("5. 左手 index 先完全释放，再按住以捕获 arm reference；grip 独立捕获 hand reference。")
+    print("6. 按住 index 移动/旋转右手；按住 grip 控制四指、thumb_close 和 thumb_lateral。")
+    print("7. 本入口仅控制 MuJoCo；退出请关闭 viewer 或按 Ctrl-C。")
     handle = (
         _viewer(
             simulation,
@@ -657,6 +661,37 @@ def _live_6dof(args: argparse.Namespace) -> int:
                         f"accepted={session.accepted_targets}",
                         flush=True,
                     )
+                    thumb = latest.get("thumb_close_debug") or {}
+                    lateral = latest.get("thumb_lateral_debug") or {}
+                    if thumb:
+                        print(
+                            "THUMB "
+                            f"bend={thumb.get('normalized_thumb_bend')} "
+                            f"pinch={thumb.get('normalized_pinch')} "
+                            f"base={thumb.get('base_bend_contribution')} "
+                            f"assist={thumb.get('pinch_assist_contribution')} "
+                            f"feature={thumb.get('combined_feature_normalized')} "
+                            f"feature_ref_rad={thumb.get('captured_feature_reference_rad')} "
+                            f"delta_rad={thumb.get('feature_delta_rad')} "
+                            f"requested_rad={thumb.get('requested_target_rad')} "
+                            f"clipped_rad={thumb.get('clipped_target_rad')} "
+                            f"actual_rad={thumb.get('actual_mujoco_joint_rad')} "
+                            f"saturated={thumb.get('saturation')}",
+                            flush=True,
+                        )
+                    if lateral:
+                        print(
+                            "LATERAL "
+                            f"raw={lateral.get('raw_across_palm')} "
+                            f"feature={lateral.get('feature_normalized')} "
+                            f"feature_ref={lateral.get('captured_feature_reference')} "
+                            f"delta={lateral.get('feature_delta')} "
+                            f"requested_rad={lateral.get('requested_target_rad')} "
+                            f"clipped_rad={lateral.get('clipped_target_rad')} "
+                            f"actual_rad={lateral.get('actual_mujoco_joint_rad')} "
+                            f"saturated={lateral.get('saturation')}",
+                            flush=True,
+                        )
                     if args.ik_debug and latest.get("metrics"):
                         metrics = latest["metrics"]
                         q = latest.get("accepted_joint_target_rad") or metrics.get("ik_candidate_rad") or ()
@@ -901,8 +936,9 @@ def _print_effective_speed_config(
     print(f"IK_MAX_STEP_RAD={config.ik_max_step_rad:g}")
     print(f"MAXIMUM_JOINT_TARGET_JUMP_RAD={limits.maximum_joint_target_jump_rad:g}")
     print(f"POSITION_TRACKING_FREQUENCY_RAD_S={command.position_tracking_frequency_rad_s:g}")
-    print("HARDWARE_CONTROL_ENABLED=false")
-    print(f"RH56_CONTROL_ENABLED={str(bool(getattr(simulation, 'hand_available', False))).lower()}")
+    print("JAKA hardware control disabled")
+    print("RH56 hardware control disabled")
+    print(f"RH56_SIMULATION_CONTROL_ENABLED={str(bool(getattr(simulation, 'hand_available', False))).lower()}")
 
 
 def main() -> int:

@@ -37,6 +37,10 @@
 - fingertip/contact geometry
 - actuator limit 和物理命令映射
 
+6 个 RH56 position actuator 现在显式启用 `ctrllimited`，`ctrlrange` 与各自
+直接驱动的 MCP joint range 相同。此约束仅属于 MuJoCo 模型；它不定义或修改真机
+RH56 的 0--1000 协议标定。
+
 `jaka_rh56.xml` 使用的本地 mesh 目录：
 
 - `meshes/jaka_minicobo_meshes/`
@@ -56,6 +60,15 @@
 它们仅作为上游许可证和几何/传感器接口参考，不是当前 mounted
 runtime 碰撞模式。它们不包含 JAKA、当前 mount transform，也不使用
 项目的 `rh56_R_*` body/joint 命名。
+
+## RH56 thumb table calibration
+
+`rh56_thumb_table_calibration.json` records the read-only audit of all 1001
+rows in the local `关节角与0-1000 对应关系  .xls` workbook, including its SHA-256,
+absolute-angle endpoints, relative-radian convention, monotonicity/linearity
+results, and the exact cubic PIP/DIP fits used by the two thumb equalities.
+Vendor absolute angles are evidence for relative travel only; they are not
+MuJoCo qpos offsets.
 
 ## 验证
 

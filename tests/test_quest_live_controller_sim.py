@@ -42,7 +42,21 @@ def _ctrl(
 
 
 def _hand(sequence: int, timestamp_ns: int, *, x: float = 0.0) -> ReceivedHtsDatagram:
-    landmarks = ",".join("0" for _ in range(63))
+    points = [(0.0, 0.0, 0.0)] * 21
+    points[1:5] = [
+        (-0.02, 0.01, 0.0),
+        (-0.03, 0.025, 0.0),
+        (-0.04, 0.04, 0.0),
+        (-0.05, 0.055, 0.0),
+    ]
+    for finger_x, indices in zip(
+        (-0.025, -0.008, 0.010, 0.027),
+        ((5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20)),
+        strict=True,
+    ):
+        for depth, index in enumerate(indices, start=1):
+            points[index] = (finger_x, depth * 0.025, 0.0)
+    landmarks = ",".join(str(value) for point in points for value in point)
     payload = (
         f"Right wrist | f = {sequence}:,{x},0,0,0,0,0,1\n"
         f"Right landmarks | f = {sequence}:,{landmarks}"
@@ -128,10 +142,18 @@ def test_live_ctrl_engages_real_sim_session_and_stale_faults_arm(tmp_path: Path)
     session.control_tick(timestamp_ns)
     assert session.arm_clutch.state.value == "engaged"
     assert session.hand_clutch.state.value == "disengaged"
+
+    timestamp_ns = 66_666_666
+    router.ingest(_hand(3, timestamp_ns), session)
+    router.ingest(_ctrl(3, timestamp_ns, grip=1.0), session)
+    router.poll(timestamp_ns, session)
+    session.control_tick(timestamp_ns)
+    assert session.arm_clutch.state.value == "disengaged"
+    assert session.hand_clutch.state.value == "reacquire"
     assert session.clutch_provider == "quest_ctrl_udp_v1"
 
-    router.poll(200_000_001, session)
-    session.control_tick(200_000_001)
+    router.poll(250_000_001, session)
+    session.control_tick(250_000_001)
     assert session.arm_clutch.state.value == "tracking_fault"
     assert session.hand_clutch.state.value == "tracking_fault"
 
