@@ -1,25 +1,6 @@
-"""Offline-only interfaces and replay prototypes for teleoperation rearchitecture.
+"""Offline Python bindings for the retained C++ shaping and clutch contracts.
 
-This package intentionally contains no JAKA SDK imports, socket client, ROS
-node, or actuator code.  It is a testbed for the robot-independent boundary
-between accepted commands and a future hardware adapter.
+The package contains no JAKA SDK, socket client, ROS node, or actuator code.
+One-off replay candidates and benchmark generators are intentionally not part
+of the maintained interface.
 """
-
-from .contracts import CommandState, JointCommand, LatestCommandMailbox, StopReason
-from .health import output_must_terminate
-from .shapers import (
-    JerkBoundedPositionServo,
-    ResolvedRateVelocityServo,
-    ShaperLimits,
-)
-
-__all__ = [
-    "CommandState",
-    "JointCommand",
-    "LatestCommandMailbox",
-    "StopReason",
-    "output_must_terminate",
-    "JerkBoundedPositionServo",
-    "ResolvedRateVelocityServo",
-    "ShaperLimits",
-]

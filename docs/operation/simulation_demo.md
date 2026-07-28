@@ -51,12 +51,6 @@ engagement. Keep the first arm capture still; the arm must not jump. Candidate
 rejection displays/records `HOLD_REJECTED` while preserving the last safe
 target.
 
-The shell wrapper currently prints a stale line saying that grip is disabled.
-The loaded YAML and Python live entry are authoritative: hand retargeting is
-enabled and the Python entry reports
-`RH56_SIMULATION_CONTROL_ENABLED=true`. Until the wrapper message is corrected,
-use the startup facts and model actuator count to verify the effective mode.
-
 The wrapper can discover a local graphical session when invoked over SSH.
 Prefer explicit `--display` and `--xauthority` if discovery is ambiguous.
 
@@ -170,11 +164,6 @@ RH56 actuator/command，并仍然只有 6 个 JAKA actuator。
 左 grip 独立捕获仿真 RH56 的相对参考并在按住时控制手。两者首次 engage 前都必须先完全
 释放；机械臂捕获参考时保持静止，不得跳变。候选被拒绝时记录 `HOLD_REJECTED` 并保持最后
 安全目标。
-
-当前 shell wrapper 仍会打印一条“GRIP 禁用”的过时提示；实际加载的 YAML 和 Python live
-入口才是权威事实：hand retargeting 已启用，Python 入口会报告
-`RH56_SIMULATION_CONTROL_ENABLED=true`。修正 wrapper 前，应以启动事实和 actuator 数量
-确认有效模式。
 
 通过 SSH 启动时 wrapper 可以发现本地图形会话；如果识别不明确，应显式传入 `--display`
 和 `--xauthority`。

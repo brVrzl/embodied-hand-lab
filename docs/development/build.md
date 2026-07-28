@@ -21,9 +21,10 @@ The build links the locally available JAKA SDK according to its CMake
 configuration. Running `--help` is offline; invoking a real backend is a
 separate physical action.
 
-The other native directories are dated foundation diagnostics. Build them only
-when a specifically authorized gate or regression investigation requires them;
-their reports are in the history index.
+The dated foundation diagnostics are built only when a specifically authorized
+gate or regression investigation requires them. The offline
+`native/teleop_shaping` and `native/research_thin_jaka_worker` projects are
+research contracts, not production or physical validation.
 
 ---
 
@@ -49,5 +50,6 @@ build/jaka_servo_worker/jaka_servo_worker --help
 构建过程按照 CMake 配置链接本机已有的 JAKA SDK。运行 `--help` 是离线操作；调用真实
 后端属于另一个需要单独授权的真机动作。
 
-其他原生目录属于带日期的基础 gate 诊断。只有在特定 gate 已获授权或回归调查确实需要
-时才构建它们；对应报告见历史索引。
+带日期的基础 gate 诊断只在特定 gate 获得授权或回归调查确实需要时构建。
+`native/teleop_shaping` 与 `native/research_thin_jaka_worker` 是离线研究契约，不代表
+production 或真机验证。

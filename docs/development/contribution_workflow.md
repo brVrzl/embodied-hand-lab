@@ -5,7 +5,10 @@
 2. Read `AGENTS.md`, the current status, and the authoritative topic page.
 3. Preserve concurrent/user-owned work and use the current worktree only.
 4. Make the smallest behaviorally justified change.
-5. Add or update regression tests and current documentation together.
+5. Use temporary validation as needed, then remove it unless it protects a
+   stable contract, safety behavior, real regression, or key workflow. Prefer
+   extending an existing behavior-level test over adding a new fine-grained
+   file.
 6. Run focused checks, then the full applicable offline suite.
 7. Inspect staged diff and `git diff --check`; commit a coherent scope.
 8. Fetch, inspect ahead/behind, integrate remote changes without history
@@ -26,7 +29,8 @@ maintenance cannot declare a pending hardware correction physically passed.
 2. 阅读 `AGENTS.md`、当前状态页和该主题的权威页面。
 3. 保护并发或用户自有工作，只使用当前 worktree。
 4. 只做能够从行为证据证明必要的最小修改。
-5. 同时添加或更新回归测试和当前文档。
+5. 按需使用临时验证；除非它保护稳定契约、安全行为、真实回归或关键流程，否则任务结束前
+   删除。优先扩展已有行为级测试，不默认新增细粒度测试文件。
 6. 先运行聚焦检查，再运行完整适用的离线测试集。
 7. 检查暂存差异和 `git diff --check`，提交一个边界清晰的改动。
 8. fetch 后检查 ahead/behind；不改写历史地整合远端改动，推送当前分支并核对远端提交。

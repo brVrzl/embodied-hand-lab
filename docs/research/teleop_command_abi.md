@@ -171,13 +171,12 @@ The coordinator deliberately has no Quest receiver or mapping code. Its
 capture object is the future boundary at which the existing release-before-
 press input logic can initialize kinematics and the shaper.
 
-## Python conformance, fake consumer, and fake lifecycle
+## Python binding, fake consumer, and fake lifecycle
 
-`teleop_rearchitecture.cpp_shaping` is a test/evaluator-only `ctypes` bridge.
-It checks compiled sizes/alignments and drives the C++ core without defining a
-transport. Active output conforms to the Python Candidate C reference over a
-240-tick changing-target trace to 2e-15 rad position/velocity and 2e-14
-rad/s² acceleration tolerance (floating-point rounding only).
+`teleop_rearchitecture.cpp_shaping` is a test-only `ctypes` bridge. It checks
+compiled sizes/alignments and drives the C++ core without defining a transport.
+The earlier Python candidate and its tick-for-tick conformance harness were
+removed after the C++ contract became the retained research implementation.
 
 The in-memory fake consumer validates DOF, epoch, sequence, finite data, mode,
 and freshness; accepts only the newest one-slot command; counts superseded
@@ -213,24 +212,25 @@ continuity, latest-only delivery, 125 Hz timing/status counters, and explicit
 cleanup/reset. See
 [`jaka_clutch_recovery_transport_contract.md`](jaka_clutch_recovery_transport_contract.md).
 
-## Offline conformance result and limitations
+## Historical offline evaluation and current limitations
 
-The checked unified benchmark adds `candidate_c_cpp_reference`. Its active,
+The one-off unified benchmark added `candidate_c_cpp_reference`. Its active,
 interpolated, settling, and dynamics results match the Python Candidate C
 reference within floating-point rounding. Mean Python-to-C++ `ctypes` call
 time was 4.67/4.72 µs on the two fixtures; p99 was 8.44/7.02 µs and maxima
 29.32/46.12 µs. This excludes scheduling, serialization, process IPC, SDK,
 controller, network, and plant response, so it is not realtime proof.
 
-The 60-state controlled-stop sweep compares Ruckig 0.19.4 Python explicit
+The one-off 60-state controlled-stop sweep compared Ruckig 0.19.4 Python explicit
 braking with the independent C++ analytic profile. Both completed 60/60, had
 zero direction-inconsistent cases, zero q/dq/ddq limit violations, identical
 strict stop-time mean/p95/max of 139.47/288/312 ms, and zero post-completion
 drift. Maximum per-case envelope differences were 0 ms stop time, 0.930 mrad
 joint displacement, 0.268 mm palm-model displacement, 0.000658 rad/s velocity,
 1.242 rad/s² acceleration, and 14.229 rad/s³ jerk. The checked tolerances are
-stored with every comparison. This is bounded envelope conformance, not a
-claim that the analytic profile implements Ruckig or produces identical ticks.
+stored with every comparison. This was bounded envelope evidence, not a claim
+that the analytic profile implements Ruckig or produces identical ticks. The
+evaluator, Ruckig dependency, and generated results are no longer maintained.
 
 The residual-acceleration sweep adds 115 deterministic states. All 113 states
 inside position/dynamic limits complete; two states only 0.1 mrad from a joint
@@ -240,14 +240,14 @@ single crossing. The largest legal synthetic boundary reaches 584 ms stop
 time, 1.4513 rad/s velocity excursion, 0.4854 rad joint displacement, and
 0.2830 m palm-model displacement. That large envelope is important: the
 neutralization phase fixes an erroneous hard stop but does not make high
-residual acceleration benign. The checked data is
-[`residual_acceleration_stop_sweep.json`](teleop_rearchitecture/results/residual_acceleration_stop_sweep.json).
+residual acceleration benign. The one-off sweep data was used to select and
+review the policy, then removed from the maintained tree. Retained C++ tests
+cover representative low/mid/high braking states and limit failures.
 
-An explicit no-SDK manifest drives 36 Python files plus CTest in one process,
-then checks `/proc/self/maps`. `readelf` and `nm` also gate the C API library
-and test executable. The current run passed 340 Python tests and found no JAKA
-library image, dependency, or symbol. The historical SDK-linked native-worker
-test is named in `forbidden_test_paths` and is not part of this manifest.
+The earlier research phase ran a one-off no-SDK process-map and ELF audit and
+found no JAKA dependency or symbol in this C++ project. The manifest/runner was
+removed after that audit; the retained CMake target and focused ABI tests remain
+offline and independent from the SDK-linked production worker.
 
 All results are offline command/FK evidence. There is no scheduler-load proof,
 plant model, physical stop guarantee, real controller alarm lifecycle, JAKA

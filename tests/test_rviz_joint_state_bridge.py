@@ -10,10 +10,13 @@ from robot_bringup.rviz_joint_state_bridge import (
 
 
 def test_arm_joint_names_map_to_preview_urdf() -> None:
-    assert map_arm_joint_names(["joint_1", "joint_6"]) == ["jaka_joint_1", "jaka_joint_6"]
+    assert map_arm_joint_names(["joint_1", "joint_6"]) == [
+        "jaka_joint_1",
+        "jaka_joint_6",
+    ]
 
 
-def test_rh56_vendor_counts_map_open_to_zero_and_close_to_joint_limit() -> None:
+def test_rh56_counts_map_to_preview_joint_limits() -> None:
     open_state = rh56_counts_to_urdf_joint_state([1000.0] * 6)
     assert set(open_state) == set(RH56_URDF_JOINTS.values())
     assert list(open_state.values()) == [0.0] * 6

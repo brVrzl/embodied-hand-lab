@@ -1,3 +1,5 @@
+"""Retired HEBI real-arm compatibility entry; not a current production path."""
+
 from __future__ import annotations
 
 import argparse
@@ -289,7 +291,9 @@ def run_node(*, config_path: str, jsonl_out: str | None = None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Publish HEBI Mobile I/O palm-target jog commands for the real JAKA bridge.")
+    parser = argparse.ArgumentParser(
+        description="Retired HEBI/JAKA compatibility entry; not a current production path."
+    )
     parser.add_argument("--config", default="configs/teleop/hebi_mobile_io_jaka_rh56.yaml")
     parser.add_argument("--jsonl-out", default=None)
     parser.add_argument("--enable-motion", action="store_true", help="Compatibility flag; motion is still gated by B1 and the real bridge.")

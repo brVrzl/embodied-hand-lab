@@ -1,14 +1,15 @@
 # teleop_tools
 
-This package retains two parallel experimental paths outside the authoritative
-Quest/JAKA shared pipeline:
+This package retains one experimental path and one retired compatibility path
+outside the authoritative Quest/JAKA shared pipeline:
 
-- HEBI Mobile I/O / iPhone ARKit relative-pose arm teleoperation;
+- retired HEBI Mobile I/O / iPhone ARKit relative-pose arm teleoperation;
 - iPhone camera + MediaPipe RH56 hand teleoperation.
 
-## HEBI Mobile I/O
+## HEBI Mobile I/O (retired)
 
-Read-only input check and simulation/RViz shadow:
+The following commands are retained for historical reproduction and are not
+current recommended or production entry points:
 
 ```bash
 ./scripts/check_hebi_mobile_io.sh --duration-sec 5 --hz 10
@@ -16,11 +17,11 @@ Read-only input check and simulation/RViz shadow:
 ./scripts/run_hebi_rviz_shadow.sh
 ```
 
-The separately gated real-arm entry point is
-`scripts/run_real_jaka_hebi_arm_teleop.sh`. HEBI uses its own deadman,
-reference, lag-follow, workspace, target-filter and legacy ServoJ shaping
-contracts. Those settings are not authority for Quest/JAKA and must not be
-copied into its post-`AcceptedArmTarget` adapter.
+The retired real-arm entry point
+`scripts/run_real_jaka_hebi_arm_teleop.sh` must not be treated as a current
+physical workflow. Its deadman, reference, lag-follow, workspace, target-filter
+and legacy ServoJ shaping settings are not authority for Quest/JAKA and must
+not be copied into its post-`AcceptedArmTarget` adapter.
 
 The reusable safety ideas are explicit reference capture and staged tracking
 error handling (warning, hold, fault). The primary Quest/JAKA stack implements

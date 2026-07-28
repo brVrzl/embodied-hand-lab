@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 from teleop_rearchitecture.cpp_shaping import CppReferenceShaper, OutputMode, default_cpp_library
@@ -15,13 +13,10 @@ from teleop_rearchitecture.engagement import (
     MeasuredJointState,
     SpatialPose,
 )
-from teleop_rearchitecture.recovery_evidence import build_recovery_evidence
-from teleop_rearchitecture.unified_evaluator import PalmModel
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = default_cpp_library(ROOT)
-MODEL = ROOT / "data/sim_assets/jaka_rh56.xml"
 PERIOD_NS = 8_000_000
 
 
@@ -180,13 +175,8 @@ def test_first_reengaged_cpp_output_is_continuous_with_measured_state() -> None:
         )
         first = shaper.tick(2_000_000_000)
     joint_delta = max(abs(left - right) for left, right in zip(first.position_rad, q))
-    model = PalmModel(MODEL)
-    before, _ = model.pose(q)
-    after, _ = model.pose(first.position_rad)
-    palm_delta = float(np.linalg.norm(after - before))
     assert first.output_mode is OutputMode.ACTIVE_TRACKING
     assert joint_delta == 0.0
-    assert palm_delta == 0.0
     assert max(abs(value) for value in first.velocity_rad_s) == 0.0
     assert max(abs(value) for value in first.acceleration_rad_s2) == 0.0
 
@@ -202,16 +192,3 @@ def test_residual_measured_velocity_is_preserved_not_reconstructed_from_old_targ
     assert result is EngagementResult.OK and capture is not None
     assert capture.robot_reference.velocity_rad_s == dq
     assert capture.robot_reference.position_rad == q
-
-
-def test_reengagement_evidence_matches_checked_artifact() -> None:
-    actual = build_recovery_evidence(LIBRARY, MODEL)
-    checked = json.loads(
-        (ROOT / "docs/research/teleop_rearchitecture/results/reengagement_continuity.json")
-        .read_text(encoding="utf-8")
-    )
-    assert actual == checked
-    assert actual["first_tick_joint_position_delta_rad"] == 0.0
-    assert actual["first_tick_palm_model_displacement_m"] == 0.0
-    assert actual["capture_to_first_output_tick_count"] == 0
-    assert actual["old_target_rejection_count"] == 1

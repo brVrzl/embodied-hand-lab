@@ -3,8 +3,8 @@
 > **Status: historical snapshot dated 2026-07-24.** This report preserves the
 > rationale and recovery checkpoint for that repository cleanup. It is not the
 > current layout or operating guide. See
-> [`repository_layout.md`](repository_layout.md) and
-> [`../status/current_status.md`](../status/current_status.md).
+> [`repository_layout.md`](../../development/repository_layout.md) and
+> [`current_status.md`](../../status/current_status.md).
 
 Date: 2026-07-24. Worktree: `/home/thor/projects/embodied_lab`. Branch:
 `feature/jaka-teledex-control-foundation`.

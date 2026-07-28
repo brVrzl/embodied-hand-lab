@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Retired compatibility entry; not a current recommended or production path.
 cd "$(dirname "$0")/.."
 source scripts/source_ros2.sh
 PYTHON_BIN="${PYTHON_BIN:-.venv/bin/python}"

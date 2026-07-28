@@ -9,7 +9,7 @@
 | `src/rh56_driver` | RH56 schema and backends | current parallel path |
 | `src/rh56_sim` | offline RH56 model contract and H0 self-test | current simulation |
 | `src/jaka_driver_adapter`, `src/robot_bringup` | bring-up/legacy adapters | current or compatibility, not shared Quest authority |
-| `src/teleop_tools` | HEBI/iPhone experiments | active parallel/legacy |
+| `src/teleop_tools` | retired HEBI compatibility code and iPhone experiments | mixed: HEBI retired, iPhone experimental |
 | `src/vision_interface` | perception and RealSense calibration | active parallel |
 | `configs` | versioned examples and policy | current; local device facts must be verified |
 | `data/sim_assets`, `models` | simulation assets | current; see their READMEs |
@@ -34,7 +34,7 @@ They do not override the primary Quest/JAKA contracts.
 | `src/rh56_driver` | RH56 schema 和 backend | 当前并行路径 |
 | `src/rh56_sim` | RH56 离线模型契约与 H0 自检 | 当前仿真 |
 | `src/jaka_driver_adapter`、`src/robot_bringup` | bring-up/兼容 adapter | 非共享 Quest 权威 |
-| `src/teleop_tools` | HEBI/iPhone 实验 | 并行/兼容 |
+| `src/teleop_tools` | 已停用的 HEBI 兼容代码和 iPhone 实验 | 混合：HEBI 停用、iPhone 实验 |
 | `src/vision_interface` | 感知和 RealSense 标定 | 并行 |
 | `configs` | 版本化示例和策略 | 当前；设备事实需现场核实 |
 | `data/sim_assets`、`models` | 仿真资产 | 当前 |

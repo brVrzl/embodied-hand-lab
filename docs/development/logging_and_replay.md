@@ -24,7 +24,6 @@ Offline analyzers include:
 ```bash
 .venv/bin/python tools/analyze_jaka_edg_resampling.py --help
 .venv/bin/python tools/analyze_quest_jaka_output_feasibility.py --help
-.venv/bin/python tools/analyze_quest_jaka_output_acceleration.py --help
 .venv/bin/python tools/replay_quest_jaka_output_feasibility_native.py --help
 ```
 
@@ -56,7 +55,6 @@ generated logs solely because they exist locally.
 ```bash
 .venv/bin/python tools/analyze_jaka_edg_resampling.py --help
 .venv/bin/python tools/analyze_quest_jaka_output_feasibility.py --help
-.venv/bin/python tools/analyze_quest_jaka_output_acceleration.py --help
 .venv/bin/python tools/replay_quest_jaka_output_feasibility_native.py --help
 ```
 

@@ -44,9 +44,9 @@ PWL/root-cause-fix and the RH56 simulation hand implementation are merged into
 `main`. Four superseded Quest worktrees and their local branches were removed
 on 2026-07-28 after the user explicitly abandoned their working-tree-only
 content. MoveIt, Ruckig, ACT/Thor, TeleDex, and repository cleanup remain remote
-archives. Teleoperation rearchitecture remains an independent active research
-worktree and is not the production baseline. OpenPI remains a pinned sibling
-checkout used only by the inference-only π0.5-DROID shadow path.
+archives. Offline teleoperation-rearchitecture contracts are present for
+research review but are not the production baseline. OpenPI remains a pinned
+sibling checkout used only by the inference-only π0.5-DROID shadow path.
 
 ## Exact next bounded physical gate
 
@@ -107,7 +107,7 @@ production `root_cause_fix` 基线在构造 `AcceptedArmTarget` 前增加共享 
 PWL/root-cause-fix 与 RH56 仿真手实现均已进入 `main`。四个已取代 Quest worktree
 及其本地分支在用户明确放弃仅存在于 working tree 的内容后，于 2026-07-28 删除。
 MoveIt、Ruckig、ACT/Thor、TeleDex 和 repository cleanup 仅保留远程归档。
-teleoperation rearchitecture 仍是独立活跃研究 worktree，不是 production baseline。
+离线 teleoperation rearchitecture 契约保留用于研究审阅，不是 production baseline。
 OpenPI 仍是固定版本的 sibling checkout，仅用于 inference-only π0.5-DROID shadow。
 
 ## 下一受限真机 Gate

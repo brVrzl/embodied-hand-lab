@@ -44,6 +44,13 @@ authoritative synthesis.
 simulation and dual-clutch design records that explain the current Quest input
 path. Stale branch names, paths, or test totals are not current instructions.
 
+### Repository consolidation, 2026-07-24
+
+`archived_designs/repository_consolidation_20260724.md` preserves the recovery
+checkpoint and disposition rationale for the earlier repository pruning. The
+later workspace inventory/process logs were removed after their dispositions
+were completed; Git history remains the recovery source.
+
 ## Retention policy
 
 Preserve unique physical/incident evidence, meaningful hashes, and regression

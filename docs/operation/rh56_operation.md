@@ -4,7 +4,8 @@ The repository has three distinct RH56 roles:
 
 1. Mounted MuJoCo RH56 in the Quest/JAKA simulation, with left grip retargeting.
 2. A PC-direct USB-RS485 driver/ROS2 bridge in `src/rh56_driver`.
-3. Experimental iPhone, HEBI, and JAKA-tool-RS485 workflows.
+3. Experimental iPhone and JAKA-tool-RS485 workflows. HEBI teleoperation is
+   retired compatibility code, not a current RH56 workflow.
 
 Canonical command order is:
 
@@ -46,7 +47,8 @@ Current model roles and limitations are documented in
 
 1. Quest/JAKA MuJoCo 仿真中的 mounted RH56，由左 grip retarget。
 2. `src/rh56_driver` 中的 PC 直连 USB-RS485 driver/ROS2 bridge。
-3. iPhone、HEBI 和 JAKA-tool-RS485 实验流程。
+3. iPhone 和 JAKA-tool-RS485 实验流程。HEBI 遥操作已停用，仅保留兼容代码，不属于
+   当前 RH56 运行流程。
 
 规范命令顺序：
 

@@ -92,6 +92,50 @@ match later behavior. When moving evidence, keep report/raw-log relationships
 and update the history index. New documentation must use repository-relative
 paths, verified command names, and explicit validation levels.
 
+## Engineering restraint and test lifecycle
+
+- Temporary tests, probes, diagnostic scripts, parameter sweeps, log analysis,
+  and validation code are welcome while locating a fault, reproducing a
+  failure, testing a hypothesis, or confirming a fix. Before finishing the
+  task, decide whether each artifact has durable value. The default is to
+  remove it, together with temporary data, logs, debug output, and process
+  notes.
+- A permanent test must protect a stable public contract, core safety behavior,
+  an important real regression, or a representative end-to-end workflow. Test
+  count and coverage percentage are not primary quality measures. Prefer a
+  small, deterministic, high-signal suite.
+- Deleting a low-value test does not require a one-for-one replacement. For a
+  real, important defect that may recur, usually retain the smallest regression
+  test that protects its stable external behavior.
+- Do not add a permanent test for every small edit. When behavior changes,
+  first update or extend an existing behavior-level test. Avoid tests tied to
+  private helpers, mock call counts, internal call order, generated artifacts,
+  or a temporary architecture.
+- One-off probes, parameter scans, result generators, and diagnostic/log
+  analysis scripts must be removed after use unless a current document or
+  maintained workflow names a continuing use. Do not retain a dated narrative
+  when its durable decision is already captured by an authoritative page.
+- Do not add fallback, compatibility branches, duplicate validation, recovery
+  states, configuration sources, or exception layers merely to look robust.
+  First identify a real caller, failure record, or current requirement. New
+  abstractions, configuration options, state machines, and recovery mechanisms
+  must state the present problem they solve.
+- Validate untrusted data once at the appropriate system boundary. Internal
+  trusted data should not be repeatedly rechecked at consecutive layers.
+  Handle an error at the boundary that owns it; avoid catch-wrap-rethrow chains,
+  broad exception swallowing, half-initialized continuation, and silent
+  fallback to a value that hides a programming or configuration error.
+- Compatibility paths require a known consumer and a migration/removal plan.
+  Prefer simple, direct, observable failure over an implicit “just in case”
+  behavior. Remove unused future-facing code rather than preserving it for a
+  hypothetical caller.
+- These restraint rules never justify removing robot-control safety. Startup
+  continuity, hardware boundaries, collision, singularity, joint/command
+  legality, control-cycle timing, velocity/acceleration/jerk, watchdog, and
+  cleanup checks require call-chain review. Keep tests backed by real
+  regressions. If deletion value is uncertain, retain or consolidate the item
+  instead of guessing.
+
 ## Setup, build, and validation
 
 From the repository root:
@@ -124,10 +168,11 @@ Run `bash -n` on changed shell scripts. The project currently configures no
 separate formatter, linter, type checker, or CI workflow; do not invent a
 passing claim for tools that are not configured.
 
-Tests should name the current contract, use deterministic fake/offline
-backends, and add regression coverage for fixed safety defects. Do not delete a
-test because it is old or slow; first prove the behavior is obsolete or fully
-duplicated. Physical probes remain separately gated and outside default pytest.
+Permanent tests should name the current contract, use deterministic
+fake/offline backends, and retain regression coverage for fixed safety defects.
+Do not delete a test because it is old or slow; first prove the behavior is
+obsolete or fully duplicated. Physical probes remain separately gated and
+outside default pytest.
 
 ## Current constraints
 

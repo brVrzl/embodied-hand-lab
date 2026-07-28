@@ -53,9 +53,9 @@ MuJoCo plant or copy its `qpos`.
 | native transport | `native/jaka_servo_worker/main.cpp` | CLI plus shared-memory protocol | native worker/resampler tests |
 | RH56 | `src/rh56_driver`, `src/rh56_sim`, simulation retargeter | `configs/hand`, `configs/sim/quest_rh56_retarget.yaml` | RH56 schema/backend/H0/H2/retarget tests |
 
-Other current project areas—digital twin, vision, HEBI phone teleoperation,
-iPhone RH56 experiments, and ROS2/RViz bring-up—remain outside the primary
-Quest/JAKA shared pipeline.
+Other current project areas—digital twin, vision, iPhone RH56 experiments, and
+ROS2/RViz bring-up—remain outside the primary Quest/JAKA shared pipeline. HEBI
+phone teleoperation is retired and retained only as a compatibility reference.
 
 The committed live configuration enables an integrated 6-arm + 6-hand
 simulation. The explicit arm-only model builder remains the JAKA-only
@@ -116,8 +116,8 @@ MuJoCo    JAKA joint adapter -> 125 Hz native EDG worker
 | 原生传输 | `native/jaka_servo_worker/main.cpp` |
 | RH56 | `src/rh56_driver` 和仿真 retargeter |
 
-数字孪生、视觉、HEBI 手机遥操作、iPhone RH56 和 ROS2/RViz 属于并行区域，不覆盖主链
-契约。
+数字孪生、视觉、iPhone RH56 和 ROS2/RViz 属于并行区域，不覆盖主链契约。HEBI 手机
+遥操作已经停用，仅作为兼容参考保留。
 
 已提交实时配置启用 6 个机械臂 + 6 个手部 actuator 的集成仿真。显式 arm-only builder
 仍保留 JAKA-only invariant：只有 6 个 JAKA actuator，没有 RH56 actuator 或 command

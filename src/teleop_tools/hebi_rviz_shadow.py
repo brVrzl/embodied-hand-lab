@@ -1,3 +1,5 @@
+"""Retired HEBI/RViz compatibility path; not a current production entry."""
+
 from __future__ import annotations
 
 import argparse
@@ -251,7 +253,9 @@ def run_hebi_rviz_shadow_node(
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Preview HEBI Mobile I/O arm teleop in RViz without hardware commands.")
+    parser = argparse.ArgumentParser(
+        description="Retired HEBI/RViz compatibility preview; not a current production entry."
+    )
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument("--initial-joints", nargs=6, type=float, default=None)
     parser.add_argument("--real-arm-joint-topic", default="/jaka/joint_states")

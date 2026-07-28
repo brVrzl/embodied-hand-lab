@@ -17,10 +17,6 @@ def test_extract_arm_joints_accepts_real_and_rviz_joint_names() -> None:
 
     assert extract_arm_joints_from_joint_state(real) == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
     assert extract_arm_joints_from_joint_state(rviz) == [10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
-
-
-def test_extract_arm_joints_falls_back_to_first_six_positions() -> None:
-    message = SimpleNamespace(name=[], position=[1, 2, 3, 4, 5, 6, 7])
-
-    assert extract_arm_joints_from_joint_state(message) == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
-    assert extract_arm_joints_from_joint_state(SimpleNamespace(name=[], position=[1, 2])) is None
+    assert extract_arm_joints_from_joint_state(
+        SimpleNamespace(name=[], position=[1, 2, 3, 4, 5, 6])
+    ) is None

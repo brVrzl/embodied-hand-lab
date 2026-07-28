@@ -101,9 +101,9 @@ mode, EDG, or motion.
 
 PWL/root-cause-fix and the RH56 simulation hand work are in `main`. MoveIt,
 Ruckig, ACT/Thor, TeleDex, and repository-cleanup results are retained as remote
-archive branches rather than the production baseline. Teleoperation
-rearchitecture remains a separate research worktree and is not merged into
-`main`.
+archive branches rather than the production baseline. The offline
+teleoperation-rearchitecture contracts are present for research review but do
+not replace the production control path.
 
 The worktree may contain untracked datasets, models, captures, calibration
 assets, or concurrent experiments. They are not part of the repository merely
@@ -202,7 +202,8 @@ Quest/MuJoCo 路径已经过仿真验证。
 
 PWL/root-cause-fix 和 RH56 仿真手成果均已进入 `main`。MoveIt、Ruckig、ACT/Thor、
 TeleDex 和 repository-cleanup 只保留为远程归档分支，不是 production baseline。
-teleoperation rearchitecture 仍位于独立研究 worktree，尚未合入 `main`。
+离线 teleoperation rearchitecture 契约已进入当前仓库供研究审阅，但不替换 production
+控制链路。
 
 工作区中可能存在未跟踪的数据集、模型、采集、标定资产或并行实验。它们不会因为存在于本地
 就自动成为仓库内容；修改和暂存时必须明确区分。

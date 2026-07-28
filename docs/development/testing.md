@@ -7,6 +7,14 @@ behind dedicated CLI acknowledgements and fake/static contract tests. Tests are
 organized by subsystem rather than pytest markers; adding markers now would
 not improve the single current CI-equivalent workflow.
 
+Permanent coverage is deliberately selective. Keep tests for stable external
+contracts, safety-critical control behavior, real regressions, and a few
+representative workflows. Temporary tests and result generators are normal
+during development, but they are removed before task completion unless they
+meet that bar. Do not optimize for test count or coverage percentage, and do
+not preserve generated benchmark artifacts merely so a test can compare them
+byte-for-byte.
+
 Full validation:
 
 ```bash
@@ -54,6 +62,10 @@ Do not remove a failing or old test merely to make totals smaller.
 
 默认 pytest 套件完全离线。硬件访问位于带专用 CLI acknowledgement 的独立入口之外，
 pytest 只使用 fake/static contract。当前按子系统组织测试，不额外引入 marker。
+
+永久覆盖应保持克制，只保护稳定外部契约、安全关键控制行为、真实回归和少量代表性流程。
+开发中可以使用临时测试和结果生成器，但任务结束前默认删除；不要以测试数量或覆盖率为目标，
+也不要仅为了逐字比较生成 benchmark 产物而永久保留它们。
 
 完整验证：
 

@@ -132,7 +132,7 @@ echo "CONFIG=${CONFIG}"
 echo "QUEST_UDP=${PROJECT_IP:-<自动探测>}:${UDP_PORT}（unicast；host bind=${BIND_HOST}）"
 [[ "${VIEWER_FLAG}" == "--viewer" ]] && echo "VIEWER_X11=DISPLAY=${DESKTOP_DISPLAY} XAUTHORITY=${DESKTOP_XAUTHORITY:-<未设置>}"
 echo "请先在 Quest 端打开带 CTRL sidecar 的 Hand Tracking Streamer，开启右手、Head Pose、Debug Info，确认 CTRL sender 后 Start Streaming。"
-echo "左控制器：INDEX=机械臂 hold-to-run/reference capture；GRIP=本单臂入口禁用；不是空格键。"
+echo "左控制器：INDEX=机械臂 hold-to-run/reference capture；GRIP=仿真 RH56 手；不是空格键。"
 echo "连续性：MuJoCo 入口沿完整 6D SE(3) 目标分段推进；奇异/限位拒绝时保持 index 并把手退回即可恢复，硬 gate 不变。"
 
 CMD=(
