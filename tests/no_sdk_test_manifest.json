@@ -6,7 +6,8 @@
   "native_artifacts": [
     "build/teleop_shaping/libteleop_shaping_c_api.so",
     "build/teleop_shaping/teleop_shaping_tests",
-    "build/teleop_shaping/thin_jaka_transport_tests"
+    "build/teleop_shaping/thin_jaka_transport_tests",
+    "build/teleop_shaping/engagement_joint_shaper_tests"
   ],
   "forbidden_test_paths": [
     "tests/test_native_jaka_servo_worker.py"

@@ -52,6 +52,14 @@ ThinJakaTransportAdapter::ThinJakaTransportAdapter(
       maximum_tick_interval_ns_(0),
       maximum_command_age_ns_(0),
       maximum_resume_position_delta_rad_(0.0),
+      last_feedback_call_start_ns_(-1),
+      last_feedback_call_end_ns_(-1),
+      last_feedback_sample_ns_(-1),
+      last_feedback_validation_ns_(-1),
+      last_feedback_sample_age_ns_(0),
+      last_feedback_call_duration_ns_(0),
+      maximum_feedback_sample_age_ns_(0),
+      maximum_feedback_call_duration_ns_(0),
       refresh_epoch_(0),
       measured_{},
       pending_{},
@@ -174,7 +182,11 @@ ThinJakaCode ThinJakaTransportAdapter::BeginMeasuredStateRefresh(
   refresh_epoch_ = new_safety_epoch;
   measurement_gate_.Reset();
   pending_valid_ = false;
-  stopped_command_valid_ = false;
+  // When resuming a retained session, keep the already completed stopped
+  // command available while fresh q/dq samples are collected.  The vendor
+  // ServoJ contract asks clients to keep sending without gaps; clearing it
+  // here would create an avoidable multi-tick hole during reference refresh.
+  if (state_ == ThinJakaState::kServoReady) stopped_command_valid_ = false;
   state_ = ThinJakaState::kMeasuredStateRefresh;
   return ThinJakaCode::kOk;
 }
@@ -194,6 +206,41 @@ ThinJakaCode ThinJakaTransportAdapter::RefreshMeasuredState(
                      ? teleop_command_abi::StopReason::kStaleInput
                      : teleop_command_abi::StopReason::kSdkFailure);
   }
+  const bool clock_regression =
+      feedback.sdk_call_start_monotonic_ns < now_ns ||
+      (last_feedback_validation_ns_ >= 0 &&
+       feedback.validation_monotonic_ns <= last_feedback_validation_ns_);
+  const bool invalid_order =
+      feedback.sdk_call_start_monotonic_ns < 0 ||
+      feedback.sdk_call_end_monotonic_ns <
+          feedback.sdk_call_start_monotonic_ns ||
+      feedback.sampled_monotonic_ns <
+          feedback.sdk_call_start_monotonic_ns ||
+      feedback.sampled_monotonic_ns > feedback.sdk_call_end_monotonic_ns ||
+      feedback.validation_monotonic_ns <
+          feedback.sdk_call_end_monotonic_ns;
+  if (clock_regression || invalid_order) {
+    return Fault(ThinJakaCode::kTimingFault,
+                 teleop_command_abi::StopReason::kTimingFault);
+  }
+  const std::int64_t sample_age =
+      feedback.validation_monotonic_ns - feedback.sampled_monotonic_ns;
+  if (sample_age < 0 || sample_age > config_.measurement.maximum_sample_age_ns) {
+    return Fault(ThinJakaCode::kStale,
+                 teleop_command_abi::StopReason::kStaleInput);
+  }
+  last_feedback_call_start_ns_ = feedback.sdk_call_start_monotonic_ns;
+  last_feedback_call_end_ns_ = feedback.sdk_call_end_monotonic_ns;
+  last_feedback_sample_ns_ = feedback.sampled_monotonic_ns;
+  last_feedback_validation_ns_ = feedback.validation_monotonic_ns;
+  last_feedback_sample_age_ns_ = sample_age;
+  last_feedback_call_duration_ns_ =
+      feedback.sdk_call_end_monotonic_ns -
+      feedback.sdk_call_start_monotonic_ns;
+  maximum_feedback_sample_age_ns_ =
+      std::max(maximum_feedback_sample_age_ns_, sample_age);
+  maximum_feedback_call_duration_ns_ = std::max(
+      maximum_feedback_call_duration_ns_, last_feedback_call_duration_ns_);
   FakeSdkJointSample sample{};
   sample.sample_sequence = feedback.sequence;
   sample.sampled_monotonic_ns = feedback.sampled_monotonic_ns;
@@ -202,7 +249,8 @@ ThinJakaCode ThinJakaTransportAdapter::RefreshMeasuredState(
   sample.position_rad = feedback.position_rad;
   sample.velocity_rad_s = feedback.velocity_rad_s;
   const auto result =
-      measurement_gate_.Observe(sample, refresh_epoch_, now_ns, measured);
+      measurement_gate_.Observe(sample, refresh_epoch_,
+                                feedback.validation_monotonic_ns, measured);
   if (result.code == RecoveryMeasurementCode::kNeedMoreSamples) {
     return ThinJakaCode::kNeedMoreSamples;
   }
@@ -402,9 +450,11 @@ ThinJakaCode ThinJakaTransportAdapter::Tick(std::int64_t now_ns) noexcept {
     const auto status = PollStatus(now_ns);
     if (status != ThinJakaCode::kOk) return status;
   }
-  if (state_ == ThinJakaState::kStoppedReady &&
+  if ((state_ == ThinJakaState::kStoppedReady ||
+       state_ == ThinJakaState::kMeasuredStateRefresh) &&
       config_.pause_policy ==
-          PauseCommandPolicy::kRepeatStoppedPositionRequired) {
+          PauseCommandPolicy::kRepeatStoppedPositionRequired &&
+      stopped_command_valid_) {
     return RepeatStoppedCommand();
   }
   if (pending_valid_) {
@@ -428,10 +478,21 @@ ThinJakaCode ThinJakaTransportAdapter::PollStatus(std::int64_t now_ns) noexcept 
                      ? teleop_command_abi::StopReason::kStaleInput
                      : teleop_command_abi::StopReason::kSdkFailure);
   }
+  const bool invalid_timing =
+      status.sdk_call_start_monotonic_ns < now_ns ||
+      status.sdk_call_end_monotonic_ns < status.sdk_call_start_monotonic_ns ||
+      status.sampled_monotonic_ns < status.sdk_call_start_monotonic_ns ||
+      status.sampled_monotonic_ns > status.sdk_call_end_monotonic_ns ||
+      status.validation_monotonic_ns < status.sdk_call_end_monotonic_ns;
+  if (invalid_timing) {
+    return Fault(ThinJakaCode::kTimingFault,
+                 teleop_command_abi::StopReason::kTimingFault);
+  }
   if (status.sequence == 0U || status.sequence <= last_status_sequence_ ||
       status.sampled_monotonic_ns < 0 ||
-      status.sampled_monotonic_ns > now_ns ||
-      now_ns - status.sampled_monotonic_ns > config_.maximum_status_age_ns) {
+      status.sampled_monotonic_ns > status.validation_monotonic_ns ||
+      status.validation_monotonic_ns - status.sampled_monotonic_ns >
+          config_.maximum_status_age_ns) {
     return Fault(ThinJakaCode::kStale,
                  teleop_command_abi::StopReason::kStaleInput);
   }
@@ -534,7 +595,15 @@ ThinJakaSnapshot ThinJakaTransportAdapter::Snapshot() const noexcept {
           old_epoch_rejection_count_,
           maximum_tick_interval_ns_,
           maximum_command_age_ns_,
-          maximum_resume_position_delta_rad_};
+          maximum_resume_position_delta_rad_,
+          last_feedback_call_start_ns_,
+          last_feedback_call_end_ns_,
+          last_feedback_sample_ns_,
+          last_feedback_validation_ns_,
+          last_feedback_sample_age_ns_,
+          last_feedback_call_duration_ns_,
+          maximum_feedback_sample_age_ns_,
+          maximum_feedback_call_duration_ns_};
 }
 
 }  // namespace teleop_shaping

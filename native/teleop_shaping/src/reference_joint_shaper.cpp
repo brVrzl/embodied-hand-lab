@@ -126,6 +126,14 @@ OperationResult ReferenceJointShaperV1::Initialize(
   return Result(OperationCode::kOk);
 }
 
+OperationResult ReferenceJointShaperV1::InitializeForNextTick(
+    const MeasuredJointStateV1& measured, const JointDynamicLimitsV1& limits,
+    std::int64_t now_ns) noexcept {
+  const auto result = Initialize(measured, limits, now_ns);
+  if (result.code == OperationCode::kOk) last_tick_ns_ = now_ns;
+  return result;
+}
+
 OperationResult ReferenceJointShaperV1::FailClosed(ValidationResult validation,
                                                    StopReason reason,
                                                    std::int64_t now_ns) noexcept {

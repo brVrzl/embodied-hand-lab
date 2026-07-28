@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <new>
 
 namespace {
@@ -35,7 +36,12 @@ struct FakeTableContext {
   bool collision{false};
   bool session_lost{false};
   bool stale_status{false};
+  bool feedback_future{false};
+  bool feedback_stale{false};
+  bool feedback_clock_regression{false};
   std::int64_t now_ns{1'000'000'000};
+  std::int64_t feedback_callback_duration_ns{1'000'000};
+  std::int64_t feedback_validation_delay_ns{1'000};
   std::uint64_t feedback_sequence{0};
   std::uint64_t status_sequence{0};
   std::array<double, kMaxDof> q{};
@@ -123,7 +129,21 @@ JakaFunctionResult ReadFeedback(void* opaque, JakaJointFeedback* feedback) noexc
   }
   *feedback = {};
   feedback->sequence = ++context->feedback_sequence;
-  feedback->sampled_monotonic_ns = context->now_ns;
+  feedback->sdk_call_start_monotonic_ns =
+      context->now_ns - (context->feedback_clock_regression ? 1 : 0);
+  feedback->sdk_call_end_monotonic_ns =
+      feedback->sdk_call_start_monotonic_ns +
+      (context->feedback_stale ? 40'000'000
+                               : context->feedback_callback_duration_ns);
+  feedback->sampled_monotonic_ns = context->feedback_stale
+      ? feedback->sdk_call_start_monotonic_ns
+      : feedback->sdk_call_end_monotonic_ns;
+  feedback->validation_monotonic_ns =
+      feedback->sdk_call_end_monotonic_ns +
+      context->feedback_validation_delay_ns;
+  if (context->feedback_future) {
+    feedback->sampled_monotonic_ns = feedback->validation_monotonic_ns + 1;
+  }
   feedback->dof = 6;
   feedback->position_rad = context->q;
   feedback->velocity_rad_s = context->dq;
@@ -138,8 +158,12 @@ JakaFunctionResult ReadStatus(void* opaque, JakaNormalizedStatus* status) noexce
   if (status == nullptr) return JakaFunctionResult::kFailure;
   *status = {};
   status->sequence = ++context->status_sequence;
+  status->sdk_call_start_monotonic_ns = context->now_ns;
+  status->sdk_call_end_monotonic_ns = context->now_ns + 100'000;
   status->sampled_monotonic_ns =
-      context->stale_status ? context->now_ns - 100'000'000 : context->now_ns;
+      context->stale_status ? context->now_ns - 100'000'000
+                            : status->sdk_call_end_monotonic_ns;
+  status->validation_monotonic_ns = status->sdk_call_end_monotonic_ns + 1'000;
   status->session_alive = context->connected && !context->session_lost;
   status->powered_on = context->powered;
   status->servo_enabled = context->servo;
@@ -291,6 +315,79 @@ void TestPoliciesDefaultClosedAndRepeatStopped() {
   CHECK(context.send_count == before + 4U);
   CHECK(adapter.Snapshot().repeated_stopped_command_count == 4U);
   CHECK(adapter.Snapshot().session_owned);
+  CHECK(adapter.BeginMeasuredStateRefresh(2, now) == ThinJakaCode::kOk);
+  MeasuredJointStateV1 measured{};
+  Advance(&context, &now);
+  CHECK(adapter.RefreshMeasuredState(now, &measured) ==
+        ThinJakaCode::kNeedMoreSamples);
+  const auto before_refresh_tick = context.send_count;
+  CHECK(adapter.Tick(now) == ThinJakaCode::kOk);
+  CHECK(context.send_count == before_refresh_tick + 1U);
+  CHECK(adapter.Snapshot().repeated_stopped_command_count == 5U);
+}
+
+void TestFeedbackTimestampSemantics() {
+  auto initialized_adapter = [](FakeTableContext* context,
+                                ThinJakaConfig config,
+                                std::int64_t now) {
+    auto adapter = std::make_unique<ThinJakaTransportAdapter>(Table(context), config);
+    CHECK(adapter->Connect(now) == ThinJakaCode::kOk);
+    CHECK(adapter->PrepareServo(now) == ThinJakaCode::kOk);
+    CHECK(adapter->BeginMeasuredStateRefresh(1, now) == ThinJakaCode::kOk);
+    return adapter;
+  };
+
+  {
+    std::int64_t now = 1'500'000'000;
+    FakeTableContext context;
+    context.now_ns = now;
+    context.feedback_callback_duration_ns = 2'000'000;
+    context.feedback_validation_delay_ns = 3'000;
+    auto config = Config();
+    config.measurement.stable_sample_count = 1;
+    auto adapter = initialized_adapter(&context, config, now);
+    MeasuredJointStateV1 measured{};
+    CHECK(adapter->RefreshMeasuredState(now, &measured) == ThinJakaCode::kOk);
+    const auto snapshot = adapter->Snapshot();
+    CHECK(snapshot.last_feedback_call_duration_ns == 2'000'000);
+    CHECK(snapshot.last_feedback_sample_age_ns == 3'000);
+    CHECK(snapshot.last_feedback_sample_ns <=
+          snapshot.last_feedback_validation_ns);
+    CHECK(measured.position_rad == context.q);
+    CHECK(measured.velocity_rad_s == context.dq);
+  }
+  {
+    std::int64_t now = 1'600'000'000;
+    FakeTableContext context;
+    context.now_ns = now;
+    context.feedback_future = true;
+    auto adapter = initialized_adapter(&context, Config(), now);
+    MeasuredJointStateV1 measured{};
+    CHECK(adapter->RefreshMeasuredState(now, &measured) ==
+          ThinJakaCode::kTimingFault);
+    CHECK(adapter->Snapshot().state == ThinJakaState::kFaulted);
+  }
+  {
+    std::int64_t now = 1'700'000'000;
+    FakeTableContext context;
+    context.now_ns = now;
+    context.feedback_stale = true;
+    auto adapter = initialized_adapter(&context, Config(), now);
+    MeasuredJointStateV1 measured{};
+    CHECK(adapter->RefreshMeasuredState(now, &measured) == ThinJakaCode::kStale);
+    CHECK(adapter->Snapshot().state == ThinJakaState::kFaulted);
+  }
+  {
+    std::int64_t now = 1'800'000'000;
+    FakeTableContext context;
+    context.now_ns = now;
+    context.feedback_clock_regression = true;
+    auto adapter = initialized_adapter(&context, Config(), now);
+    MeasuredJointStateV1 measured{};
+    CHECK(adapter->RefreshMeasuredState(now, &measured) ==
+          ThinJakaCode::kTimingFault);
+    CHECK(adapter->Snapshot().state == ThinJakaState::kFaulted);
+  }
 }
 
 void TestThousandCycle125HzLatestOnly() {
@@ -535,6 +632,7 @@ void operator delete[](void* pointer, std::size_t) noexcept { std::free(pointer)
 
 int main() {
   TestPoliciesDefaultClosedAndRepeatStopped();
+  TestFeedbackTimestampSemantics();
   TestThousandCycle125HzLatestOnly();
   TestRestartPoliciesAndFirstFrameContinuity();
   TestFaultMatrixAndExplicitReset();

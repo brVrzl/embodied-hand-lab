@@ -9,7 +9,11 @@ from typing import Protocol
 from teleoperation.accepted_target import AcceptedArmTarget, ArmControlHeartbeat
 
 from ..runtime.arm_only import ArmOnlyRuntime
-from ..wire import heartbeat_target_packet, joint_position_target_packet
+from ..wire import (
+    heartbeat_target_packet,
+    hold_current_target_packet,
+    joint_position_target_packet,
+)
 
 
 JAKA_JOINT_ORDER = tuple(f"jaka_joint_{index}" for index in range(1, 7))
@@ -88,6 +92,19 @@ class JakaAcceptedJointTargetAdapter:
         self.stopped = True
         self.last_sequence += 1
         return self.runtime.dispatch_stop(sequence=self.last_sequence)
+
+    def pause(self) -> bool:
+        """Request recoverable braking; unlike stop(), future targets remain allowed."""
+
+        if self.stopped:
+            return False
+        self.last_sequence += 1
+        return self.runtime.dispatch_packet(
+            hold_current_target_packet(
+                sequence=self.last_sequence,
+                monotonic_ns=time.monotonic_ns(),
+            )
+        )
 
 
 class E2IsolatedForwardTranslationGuard:
@@ -207,6 +224,76 @@ class E2IsolatedForwardTranslationGuard:
         return self.output.heartbeat(heartbeat)
 
 
+class ResearchThinBoundedMotionGuard:
+    """Research gate envelope for separate forward or single-axis wrist motion.
+
+    The guard only rejects; it never rewrites an immutable accepted target.
+    Forward translation and wrist rotation may each be exercised relative to
+    the first accepted endpoint, but not at the same time.
+    """
+
+    def __init__(self, output: JakaAcceptedJointTargetAdapter) -> None:
+        self.output = output
+        self.baseline: AcceptedArmTarget | None = None
+        self.abort_reason: str | None = None
+
+    @property
+    def stopped(self) -> bool:
+        return self.output.stopped
+
+    @property
+    def applied_count(self) -> int:
+        return self.output.applied_count
+
+    def apply(self, target: AcceptedArmTarget) -> bool:
+        if self.stopped or self.abort_reason is not None:
+            return False
+        if self.baseline is None:
+            self.baseline = target
+            return self.output.apply(target)
+        delta = _position_delta(
+            target.filtered_tcp.position_m,
+            self.baseline.filtered_tcp.position_m,
+        )
+        rotation_vector = _relative_rotation_vector(
+            target.filtered_tcp.orientation_xyzw,
+            self.baseline.filtered_tcp.orientation_xyzw,
+        )
+        translation_norm = _norm(delta)
+        rotation_norm = _norm(rotation_vector)
+        if translation_norm > 0.003 and rotation_norm > math.radians(2.0):
+            self.abort_reason = "research_combined_translation_rotation_forbidden"
+            return False
+        if translation_norm > 0.003:
+            if not (
+                -0.025 <= delta[0] <= 0.003
+                and abs(delta[1]) <= 0.004
+                and abs(delta[2]) <= 0.004
+                and rotation_norm <= math.radians(3.0)
+            ):
+                self.abort_reason = "research_forward_envelope_exceeded"
+                return False
+        if rotation_norm > math.radians(2.0):
+            ordered = sorted(map(abs, rotation_vector), reverse=True)
+            if not (
+                translation_norm <= 0.003
+                and rotation_norm <= math.radians(6.0)
+                and ordered[1] <= math.radians(1.0)
+            ):
+                self.abort_reason = "research_single_axis_wrist_envelope_exceeded"
+                return False
+        return self.output.apply(target)
+
+    def heartbeat(self, heartbeat: ArmControlHeartbeat) -> bool:
+        return self.output.heartbeat(heartbeat)
+
+    def pause(self) -> bool:
+        return self.output.pause()
+
+    def stop(self) -> bool:
+        return self.output.stop()
+
+
 def _e2_violation(
     target: AcceptedArmTarget,
     baseline: AcceptedArmTarget,
@@ -242,6 +329,30 @@ def _position_delta(
 
 def _norm(values: tuple[float, ...]) -> float:
     return math.sqrt(sum(value * value for value in values))
+
+
+def _relative_rotation_vector(
+    current: tuple[float, ...], baseline: tuple[float, ...]
+) -> tuple[float, float, float]:
+    x1, y1, z1, w1 = current
+    x0, y0, z0, w0 = baseline
+    # current * conjugate(baseline), xyzw convention.
+    x = -w1 * x0 + x1 * w0 - y1 * z0 + z1 * y0
+    y = -w1 * y0 + x1 * z0 + y1 * w0 - z1 * x0
+    z = -w1 * z0 - x1 * y0 + y1 * x0 + z1 * w0
+    w = w1 * w0 + x1 * x0 + y1 * y0 + z1 * z0
+    norm = math.sqrt(x * x + y * y + z * z + w * w)
+    if norm <= 1e-12:
+        return (math.inf, math.inf, math.inf)
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    if w < 0.0:
+        x, y, z, w = -x, -y, -z, -w
+    vector_norm = math.sqrt(x * x + y * y + z * z)
+    if vector_norm <= 1e-12:
+        return (0.0, 0.0, 0.0)
+    angle = 2.0 * math.atan2(vector_norm, max(0.0, min(1.0, w)))
+    scale = angle / vector_norm
+    return (x * scale, y * scale, z * scale)
 
 
 def _quaternion_angle(left: tuple[float, ...], right: tuple[float, ...]) -> float:

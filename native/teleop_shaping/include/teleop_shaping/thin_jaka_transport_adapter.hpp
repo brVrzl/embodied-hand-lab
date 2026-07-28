@@ -21,7 +21,10 @@ enum class JakaFunctionResult : std::uint8_t {
 
 struct JakaJointFeedback {
   std::uint64_t sequence;
+  std::int64_t sdk_call_start_monotonic_ns;
+  std::int64_t sdk_call_end_monotonic_ns;
   std::int64_t sampled_monotonic_ns;
+  std::int64_t validation_monotonic_ns;
   std::uint8_t dof;
   std::array<double, teleop_command_abi::kMaxDof> position_rad;
   std::array<double, teleop_command_abi::kMaxDof> velocity_rad_s;
@@ -29,7 +32,10 @@ struct JakaJointFeedback {
 
 struct JakaNormalizedStatus {
   std::uint64_t sequence;
+  std::int64_t sdk_call_start_monotonic_ns;
+  std::int64_t sdk_call_end_monotonic_ns;
   std::int64_t sampled_monotonic_ns;
+  std::int64_t validation_monotonic_ns;
   bool session_alive;
   bool powered_on;
   bool servo_enabled;
@@ -122,6 +128,14 @@ struct ThinJakaSnapshot {
   std::int64_t maximum_tick_interval_ns;
   std::int64_t maximum_command_age_ns;
   double maximum_resume_position_delta_rad;
+  std::int64_t last_feedback_call_start_ns;
+  std::int64_t last_feedback_call_end_ns;
+  std::int64_t last_feedback_sample_ns;
+  std::int64_t last_feedback_validation_ns;
+  std::int64_t last_feedback_sample_age_ns;
+  std::int64_t last_feedback_call_duration_ns;
+  std::int64_t maximum_feedback_sample_age_ns;
+  std::int64_t maximum_feedback_call_duration_ns;
 };
 
 class ThinJakaTransportAdapter final {
@@ -191,6 +205,14 @@ class ThinJakaTransportAdapter final {
   std::int64_t maximum_tick_interval_ns_;
   std::int64_t maximum_command_age_ns_;
   double maximum_resume_position_delta_rad_;
+  std::int64_t last_feedback_call_start_ns_;
+  std::int64_t last_feedback_call_end_ns_;
+  std::int64_t last_feedback_sample_ns_;
+  std::int64_t last_feedback_validation_ns_;
+  std::int64_t last_feedback_sample_age_ns_;
+  std::int64_t last_feedback_call_duration_ns_;
+  std::int64_t maximum_feedback_sample_age_ns_;
+  std::int64_t maximum_feedback_call_duration_ns_;
   std::uint64_t refresh_epoch_;
   teleop_command_abi::MeasuredJointStateV1 measured_;
   teleop_command_abi::ShapedJointCommandV1 pending_;

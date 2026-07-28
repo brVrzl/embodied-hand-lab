@@ -91,6 +91,13 @@ class ReferenceJointShaperV1 final : public IJointShaper {
   OperationResult Initialize(const MeasuredJointStateV1& measured,
                              const JointDynamicLimitsV1& limits,
                              std::int64_t now_ns) noexcept override;
+  // Lifecycle-specific initialization whose first integration step is due on
+  // the following 8 ms grid tick. The legacy Initialize contract is retained
+  // for replay/conformance callers that intentionally tick at now_ns.
+  OperationResult InitializeForNextTick(
+      const MeasuredJointStateV1& measured,
+      const JointDynamicLimitsV1& limits,
+      std::int64_t now_ns) noexcept;
   OperationResult ReplaceTarget(const AcceptedJointTargetV1& target,
                                 std::int64_t now_ns) noexcept override;
   OperationResult Tick(std::int64_t now_ns,
