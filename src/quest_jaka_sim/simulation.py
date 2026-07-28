@@ -1240,6 +1240,11 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
             dtype=np.int32,
         )
         self.hand_available = len(self.hand_actuator_ids) == 6
+        self.hand_ctrl_ranges = (
+            self.model.actuator_ctrlrange[self.hand_actuator_ids].copy()
+            if self.hand_available
+            else np.empty((0, 2), dtype=np.float64)
+        )
         self._set_position_actuator_gains(
             self.arm_actuator_ids,
             kp=float(simulation_values.get("arm_position_kp", 40.0)),
@@ -1343,8 +1348,9 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         values = np.asarray([float(targets_rad[name]) for name in order], dtype=np.float64)
         if values.shape != (6,) or not np.all(np.isfinite(values)):
             raise ValueError("RH56 simulated actuator target must contain six finite values")
-        limits = np.asarray([1.1, 0.5, 1.7, 1.68, 1.7, 1.7], dtype=np.float64)
-        if np.any(values < 0.0) or np.any(values > limits + 1e-9):
+        lower = self.hand_ctrl_ranges[:, 0]
+        upper = self.hand_ctrl_ranges[:, 1]
+        if np.any(values < lower - 1e-9) or np.any(values > upper + 1e-9):
             raise ValueError("RH56 simulated actuator target violates project model limits")
         self.commanded_hand_target = values
 

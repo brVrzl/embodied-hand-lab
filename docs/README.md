@@ -21,6 +21,7 @@ the recorded result is not rewritten after the fact.
 ### Operation
 
 - [Quest/JAKA MuJoCo simulation](operation/simulation_demo.md)
+- [RH56 H0 simulation self-test](operation/rh56_h0_self_test.md)
 - [Quest host setup](operation/quest_setup.md)
 - [Hardware prerequisites](operation/hardware_prerequisites.md)
 - [JAKA arm teleoperation](operation/jaka_arm_teleoperation.md)
@@ -94,6 +95,7 @@ evidence is intentionally not mixed into normal operator instructions.
 ### 操作
 
 - [Quest/JAKA MuJoCo 仿真](operation/simulation_demo.md)
+- [RH56 H0 仿真自检](operation/rh56_h0_self_test.md)
 - [Quest 主机设置](operation/quest_setup.md)
 - [真机前置条件](operation/hardware_prerequisites.md)
 - [JAKA 机械臂遥操作](operation/jaka_arm_teleoperation.md)

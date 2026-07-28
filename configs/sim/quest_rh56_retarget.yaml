@@ -1,28 +1,36 @@
 schema_version: quest_rh56_retarget.v1
 selected_backend: adaptive
 
-# Simulation-only, not a physical RH56DFX calibration.  The actuator order and
-# mimic ratios match data/sim_assets/jaka_rh56_visual_coacd.xml.
+# Simulation-only Quest feature calibration. The actuator order and polynomial
+# thumb coupling match data/sim_assets/jaka_rh56_visual_coacd.xml; model travel
+# comes separately from the audited local 0--1000 vendor-angle table.
 calibration:
   calibration_id: quest_rh56_sim_uncalibrated_v1
   global_scale: 1.0
   palm_scale: 1.0
   finger_scale: [1.0, 1.0, 1.0, 1.0]
-  # The 2026-07-21 Quest recording reached only 0.356/0.500 rad with scale 1.0.
-  # 1.2 uses the available model range while the existing normalized slew
-  # limiter still bounds every frame and clutch reacquisition remains separate.
-  thumb_scale: 1.2
+  # Retained for backward-compatible calibration loading and the archived
+  # absolute-retarget evidence. H2.1 does not multiply its normalized
+  # thumb-close feature by this legacy scale.
+  thumb_scale: 1.0
   key_vector_scale: 1.0
-  pinch_weight: 0.55
+  # H2.1 is bend-primary. Pinch can only fill intent not already represented
+  # by bend; it can never reduce bend and there is deliberately no bend gate.
+  thumb_close:
+    bend_gain: 1.0
+    pinch_assist_gain: 0.4
   # AnyDex Quest3/Inspire computes pinch alpha against every fingertip with
   # closed/open thresholds. Express them palm-normalized so user scale cancels.
   # The recorded palm was about 9-10 cm, making these approximately 2-5.5 cm.
   thumb_pinch_closed_distance_palm: 0.20
   thumb_pinch_open_distance_palm: 0.55
-  # Raw lateral feature occupied roughly 0.061-0.724 in the live recording;
-  # retain a small headroom above the observed maximum to avoid hard saturation.
-  thumb_lateral_min: 0.08
-  thumb_lateral_max: 0.74
+  # Right-hand palm-local opposition: positive is index-MCP -> pinky-MCP.
+  # The raw feature is thumb base-to-tip displacement along that axis divided
+  # by palm width. These simulation defaults remain explicitly configurable.
+  thumb_lateral:
+    open_across_palm: -0.60
+    opposed_across_palm: 0.25
+    frame_epsilon_m: 0.00001
   # AnyDex-inspired full-hand feature: retain the existing PIP/DIP curl and
   # add only a small, deadbanded MCP contribution in the unsaturated range.
   mcp_flexion_weight: 0.15
