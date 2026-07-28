@@ -1,0 +1,63 @@
+{
+  "schema_version": "teleop_no_sdk_test_manifest.v1",
+  "native_build_directory": "build/teleop_shaping",
+  "native_library": "build/teleop_shaping/libteleop_shaping_c_api.so",
+  "native_test_binary": "build/teleop_shaping/teleop_shaping_tests",
+  "native_artifacts": [
+    "build/teleop_shaping/libteleop_shaping_c_api.so",
+    "build/teleop_shaping/teleop_shaping_tests",
+    "build/teleop_shaping/thin_jaka_transport_tests",
+    "build/teleop_shaping/engagement_joint_shaper_tests"
+  ],
+  "forbidden_test_paths": [
+    "tests/test_native_jaka_servo_worker.py"
+  ],
+  "forbidden_library_patterns": [
+    "libjakaapi",
+    "jakaapi"
+  ],
+  "forbidden_symbol_patterns": [
+    "jkrc_",
+    "servoj",
+    "servo_j",
+    "edg"
+  ],
+  "python_test_paths": [
+    "tests/test_hts_canonical.py",
+    "tests/test_hts_operator.py",
+    "tests/test_hts_protocol.py",
+    "tests/test_hts_recording_replay.py",
+    "tests/test_jaka_edg_resampler.py",
+    "tests/test_no_sdk_manifest.py",
+    "tests/test_quest_controller_transport.py",
+    "tests/test_quest_jaka_bounded_teleop_entry.py",
+    "tests/test_quest_jaka_output_feasibility.py",
+    "tests/test_quest_jaka_se3.py",
+    "tests/test_quest_jaka_shared_pipeline.py",
+    "tests/test_quest_jaka_sim.py",
+    "tests/test_quest_jaka_singularity_liveness.py",
+    "tests/test_quest_jaka_smooth.py",
+    "tests/test_quest_jaka_wrist_roll.py",
+    "tests/test_quest_live_controller_sim.py",
+    "tests/test_quest_motion_provider.py",
+    "tests/test_residual_acceleration_braking.py",
+    "tests/test_teleop_engagement_recovery.py",
+    "tests/test_teleop_rearchitecture.py",
+    "tests/test_teleop_shaping_cpp.py",
+    "tests/test_teleop_stop_sweep.py",
+    "tests/test_teleop_unified_evaluator.py",
+    "tests/test_teleoperation_clutch_filter.py",
+    "tests/test_teleoperation_contracts.py",
+    "tests/test_teleoperation_fake_jaka.py",
+    "tests/test_teleoperation_frames.py",
+    "tests/test_teleoperation_isolation.py",
+    "tests/test_teleoperation_pose_validation.py",
+    "tests/test_teleoperation_production_isolation.py",
+    "tests/test_teleoperation_record_replay.py",
+    "tests/test_teleoperation_shaping_and_safety.py",
+    "tests/test_teleoperation_state_and_safety.py",
+    "tests/test_teleoperation_synthetic.py",
+    "tests/test_teleoperation_timing.py",
+    "tests/test_teleoperation_wire.py"
+  ]
+}

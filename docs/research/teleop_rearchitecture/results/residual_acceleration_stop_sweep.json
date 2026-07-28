@@ -1,0 +1,9165 @@
+{
+  "case_count": 115,
+  "cases": [
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0,
+      "maximum_palm_displacement_m": 0.0,
+      "maximum_velocity_excursion_rad_s": 0.0,
+      "peak_acceleration_rad_s2": 0.0,
+      "peak_jerk_rad_s3": 0.0,
+      "peak_velocity_rad_s": 0.0,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 2.747546895706429e-07,
+      "maximum_palm_displacement_m": 1.6177556124198972e-07,
+      "maximum_velocity_excursion_rad_s": 0.0,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.0,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 2.747546895706429e-07,
+      "maximum_palm_displacement_m": 1.6177556121585039e-07,
+      "maximum_velocity_excursion_rad_s": 0.0,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.0,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.434433619633036e-05,
+      "maximum_palm_displacement_m": 2.0221945151306915e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0024000000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.434433619633036e-05,
+      "maximum_palm_displacement_m": 2.022194515139606e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0024000000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002747546895706429,
+      "maximum_palm_displacement_m": 0.00016177556071006138,
+      "maximum_velocity_excursion_rad_s": 0.009600000000000001,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.009600000000000001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002747546895706429,
+      "maximum_palm_displacement_m": 0.00016177556071003967,
+      "maximum_velocity_excursion_rad_s": 0.009600000000000001,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.009600000000000001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017584300132521154,
+      "maximum_palm_displacement_m": 0.010353502525900697,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.16000000000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017584300132521154,
+      "maximum_palm_displacement_m": 0.01035350252590073,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.16000000000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747761035780703,
+      "maximum_palm_displacement_m": 0.2769299907468253,
+      "maximum_velocity_excursion_rad_s": 1.4399999999999988,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.4399999999999988,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747761035780703,
+      "maximum_palm_displacement_m": 0.27692999074682517,
+      "maximum_velocity_excursion_rad_s": 1.4399999999999988,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.4399999999999988,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 4e-09,
+      "maximum_palm_displacement_m": 2.355200003641249e-09,
+      "maximum_velocity_excursion_rad_s": 1.0000000000000002e-06,
+      "peak_acceleration_rad_s2": 0.0,
+      "peak_jerk_rad_s3": 0.0,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.584086074040719e-07,
+      "maximum_palm_displacement_m": 4.4655098800728715e-07,
+      "maximum_velocity_excursion_rad_s": 1.0000000000000135e-06,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.500000000000002,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 2.7063868140008926e-07,
+      "maximum_palm_displacement_m": 1.593520555782401e-07,
+      "maximum_velocity_excursion_rad_s": 1e-06,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.035642562568071e-05,
+      "maximum_palm_displacement_m": 3.553786340292205e-05,
+      "maximum_velocity_excursion_rad_s": 0.0031711460930345867,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 37.72542114816729,
+      "peak_velocity_rad_s": 0.003172146093034587,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.432373065534345e-05,
+      "maximum_palm_displacement_m": 2.0209812608840507e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.002399,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00036961027658467094,
+      "maximum_palm_displacement_m": 0.00021762652961392244,
+      "maximum_velocity_excursion_rad_s": 0.011583730984982232,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 43.11204519103393,
+      "peak_velocity_rad_s": 0.011584730984982231,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002747134768975461,
+      "maximum_palm_displacement_m": 0.0001617512946883408,
+      "maximum_velocity_excursion_rad_s": 0.0096,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.009599,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.01885628487564307,
+      "maximum_palm_displacement_m": 0.011102416051001646,
+      "maximum_velocity_excursion_rad_s": 0.16549005887096627,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.28435660282307,
+      "peak_velocity_rad_s": 0.16549105887096627,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017584135279839996,
+      "maximum_palm_displacement_m": 0.01035340546439375,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15999900000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4823263245372284,
+      "maximum_palm_displacement_m": 0.2812489035911087,
+      "maximum_velocity_excursion_rad_s": 1.4513144254652008,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.60713800468053,
+      "peak_velocity_rad_s": 1.4513154254652008,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+1e-06_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747756090196733,
+      "maximum_palm_displacement_m": 0.2769297077172702,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.4399989999999991,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 4e-09,
+      "maximum_palm_displacement_m": 2.3551999949316583e-09,
+      "maximum_velocity_excursion_rad_s": 1.0000000000000002e-06,
+      "peak_acceleration_rad_s2": 0.0,
+      "peak_jerk_rad_s3": 0.0,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 2.7063868140008926e-07,
+      "maximum_palm_displacement_m": 1.5935205558324195e-07,
+      "maximum_velocity_excursion_rad_s": 1e-06,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.584086074040719e-07,
+      "maximum_palm_displacement_m": 4.4655098800724215e-07,
+      "maximum_velocity_excursion_rad_s": 1.0000000000000135e-06,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.500000000000002,
+      "peak_velocity_rad_s": 1e-06,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.432373065534345e-05,
+      "maximum_palm_displacement_m": 2.020981260883359e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.002399,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.035642562568071e-05,
+      "maximum_palm_displacement_m": 3.5537863402905e-05,
+      "maximum_velocity_excursion_rad_s": 0.0031711460930345867,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 37.72542114816729,
+      "peak_velocity_rad_s": 0.003172146093034587,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002747134768975461,
+      "maximum_palm_displacement_m": 0.00016175129468839032,
+      "maximum_velocity_excursion_rad_s": 0.0096,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.009599,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00036961027658467094,
+      "maximum_palm_displacement_m": 0.00021762652961388007,
+      "maximum_velocity_excursion_rad_s": 0.011583730984982232,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 43.11204519103393,
+      "peak_velocity_rad_s": 0.011584730984982231,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017584135279839996,
+      "maximum_palm_displacement_m": 0.010353405464393672,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15999900000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.01885628487564307,
+      "maximum_palm_displacement_m": 0.011102416051001639,
+      "maximum_velocity_excursion_rad_s": 0.16549005887096627,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.28435660282307,
+      "peak_velocity_rad_s": 0.16549105887096627,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747756090196733,
+      "maximum_palm_displacement_m": 0.27692970771727027,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.4399989999999991,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-1e-06_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4823263245372284,
+      "maximum_palm_displacement_m": 0.28124890359110877,
+      "maximum_velocity_excursion_rad_s": 1.4513144254652008,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.60713800468053,
+      "peak_velocity_rad_s": 1.4513154254652008,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        -1e-06,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 4e-07,
+      "maximum_palm_displacement_m": 2.3551999994243078e-07,
+      "maximum_velocity_excursion_rad_s": 0.00010000000000000002,
+      "peak_acceleration_rad_s2": 0.0,
+      "peak_jerk_rad_s3": 0.0,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1671873729054748e-06,
+      "maximum_palm_displacement_m": 6.872399251911176e-07,
+      "maximum_velocity_excursion_rad_s": 0.00010000000000000009,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.500000000000004,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.666666666666667e-08,
+      "maximum_palm_displacement_m": 3.9253333365036556e-08,
+      "maximum_velocity_excursion_rad_s": 0.0001,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.200371604283632e-05,
+      "maximum_palm_displacement_m": 3.6507788000127363e-05,
+      "maximum_velocity_excursion_rad_s": 0.0031288403066588137,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 38.05593510422802,
+      "peak_velocity_rad_s": 0.0032288403066588135,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.229435441932789e-05,
+      "maximum_palm_displacement_m": 1.901491588121817e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0023000000000000004,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00037249399061564366,
+      "maximum_palm_displacement_m": 0.00021932446040613313,
+      "maximum_velocity_excursion_rad_s": 0.01155267793839612,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 43.21986826945792,
+      "peak_velocity_rad_s": 0.01165267793839612,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002706386814000891,
+      "maximum_palm_displacement_m": 0.0001593520551218124,
+      "maximum_velocity_excursion_rad_s": 0.0096,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0095,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.018866585136041118,
+      "maximum_palm_displacement_m": 0.0111084805746293,
+      "maximum_velocity_excursion_rad_s": 0.16546301759260454,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.292807002311086,
+      "peak_velocity_rad_s": 0.16556301759260453,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.01756781617711026,
+      "maximum_palm_displacement_m": 0.010343797147737439,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000003,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15990000000000004,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.48235640154780945,
+      "maximum_palm_displacement_m": 0.28126610040944294,
+      "maximum_velocity_excursion_rad_s": 1.4512858828365292,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.60812906817613,
+      "peak_velocity_rad_s": 1.4513858828365291,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.0001_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747266481758946,
+      "maximum_palm_displacement_m": 0.27690168795790693,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.439899999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 4e-07,
+      "maximum_palm_displacement_m": 2.3551999996036003e-07,
+      "maximum_velocity_excursion_rad_s": 0.00010000000000000002,
+      "peak_acceleration_rad_s2": 0.0,
+      "peak_jerk_rad_s3": 0.0,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.666666666666667e-08,
+      "maximum_palm_displacement_m": 3.9253333339521515e-08,
+      "maximum_velocity_excursion_rad_s": 0.0001,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 0.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1671873729054748e-06,
+      "maximum_palm_displacement_m": 6.872399251957533e-07,
+      "maximum_velocity_excursion_rad_s": 0.00010000000000000009,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.500000000000004,
+      "peak_velocity_rad_s": 0.0001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.229435441932789e-05,
+      "maximum_palm_displacement_m": 1.901491588124097e-05,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0023000000000000004,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.200371604283632e-05,
+      "maximum_palm_displacement_m": 3.650778800009845e-05,
+      "maximum_velocity_excursion_rad_s": 0.0031288403066588137,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 38.05593510422802,
+      "peak_velocity_rad_s": 0.0032288403066588135,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0002706386814000891,
+      "maximum_palm_displacement_m": 0.00015935205512179347,
+      "maximum_velocity_excursion_rad_s": 0.0096,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0095,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00037249399061564366,
+      "maximum_palm_displacement_m": 0.00021932446040616528,
+      "maximum_velocity_excursion_rad_s": 0.01155267793839612,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 43.21986826945792,
+      "peak_velocity_rad_s": 0.01165267793839612,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.01756781617711026,
+      "maximum_palm_displacement_m": 0.010343797147737392,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000003,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15990000000000004,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.018866585136041118,
+      "maximum_palm_displacement_m": 0.011108480574629353,
+      "maximum_velocity_excursion_rad_s": 0.16546301759260454,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.292807002311086,
+      "peak_velocity_rad_s": 0.16556301759260453,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4747266481758946,
+      "maximum_palm_displacement_m": 0.276901687957907,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.439899999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.0001_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.48235640154780945,
+      "maximum_palm_displacement_m": 0.2812661004094429,
+      "maximum_velocity_excursion_rad_s": 1.4512858828365292,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.60812906817613,
+      "peak_velocity_rad_s": 1.4513858828365291,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.0001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.999999999999998e-06,
+      "maximum_palm_displacement_m": 4.710399999942316e-06,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.12500000000000003,
+      "peak_jerk_rad_s3": 15.625000000000004,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1151962695488657e-05,
+      "maximum_palm_displacement_m": 6.566275635022897e-06,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.13561072252245138,
+      "peak_jerk_rad_s3": 29.45134031530642,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.224446156481071e-06,
+      "maximum_palm_displacement_m": 1.8985538969244905e-06,
+      "maximum_velocity_excursion_rad_s": 0.001,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.691623413942041e-05,
+      "maximum_palm_displacement_m": 4.528827865003049e-05,
+      "maximum_velocity_excursion_rad_s": 0.002739601355301925,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 41.096864411703706,
+      "peak_velocity_rad_s": 0.003739601355301925,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.488250502924416e-05,
+      "maximum_palm_displacement_m": 8.762818961140392e-06,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0014000000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00039867579116776317,
+      "maximum_palm_displacement_m": 0.00023474030428464486,
+      "maximum_velocity_excursion_rad_s": 0.011269355129113576,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 44.2036280239112,
+      "peak_velocity_rad_s": 0.012269355129113575,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00023408100411832195,
+      "maximum_palm_displacement_m": 0.00013782689490994808,
+      "maximum_velocity_excursion_rad_s": 0.009600000000000001,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0086,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 40.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0189602151851018,
+      "maximum_palm_displacement_m": 0.011163607482442366,
+      "maximum_velocity_excursion_rad_s": 0.16521712430075944,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.36964865601267,
+      "peak_velocity_rad_s": 0.16621712430075944,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017419580039731736,
+      "maximum_palm_displacement_m": 0.010256519048884345,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15900000000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4826298260174006,
+      "maximum_palm_displacement_m": 0.2814224305457733,
+      "maximum_velocity_excursion_rad_s": 1.4510263967345933,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.61713900227116,
+      "peak_velocity_rad_s": 1.4520263967345932,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.001_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.47428158933613335,
+      "maximum_palm_displacement_m": 0.27664697800743737,
+      "maximum_velocity_excursion_rad_s": 1.4399999999999988,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.438999999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.999999999999998e-06,
+      "maximum_palm_displacement_m": 4.710399999940679e-06,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.12500000000000003,
+      "peak_jerk_rad_s3": 15.625000000000004,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.224446156481071e-06,
+      "maximum_palm_displacement_m": 1.8985538968866779e-06,
+      "maximum_velocity_excursion_rad_s": 0.001,
+      "peak_acceleration_rad_s2": 0.1,
+      "peak_jerk_rad_s3": 12.5,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 8.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1151962695488657e-05,
+      "maximum_palm_displacement_m": 6.566275635101562e-06,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.13561072252245138,
+      "peak_jerk_rad_s3": 29.45134031530642,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.488250502924416e-05,
+      "maximum_palm_displacement_m": 8.7628189611397e-06,
+      "maximum_velocity_excursion_rad_s": 0.0024000000000000002,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0014000000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.691623413942041e-05,
+      "maximum_palm_displacement_m": 4.528827865001258e-05,
+      "maximum_velocity_excursion_rad_s": 0.002739601355301925,
+      "peak_acceleration_rad_s2": 0.5,
+      "peak_jerk_rad_s3": 41.096864411703706,
+      "peak_velocity_rad_s": 0.003739601355301925,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00023408100411832195,
+      "maximum_palm_displacement_m": 0.00013782689490988414,
+      "maximum_velocity_excursion_rad_s": 0.009600000000000001,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0086,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 40.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00039867579116776317,
+      "maximum_palm_displacement_m": 0.0002347403042845508,
+      "maximum_velocity_excursion_rad_s": 0.011269355129113576,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 44.2036280239112,
+      "peak_velocity_rad_s": 0.012269355129113575,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 56.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017419580039731736,
+      "maximum_palm_displacement_m": 0.010256519048884341,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15900000000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0189602151851018,
+      "maximum_palm_displacement_m": 0.011163607482442306,
+      "maximum_velocity_excursion_rad_s": 0.16521712430075944,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 48.36964865601267,
+      "peak_velocity_rad_s": 0.16621712430075944,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.47428158933613335,
+      "maximum_palm_displacement_m": 0.27664697800743754,
+      "maximum_velocity_excursion_rad_s": 1.4399999999999988,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.438999999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.001_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4826298260174006,
+      "maximum_palm_displacement_m": 0.28142243054577326,
+      "maximum_velocity_excursion_rad_s": 1.4510263967345933,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.61713900227116,
+      "peak_velocity_rad_s": 1.4520263967345932,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.001,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00016000000000000004,
+      "maximum_palm_displacement_m": 9.420799989932926e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.625,
+      "peak_jerk_rad_s3": 39.0625,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00017277989747288422,
+      "maximum_palm_displacement_m": 0.00010173280350534976,
+      "maximum_velocity_excursion_rad_s": 0.010000000000000002,
+      "peak_acceleration_rad_s2": 0.6284320292076112,
+      "peak_jerk_rad_s3": 45.5270018254757,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00014723801341062884,
+      "maximum_palm_displacement_m": 8.669374221774453e-05,
+      "maximum_velocity_excursion_rad_s": 0.010000000000000002,
+      "peak_acceleration_rad_s2": 0.5297194790803995,
+      "peak_jerk_rad_s3": 33.107467442524964,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0003808789465268222,
+      "maximum_palm_displacement_m": 0.0002242615223590476,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.653610113503935,
+      "peak_jerk_rad_s3": 40.85063209399595,
+      "peak_velocity_rad_s": 0.012771119091968519,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 8.743705986419205e-05,
+      "maximum_palm_displacement_m": 5.1482940831581085e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.62283903060711,
+      "peak_jerk_rad_s3": 38.92743941294437,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0008125545451502017,
+      "maximum_palm_displacement_m": 0.0004784321030218786,
+      "maximum_velocity_excursion_rad_s": 0.010668536934875199,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 46.289802309461116,
+      "peak_velocity_rad_s": 0.0206685369348752,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 64.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.666666666666667e-05,
+      "maximum_palm_displacement_m": 3.925333332604216e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0198956714385469,
+      "maximum_palm_displacement_m": 0.011714378132725184,
+      "maximum_velocity_excursion_rad_s": 0.16275197765363397,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 49.14000698323939,
+      "peak_velocity_rad_s": 0.17275197765363398,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.015949171695910834,
+      "maximum_palm_displacement_m": 0.00939077276096741,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15000000000000005,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 184.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.48536378401666486,
+      "maximum_palm_displacement_m": 0.28298527827476483,
+      "maximum_velocity_excursion_rad_s": 1.4484307777527323,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.70726466136349,
+      "peak_velocity_rad_s": 1.4584307777527323,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v+0.01_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4698349437116146,
+      "maximum_palm_displacement_m": 0.2741013848603731,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.429999999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+0",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00016000000000000004,
+      "maximum_palm_displacement_m": 9.420799989930733e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.625,
+      "peak_jerk_rad_s3": 39.0625,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00014723801341062884,
+      "maximum_palm_displacement_m": 8.669374221773579e-05,
+      "maximum_velocity_excursion_rad_s": 0.010000000000000002,
+      "peak_acceleration_rad_s2": 0.5297194790803995,
+      "peak_jerk_rad_s3": 33.107467442524964,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.1,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a-0.1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.00017277989747288422,
+      "maximum_palm_displacement_m": 0.00010173280350525546,
+      "maximum_velocity_excursion_rad_s": 0.010000000000000002,
+      "peak_acceleration_rad_s2": 0.6284320292076112,
+      "peak_jerk_rad_s3": 45.5270018254757,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 32.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 8.743705986419205e-05,
+      "maximum_palm_displacement_m": 5.148294083156817e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.62283903060711,
+      "peak_jerk_rad_s3": 38.92743941294437,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 24.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a-0.5",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0003808789465268222,
+      "maximum_palm_displacement_m": 0.00022426152235908333,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 0.653610113503935,
+      "peak_jerk_rad_s3": 40.85063209399595,
+      "peak_velocity_rad_s": 0.012771119091968519,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 48.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.666666666666667e-05,
+      "maximum_palm_displacement_m": 3.925333332600691e-05,
+      "maximum_velocity_excursion_rad_s": 0.01,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.01,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a-1",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0008125545451502017,
+      "maximum_palm_displacement_m": 0.0004784321030218901,
+      "maximum_velocity_excursion_rad_s": 0.010668536934875199,
+      "peak_acceleration_rad_s2": 1.0,
+      "peak_jerk_rad_s3": 46.289802309461116,
+      "peak_velocity_rad_s": 0.0206685369348752,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 64.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.015949171695910834,
+      "maximum_palm_displacement_m": 0.009390772760967407,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15000000000000005,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 184.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -4.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a-4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0198956714385469,
+      "maximum_palm_displacement_m": 0.011714378132725283,
+      "maximum_velocity_excursion_rad_s": 0.16275197765363397,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 49.14000698323939,
+      "peak_velocity_rad_s": 0.17275197765363398,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a+12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.4698349437116146,
+      "maximum_palm_displacement_m": 0.27410138486037317,
+      "maximum_velocity_excursion_rad_s": 1.439999999999999,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 50.00000000000004,
+      "peak_velocity_rad_s": 1.429999999999999,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 576.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.0,
+        -12.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "j2_v-0.01_a-12",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.48536378401666486,
+      "maximum_palm_displacement_m": 0.28298527827476483,
+      "maximum_velocity_excursion_rad_s": 1.4484307777527323,
+      "peak_acceleration_rad_s2": 12.0,
+      "peak_jerk_rad_s3": 49.70726466136349,
+      "peak_velocity_rad_s": 1.4584307777527323,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 584.0,
+      "velocity_rad_s": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.159,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j20_a0.159",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        20.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 6.902660348866453e-06,
+      "maximum_palm_displacement_m": 4.0642864134066655e-06,
+      "maximum_velocity_excursion_rad_s": 0.0006320000000000001,
+      "peak_acceleration_rad_s2": 0.159,
+      "peak_jerk_rad_s3": 20.0,
+      "peak_velocity_rad_s": 0.0006320000000000001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.16,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j20_a0.16",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        20.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.033720053008457e-06,
+      "maximum_palm_displacement_m": 4.141454367249144e-06,
+      "maximum_velocity_excursion_rad_s": 0.00064,
+      "peak_acceleration_rad_s2": 0.16,
+      "peak_jerk_rad_s3": 20.0,
+      "peak_velocity_rad_s": 0.00064,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.161,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j20_a0.161",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        20.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 7.166428285287888e-06,
+      "maximum_palm_displacement_m": 4.219592974400231e-06,
+      "maximum_velocity_excursion_rad_s": 0.000648,
+      "peak_acceleration_rad_s2": 0.161,
+      "peak_jerk_rad_s3": 20.0,
+      "peak_velocity_rad_s": 0.000648,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.395,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j50_a0.395",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.6933097173902526e-05,
+      "maximum_palm_displacement_m": 9.970207615811463e-06,
+      "maximum_velocity_excursion_rad_s": 0.0015600000000000002,
+      "peak_acceleration_rad_s2": 0.395,
+      "peak_jerk_rad_s3": 49.99999999999999,
+      "peak_velocity_rad_s": 0.0015600000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.4,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j50_a0.4",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.7584300132521144e-05,
+      "maximum_palm_displacement_m": 1.0353635917917858e-05,
+      "maximum_velocity_excursion_rad_s": 0.0016,
+      "peak_acceleration_rad_s2": 0.4,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0016,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.405,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j50_a0.405",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.8251988372514002e-05,
+      "maximum_palm_displacement_m": 1.0746770753586104e-05,
+      "maximum_velocity_excursion_rad_s": 0.0016400000000000002,
+      "peak_acceleration_rad_s2": 0.405,
+      "peak_jerk_rad_s3": 50.0,
+      "peak_velocity_rad_s": 0.0016400000000000002,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.795,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j100_a0.795",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        100.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.451330174433226e-05,
+      "maximum_palm_displacement_m": 2.0321432066028013e-05,
+      "maximum_velocity_excursion_rad_s": 0.0031600000000000005,
+      "peak_acceleration_rad_s2": 0.795,
+      "peak_jerk_rad_s3": 100.0,
+      "peak_velocity_rad_s": 0.0031600000000000005,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.8,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j100_a0.8",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        100.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.516860026504229e-05,
+      "maximum_palm_displacement_m": 2.0707271834971745e-05,
+      "maximum_velocity_excursion_rad_s": 0.0032,
+      "peak_acceleration_rad_s2": 0.8,
+      "peak_jerk_rad_s3": 100.0,
+      "peak_velocity_rad_s": 0.0032,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 1,
+      "acceleration_rad_s2": [
+        0.0,
+        0.805,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "case_id": "quantized_j100_a0.805",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        100.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 3.583214142643943e-05,
+      "maximum_palm_displacement_m": 2.1097964870707913e-05,
+      "maximum_velocity_excursion_rad_s": 0.0032400000000000003,
+      "peak_acceleration_rad_s2": 0.805,
+      "peak_jerk_rad_s3": 100.0,
+      "peak_velocity_rad_s": 0.0032400000000000003,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 3,
+      "acceleration_rad_s2": [
+        1.0,
+        -0.5,
+        -1.0,
+        4.0,
+        -0.1,
+        0.1
+      ],
+      "case_id": "mixed_six_axis",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        1
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.017255125945188226,
+      "maximum_palm_displacement_m": 0.00019600761478326945,
+      "maximum_velocity_excursion_rad_s": 0.16000000000000006,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 50.000000000000014,
+      "peak_velocity_rad_s": 0.15800000000000006,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        1,
+        1,
+        0,
+        0
+      ],
+      "stop_time_ms": 192.0,
+      "velocity_rad_s": [
+        0.01,
+        -0.008,
+        0.004,
+        -0.002,
+        0.0001,
+        -1e-06
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        4.0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "case_id": "dominant_shoulder",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0198956714385469,
+      "maximum_palm_displacement_m": 0.00011937140311325106,
+      "maximum_velocity_excursion_rad_s": 0.16275197765363397,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 49.14000698323939,
+      "peak_velocity_rad_s": 0.17275197765363398,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0.01,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -4.0
+      ],
+      "case_id": "dominant_wrist",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 0.0198956714385469,
+      "maximum_palm_displacement_m": 0.0,
+      "maximum_velocity_excursion_rad_s": 0.16275197765363397,
+      "peak_acceleration_rad_s2": 4.0,
+      "peak_jerk_rad_s3": 49.14000698323939,
+      "peak_velocity_rad_s": 0.17275197765363398,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 200.0,
+      "velocity_rad_s": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -0.01
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "case_id": "upper_limit_outward_unplannable",
+      "completion": false,
+      "direction_consistency": null,
+      "expected_failure": "POSITION_LIMIT",
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": null,
+      "maximum_palm_displacement_m": null,
+      "maximum_velocity_excursion_rad_s": null,
+      "peak_acceleration_rad_s2": null,
+      "peak_jerk_rad_s3": null,
+      "peak_velocity_rad_s": null,
+      "planning_failure_axis": 0,
+      "planning_failure_reason": "POSITION_LIMIT",
+      "position_rad": [
+        2.9999,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "reversals": null,
+      "stop_time_ms": null,
+      "velocity_rad_s": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "case_id": "lower_limit_outward_unplannable",
+      "completion": false,
+      "direction_consistency": null,
+      "expected_failure": "POSITION_LIMIT",
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": null,
+      "maximum_palm_displacement_m": null,
+      "maximum_velocity_excursion_rad_s": null,
+      "peak_acceleration_rad_s2": null,
+      "peak_jerk_rad_s3": null,
+      "peak_velocity_rad_s": null,
+      "planning_failure_axis": 0,
+      "planning_failure_reason": "POSITION_LIMIT",
+      "position_rad": [
+        -2.9999,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "reversals": null,
+      "stop_time_ms": null,
+      "velocity_rad_s": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        -0.1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "case_id": "upper_limit_inward",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1151962695521433e-05,
+      "maximum_palm_displacement_m": 6.69114081132028e-08,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.13561072252245138,
+      "peak_jerk_rad_s3": 29.45134031530642,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        2.9999,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        -0.001,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "acceleration_neutralization_axis_count": 0,
+      "acceleration_rad_s2": [
+        0.1,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "case_id": "lower_limit_inward",
+      "completion": true,
+      "direction_consistency": true,
+      "expected_failure": null,
+      "expected_reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "final_acceleration_rad_s2": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "final_velocity_rad_s": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "maximum_jerk_rad_s3": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "maximum_joint_displacement_rad": 1.1151962695521433e-05,
+      "maximum_palm_displacement_m": 6.691140807561158e-08,
+      "maximum_velocity_excursion_rad_s": 0.0010000000000000002,
+      "peak_acceleration_rad_s2": 0.13561072252245138,
+      "peak_jerk_rad_s3": 29.45134031530642,
+      "peak_velocity_rad_s": 0.001,
+      "planning_failure_axis": null,
+      "planning_failure_reason": "NONE",
+      "position_rad": [
+        -2.9999,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "reversals": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "stop_time_ms": 16.0,
+      "velocity_rad_s": [
+        0.001,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "input_case_sha256": "3eb5efce7a35f2d751d055093d3556c86eaa41fdb64504f937085c64560fcfdf",
+  "limitations": [
+    "Offline C++ reference core only; no scheduler, IPC, SDK, controller, or hardware.",
+    "Palm displacement uses the checked-in rh56_R_hand_base_link MuJoCo model frame.",
+    "Expected position-limit failures are fail-closed evidence, not completed stops."
+  ],
+  "period_s": 0.008,
+  "schema_version": "teleop_residual_acceleration_stop_sweep.v1",
+  "summary": {
+    "completed_count": 113,
+    "direction_consistent_count": 113,
+    "expected_unplannable_count": 2,
+    "maximum_joint_displacement_rad": 0.48536378401666486,
+    "maximum_palm_displacement_m": 0.28298527827476483,
+    "maximum_peak_acceleration_rad_s2": 12.0,
+    "maximum_peak_jerk_rad_s3": 100.0,
+    "maximum_peak_velocity_rad_s": 1.4584307777527323,
+    "maximum_stop_time_ms": 584.0,
+    "maximum_velocity_excursion_rad_s": 1.4513144254652008,
+    "unexpected_failure_cases": [],
+    "unexpected_failure_count": 0
+  }
+}

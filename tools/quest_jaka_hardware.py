@@ -33,6 +33,7 @@ from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
 from teleoperation.jaka.quest_adapter import (
     E2IsolatedForwardTranslationGuard,
     JakaAcceptedJointTargetAdapter,
+    ResearchThinBoundedMotionGuard,
 )
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
 from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusReceiver
@@ -49,7 +50,11 @@ POST_PAYLOAD_APPROVAL = "I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
 BOUNDED_NORMAL_APPROVAL = (
     "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 )
+RESEARCH_THIN_APPROVAL = (
+    "I_AUTHORIZE_ONE_BOUNDED_RESEARCH_THIN_ADAPTER_JAKA_GATE"
+)
 PWL_OUTPUT_GENERATOR = "pwl-8ms"
+CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -62,6 +67,7 @@ def _parser() -> argparse.ArgumentParser:
             "p4-live",
             "post-payload-diagnostic",
             "bounded-normal-teleop",
+            "research-thin-bounded",
         ),
     )
     parser.add_argument("--config", type=Path, default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"))
@@ -115,7 +121,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-generator",
-        choices=(PWL_OUTPUT_GENERATOR,),
+        choices=(PWL_OUTPUT_GENERATOR, CPP_REFERENCE_OUTPUT_GENERATOR),
         help="hardware transport output generator",
     )
     parser.add_argument(
@@ -147,6 +153,21 @@ def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
     """Treat accepted-target or heartbeat transport failure as fatal, not disengagement."""
 
     return reason != "DISENGAGED" and not output_applied
+
+
+def _synchronize_research_stopped_reference(
+    *,
+    stage: str,
+    status_flags: StatusFlags,
+    target_generator: SharedJakaTargetGenerator,
+    measured_joint_position_rad: tuple[float, ...],
+) -> None:
+    """Refresh only the research resume seed after native braking completes."""
+
+    if stage == "research-thin-bounded" and status_flags & StatusFlags.STOPPED_READY:
+        target_generator.synchronize_authoritative_arm_joints(
+            list(measured_joint_position_rad)
+        )
 
 
 def _classify_worker_exit(metrics_path: Path, return_code: int | None) -> str:
@@ -232,11 +253,13 @@ def main() -> int:
         "p4-live",
         "post-payload-diagnostic",
         "bounded-normal-teleop",
+        "research-thin-bounded",
     )
     expected_approval = (
         E2_APPROVAL if args.stage == "e2-isolated"
         else POST_PAYLOAD_APPROVAL if args.stage == "post-payload-diagnostic"
         else BOUNDED_NORMAL_APPROVAL if args.stage == "bounded-normal-teleop"
+        else RESEARCH_THIN_APPROVAL if args.stage == "research-thin-bounded"
         else P4_APPROVAL if live else P2_APPROVAL
     )
     if args.approval != expected_approval:
@@ -285,6 +308,22 @@ def main() -> int:
                 "bounded normal teleoperation requires native recoverable "
                 "output acceleration transitions"
             )
+    if args.stage == "research-thin-bounded":
+        if args.duration_sec > 30.0:
+            raise SystemExit("research thin-adapter gate is limited to 30 seconds")
+        if args.native_telemetry is None:
+            raise SystemExit("research thin-adapter gate requires native telemetry")
+        if args.run_output_joint_velocity_limits_rad_s is None:
+            raise SystemExit(
+                "research thin-adapter gate requires six per-joint run velocity limits"
+            )
+        if args.output_generator != CPP_REFERENCE_OUTPUT_GENERATOR:
+            raise SystemExit(
+                "research thin-adapter gate requires --output-generator "
+                f"{CPP_REFERENCE_OUTPUT_GENERATOR}"
+            )
+        if not args.no_auto_retry:
+            raise SystemExit("research thin-adapter gate requires --no-auto-retry")
     if (
         args.recover_output_acceleration_transition
         and args.abort_on_diagnostic_acceleration_boundary
@@ -414,6 +453,8 @@ def main() -> int:
                 ),
             )
             if args.stage == "e2-isolated"
+            else ResearchThinBoundedMotionGuard(base_jaka_adapter)
+            if args.stage == "research-thin-bounded"
             else base_jaka_adapter
         )
         session = SmoothQuestJakaSession(
@@ -427,7 +468,29 @@ def main() -> int:
             released_at=float(clutch["released_at"]),
         )
         worker_mode = "joint-teleop" if live else "joint-shadow"
-        worker_args = [
+        if args.stage == "research-thin-bounded":
+            worker_args = [
+                "--hardware",
+                "--robot-ip", args.robot_ip,
+                "--edg-state-ip", args.edg_state_ip,
+                "--duration-s", str(args.duration_sec),
+                "--target-socket", str(target_socket),
+                "--status-socket", str(status_socket),
+                "--metrics-file", str(args.metrics),
+                "--cycle-telemetry-file", str(args.native_telemetry),
+                "--expected-tool-id", str(hardware["expected_tool_id"]),
+                "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
+                "--expected-payload-mass-kg", "0.8",
+                "--expected-payload-com-mm", "9.289,12.427,36.961",
+                "--acknowledgement", RESEARCH_THIN_APPROVAL,
+                "--maximum-output-joint-velocity-rad-s-per-joint",
+                ",".join(str(value) for value in config.output_contract.velocity_boundaries_rad_s),
+                "--maximum-output-joint-acceleration-rad-s2", "2.0",
+                "--output-joint-jerk-limit-rad-s3", "20.0",
+                "--excessive-tracking-error-abort-rad", "0.20",
+            ]
+        else:
+            worker_args = [
             "--mode", worker_mode,
             "--hardware",
             "--robot-ip", args.robot_ip,
@@ -469,13 +532,13 @@ def main() -> int:
             ),
             "--startup-timing-grace-cycles",
             str(config.startup_timing_grace_cycles),
-        ]
-        if config.output_contract.maximum_velocity_rad_s_per_joint is None:
+            ]
+        if args.stage != "research-thin-bounded" and config.output_contract.maximum_velocity_rad_s_per_joint is None:
             worker_args.extend((
                 "--maximum-output-joint-velocity-rad-s",
                 str(config.output_contract.maximum_velocity_rad_s),
             ))
-        else:
+        elif args.stage != "research-thin-bounded":
             worker_args.extend((
                 "--maximum-output-joint-velocity-rad-s-per-joint",
                 ",".join(
@@ -483,13 +546,13 @@ def main() -> int:
                     for _ in config.output_contract.velocity_boundaries_rad_s
                 ),
             ))
-        if live:
+        if live and args.stage != "research-thin-bounded":
             worker_args.append("--monitor-controller-health-each-cycle")
-        if args.native_telemetry is not None:
+        if args.native_telemetry is not None and args.stage != "research-thin-bounded":
             worker_args.extend(("--cycle-telemetry-file", str(args.native_telemetry)))
-        if args.abort_on_diagnostic_acceleration_boundary:
+        if args.abort_on_diagnostic_acceleration_boundary and args.stage != "research-thin-bounded":
             worker_args.append("--abort-on-diagnostic-acceleration-boundary")
-        if args.recover_output_acceleration_transition:
+        if args.recover_output_acceleration_transition and args.stage != "research-thin-bounded":
             worker_args.append("--recover-output-acceleration-transition")
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
@@ -572,6 +635,12 @@ def main() -> int:
                                 jaka_adapter, E2IsolatedForwardTranslationGuard
                             ):
                                 jaka_adapter.observe_measured_joint_position(sample)
+                            _synchronize_research_stopped_reference(
+                                stage=args.stage,
+                                status_flags=status_flags,
+                                target_generator=target_generator,
+                                measured_joint_position_rad=sample,
+                            )
                         tick = session.control_tick(now_ns)
                         dispatch_failed = _control_output_failed(
                             reason=tick.reason,
@@ -608,13 +677,27 @@ def main() -> int:
                                 ):
                                     abort_reason = jaka_adapter.abort_reason
                                 else:
-                                    abort_reason = "IPC_failure"
+                                    if (
+                                        isinstance(
+                                            jaka_adapter,
+                                            ResearchThinBoundedMotionGuard,
+                                        )
+                                        and jaka_adapter.abort_reason is not None
+                                    ):
+                                        abort_reason = jaka_adapter.abort_reason
+                                    else:
+                                        abort_reason = "IPC_failure"
                             stop_reason = abort_reason
                             jaka_adapter.stop()
                         engaged = session.arm_clutch.state.value == "engaged"
                         disengaged = prior_engaged and not engaged
                         if disengaged:
-                            jaka_adapter.stop()
+                            if args.stage == "research-thin-bounded":
+                                if not jaka_adapter.pause():
+                                    abort_reason = "recoverable_pause_transport_failure"
+                                    stop_reason = abort_reason
+                            else:
+                                jaka_adapter.stop()
                             clutch_release_monotonic_ns = now_ns
                             stop_reason = session.arm_clutch.active_fault.reason if session.arm_clutch.active_fault else "operator_clutch_released"
                         prior_engaged = engaged
@@ -667,7 +750,9 @@ def main() -> int:
                             ),
                         )
                         log.write(json.dumps(event, sort_keys=True) + "\n")
-                        if disengaged or dispatch_failed:
+                        if dispatch_failed or (
+                            disengaged and args.stage != "research-thin-bounded"
+                        ):
                             break
                         skipped = max(0, int((now - next_tick) * target_hz))
                         next_tick += (skipped + 1) / target_hz
@@ -689,6 +774,58 @@ def main() -> int:
             runtime.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
+    if args.stage == "research-thin-bounded":
+        bounded_gate_pass = bool(
+            metrics.get("outcome") == "duration_complete"
+            and int(metrics.get("accepted_target_count", 0)) > 0
+            and int(metrics.get("pause_count", 0)) > 0
+            and int(metrics.get("resume_count", 0)) > 0
+            and int(metrics.get("deadline_miss_count", 0)) == 0
+            and int(metrics.get("rh56_command_count", 0)) == 0
+            and not metrics.get("controller_collision", False)
+            and not metrics.get("controller_estop", False)
+            and int(metrics.get("controller_error_code", 0)) == 0
+        )
+        summary = {
+            "schema_version": "quest_jaka_research_thin_gate.v1",
+            "stage": args.stage,
+            "bounded_gate_pass": bounded_gate_pass,
+            "output_generator": CPP_REFERENCE_OUTPUT_GENERATOR,
+            "accepted_targets_dispatched": accepted,
+            "adapter_dispatch_count": jaka_adapter.applied_count,
+            "native_outcome": metrics.get("outcome"),
+            "pause_policy": metrics.get("pause_policy"),
+            "resume_policy": metrics.get("resume_policy"),
+            "pause_count": metrics.get("pause_count", 0),
+            "resume_count": metrics.get("resume_count", 0),
+            "maximum_resume_position_delta_rad": metrics.get(
+                "maximum_resume_position_delta_rad"
+            ),
+            "deadline_miss_count": metrics.get("deadline_miss_count"),
+            "maximum_send_duration_ns": metrics.get("maximum_send_duration_ns"),
+            "maximum_command_age_ns": metrics.get("maximum_command_age_ns"),
+            "maximum_tracking_error_rad": metrics.get("maximum_tracking_error_rad"),
+            "maximum_velocity_rad_s": metrics.get("maximum_velocity_rad_s"),
+            "maximum_acceleration_rad_s2": metrics.get("maximum_acceleration_rad_s2"),
+            "maximum_jerk_rad_s3": metrics.get("maximum_jerk_rad_s3"),
+            "controller_error_code": metrics.get("controller_error_code"),
+            "controller_collision": metrics.get("controller_collision"),
+            "controller_estop": metrics.get("controller_estop"),
+            "rh56_commands": metrics.get("rh56_command_count"),
+            "stop_reason": stop_reason,
+            "abort_reason": abort_reason,
+            "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
+            "ik_rejections": dict(sorted(session.rejections.items())),
+            "measured_joint_fk_tcp_motion": _measured_tcp_motion(
+                target_generator, measured_joint_samples
+            ),
+        }
+        args.summary.write_text(
+            json.dumps(summary, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0 if bounded_gate_pass and abort_reason is None else 2
     if args.event_extract is not None and args.native_telemetry is not None:
         _write_event_extract(
             args.native_telemetry,

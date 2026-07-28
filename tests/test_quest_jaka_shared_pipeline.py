@@ -36,6 +36,7 @@ from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, Feasi
 from teleoperation.jaka.quest_adapter import (
     E2IsolatedForwardTranslationGuard,
     JakaAcceptedJointTargetAdapter,
+    ResearchThinBoundedMotionGuard,
 )
 from teleoperation.wire import TargetFlags, TargetKind
 from tools.quest_jaka_hardware import _control_output_failed, _write_event_extract
@@ -627,6 +628,48 @@ def test_hardware_adapter_contract_has_no_conversion_filter_or_interpolation() -
     assert adapter.stop()
     assert not adapter.apply(_accepted(2))
     assert len(runtime.packets) == 2
+
+
+def test_hardware_adapter_pause_is_recoverable_and_stop_is_terminal() -> None:
+    runtime = _MockRuntime()
+    adapter = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
+    assert adapter.apply(_accepted())
+    assert adapter.pause()
+    assert runtime.packets[-1].kind is TargetKind.HOLD_CURRENT
+    assert not adapter.stopped
+    assert adapter.apply(_accepted(sequence=2))
+    assert adapter.stop()
+    assert adapter.stopped
+    assert not adapter.apply(_accepted(sequence=3))
+    assert len(runtime.packets) == 3
+    assert len(runtime.stop_sequences) == 1
+
+
+def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined() -> None:
+    runtime = _MockRuntime()
+    guard = ResearchThinBoundedMotionGuard(
+        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
+    )
+    baseline = _accepted()
+    assert guard.apply(baseline)
+    forward = replace(
+        baseline,
+        sequence_number=2,
+        filtered_tcp=AcceptedTcpPose(
+            (0.08, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
+        ),
+    )
+    assert guard.apply(forward)
+    combined = replace(
+        baseline,
+        sequence_number=3,
+        filtered_tcp=AcceptedTcpPose(
+            (0.09, -0.2, 0.3),
+            rotvec_to_quaternion_xyzw((math.radians(3.0), 0.0, 0.0)),
+        ),
+    )
+    assert not guard.apply(combined)
+    assert guard.abort_reason == "research_combined_translation_rotation_forbidden"
 
 
 def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:

@@ -43,6 +43,9 @@ class StatusFlags(enum.IntFlag):
     TARGET_AGE_WARNING = 1 << 6
     OUTPUT_ACCELERATION_HOLD = 1 << 7
     OUTPUT_ACCELERATION_RECOVERED = 1 << 8
+    CONTROLLED_BRAKING = 1 << 9
+    STOPPED_READY = 1 << 10
+    MEASURED_STATE_REFRESH = 1 << 11
 
 
 class FrameId(enum.IntEnum):
@@ -198,6 +201,24 @@ def stop_target_packet(*, sequence: int, monotonic_ns: int) -> TargetPacket:
         raise ValueError("stop sequence and timestamp must be non-negative")
     return TargetPacket(
         TargetKind.STOP,
+        TargetFlags.NONE,
+        FrameId.NONE,
+        sequence,
+        0,
+        monotonic_ns,
+        monotonic_ns,
+        monotonic_ns,
+        (0.0,) * 8,
+    )
+
+
+def hold_current_target_packet(*, sequence: int, monotonic_ns: int) -> TargetPacket:
+    """Request a recoverable controlled stop without terminating the session."""
+
+    if sequence < 0 or monotonic_ns < 0:
+        raise ValueError("hold sequence and timestamp must be non-negative")
+    return TargetPacket(
+        TargetKind.HOLD_CURRENT,
         TargetFlags.NONE,
         FrameId.NONE,
         sequence,

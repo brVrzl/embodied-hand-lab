@@ -1,0 +1,258 @@
+{
+  "active_output_dynamics": {
+    "direction_reversals": [
+      0,
+      1,
+      1,
+      1,
+      0,
+      3
+    ],
+    "joint_acceleration_rad_s2_peak": [
+      0.3689321477365956,
+      1.172821996509788,
+      1.651569094362383,
+      1.180047614881051,
+      0.3856047072016716,
+      0.7873038567847583
+    ],
+    "joint_jerk_rad_s3_peak": [
+      11.831355281905466,
+      26.161435678737686,
+      38.83372048477157,
+      32.19905617957958,
+      12.202323854312205,
+      21.72014187487671
+    ],
+    "joint_velocity_rad_s_peak": [
+      0.067966813338578,
+      0.2189763907609455,
+      0.3473546668360354,
+      0.0733275795069556,
+      0.10344276535097492,
+      0.0333567487243844
+    ],
+    "sample_count": 113
+  },
+  "active_tracking": {
+    "joint_position_error_rad": {
+      "peak_max_abs": 0.10688760471764969,
+      "per_joint_peak": [
+        0.022898640992767394,
+        0.07031376840553116,
+        0.10688760471764969,
+        0.0501553359689611,
+        0.031989473891797626,
+        0.02577683154534971
+      ],
+      "rms_max_abs": 0.04882911734445201
+    },
+    "reference": "latest target with timestamp <= servo tick",
+    "sample_count": 113,
+    "tcp_orientation_error_rad": {
+      "peak": 0.047778473974153114,
+      "rms": 0.01427309495685902
+    },
+    "tcp_position_error_m": {
+      "peak": 0.018324247677158168,
+      "rms": 0.008454133755256828
+    }
+  },
+  "clutch_release_stop": {
+    "acceleration_threshold_rad_s2": 0.01,
+    "dynamics": {
+      "direction_reversals": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "joint_acceleration_rad_s2_peak": [
+        0.07701004291088925,
+        0.02428434670451377,
+        0.13107810571632644,
+        0.11325160522656048,
+        0.18086509745503979,
+        0.02453948898930985
+      ],
+      "joint_jerk_rad_s3_peak": [
+        14.246316979005973,
+        5.377791025716326,
+        29.625848150477598,
+        17.311652867028496,
+        37.56873617184664,
+        6.190297178014576
+      ],
+      "joint_velocity_rad_s_peak": [
+        0.00902496844416061,
+        0.002842736520114007,
+        0.015379089481154289,
+        0.01328247781307078,
+        0.021243155664551806,
+        0.0028726191907230874
+      ],
+      "sample_count": 101
+    },
+    "joint_stop_displacement_rad": [
+      0.0007340152915025211,
+      0.00023093346675484572,
+      0.0012523120836500645,
+      0.0010811568839541041,
+      0.0017317393167119999,
+      0.0002333623484505054
+    ],
+    "pre_release_joint_velocity_rad_s": [
+      0.009641048787447724,
+      0.003037011293750117,
+      -0.0164277143268849,
+      0.014188490654883264,
+      0.022690076444192124,
+      -0.003068935102637566
+    ],
+    "pre_release_peak_abs_velocity_rad_s": 0.022690076444192124,
+    "reference": "controlled stop triggered during motion at the middle source target",
+    "release_servo_timestamp_ns": 610554063733578,
+    "release_source_index": 27,
+    "release_source_timestamp_ns": 610554057733578,
+    "settled": true,
+    "stable_cycles_required": 5,
+    "stop_time_ms": 808.0,
+    "tcp_stop_displacement_m": 0.00026705621389732265,
+    "velocity_threshold_rad_s": 0.001
+  },
+  "command_age_ms": {
+    "mean": 7.539823008849558,
+    "peak": 16.0
+  },
+  "cpu_tick_us": {
+    "mean": 26.991438016528924,
+    "peak": 1344.879
+  },
+  "feasible_at_125_hz": true,
+  "input_target_count": 55,
+  "limits": {
+    "maximum_acceleration_rad_s2": 12.566370614359172,
+    "maximum_jerk_rad_s3": 50.0,
+    "maximum_velocity_rad_s": 3.141592653589793,
+    "period_s": 0.008,
+    "target_horizon_s": 0.25
+  },
+  "mailbox_max_depth": 1,
+  "mailbox_replaced_targets": 0,
+  "native_ik_calls": 0,
+  "output_ticks": 363,
+  "period_hz": 125.0,
+  "prototype": "resolved_rate_velocity",
+  "rh56_commands": 0,
+  "rotation_latency_ms": "not identifiable without a physical/network timestamp; command-age reported instead",
+  "schema_version": "teleop_rearchitecture_replay.v2",
+  "settling": {
+    "endpoint": {
+      "joint_max_abs_error_rad": 7.82261602845502e-06,
+      "tcp_orientation_error_rad": 4.70197163147394e-06,
+      "tcp_position_error_m": 4.7481601885517915e-07
+    },
+    "first_sustained_settle_ms": 1012.0,
+    "joint_position_error_rad": {
+      "peak_max_abs": 0.08628873147419558,
+      "per_joint_peak": [
+        0.003964575767871681,
+        0.05227201579562557,
+        0.08628873147419558,
+        0.05595498977701431,
+        0.021840648108348848,
+        0.02985385535636259
+      ],
+      "rms_max_abs": 0.019374461736056055
+    },
+    "reference": "final target after final target timestamp",
+    "sample_count": 250,
+    "tcp_orientation_error_rad": {
+      "peak": 0.05079103394264756,
+      "rms": 0.012967558911560257
+    },
+    "tcp_position_error_m": {
+      "peak": 0.014555350230613273,
+      "rms": 0.003211575872354411
+    },
+    "thresholds": {
+      "joint_max_abs_rad": 0.001,
+      "tcp_orientation_rad": 0.001,
+      "tcp_position_m": 0.0005
+    },
+    "window_duration_ms": 2000.0
+  },
+  "settling_output_dynamics": {
+    "direction_reversals": [
+      3,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "joint_acceleration_rad_s2_peak": [
+      0.4118422546473912,
+      0.5687089017669817,
+      0.9037508123100277,
+      1.22522014802575,
+      0.26195963644624287,
+      0.8235945537443358
+    ],
+    "joint_jerk_rad_s3_peak": [
+      6.595856678127482,
+      8.0927620642047,
+      11.705415898637995,
+      17.154906997995685,
+      2.5714851625676105,
+      11.198165492822945
+    ],
+    "joint_velocity_rad_s_peak": [
+      0.0475627796160069,
+      0.21879162303991087,
+      0.3479264367584044,
+      0.15252274181215936,
+      0.09950924386168332,
+      0.07865738811527957
+    ],
+    "sample_count": 250
+  },
+  "source": {
+    "path": "docs/history/incidents/quest_jaka_20260722_23/measurements/jaka_edg_sim_initial_accepted_targets_20260722.jsonl",
+    "sha256": "04309b70214b7d48709e729fed1f8c6955c6bdda2c4ac72ae6a8919f15dfe663"
+  },
+  "source_target_period_ms": {
+    "maximum": 18.0,
+    "mean": 16.666666666666668,
+    "minimum": 16.0
+  },
+  "target_timestamp_semantics": "target replacement and candidate C feed-forward use each accepted target's control_monotonic_ns; servo ticks never select a future target",
+  "timestamp_interpolated_tracking": {
+    "joint_position_error_rad": {
+      "peak_max_abs": 0.10688760471764969,
+      "per_joint_peak": [
+        0.02298987489836235,
+        0.07031376840553116,
+        0.10688760471764969,
+        0.05485719721013407,
+        0.03211677799326362,
+        0.028943044927367434
+      ],
+      "rms_max_abs": 0.05039506740456121
+    },
+    "reference": "joint-linear interpolation at servo tick timestamp",
+    "sample_count": 113,
+    "tcp_orientation_error_rad": {
+      "peak": 0.05049845222177216,
+      "rms": 0.015278084432400625
+    },
+    "tcp_position_error_m": {
+      "peak": 0.018324247677158168,
+      "rms": 0.008720366062706415
+    }
+  },
+  "tracking_model_error": "command-vs-accepted kinematic error only; no physical plant asserted",
+  "translation_latency_ms": "not identifiable without a physical/network timestamp; command-age reported instead"
+}

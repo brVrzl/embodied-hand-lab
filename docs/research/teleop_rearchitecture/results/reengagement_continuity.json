@@ -1,0 +1,29 @@
+{
+  "capture_to_first_output_tick_count": 0,
+  "first_relative_rotation_wxyz": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "first_relative_translation_m": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "first_tick_joint_position_delta_rad": 0.0,
+  "first_tick_palm_model_displacement_m": 0.0,
+  "first_tick_peak_acceleration_rad_s2": 0.0,
+  "first_tick_peak_jerk_rad_s3": 0.0,
+  "first_tick_peak_velocity_rad_s": 0.0,
+  "input_mailbox_depth": 1,
+  "limitations": [
+    "Offline reference coordinator, C++ shaper, and MuJoCo palm-model FK only.",
+    "No Quest receiver, SDK, controller, scheduler, network, or physical plant is present."
+  ],
+  "old_target_rejection_count": 1,
+  "period_s": 0.008,
+  "queued_release_motion_count": 0,
+  "safety_epoch": 2,
+  "schema_version": "teleop_reengagement_continuity.v1"
+}
