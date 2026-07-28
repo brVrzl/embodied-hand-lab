@@ -1,6 +1,6 @@
 # Known limitations
 
-- The shared output-acceleration feasibility correction at current HEAD is
+- The production shared output-acceleration feasibility correction is
   offline tested but not physically validated.
 - The prior J4 collision alarm's cause is unresolved; payload mismatch was
   corrected by the operator but is not proven to be the sole cause.
@@ -14,6 +14,10 @@
   validated and must not be expanded from historical small/bounded results.
 - Quest Unity/APK/runtime version and current headset installation remain
   external facts; repository source audits do not prove the deployed build.
+- `scripts/run_quest_jaka_sim_demo.sh` still prints a stale “GRIP disabled”
+  banner although the selected live YAML enables the integrated RH56
+  simulation. The Python entry and effective actuator count are authoritative
+  until that production-script message is corrected.
 - The digital-twin workspace remains “Integrated Workspace,” not “Simulation
   Ready”; its documented failed trajectories and calibration tasks remain.
 - HEBI and iPhone paths remain parallel/compatibility workflows and do not
@@ -34,6 +38,9 @@
 - Quest 驱动真机 RH56 尚未验证。
 - JAKA 全范围平移/旋转只完成部分真机验证，不能从历史小范围结果推断完整 envelope。
 - Quest Unity/APK/runtime 版本和头显当前安装属于外部事实，源码审计不能证明已部署版本。
+- `scripts/run_quest_jaka_sim_demo.sh` 仍打印过时的 “GRIP disabled” banner，但所选
+  实时 YAML 已启用集成 RH56 仿真；修正 production script 前，以 Python 入口和实际
+  actuator 数量为准。
 - 数字孪生仍为 “Integrated Workspace”，尚未达到 “Simulation Ready”。
 - HEBI 和 iPhone 路径是并行/兼容流程，不共享全部 Quest/JAKA 契约。
 - vendor 参考源码按原样保留，不一定能作为项目 Python 模块直接导入。

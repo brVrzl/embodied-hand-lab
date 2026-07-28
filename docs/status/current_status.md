@@ -9,9 +9,12 @@ checks, output velocity/acceleration feasibility, `HOLD_REJECTED`, immutable
 accepted target, MuJoCo adapter, JAKA joint adapter, and native
 latest-destination resampler are implemented and covered offline.
 
-The live Quest/MuJoCo arm path and simulated RH56 grip retargeting are validated
-in simulation. The default test suite and fake native worker require no
-hardware.
+The live Quest/MuJoCo arm path and relative six-channel RH56 grip retargeting,
+including the calibrated thumb-close and thumb-lateral model, are validated in
+simulation. The integrated live configuration builds six JAKA and six RH56
+actuators. The explicit JAKA-only model remains covered separately with exactly
+six arm actuators and no hand command path. The default test suite and fake
+native worker require no hardware.
 
 ## Latest physical evidence
 
@@ -29,10 +32,21 @@ timing path in that envelope. It stopped before a J4 point because the replayed
 accepted targets contained controller-visible acceleration of
 14.199679 rad/s².
 
-Current HEAD adds a shared 4π rad/s² output-acceleration gate before
+The production `root_cause_fix` baseline adds a shared 4π rad/s²
+output-acceleration gate before
 `AcceptedArmTarget` construction. Offline replay now produces a safe
 `HOLD_REJECTED` and recovers on the next feasible tick. That correction has not
 yet been physically validated. TCP remains recorded as zero.
+
+## Repository and research state
+
+PWL/root-cause-fix and the RH56 simulation hand implementation are merged into
+`main`. Four superseded Quest worktrees and their local branches were removed
+on 2026-07-28 after the user explicitly abandoned their working-tree-only
+content. MoveIt, Ruckig, ACT/Thor, TeleDex, and repository cleanup remain remote
+archives. Teleoperation rearchitecture remains an independent active research
+worktree and is not the production baseline. OpenPI remains a pinned sibling
+checkout used only by the inference-only π0.5-DROID shadow path.
 
 ## Exact next bounded physical gate
 
@@ -67,8 +81,10 @@ Quest HTS/CTRL 输入边界、release-before-press clutch、新鲜 wrist/head/TC
 输出速度/加速度可行性、`HOLD_REJECTED`、不可变已接受目标、MuJoCo/JAKA adapter 和
 native latest-destination resampler 均已实现并有离线测试。
 
-实时 Quest/MuJoCo 机械臂和仿真 RH56 grip retarget 已通过仿真验证。默认测试和 fake
-native worker 不需要硬件。
+实时 Quest/MuJoCo 机械臂和相对式六通道 RH56 grip retarget（包括已标定的 thumb-close
+与 thumb-lateral 模型）已通过仿真验证。集成实时配置构建 6 个 JAKA 与 6 个 RH56
+actuator；显式 JAKA-only 模型另有测试，严格只有 6 个机械臂 actuator 且无手部 command
+path。默认测试和 fake native worker 不需要硬件。
 
 ## 最新真机证据
 
@@ -81,9 +97,18 @@ COM `[9.289, 12.427, 36.961]` mm。
 tick，无时序 warning/hard miss/控制器报警，验证了该范围内的轮询时序。但运行在 J4
 目标前停止，因为已接受目标包含 14.199679 rad/s² 的控制器可见加速度。
 
-当前 HEAD 在构造 `AcceptedArmTarget` 前增加共享 4π rad/s² 输出加速度 gate。离线回放
+production `root_cause_fix` 基线在构造 `AcceptedArmTarget` 前增加共享 4π rad/s² 输出
+加速度 gate。离线回放
 会进入安全 `HOLD_REJECTED`，并在下一可行 tick 恢复。此修复尚未完成真机验证；TCP 仍
 记录为零。
+
+## 仓库与研究状态
+
+PWL/root-cause-fix 与 RH56 仿真手实现均已进入 `main`。四个已取代 Quest worktree
+及其本地分支在用户明确放弃仅存在于 working tree 的内容后，于 2026-07-28 删除。
+MoveIt、Ruckig、ACT/Thor、TeleDex 和 repository cleanup 仅保留远程归档。
+teleoperation rearchitecture 仍是独立活跃研究 worktree，不是 production baseline。
+OpenPI 仍是固定版本的 sibling checkout，仅用于 inference-only π0.5-DROID shadow。
 
 ## 下一受限真机 Gate
 

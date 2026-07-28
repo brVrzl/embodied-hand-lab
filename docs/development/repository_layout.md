@@ -7,12 +7,14 @@
 | `src/teleoperation` | accepted-target, output feasibility, JAKA adapter | current primary |
 | `native/jaka_servo_worker` | physical transport/safety worker | current, gated |
 | `src/rh56_driver` | RH56 schema and backends | current parallel path |
+| `src/rh56_sim` | offline RH56 model contract and H0 self-test | current simulation |
 | `src/jaka_driver_adapter`, `src/robot_bringup` | bring-up/legacy adapters | current or compatibility, not shared Quest authority |
 | `src/teleop_tools` | HEBI/iPhone experiments | active parallel/legacy |
 | `src/vision_interface` | perception and RealSense calibration | active parallel |
 | `configs` | versioned examples and policy | current; local device facts must be verified |
 | `data/sim_assets`, `models` | simulation assets | current; see their READMEs |
 | `tests` | default offline test suite | current |
+| `learned_policy/pi05_shadow` | OpenPI/DROID inference-only shadow adapter | research; no robot command path |
 | `docs/history` | evidence and superseded narrative | historical, immutable outcomes |
 | `third_party` | vendor/reference snapshots | do not treat as project style or edit casually |
 
@@ -30,12 +32,14 @@ They do not override the primary Quest/JAKA contracts.
 | `src/teleoperation` | accepted target、输出可行性、JAKA adapter | 当前主链 |
 | `native/jaka_servo_worker` | 真机传输/安全 worker | 当前，需 gate |
 | `src/rh56_driver` | RH56 schema 和 backend | 当前并行路径 |
+| `src/rh56_sim` | RH56 离线模型契约与 H0 自检 | 当前仿真 |
 | `src/jaka_driver_adapter`、`src/robot_bringup` | bring-up/兼容 adapter | 非共享 Quest 权威 |
 | `src/teleop_tools` | HEBI/iPhone 实验 | 并行/兼容 |
 | `src/vision_interface` | 感知和 RealSense 标定 | 并行 |
 | `configs` | 版本化示例和策略 | 当前；设备事实需现场核实 |
 | `data/sim_assets`、`models` | 仿真资产 | 当前 |
 | `tests` | 默认离线测试 | 当前 |
+| `learned_policy/pi05_shadow` | OpenPI/DROID 仅推理 shadow adapter | 研究；无机器人命令路径 |
 | `docs/history` | 证据和已取代叙述 | 历史 |
 | `third_party` | vendor/reference snapshot | 不作为项目风格随意修改 |
 

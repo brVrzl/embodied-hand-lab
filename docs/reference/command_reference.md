@@ -19,6 +19,7 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m compileall -q src tools tests
 .venv/bin/python tools/quest_jaka_mujoco_sim.py --help
 .venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
 .venv/bin/python tools/quest_jaka_mujoco_sim.py live-6dof --help
+.venv/bin/python tools/rh56_h0_self_test.py --help
 .venv/bin/python tools/replay_quest_jaka_output_feasibility_native.py --help
 ```
 
@@ -120,6 +121,7 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m compileall -q src tools tests
 .venv/bin/python tools/quest_jaka_mujoco_sim.py --help
 .venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
 .venv/bin/python tools/quest_jaka_mujoco_sim.py live-6dof --help
+.venv/bin/python tools/rh56_h0_self_test.py --help
 .venv/bin/python tools/replay_quest_jaka_output_feasibility_native.py --help
 ```
 

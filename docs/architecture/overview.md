@@ -44,18 +44,22 @@ MuJoCo plant or copy its `qpos`.
 
 | Area | Source | Configuration | Principal tests |
 |---|---|---|---|
-| HTS/CTRL transport | `src/motion_input`, `src/quest_jaka_sim/live_input.py` | `configs/motion_input/quest_hts_right_hand.yaml` | `test_hand_tracking_streamer_provider.py`, `test_quest_controller_transport.py` |
+| HTS/CTRL transport | `src/motion_input`, `src/quest_jaka_sim/live_input.py` | `configs/motion_input/quest_hts_right_hand.yaml` | `test_hts_protocol.py`, `test_hts_canonical.py`, `test_quest_controller_transport.py` |
 | clutch/mapping/filter/IK | `src/quest_jaka_sim` | `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | `test_quest_jaka_shared_pipeline.py`, mapping/filter/IK tests |
 | common target contract | `src/teleoperation/accepted_target.py` | live simulation config | shared-pipeline tests |
 | output feasibility | `src/teleoperation/output_feasibility.py` | live simulation config | `test_quest_jaka_output_feasibility.py` |
 | MuJoCo adapter | `src/quest_jaka_sim/output.py` | simulation configs | simulation/shared-pipeline tests |
 | JAKA adapter | `src/teleoperation/jaka/quest_adapter.py` | live simulation config plus gated CLI args | hardware CLI/shared-pipeline tests |
 | native transport | `native/jaka_servo_worker/main.cpp` | CLI plus shared-memory protocol | native worker/resampler tests |
-| RH56 | `src/rh56_driver`, simulation retargeter | `configs/hand`, `configs/sim/quest_rh56_retarget.yaml` | RH56 schema/backend/simulation tests |
+| RH56 | `src/rh56_driver`, `src/rh56_sim`, simulation retargeter | `configs/hand`, `configs/sim/quest_rh56_retarget.yaml` | RH56 schema/backend/H0/H2/retarget tests |
 
 Other current project areas—digital twin, vision, HEBI phone teleoperation,
 iPhone RH56 experiments, and ROS2/RViz bring-up—remain outside the primary
 Quest/JAKA shared pipeline.
+
+The committed live configuration enables an integrated 6-arm + 6-hand
+simulation. The explicit arm-only model builder remains the JAKA-only
+production invariant: six JAKA actuators, no RH56 actuator or command path.
 
 ---
 
@@ -114,3 +118,7 @@ MuJoCo    JAKA joint adapter -> 125 Hz native EDG worker
 
 数字孪生、视觉、HEBI 手机遥操作、iPhone RH56 和 ROS2/RViz 属于并行区域，不覆盖主链
 契约。
+
+已提交实时配置启用 6 个机械臂 + 6 个手部 actuator 的集成仿真。显式 arm-only builder
+仍保留 JAKA-only invariant：只有 6 个 JAKA actuator，没有 RH56 actuator 或 command
+path。

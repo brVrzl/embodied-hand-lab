@@ -18,6 +18,7 @@ state schema/version, source, timestamp, unit, and canonical order.
 Safe local inspection:
 
 ```bash
+.venv/bin/python tools/rh56_h0_self_test.py --help
 ./scripts/check_rh56_connection.sh --help
 ./scripts/rh56_pc_direct_bringup.sh --help
 .venv/bin/python tools/iphone_mediapipe_hand_teleop.py --help
@@ -27,6 +28,12 @@ Those commands are help only. A serial port, physical hand, or JAKA tool bus
 must not be opened without explicit authorization and a clear stop policy.
 Quest grip control is simulation-validated; it is not a validated
 Quest-to-physical-RH56 path.
+
+The committed integrated Quest/MuJoCo configuration enables all six RH56
+simulation actuators. The JAKA-only arm regression remains separate and
+constructs six JAKA actuators with no RH56 command path. See the
+[H0 self-test](rh56_h0_self_test.md) for the simulation-only actuator and thumb
+calibration evidence.
 
 Current model roles and limitations are documented in
 `data/sim_assets/README.md`.
@@ -53,6 +60,7 @@ timestamp、unit 和 canonical order。
 安全的本地帮助检查：
 
 ```bash
+.venv/bin/python tools/rh56_h0_self_test.py --help
 ./scripts/check_rh56_connection.sh --help
 ./scripts/rh56_pc_direct_bringup.sh --help
 .venv/bin/python tools/iphone_mediapipe_hand_teleop.py --help
@@ -60,5 +68,9 @@ timestamp、unit 和 canonical order。
 
 这些命令只有在保留 `--help` 时才是帮助检查。打开串口、真机 RH56 或 JAKA tool bus 需要
 明确授权和 stop policy。Quest grip 已通过仿真验证，但 Quest 到真机 RH56 尚未验证。
+
+当前已提交的 Quest/MuJoCo 集成配置启用全部 6 个 RH56 仿真 actuator。JAKA-only
+机械臂回归保持独立，只构建 6 个 JAKA actuator，不含 RH56 command path。仿真 actuator
+和拇指标定证据见 [H0 自检](rh56_h0_self_test.md)。
 
 模型角色和限制见 `data/sim_assets/README.md`。

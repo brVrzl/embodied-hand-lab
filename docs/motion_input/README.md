@@ -62,7 +62,8 @@ do not copy old example addresses as operational truth.
   tests/test_motion_input_protocol.py \
   tests/test_motion_input_recording_replay.py \
   tests/test_quest_motion_provider.py \
-  tests/test_hand_tracking_streamer_provider.py \
+  tests/test_hts_protocol.py \
+  tests/test_hts_canonical.py \
   tests/test_quest_controller_transport.py \
   tests/test_motion_input_diagnostics.py
 ```
@@ -126,7 +127,8 @@ Quest / 未来设备
   tests/test_motion_input_protocol.py \
   tests/test_motion_input_recording_replay.py \
   tests/test_quest_motion_provider.py \
-  tests/test_hand_tracking_streamer_provider.py \
+  tests/test_hts_protocol.py \
+  tests/test_hts_canonical.py \
   tests/test_quest_controller_transport.py \
   tests/test_motion_input_diagnostics.py
 ```

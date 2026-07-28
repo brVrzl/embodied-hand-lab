@@ -218,10 +218,10 @@ simulation timestamp, host monotonic timestamp, phase, canonical channel,
 actuator/joint names, requested and clipped control, actual qpos, joint/control
 ranges, saturation/NaN flags, and phase progress.
 
-Run on a graphical desktop from the H0 worktree:
+Run on a graphical desktop from the repository root:
 
 ```bash
-PYTHONPATH=src /home/thor/projects/embodied_lab/.venv/bin/python tools/rh56_h0_self_test.py --viewer
+PYTHONPATH=src .venv/bin/python tools/rh56_h0_self_test.py --viewer
 ```
 
 Close the viewer or press Ctrl-C to restore neutral and exit cleanly.

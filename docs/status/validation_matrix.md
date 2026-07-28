@@ -21,7 +21,8 @@ tested” and “simulation validated” do not mean physically passed.
 | Native joint worker / zero native IK | implemented; tested | fake-worker validated | partially validated | joint mode `kine_inverse` count zero |
 | Controller-health monitor | implemented; tested | fake-worker validated | timing path passed bounded run | sole-session lightweight polling |
 | MuJoCo arm | implemented; tested | validated | n/a | shared accepted-target adapter |
-| RH56 simulation | implemented; tested | validated | n/a | left-grip retarget path |
+| RH56 integrated simulation | implemented; tested | validated | n/a | 6 arm + 6 hand actuators; relative six-channel grip retarget |
+| JAKA-only arm model | implemented; tested | validated | n/a | exactly 6 JAKA actuators; RH56 command path absent |
 | Physical JAKA translation | implemented; tested offline | validated | partial | larger run ended in J4 collision |
 | Physical JAKA orientation | implemented; tested offline | validated | partial | do not infer full envelope |
 | Clutch release/cleanup | implemented; tested | validated | partial | historical bounded use |
@@ -52,7 +53,8 @@ tested” and “simulation validated” do not mean physically passed.
 | Native resampler | 已实现、fake 测试 | 回放验证 | 部分验证 | 125 Hz、8 ms、latest destination |
 | Native zero-IK joint worker | 已实现、测试 | fake 验证 | 部分验证 | `kine_inverse` 调用为零 |
 | 控制器健康监控 | 已实现、测试 | fake 验证 | 受限时序通过 | 单 SDK 会话轻量轮询 |
-| MuJoCo 机械臂/RH56 | 已实现、测试 | 已验证 | 不适用 | 共享 target adapter / left-grip |
+| MuJoCo 集成机械臂/RH56 | 已实现、测试 | 已验证 | 不适用 | 6 arm + 6 hand，相对式六通道 grip |
+| JAKA-only arm model | 已实现、测试 | 已验证 | 不适用 | 严格 6 个 JAKA actuator，无 RH56 command |
 | JAKA 平移/旋转 | 离线实现、测试 | 已验证 | 部分 | 较大运行触发 J4 collision |
 | Clutch release/cleanup | 已实现、测试 | 已验证 | 部分 | 历史受限运行 |
 | 碰撞事件传播 | 离线测试 | fake 验证 | 未故意触发验证 | collision 是 hard stop |

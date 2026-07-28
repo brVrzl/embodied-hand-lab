@@ -1,8 +1,12 @@
 # Quest CTRL host transport gate
 
-This stage adds only the host input boundary for a Quest left controller. It
-does not start MuJoCo, build a robot target, import a JAKA SDK, or connect to an
-Inspire/RH56 device.
+Status: current input-only transport reference. The original local reference
+clone used for the audit has been removed; the fixed upstream commit below is
+the recoverable source record.
+
+This gate exercises only the host input boundary for a Quest left controller.
+It does not start MuJoCo, build a robot target, import a JAKA SDK, or connect to
+an Inspire/RH56 device.
 
 ## Audited Quest source
 
@@ -88,12 +92,12 @@ alongside its UDP receiver.
 
 ## Bounded transport-only gate
 
-From the clean host worktree:
+From the repository root:
 
 ```bash
-PYTHONPATH=src ../embodied_lab/.venv/bin/python \
+PYTHONPATH=src .venv/bin/python \
   tools/quest_controller_transport_gate.py \
-  --bind 0.0.0.0 --port 9000 --project-ip 10.24.1.68 \
+  --bind 0.0.0.0 --port 9000 --project-ip <HOST_IPV4> \
   --print-hz 5 --required-data-timeout-sec 20 --duration-sec 180
 ```
 

@@ -52,9 +52,12 @@ Inspect the simulation entry point without connecting to devices:
 ```
 
 The live simulation demo receives Quest UDP packets but imports and initializes
-no JAKA or RH56 hardware SDK. Its controller clutch is release-before-press:
-left index captures and holds the arm reference; left grip controls the
-simulated RH56 hand. Full setup is in the
+no JAKA or RH56 hardware SDK. Its two simulation clutches are
+release-before-press: left index captures and holds the arm reference; left
+grip captures and controls the simulated RH56 hand. The integrated live model
+has six JAKA and six RH56 actuators. The explicit arm-only model builder,
+retained for JAKA-only regression and operation, removes the RH56 command path
+and still exposes exactly six JAKA actuators. Full setup is in the
 [simulation guide](docs/operation/simulation_demo.md).
 
 ## Current validation boundary
@@ -92,6 +95,15 @@ mode, EDG, or motion.
   issues.
 - `docs/history`: preserved gate, incident, audit, and design evidence; it is
   not the current command reference.
+- `learned_policy/pi05_shadow`: inference-only OpenPI/DROID shadow work. It
+  remains blocked from JAKA/RH56 execution by an intentional schema boundary
+  and uses the separately pinned local `openpi` checkout.
+
+PWL/root-cause-fix and the RH56 simulation hand work are in `main`. MoveIt,
+Ruckig, ACT/Thor, TeleDex, and repository-cleanup results are retained as remote
+archive branches rather than the production baseline. Teleoperation
+rearchitecture remains a separate research worktree and is not merged into
+`main`.
 
 The worktree may contain untracked datasets, models, captures, calibration
 assets, or concurrent experiments. They are not part of the repository merely
@@ -152,8 +164,10 @@ python3 -m venv .venv
 .venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
 ```
 
-实时仿真接收 Quest UDP 数据，但不会导入或初始化 JAKA/RH56 真机 SDK。左手食指采用
-release-before-press：按下时捕获机械臂参考并保持运行；左手 grip 独立控制仿真 RH56。
+实时仿真接收 Quest UDP 数据，但不会导入或初始化 JAKA/RH56 真机 SDK。两个仿真 clutch
+都采用 release-before-press：左手食指捕获并保持机械臂参考，左手 grip 捕获并控制仿真
+RH56。集成实时模型包含 6 个 JAKA 和 6 个 RH56 actuator；用于 JAKA-only 回归和运行的
+显式 arm-only builder 会移除 RH56 command path，并仍然只暴露 6 个 JAKA actuator。
 完整说明见[仿真指南](docs/operation/simulation_demo.md)。
 
 ## 当前验证边界
@@ -183,6 +197,12 @@ Quest/MuJoCo 路径已经过仿真验证。
 - `docs/digital_twin`：数字孪生；在完成所记录的标定和碰撞问题前仍未达到
   “Simulation Ready”。
 - `docs/history`：保留的 gate、事故、审计和设计证据，不是当前命令入口。
+- `learned_policy/pi05_shadow`：仅推理的 OpenPI/DROID shadow 工作；它通过明确的 schema
+  边界与 JAKA/RH56 执行隔离，并使用单独固定版本的本地 `openpi` checkout。
+
+PWL/root-cause-fix 和 RH56 仿真手成果均已进入 `main`。MoveIt、Ruckig、ACT/Thor、
+TeleDex 和 repository-cleanup 只保留为远程归档分支，不是 production baseline。
+teleoperation rearchitecture 仍位于独立研究 worktree，尚未合入 `main`。
 
 工作区中可能存在未跟踪的数据集、模型、采集、标定资产或并行实验。它们不会因为存在于本地
 就自动成为仓库内容；修改和暂存时必须明确区分。
