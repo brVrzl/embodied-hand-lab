@@ -29,6 +29,12 @@ class RGBDFrame:
     color_frame_number: int
     depth_frame_number: int
     depth_aligned_to_color: bool
+    host_monotonic_ns: int | None = None
+    host_wall_timestamp_ns: int | None = None
+    depth_raw_units: np.ndarray | None = None
+    depth_aligned_to_color_units: np.ndarray | None = None
+    serial_number: str | None = None
+    depth_scale_m: float | None = None
 
     @property
     def timestamps_comparable(self) -> bool:

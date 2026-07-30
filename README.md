@@ -24,7 +24,9 @@ not write payload, TCP, installation, or controller safety settings.
 - [Documentation index](docs/README.md)
 - [Current status and next safe step](docs/status/current_status.md)
 - [Architecture overview](docs/architecture/overview.md)
-- [Simulation demo](docs/operation/simulation_demo.md)
+- [Quest recording, replay, and 125 Hz simulation](docs/operation/simulation_demo.md)
+- [RH56 staged PC-direct operation](docs/operation/rh56_operation.md)
+- [Current normal JAKA + RH56 teleoperation](docs/operation/jaka_rh56_combined_teleop.md)
 - [Development setup and testing](docs/development/setup.md)
 - [Safety model](docs/safety/safety_model.md)
 - [Validation matrix](docs/status/validation_matrix.md)
@@ -57,7 +59,8 @@ release-before-press: left index captures and holds the arm reference; left
 grip captures and controls the simulated RH56 hand. The integrated live model
 has six JAKA and six RH56 actuators. The explicit arm-only model builder,
 retained for JAKA-only regression and operation, removes the RH56 command path
-and still exposes exactly six JAKA actuators. Full setup is in the
+and still exposes exactly six JAKA actuators. Recording, shaped/125 Hz live
+control, two-mode replay, log outputs, and full setup are in the
 [simulation guide](docs/operation/simulation_demo.md).
 
 ## Current validation boundary
@@ -74,6 +77,11 @@ health polling implementation completed a bounded physical timing run, but the
 run then revealed an excessive accepted-output acceleration. The current
 acceleration-feasibility fix is tested offline and has **not** yet been
 physically validated. The J4 collision cause remains unresolved.
+
+The PC-direct RH56 Quest hand-only path completed a 60 second physical run on
+2026-07-29 without timeout, checksum, protocol, or hand fault. The current
+normal operator entry is the combined JAKA + RH56 wrapper; combined physical
+motion itself remains unvalidated and retains separate exact approvals.
 
 Physical execution is deliberately not a quick-start workflow. It requires a
 new, explicit authorization for the exact bounded gate and the prerequisites in
@@ -136,11 +144,13 @@ Quest 手腕/头部 + 左 Touch 控制器
 - [文档索引](docs/README.md)
 - [当前状态和下一安全步骤](docs/status/current_status.md)
 - [架构概览](docs/architecture/overview.md)
-- [仿真演示](docs/operation/simulation_demo.md)
+- [Quest 录制、回放与 125 Hz 仿真](docs/operation/simulation_demo.md)
 - [开发环境与测试](docs/development/setup.md)
 - [安全模型](docs/safety/safety_model.md)
 - [验证矩阵](docs/status/validation_matrix.md)
 - [JAKA 真机遥操作](docs/operation/jaka_arm_teleoperation.md)
+- [RH56 分阶段 PC-direct 操作](docs/operation/rh56_operation.md)
+- [当前正常 JAKA + RH56 联合遥操作](docs/operation/jaka_rh56_combined_teleop.md)
 
 ## 仿真优先快速开始
 
@@ -168,7 +178,8 @@ python3 -m venv .venv
 都采用 release-before-press：左手食指捕获并保持机械臂参考，左手 grip 捕获并控制仿真
 RH56。集成实时模型包含 6 个 JAKA 和 6 个 RH56 actuator；用于 JAKA-only 回归和运行的
 显式 arm-only builder 会移除 RH56 command path，并仍然只暴露 6 个 JAKA actuator。
-完整说明见[仿真指南](docs/operation/simulation_demo.md)。
+录制、shaped/125 Hz 实时控制、双模式回放、日志和完整设置见
+[仿真指南](docs/operation/simulation_demo.md)。
 
 ## 当前验证边界
 
@@ -178,8 +189,13 @@ Quest/MuJoCo 路径已经过仿真验证。
 
 历史上的受限真机 gate 验证了部分 JAKA 基础能力并执行过 Quest 遥操作。一次较大范围运行
 触发了 J4 collision alarm。操作者修正 payload 后，单 SDK 会话轻量健康轮询在一个受限
-运行中通过了时序验证，但该运行又暴露了已接受目标的输出加速度过大。当前加速度可行性修复
-仅完成离线验证，尚未完成修复后的真机验证；J4 碰撞原因仍未完全确定。
+运行中通过了时序验证，但该运行又暴露了已接受目标的输出加速度过大。当前加速度可行性及
+true-hold 分类修复已有受限真机证据，修正后的 Quest 平移方向也由操作者确认；最新完整运行
+仍以 producer-liveness timeout 停止，J4 碰撞原因也未完全确定。
+
+PC-direct RH56 Quest hand-only 已于 2026-07-29 完成一次 60 秒真机运行，无 timeout、
+checksum、protocol 或 hand fault。当前正常操作者入口已切换为 JAKA + RH56 联合 wrapper；
+联合真机运动本身仍未验证，并继续要求两套精确授权。
 
 真机运行不是普通 quick start。每次都必须针对精确 gate 获得新的显式授权，并满足
 [硬件前置条件](docs/operation/hardware_prerequisites.md)。仓库维护或运行 `--help` 永远不

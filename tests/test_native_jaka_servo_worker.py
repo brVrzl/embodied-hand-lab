@@ -17,6 +17,7 @@ from teleoperation.wire import (
     TargetKind,
     TargetPacket,
     heartbeat_target_packet,
+    hold_current_target_packet,
     stop_target_packet,
 )
 
@@ -486,6 +487,55 @@ def test_recoverable_hold_heartbeat_keeps_last_safe_target_live(tmp_path) -> Non
     rows = [json.loads(line) for line in emitted.read_text().splitlines()]
     assert rows
     assert all(row["joint_position_rad"] == pytest.approx([0.0] * 6) for row in rows)
+
+
+def test_joint_teleop_hold_current_pauses_without_terminating_and_resumes(tmp_path) -> None:
+    metrics = tmp_path / "pause-resume.json"
+    target = tmp_path / "pause-resume.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "0.8",
+            "--warning-ms", "40",
+            "--hold-ms", "100",
+            "--controlled-stop-ms", "200",
+            "--fatal-timeout-ms", "300",
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+            "--recover-output-acceleration-transition",
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    time.sleep(0.02)
+    with LatestTargetPublisher(target) as publisher:
+        assert publisher.publish(joint_packet(1, (0.0,) * 6, allow_motion=True))
+        time.sleep(0.03)
+        assert publisher.publish(
+            joint_packet(2, (0.003, 0.0, 0.0, 0.0, 0.0, 0.0), allow_motion=True)
+        )
+        time.sleep(0.03)
+        now = time.monotonic_ns()
+        assert publisher.publish(
+            hold_current_target_packet(sequence=3, monotonic_ns=now)
+        )
+        for sequence in range(4, 12):
+            time.sleep(0.025)
+            assert publisher.publish(heartbeat_packet(sequence))
+        assert publisher.publish(
+            joint_packet(12, (0.003, 0.0, 0.0, 0.0, 0.0, 0.0), allow_motion=True)
+        )
+        time.sleep(0.03)
+        now = time.monotonic_ns()
+        assert publisher.publish(stop_target_packet(sequence=13, monotonic_ns=now))
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["outcome"] == "operator_stop_command"
+    assert payload["producer_heartbeat_packets"] >= 7
+    assert payload["ik_calls"] == 0
+    assert "motion flag" not in payload["outcome"]
 
 
 def test_cycle_telemetry_uses_current_emitted_command_for_tracking(tmp_path) -> None:

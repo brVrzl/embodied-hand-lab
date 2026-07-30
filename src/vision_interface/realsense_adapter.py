@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
+import platform
 import time
 from pathlib import Path
 from types import ModuleType
@@ -25,6 +27,7 @@ class RealSenseCamera(CameraInterface):
         self.fps = _positive_int(self.config.get("fps", 30), "fps")
         self.align_depth_to_color = bool(self.config.get("align_depth_to_color", True))
         self.serial = self.config.get("serial")
+        self.allow_profile_fallback = bool(self.config.get("allow_profile_fallback", False))
         self.warmup_frames = max(int(self.config.get("warmup_frames", 5)), 0)
         self.timeout_ms = _positive_int(self.config.get("timeout_ms", 5000), "timeout_ms")
         max_skew = self.config.get("max_timestamp_skew_ms", 50.0)
@@ -43,11 +46,31 @@ class RealSenseCamera(CameraInterface):
         pipeline_config = self.rs.config()
         if self.serial:
             pipeline_config.enable_device(str(self.serial))
+        color_profile = (self.width, self.height, self.fps)
+        depth_profile = (self.width, self.height, self.fps)
+        if self.allow_profile_fallback:
+            if not self.serial:
+                raise ValueError("allow_profile_fallback requires an explicit RealSense serial")
+            color_profile, depth_profile = _select_device_profiles(
+                self.rs,
+                serial=str(self.serial),
+                desired_width=self.width,
+                desired_height=self.height,
+                desired_fps=self.fps,
+            )
         pipeline_config.enable_stream(
-            self.rs.stream.color, self.width, self.height, self.rs.format.rgb8, self.fps
+            self.rs.stream.color,
+            color_profile[0],
+            color_profile[1],
+            self.rs.format.rgb8,
+            color_profile[2],
         )
         pipeline_config.enable_stream(
-            self.rs.stream.depth, self.width, self.height, self.rs.format.z16, self.fps
+            self.rs.stream.depth,
+            depth_profile[0],
+            depth_profile[1],
+            self.rs.format.z16,
+            depth_profile[2],
         )
         self.profile = self.pipeline.start(pipeline_config)
         self.align = self.rs.align(self.rs.stream.color) if self.align_depth_to_color else None
@@ -93,14 +116,30 @@ class RealSenseCamera(CameraInterface):
         )
 
     def _capture_once(self) -> RGBDFrame:
-
         frameset = self.pipeline.wait_for_frames(self.timeout_ms)
+        host_monotonic_ns = time.monotonic_ns()
+        host_wall_timestamp_ns = time.time_ns()
+        raw_color_frame = frameset.get_color_frame()
+        raw_depth_frame = frameset.get_depth_frame()
+        if not raw_color_frame or not raw_depth_frame:
+            raise RuntimeError("RealSense frameset did not contain both color and depth frames.")
+        depth_raw_units = np.asanyarray(raw_depth_frame.get_data()).copy()
+        if depth_raw_units.dtype != np.uint16:
+            raise RuntimeError(f"Unexpected RealSense raw depth dtype: {depth_raw_units.dtype}.")
+        depth_aligned_units = None
         if self.align is not None:
             frameset = self.align.process(frameset)
         color_frame = frameset.get_color_frame()
         depth_frame = frameset.get_depth_frame()
         if not color_frame or not depth_frame:
             raise RuntimeError("RealSense frameset did not contain both color and depth frames.")
+
+        if self.align is not None:
+            depth_aligned_units = np.asanyarray(depth_frame.get_data()).copy()
+            if depth_aligned_units.dtype != np.uint16:
+                raise RuntimeError(
+                    f"Unexpected RealSense aligned depth dtype: {depth_aligned_units.dtype}."
+                )
 
         for depth_filter in self.depth_filters:
             depth_frame = depth_filter.process(depth_frame)
@@ -126,16 +165,49 @@ class RealSenseCamera(CameraInterface):
             rgb=rgb,
             depth_m=depth_m,
             intrinsics=intrinsics,
-            host_timestamp_s=time.time(),
-            color_timestamp_ms=_frame_timestamp_ms(color_frame),
-            depth_timestamp_ms=_frame_timestamp_ms(depth_frame),
-            color_timestamp_domain=_frame_timestamp_domain(color_frame),
-            depth_timestamp_domain=_frame_timestamp_domain(depth_frame),
-            color_frame_number=_frame_number(color_frame),
-            depth_frame_number=_frame_number(depth_frame),
+            host_timestamp_s=host_wall_timestamp_ns / 1e9,
+            color_timestamp_ms=_frame_timestamp_ms(raw_color_frame),
+            depth_timestamp_ms=_frame_timestamp_ms(raw_depth_frame),
+            color_timestamp_domain=_frame_timestamp_domain(raw_color_frame),
+            depth_timestamp_domain=_frame_timestamp_domain(raw_depth_frame),
+            color_frame_number=_frame_number(raw_color_frame),
+            depth_frame_number=_frame_number(raw_depth_frame),
             depth_aligned_to_color=self.align_depth_to_color,
+            host_monotonic_ns=host_monotonic_ns,
+            host_wall_timestamp_ns=host_wall_timestamp_ns,
+            depth_raw_units=depth_raw_units,
+            depth_aligned_to_color_units=depth_aligned_units,
+            serial_number=str(self.serial) if self.serial else None,
+            depth_scale_m=self.depth_scale,
         )
         return frame
+
+    def profile_metadata(self) -> dict[str, Any]:
+        """Return an immutable-friendly snapshot of the active device/profile."""
+
+        device = self.profile.get_device()
+        color = self.profile.get_stream(self.rs.stream.color).as_video_stream_profile()
+        depth = self.profile.get_stream(self.rs.stream.depth).as_video_stream_profile()
+        color_intrinsics = _intrinsics_dict(color.get_intrinsics())
+        depth_intrinsics = _intrinsics_dict(depth.get_intrinsics())
+        extrinsics = depth.get_extrinsics_to(color)
+        return {
+            "serial_number": _device_info(device, self.rs.camera_info.serial_number),
+            "name": _device_info(device, self.rs.camera_info.name),
+            "firmware_version": _device_info(device, self.rs.camera_info.firmware_version),
+            "usb_type": _device_info(device, self.rs.camera_info.usb_type_descriptor),
+            "librealsense_python_version": _distribution_version("pyrealsense2"),
+            "host_platform": platform.platform(),
+            "depth_scale_m": self.depth_scale,
+            "align_depth_to_color": self.align_depth_to_color,
+            "raw_depth_preserved": True,
+            "color": _video_profile_dict(color, color_intrinsics),
+            "depth_raw": _video_profile_dict(depth, depth_intrinsics),
+            "depth_to_color_extrinsics": {
+                "rotation_row_major": [float(value) for value in extrinsics.rotation],
+                "translation_m": [float(value) for value in extrinsics.translation],
+            },
+        }
 
     def close(self) -> None:
         if not getattr(self, "_closed", True):
@@ -338,3 +410,89 @@ def _device_info(device: Any, info_key: Any) -> str:
         return str(device.get_info(info_key))
     except Exception:
         return ""
+
+
+def _distribution_version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def choose_closest_profile(
+    profiles: list[tuple[int, int, int]], *, width: int, height: int, fps: int
+) -> tuple[int, int, int]:
+    """Choose a stable-rate profile without silently preferring resolution over FPS."""
+
+    if not profiles:
+        raise RuntimeError("device exposes no compatible stream profiles")
+    unique = sorted(set(profiles))
+    return min(
+        unique,
+        key=lambda item: (
+            abs(item[2] - fps),
+            0 if item[2] == fps else 1,
+            abs(item[0] - width) + abs(item[1] - height),
+            abs(item[0] * item[1] - width * height),
+        ),
+    )
+
+
+def _select_device_profiles(
+    rs: ModuleType, *, serial: str, desired_width: int, desired_height: int, desired_fps: int
+) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    devices = list(rs.context().query_devices())
+    device = next(
+        (
+            item
+            for item in devices
+            if _device_info(item, rs.camera_info.serial_number) == serial
+        ),
+        None,
+    )
+    if device is None:
+        available = [_device_info(item, rs.camera_info.serial_number) for item in devices]
+        raise RuntimeError(f"RealSense serial {serial!r} not found; available serials: {available}")
+    color_profiles: list[tuple[int, int, int]] = []
+    depth_profiles: list[tuple[int, int, int]] = []
+    for sensor in device.query_sensors():
+        for profile in sensor.get_stream_profiles():
+            try:
+                video = profile.as_video_stream_profile()
+                candidate = (int(video.width()), int(video.height()), int(video.fps()))
+            except Exception:
+                continue
+            if profile.stream_type() == rs.stream.color and profile.format() == rs.format.rgb8:
+                color_profiles.append(candidate)
+            elif profile.stream_type() == rs.stream.depth and profile.format() == rs.format.z16:
+                depth_profiles.append(candidate)
+    color = choose_closest_profile(
+        color_profiles, width=desired_width, height=desired_height, fps=desired_fps
+    )
+    depth = choose_closest_profile(
+        depth_profiles, width=desired_width, height=desired_height, fps=desired_fps
+    )
+    return color, depth
+
+
+def _intrinsics_dict(intrinsics: Any) -> dict[str, Any]:
+    return {
+        "width": int(intrinsics.width),
+        "height": int(intrinsics.height),
+        "fx": float(intrinsics.fx),
+        "fy": float(intrinsics.fy),
+        "cx": float(intrinsics.ppx),
+        "cy": float(intrinsics.ppy),
+        "distortion_model": str(intrinsics.model).rsplit(".", 1)[-1],
+        "distortion_coefficients": [float(value) for value in intrinsics.coeffs],
+    }
+
+
+def _video_profile_dict(profile: Any, intrinsics: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "width": int(profile.width()),
+        "height": int(profile.height()),
+        "nominal_fps": int(profile.fps()),
+        "format": str(profile.format()).rsplit(".", 1)[-1],
+        "intrinsics": dict(intrinsics),
+    }

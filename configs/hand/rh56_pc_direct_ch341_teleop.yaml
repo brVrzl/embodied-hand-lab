@@ -3,7 +3,8 @@ device_name: inspire_rh56
 transport: serial_rs485_pc_direct
 backend_type: serial_protocol
 serial:
-  port: /dev/ttyCH341USB0
+  # Legacy CH341 profile name only; still require the adapter's stable by-id path.
+  port: /dev/serial/by-id/REPLACE_WITH_ACTUAL_RH56_ADAPTER_ID
   baudrate: 115200
   timeout_sec: 0.2
   hand_id: 1

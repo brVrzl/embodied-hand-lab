@@ -5,22 +5,37 @@ from __future__ import annotations
 
 import argparse
 import copy
+import ctypes
+import ctypes.util
 from dataclasses import replace
 from datetime import datetime
+import hashlib
 import importlib
 import ipaddress
 import json
 import math
+import os
 from pathlib import Path
 import socket
+import subprocess
 import time
 
 import mujoco
+import numpy as np
 
+from embodiment_core.config import load_yaml
+from episode_dataset.camera import AsyncRGBDCamera
+from episode_dataset.collector import CaptureState, SingleEpisodeCollector
+from episode_dataset.async_writer import AsyncEpisodeWriter
+from episode_dataset.episode import CanonicalEpisodeWriter, ControlSample, file_sha256
+from episode_dataset.preview import AsyncDualCameraPreview, PreviewStatus
 from motion_input import HtsRawRecordingReader, HtsRawRecordingWriter
 from quest_jaka_sim import (
     AnalogClutchSample,
+    ArmOutputMode,
+    JakaEquivalent125HzMujocoAdapter,
     JakaMujocoSimulation,
+    MujocoArmTargetAdapter,
     QuestJakaReplaySession,
     RecordingArmTargetAdapter,
     ReplayConfig,
@@ -32,9 +47,38 @@ from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.se3 import quaternion_angle_rad
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
+from vision_interface.realsense_adapter import RealSenseCamera, resolve_realsense_config
 
 
 DEFAULT_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_offline.yaml")
+
+
+class _XClientMessageData(ctypes.Union):
+    _fields_ = [
+        ("b", ctypes.c_char * 20),
+        ("s", ctypes.c_short * 10),
+        ("l", ctypes.c_long * 5),
+    ]
+
+
+class _XClientMessageEvent(ctypes.Structure):
+    _fields_ = [
+        ("type", ctypes.c_int),
+        ("serial", ctypes.c_ulong),
+        ("send_event", ctypes.c_int),
+        ("display", ctypes.c_void_p),
+        ("window", ctypes.c_ulong),
+        ("message_type", ctypes.c_ulong),
+        ("format", ctypes.c_int),
+        ("data", _XClientMessageData),
+    ]
+
+
+class _XEvent(ctypes.Union):
+    _fields_ = [
+        ("xclient", _XClientMessageEvent),
+        ("pad", ctypes.c_long * 24),
+    ]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -81,6 +125,12 @@ def _parser() -> argparse.ArgumentParser:
     smooth_live.add_argument("--report", type=Path)
     smooth_live.add_argument("--output", type=Path)
     smooth_live.add_argument("--events", type=Path)
+    smooth_live.add_argument("--arm-emitted-events", type=Path)
+    smooth_live.add_argument(
+        "--arm-output-mode",
+        choices=tuple(mode.value for mode in ArmOutputMode),
+        default=ArmOutputMode.SHAPED_500HZ.value,
+    )
     smooth_live.add_argument(
         "--viewer",
         action=argparse.BooleanOptionalAction,
@@ -112,6 +162,22 @@ def _parser() -> argparse.ArgumentParser:
         default=0.65,
         help="robot-base X offset for the physical-seed ghost (default: 0.65 m)",
     )
+    smooth_live.add_argument(
+        "--episode-data-config",
+        type=Path,
+        help=(
+            "simulation-only single-episode dual-D435 recording config; starts in IDLE, "
+            "records while arm index is held, finalizes on release, then exits"
+        ),
+    )
+    smooth_live.add_argument("--episode-root", type=Path)
+    smooth_live.add_argument("--task-name", default="unlabeled_task")
+    smooth_live.add_argument("--operator", default="unknown")
+    smooth_live.add_argument(
+        "--episode-preview",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     smooth_replay = commands.add_parser(
         "replay-6dof", help="deterministic fixed-rate filtered 6-DoF replay"
     )
@@ -133,6 +199,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     smooth_replay.add_argument("--report", type=Path)
     smooth_replay.add_argument("--events", type=Path)
+    smooth_replay.add_argument("--arm-emitted-events", type=Path)
+    smooth_replay.add_argument(
+        "--arm-output-mode",
+        choices=tuple(mode.value for mode in ArmOutputMode),
+        default=ArmOutputMode.SHAPED_500HZ.value,
+    )
     smooth_replay.add_argument("--viewer", action="store_true")
     smooth_replay.add_argument("--realtime", action="store_true")
     smooth_replay.add_argument("--speed", type=float, default=1.0)
@@ -172,7 +244,9 @@ def _paths(prefix: str) -> tuple[Path, Path]:
 
 def _make_session(config: ReplayConfig) -> tuple[JakaMujocoSimulation, QuestJakaReplaySession]:
     augmented = build_viewer_mjcf(
-        config.mjcf_path, Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
+        config.mjcf_path,
+        Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml"),
+        scene=config.raw.get("simulation", {}).get("scene"),
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
     return simulation, QuestJakaReplaySession(config, simulation)
@@ -182,20 +256,146 @@ def _make_smooth_session(
     config: ReplayConfig,
     *,
     twin_offset_m: float | None = None,
+    arm_output_mode: str = ArmOutputMode.SHAPED_500HZ.value,
 ) -> tuple[JakaMujocoSimulation, SmoothQuestJakaSession]:
     output = Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml")
     hand_enabled = bool(config.raw.get("hand_retargeting", {}).get("enabled", False))
     augmented = (
-        build_viewer_mjcf(config.mjcf_path, output, arm_only=not hand_enabled)
+        build_viewer_mjcf(
+            config.mjcf_path,
+            output,
+            arm_only=not hand_enabled,
+            scene=config.raw.get("simulation", {}).get("scene"),
+        )
         if twin_offset_m is None
         else build_twin_viewer_mjcf(
             config.mjcf_path,
             output,
             twin_offset_m=twin_offset_m,
+            scene=config.raw.get("simulation", {}).get("scene"),
         )
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
-    return simulation, SmoothQuestJakaSession(config, simulation)
+    target_generator = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
+    arm_output = (
+        MujocoArmTargetAdapter(simulation)
+        if arm_output_mode == ArmOutputMode.SHAPED_500HZ.value
+        else JakaEquivalent125HzMujocoAdapter(simulation)
+    )
+    return simulation, SmoothQuestJakaSession(
+        config,
+        target_generator,
+        arm_output=arm_output,
+        mujoco_plant=simulation,
+    )
+
+
+def _step_smooth_simulation(
+    simulation: JakaMujocoSimulation,
+    session: SmoothQuestJakaSession,
+    dt_s: float,
+) -> None:
+    steps = max(0, int(round(max(0.0, dt_s) / simulation.model.opt.timestep)))
+    advance = getattr(session.arm_output, "advance_to", None)
+    if advance is None:
+        simulation.step(dt_s)
+        return
+    for _ in range(steps):
+        advance(float(simulation.data.time))
+        simulation.step(float(simulation.model.opt.timestep))
+
+
+def _own_mujoco_x11_window() -> int | None:
+    tree = subprocess.run(
+        ["xwininfo", "-root", "-tree"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    for line in tree.splitlines():
+        if '("MuJoCo" "MuJoCo")' not in line:
+            continue
+        window_text = line.strip().split(maxsplit=1)[0]
+        properties = subprocess.run(
+            ["xprop", "-id", window_text, "_NET_WM_PID"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        if f"= {os.getpid()}" in properties:
+            return int(window_text, 16)
+    return None
+
+
+def _request_x11_fullscreen() -> tuple[bool, str | None]:
+    if not os.environ.get("DISPLAY"):
+        return False, "DISPLAY is not set"
+    try:
+        window = _own_mujoco_x11_window()
+        if window is None:
+            return False, "MuJoCo X11 window for this process was not found"
+        library_name = ctypes.util.find_library("X11")
+        if library_name is None:
+            return False, "libX11 was not found"
+        x11 = ctypes.CDLL(library_name)
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        x11.XInternAtom.restype = ctypes.c_ulong
+        x11.XSendEvent.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_long,
+            ctypes.POINTER(_XEvent),
+        ]
+        x11.XSendEvent.restype = ctypes.c_int
+        x11.XFlush.argtypes = [ctypes.c_void_p]
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        display = x11.XOpenDisplay(None)
+        if not display:
+            return False, f"cannot open X11 display {os.environ['DISPLAY']}"
+        try:
+            event = _XEvent()
+            event.xclient.type = 33  # ClientMessage
+            event.xclient.send_event = 1
+            event.xclient.display = display
+            event.xclient.window = window
+            event.xclient.message_type = x11.XInternAtom(
+                display, b"_NET_WM_STATE", 0
+            )
+            event.xclient.format = 32
+            event.xclient.data.l[0] = 1  # _NET_WM_STATE_ADD
+            event.xclient.data.l[1] = x11.XInternAtom(
+                display, b"_NET_WM_STATE_FULLSCREEN", 0
+            )
+            event.xclient.data.l[3] = 1  # normal application request
+            sent = x11.XSendEvent(
+                display,
+                x11.XDefaultRootWindow(display),
+                0,
+                0x180000,  # SubstructureNotifyMask | SubstructureRedirectMask
+                ctypes.byref(event),
+            )
+            x11.XFlush(display)
+        finally:
+            x11.XCloseDisplay(display)
+        if not sent:
+            return False, "X11 window manager rejected the fullscreen request"
+        time.sleep(0.1)
+        state = subprocess.run(
+            ["xprop", "-id", hex(window), "_NET_WM_STATE"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        if "_NET_WM_STATE_FULLSCREEN" not in state:
+            return False, "window manager did not enter fullscreen"
+        return True, None
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as exc:
+        return False, str(exc).replace("\n", " ")
 
 
 def _viewer(simulation: JakaMujocoSimulation, *, twin_offset_m: float | None = None):
@@ -208,15 +408,78 @@ def _viewer(simulation: JakaMujocoSimulation, *, twin_offset_m: float | None = N
         show_right_ui=False,
     )
     handle.opt.geomgroup[5] = 1
-    handle.cam.azimuth = -130
-    handle.cam.elevation = -25
-    handle.cam.distance = 1.25 if twin_offset_m is None else 1.65
-    handle.cam.lookat[:] = (
-        [-0.05, -0.30, 0.24]
-        if twin_offset_m is None
-        else [0.5 * twin_offset_m, -0.05, 0.24]
-    )
+    scene = simulation.config.raw.get("simulation", {}).get("scene", {})
+    camera = scene.get("viewer_camera")
+    if camera is None:
+        handle.cam.azimuth = -130
+        handle.cam.elevation = -25
+        handle.cam.distance = 1.25 if twin_offset_m is None else 1.65
+        handle.cam.lookat[:] = (
+            [-0.05, -0.30, 0.24]
+            if twin_offset_m is None
+            else [0.5 * twin_offset_m, -0.05, 0.24]
+        )
+    else:
+        handle.cam.lookat[:] = camera["lookat_world_m"]
+        handle.cam.distance = float(camera["distance_m"])
+        handle.cam.azimuth = float(camera["azimuth_deg"])
+        handle.cam.elevation = float(camera["elevation_deg"])
+        if twin_offset_m is not None:
+            handle.cam.lookat[0] += 0.5 * twin_offset_m
+            handle.cam.distance += 0.4
+    print(f"VIEWER_CAMERA_LOOKAT={handle.cam.lookat.tolist()}")
+    print(f"VIEWER_CAMERA_DISTANCE={handle.cam.distance:g}")
+    print(f"VIEWER_CAMERA_AZIMUTH={handle.cam.azimuth:g}")
+    print(f"VIEWER_CAMERA_ELEVATION={handle.cam.elevation:g}")
+    fullscreen, reason = _request_x11_fullscreen()
+    print(f"VIEWER_FULLSCREEN={str(fullscreen).lower()}")
+    if reason is not None:
+        print(f"VIEWER_FULLSCREEN_REASON={reason}")
     return handle
+
+
+def _print_scene_installation(simulation: JakaMujocoSimulation) -> None:
+    table_id = mujoco.mj_name2id(
+        simulation.model,
+        mujoco.mjtObj.mjOBJ_GEOM,
+        "quest_jaka_workspace_tabletop",
+    )
+    if table_id < 0:
+        return
+    base_id = mujoco.mj_name2id(
+        simulation.model, mujoco.mjtObj.mjOBJ_BODY, "jaka_Link_0"
+    )
+    palm_id = mujoco.mj_name2id(
+        simulation.model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        "rh56_R_hand_base_link",
+    )
+    probe = mujoco.MjData(simulation.model)
+    probe.qpos[simulation.arm_qpos_ids] = simulation.config.initial_arm_joints_rad
+    mujoco.mj_forward(simulation.model, probe)
+    base_rotation = probe.xmat[base_id].reshape(3, 3)
+    tcp_forward_world = -probe.xmat[palm_id].reshape(3, 3)[:, 2]
+    tcp_forward_base = base_rotation.T @ tcp_forward_world
+    base_quaternion_wxyz = np.zeros(4)
+    mujoco.mju_mat2Quat(base_quaternion_wxyz, base_rotation.reshape(9))
+    print(
+        "TABLE_POSE_WORLD_M="
+        f"position={simulation.model.geom_pos[table_id].tolist()} "
+        f"size={(2.0 * simulation.model.geom_size[table_id]).tolist()}"
+    )
+    print(
+        "ROBOT_BASE_WORLD_POSE="
+        f"position={probe.xpos[base_id].tolist()} "
+        f"quaternion_wxyz={base_quaternion_wxyz.tolist()}"
+    )
+    initial_degrees = ",".join(
+        f"{math.degrees(value):g}" for value in simulation.config.initial_arm_joints_rad
+    )
+    print(f"INITIAL_JOINTS_DEG=[{initial_degrees}]")
+    print(
+        "J1_90_TCP_FORWARD="
+        f"world={tcp_forward_world.tolist()} base={tcp_forward_base.tolist()}"
+    )
 
 
 def _sync_physical_seed_twin_joints(
@@ -336,6 +599,7 @@ def _sync_viewer(
                 f"sim_tcp={tuple(round(v, 4) for v in actual.position_m)} pos_err={error*1000:.1f} mm\n"
                 f"orientation_err={orientation_error_deg:.1f} deg orientation=ENABLED\n"
                 f"filter={getattr(getattr(session, 'profile', None), 'name', 'legacy')}\n"
+                f"arm_output={getattr(simulation, 'arm_output_mode', 'shaped-500hz')}\n"
                 f"head_yaw={latest.get('captured_head_yaw_rad')} hand_retarget={hand_status}\n"
                 f"retarget_status={latest.get('hand_retarget_status')}\n"
                 f"hand_reacquire={latest.get('hand_reacquisition_fraction')} "
@@ -397,6 +661,62 @@ def _write_events(records: list[dict[str, object]], path: Path) -> None:
     print(f"EVENTS={path.resolve()}")
 
 
+def _run_manifest(
+    *,
+    config_path: Path,
+    duration_s: float,
+    raw_input_path: Path,
+    report_path: Path,
+    events_path: Path,
+    target_hz: float,
+    simulation: JakaMujocoSimulation,
+    arm_output_mode: str,
+    emitted_path: Path | None,
+) -> dict[str, object]:
+    commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    resolved_config = config_path.resolve()
+    return {
+        "schema_version": "quest_jaka_joint_recording.v1",
+        "git_commit": commit,
+        "config_path": str(resolved_config),
+        "config_sha256": hashlib.sha256(resolved_config.read_bytes()).hexdigest(),
+        "recording_duration_s": float(duration_s),
+        "arm_joint_order": [f"jaka_joint_{index}" for index in range(1, 7)],
+        "hand_channel_order": [
+            "thumb_lateral",
+            "thumb_close",
+            "index",
+            "middle",
+            "ring",
+            "pinky",
+        ],
+        "rates_hz": {
+            "target_generation": target_hz,
+            "selected_arm_output": (
+                125.0
+                if arm_output_mode == ArmOutputMode.JAKA_EQUIVALENT_125HZ.value
+                else 500.0
+            ),
+            "mujoco_physics": 1.0 / float(simulation.model.opt.timestep),
+            "simulation_event_log": target_hz,
+        },
+        "file_paths": {
+            "raw_input": str(raw_input_path.resolve()),
+            "control_events": str(events_path.resolve()),
+            "report": str(report_path.resolve()),
+            "arm_emitted_125hz": (
+                None if emitted_path is None else str(emitted_path.resolve())
+            ),
+        },
+        "simulation_only": True,
+    }
+
+
 def _replay(args: argparse.Namespace) -> int:
     if args.speed <= 0 or args.realtime_from_sec < 0:
         raise SystemExit("speed must be positive and realtime-from must be non-negative")
@@ -405,6 +725,8 @@ def _replay(args: argparse.Namespace) -> int:
     datagrams = list(HtsRawRecordingReader(args.recording).datagrams())
     if not datagrams:
         raise SystemExit("recording contains no datagrams")
+    if args.viewer:
+        _print_scene_installation(simulation)
     base_ns = datagrams[0].receive_monotonic_ns
     previous_ns = base_ns
     handle = _viewer(simulation) if args.viewer else None
@@ -475,11 +797,200 @@ def _project_ip(explicit: str | None) -> str:
     return str(address)
 
 
+def _start_episode_data_runtime(
+    args: argparse.Namespace,
+    config: ReplayConfig,
+) -> tuple[
+    SingleEpisodeCollector,
+    AsyncRGBDCamera,
+    AsyncRGBDCamera,
+    AsyncDualCameraPreview | None,
+]:
+    data_config = load_yaml(args.episode_data_config)
+    cameras = data_config.get("cameras")
+    if not isinstance(cameras, dict) or set(cameras) != {"workspace", "wrist"}:
+        raise SystemExit("episode data config must define exactly workspace and wrist cameras")
+    resolved = {
+        role: resolve_realsense_config(data_config, camera_name=role)
+        for role in ("workspace", "wrist")
+    }
+    serials = {role: str(resolved[role].get("serial", "")) for role in resolved}
+    if any(not serial or serial.startswith("REPLACE_") for serial in serials.values()):
+        raise SystemExit("both D435 roles require explicit non-placeholder serial numbers")
+    if len(set(serials.values())) != 2:
+        raise SystemExit("workspace and wrist must bind different RealSense serial numbers")
+    workers = {
+        role: AsyncRGBDCamera(
+            role,
+            lambda role=role: RealSenseCamera(resolved[role]),
+        )
+        for role in ("workspace", "wrist")
+    }
+    for worker in workers.values():
+        worker.start()
+    deadline = time.monotonic() + max(
+        float(resolved[role].get("timeout_ms", 5000)) / 1000.0 + 2.0 for role in resolved
+    )
+    while time.monotonic() < deadline:
+        errors = {role: worker.error for role, worker in workers.items() if worker.error is not None}
+        if errors:
+            for worker in workers.values():
+                worker.stop()
+            raise SystemExit(f"RealSense startup failed: {errors}")
+        if all(worker.latest() is not None for worker in workers.values()):
+            break
+        time.sleep(0.01)
+    else:
+        for worker in workers.values():
+            worker.stop()
+        raise SystemExit("dual RealSense startup timed out before fresh frames arrived")
+
+    dataset_config = data_config.get("dataset", {})
+    root = args.episode_root or Path(dataset_config.get("root", "data/episodes"))
+    camera_profiles = {role: workers[role].profile_metadata() for role in workers}
+    calibration = data_config.get("calibration", {})
+    calibration_files = calibration.get("snapshot_files", []) if isinstance(calibration, dict) else []
+    hardware_config = config.raw.get("hardware_adapter", {})
+    start_tolerance = float(hardware_config.get("startup_alignment_tolerance_rad", 0.001))
+    staging_writer = CanonicalEpisodeWriter(
+        root,
+        task_name=args.task_name,
+        operator=args.operator,
+        dataset_fps=int(dataset_config.get("fps", 30)),
+        metadata={
+            "camera_serials": serials,
+            "camera_profiles": camera_profiles,
+            "calibration_files": calibration_files,
+            "calibration_snapshot": {"files": [], "version": calibration.get("version")},
+            "control_config": {
+                "path": str(args.config.resolve()),
+                "sha256": file_sha256(args.config),
+            },
+            "raw_streams": {
+                "quest_raw_datagram": "measured",
+                "quest_decoded_input": "measured",
+                "accepted_arm_target_60hz": "commanded",
+                "emitted_arm_command_125hz": (
+                    "commanded"
+                    if args.arm_output_mode == ArmOutputMode.JAKA_EQUIVALENT_125HZ.value
+                    else "unavailable"
+                ),
+                "jaka_arm_q": "unavailable_simulated_arm_q_available",
+                "jaka_arm_dq": "unavailable_simulated_arm_dq_available",
+                "native_telemetry": "unavailable",
+                "rh56_target": "commanded_simulation",
+                "rh56_feedback": "measured_simulation",
+                "workspace_rgbd": "measured",
+                "wrist_rgbd": "measured",
+                "fault_events": "measured_simulation",
+            },
+            "simulation_only": True,
+            "physically_validated": False,
+        },
+    )
+    writer = AsyncEpisodeWriter(staging_writer)
+    collector = SingleEpisodeCollector(
+        writer,
+        camera_max_age_ns=round(float(dataset_config.get("camera_max_age_ms", 33.333334)) * 1e6),
+        control_max_age_ns=round(float(dataset_config.get("control_max_age_ms", 20.0)) * 1e6),
+        maximum_start_delta_rad=start_tolerance,
+        maximum_hand_start_delta_rad=float(
+            dataset_config.get("hand_start_tolerance_rad", 0.05)
+        ),
+    )
+    writer.set_final_metadata_provider(
+        lambda: {
+            "camera_profiles": {role: workers[role].profile_metadata() for role in workers}
+        }
+    )
+    preview = None
+    if args.episode_preview:
+        preview = AsyncDualCameraPreview(
+            workers["workspace"],
+            workers["wrist"],
+            PreviewStatus(
+                state=collector.state,
+                temporary_id=writer.temporary_id,
+                episode_start_ns=None,
+                arm_trigger=False,
+                hand_grip=False,
+                recording_frame_count=0,
+            ),
+        )
+        preview.start()
+        collector.set_state_listener(preview.set_capture_state)
+    return collector, workers["workspace"], workers["wrist"], preview
+
+
+def _simulation_control_sample(
+    session: SmoothQuestJakaSession,
+    simulation: JakaMujocoSimulation,
+    timestamp_ns: int,
+) -> tuple[ControlSample, bool, dict[str, object]]:
+    event = dict(session.event_records[-1])
+    tcp = simulation.current_tcp_pose
+    hand_observation = event.get("actual_hand_actuator_position_rad")
+    hand_target = event.get("commanded_hand_target_rad")
+    accepted_target = event.get("accepted_joint_target_rad")
+    action_status = "accepted"
+    if accepted_target is None and event.get("control_state") == "HOLD_REJECTED":
+        held = session.last_accepted_target
+        if held is not None:
+            accepted_target = held.joint_position_rad
+            action_status = "held_rejected"
+    sample = ControlSample(
+        host_monotonic_ns=timestamp_ns,
+        accepted_arm_q=accepted_target,
+        arm_q_measured=tuple(float(value) for value in simulation.arm_joints_rad),
+        arm_dq_measured=tuple(float(value) for value in simulation.data.qvel[simulation.arm_dof_ids]),
+        tcp_pose_xyzw=(*tcp.position_m, *tcp.orientation_xyzw),
+        arm_action_status=action_status,
+        hand_observation=hand_observation,
+        hand_source="measured" if hand_observation is not None else "unavailable",
+        hand_target=hand_target,
+        arm_trigger=session.arm_clutch.state.value == "engaged",
+        hand_grip=session.hand_clutch.state.value in {"reacquire", "engaged"},
+        accepted_target_sequence=event.get("accepted_target_sequence"),
+        reference_generation=event.get("reference_generation"),
+        source_timestamps_ns={
+            "quest": event.get("source_timestamp_ns"),
+            "quest_host_receive": event.get("raw_quest_wrist_timestamp_ns"),
+            "accepted_action_host": (
+                event.get("control_monotonic_ns")
+                if action_status == "accepted"
+                else session.last_accepted_target.generated_monotonic_ns
+            )
+            if accepted_target is not None
+            else None,
+            "accepted_action_source": (
+                event.get("accepted_source_timestamp_ns")
+                if action_status == "accepted"
+                else session.last_accepted_target.source_timestamp_ns
+            )
+            if accepted_target is not None
+            else None,
+        },
+        source_timestamp_domains={
+            "quest": "quest_source_clock_ns",
+            "quest_host_receive": "host_monotonic_ns",
+            "accepted_action_host": "host_monotonic_ns",
+            "accepted_action_source": "quest_source_clock_ns",
+        },
+        control_heartbeat_valid=event.get("control_state") != "HARD_STOP",
+        tracking_hard_fault=bool(event.get("active_arm_fault")),
+        controller_fault=False,
+    )
+    reference_established = event.get("arm_reference_pose") is not None
+    return sample, reference_established, event
+
+
 def _live_6dof(args: argparse.Namespace) -> int:
     if args.duration_sec <= 0:
         raise SystemExit("duration must be positive")
     if args.telemetry_hz < 0:
         raise SystemExit("telemetry-hz must be non-negative")
+    if args.episode_root is not None and args.episode_data_config is None:
+        raise SystemExit("--episode-root requires --episode-data-config")
     config = replace(
         ReplayConfig.load(args.config, speed_profile=args.speed_profile),
         engagement_schedule_s=(),
@@ -493,6 +1004,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
         twin_offset_m=(
             args.twin_offset_m if args.physical_seed_metrics is not None else None
         ),
+        arm_output_mode=args.arm_output_mode,
     )
     physical_seed_twin: SharedJakaTargetGenerator | None = None
     physical_seed_session: SmoothQuestJakaSession | None = None
@@ -535,6 +1047,9 @@ def _live_6dof(args: argparse.Namespace) -> int:
     report_path = args.report or default_report
     capture_path = args.output or default_capture
     events_path = args.events or report_path.with_suffix(".events.jsonl")
+    emitted_path = args.arm_emitted_events or report_path.with_suffix(
+        ".arm_emitted_125hz.jsonl"
+    )
     capture_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"EVENT_LOG={events_path.resolve()}")
     print(f"PROJECT_IP={project_ip}")
@@ -544,7 +1059,10 @@ def _live_6dof(args: argparse.Namespace) -> int:
         f"RATES=input~30Hz target={target_hz:g}Hz "
         f"mujoco={1.0/simulation.model.opt.timestep:g}Hz viewer={viewer_hz:g}Hz"
     )
+    print(f"ARM_OUTPUT={args.arm_output_mode}")
     _print_effective_speed_config(config, simulation, args.speed_profile)
+    if args.viewer:
+        _print_scene_installation(simulation)
     print("JAKA hardware control disabled")
     print("RH56 hardware control disabled")
     print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP RH56 hand clutch")
@@ -581,6 +1099,23 @@ def _live_6dof(args: argparse.Namespace) -> int:
         else None
     )
     session.ik_debug = bool(args.ik_debug)
+    episode_collector: SingleEpisodeCollector | None = None
+    workspace_camera: AsyncRGBDCamera | None = None
+    wrist_camera: AsyncRGBDCamera | None = None
+    episode_preview: AsyncDualCameraPreview | None = None
+    last_camera_timestamp = {"workspace": -1, "wrist": -1}
+    emitted_record_index = 0
+    if args.episode_data_config is not None:
+        (
+            episode_collector,
+            workspace_camera,
+            wrist_camera,
+            episode_preview,
+        ) = _start_episode_data_runtime(args, config)
+        print(
+            f"EPISODE_CAPTURE=IDLE id={episode_collector.writer.temporary_id} "
+            f"root={episode_collector.writer.root}"
+        )
     started = time.monotonic()
     sim_period = float(simulation.model.opt.timestep)
     target_period = 1.0 / target_hz
@@ -609,13 +1144,32 @@ def _live_6dof(args: argparse.Namespace) -> int:
             while (handle is None or handle.is_running()) and time.monotonic() - started < args.duration_sec:
                 worker.raise_if_failed()
                 for datagram in worker.drain():
+                    if episode_collector is not None and episode_collector.state is CaptureState.REC:
+                        episode_collector.writer.append_raw(
+                            "quest_raw_datagram",
+                            {
+                                "host_monotonic_ns": datagram.receive_monotonic_ns,
+                                "source_endpoint": datagram.source_endpoint,
+                                "payload_hex": datagram.payload.hex(),
+                            },
+                        )
                     controller_router.ingest(datagram, session)
                     if physical_seed_router is not None and physical_seed_session is not None:
                         physical_seed_router.ingest(datagram, physical_seed_session)
                 now = time.monotonic()
+                if episode_collector is not None:
+                    assert workspace_camera is not None and wrist_camera is not None
+                    for camera in (workspace_camera, wrist_camera):
+                        if camera.error is not None:
+                            episode_collector.camera_fault(camera.role, str(camera.error))
+                            continue
+                        frames = camera.frames_after(last_camera_timestamp[camera.role])
+                        for frame in frames:
+                            episode_collector.ingest_camera(frame)
+                            last_camera_timestamp[camera.role] = frame.host_monotonic_ns
                 steps = 0
                 while now >= next_sim and steps < 20:
-                    simulation.step(sim_period)
+                    _step_smooth_simulation(simulation, session, sim_period)
                     next_sim += sim_period
                     steps += 1
                 if now >= next_sim:
@@ -627,6 +1181,43 @@ def _live_6dof(args: argparse.Namespace) -> int:
                     control_now_ns = time.monotonic_ns()
                     controller_router.poll(control_now_ns, session)
                     session.control_tick(control_now_ns)
+                    if episode_collector is not None:
+                        control_sample, reference_established, event = _simulation_control_sample(
+                            session, simulation, control_now_ns
+                        )
+                        episode_collector.ingest_control(
+                            control_sample,
+                            reference_established=reference_established,
+                            raw_records={
+                                "quest_decoded_control_event": event,
+                                "accepted_arm_target_60hz": {
+                                    "host_monotonic_ns": control_now_ns,
+                                    "accepted_target_sequence": event.get("accepted_target_sequence"),
+                                    "accepted_joint_target_rad": event.get("accepted_joint_target_rad"),
+                                    "reference_generation": event.get("reference_generation"),
+                                },
+                                "rh56_target": {
+                                    "host_monotonic_ns": control_now_ns,
+                                    "status": "commanded_simulation",
+                                    "target_rad": event.get("commanded_hand_target_rad"),
+                                },
+                                "rh56_observation": {
+                                    "host_monotonic_ns": control_now_ns,
+                                    "status": "measured_simulation",
+                                    "position_rad": event.get("actual_hand_actuator_position_rad"),
+                                },
+                            },
+                        )
+                        if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
+                            records = session.arm_output.records
+                            if episode_collector.state is CaptureState.REC:
+                                episode_collector.writer.append_raw_batch(
+                                    [
+                                        ("emitted_arm_command_125hz", record)
+                                        for record in records[emitted_record_index:]
+                                    ]
+                                )
+                            emitted_record_index = len(records)
                     if physical_seed_router is not None and physical_seed_session is not None:
                         physical_seed_router.poll(control_now_ns, physical_seed_session)
                         physical_seed_session.control_tick(control_now_ns)
@@ -647,7 +1238,29 @@ def _live_6dof(args: argparse.Namespace) -> int:
                             twin_offset_m=args.twin_offset_m,
                         )
                         viewer_updates += 1
+                    if episode_collector is not None and episode_preview is not None:
+                        episode_preview.update(
+                            PreviewStatus(
+                                state=episode_collector.state,
+                                temporary_id=episode_collector.writer.temporary_id,
+                                episode_start_ns=episode_collector.writer.start_monotonic_ns,
+                                arm_trigger=session.arm_clutch.state.value == "engaged",
+                                hand_grip=session.hand_clutch.state.value in {"reacquire", "engaged"},
+                                recording_frame_count=episode_collector.writer.sample_count,
+                            ),
+                        )
+                        if episode_preview.closed:
+                            if episode_collector.state is CaptureState.REC:
+                                reason = (
+                                    "preview_error"
+                                    if episode_preview.error is not None
+                                    else "preview_closed"
+                                )
+                                episode_collector.abort(reason)
+                            break
                     next_viewer += (skipped + 1) * viewer_period
+                if episode_collector is not None and episode_collector.state is CaptureState.DONE:
+                    break
                 if args.telemetry_hz > 0 and now >= next_telemetry:
                     controller = controller_router.last_state
                     latest = session.event_records[-1] if session.event_records else {}
@@ -723,11 +1336,20 @@ def _live_6dof(args: argparse.Namespace) -> int:
                 deadline = min(next_sim, next_target, next_viewer)
                 time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
         except KeyboardInterrupt:
-            pass
+            if episode_collector is not None and episode_collector.state is CaptureState.REC:
+                episode_collector.abort("operator_interrupt")
         finally:
+            if episode_collector is not None and episode_collector.state is CaptureState.REC:
+                episode_collector.abort("capture_loop_ended")
             worker.close()
             if handle is not None:
                 handle.close()
+            if episode_preview is not None:
+                episode_preview.stop()
+            if workspace_camera is not None:
+                workspace_camera.stop()
+            if wrist_camera is not None:
+                wrist_camera.stop()
     report = session.report(str(capture_path.resolve()))
     report.update(
         mode="live_quest_to_smooth_6dof_simulation_only",
@@ -739,7 +1361,27 @@ def _live_6dof(args: argparse.Namespace) -> int:
         viewer_skipped_frames=viewer_skipped_frames,
         viewer_update_count=viewer_updates,
         viewer_rate_hz=(viewer_updates / max(time.monotonic() - started, 1e-9)),
+        arm_output_mode=args.arm_output_mode,
         **controller_router.telemetry(),
+    )
+    if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
+        _write_events(session.arm_output.records, emitted_path)
+        report.update(session.arm_output.report())
+        report["arm_emitted_event_log"] = str(emitted_path.resolve())
+    report["recording_manifest"] = _run_manifest(
+        config_path=args.config,
+        duration_s=max(time.monotonic() - started, 0.0),
+        raw_input_path=capture_path,
+        report_path=report_path,
+        events_path=events_path,
+        target_hz=target_hz,
+        simulation=simulation,
+        arm_output_mode=args.arm_output_mode,
+        emitted_path=(
+            emitted_path
+            if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter)
+            else None
+        ),
     )
     if physical_seed_session is not None and physical_seed_twin is not None:
         assert physical_seed_metrics_data is not None
@@ -760,6 +1402,10 @@ def _live_6dof(args: argparse.Namespace) -> int:
         }
     _write_events(session.event_records, events_path)
     _write_report(report, report_path)
+    if episode_collector is not None and episode_collector.result is not None:
+        print(f"EPISODE_RESULT={episode_collector.result.resolve()}")
+    if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
+        session.arm_output.close()
     return 0
 
 
@@ -784,11 +1430,22 @@ def _replay_6dof(args: argparse.Namespace) -> int:
         raw = copy.deepcopy(dict(config.raw))
         raw.setdefault("clutches", {})["hand_reacquisition_ms"] = args.hand_reacquisition_ms
         config = replace(config, raw=raw)
-    simulation, session = _make_smooth_session(config)
+    simulation, session = _make_smooth_session(
+        config,
+        arm_output_mode=args.arm_output_mode,
+    )
     datagrams = list(HtsRawRecordingReader(args.recording).datagrams())
     if not datagrams:
         raise SystemExit("recording contains no datagrams")
     base_ns = datagrams[0].receive_monotonic_ns
+    recorded_controller = any(
+        datagram.payload.startswith(b"CTRL,") for datagram in datagrams
+    )
+    clutch_config = config.raw.get("clutches", {})
+    controller_router = LiveQuestControllerRouter(
+        stale_after_s=float(clutch_config.get("stale_after_ms", 150.0)) / 1000.0,
+        released_at=float(clutch_config.get("released_at", 0.55)),
+    )
     recorded_end_ns = datagrams[-1].receive_monotonic_ns
     end_ns = (
         recorded_end_ns
@@ -799,6 +1456,8 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     control_period_ns = int(round(1e9 / float(rates.get("target_generation_hz", 60.0))))
     sim_period_ns = int(round(simulation.model.opt.timestep * 1e9))
     viewer_period_ns = int(round(1e9 / float(rates.get("viewer_hz", 60.0))))
+    if args.viewer:
+        _print_scene_installation(simulation)
     handle = _viewer(simulation) if args.viewer else None
     realtime = bool(args.realtime or args.viewer)
     wall_start = time.monotonic()
@@ -811,12 +1470,14 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     try:
         while now_ns <= end_ns and (handle is None or handle.is_running()):
             while index < len(datagrams) and datagrams[index].receive_monotonic_ns <= now_ns:
-                session.ingest(datagrams[index])
+                controller_router.ingest(datagrams[index], session)
                 index += 1
             elapsed_s = (now_ns - base_ns) / 1e9
             if now_ns >= next_control_ns:
                 clutch_sequence += 1
-                if args.arm_cycle_period_sec is None:
+                if recorded_controller:
+                    controller_router.poll(now_ns, session)
+                elif args.arm_cycle_period_sec is None:
                     index_pressed = elapsed_s >= args.engage_at_sec
                 else:
                     cycle_elapsed = elapsed_s - args.engage_at_sec
@@ -827,11 +1488,11 @@ def _replay_6dof(args: argparse.Namespace) -> int:
                         and cycle_elapsed % args.arm_cycle_period_sec
                         < args.arm_cycle_period_sec / 2.0
                     )
-                if args.hand_engage_at_sec is None:
+                if not recorded_controller and args.hand_engage_at_sec is None:
                     grip_pressed = False
-                elif args.hand_cycle_period_sec is None:
+                elif not recorded_controller and args.hand_cycle_period_sec is None:
                     grip_pressed = elapsed_s >= args.hand_engage_at_sec
-                else:
+                elif not recorded_controller:
                     hand_elapsed = elapsed_s - args.hand_engage_at_sec
                     hand_cycle_index = int(hand_elapsed / args.hand_cycle_period_sec)
                     grip_pressed = (
@@ -840,25 +1501,30 @@ def _replay_6dof(args: argparse.Namespace) -> int:
                         and hand_elapsed % args.hand_cycle_period_sec
                         < args.hand_cycle_period_sec / 2.0
                     )
-                # This is an explicitly labelled deterministic offline source,
-                # never a claim of live Quest-controller support.
-                session.set_clutch_samples(
-                    index=AnalogClutchSample(
-                        1.0 if index_pressed else 0.0,
-                        now_ns,
-                        clutch_sequence,
-                    ),
-                    grip=AnalogClutchSample(
-                        1.0 if grip_pressed else 0.0,
-                        now_ns,
-                        clutch_sequence,
-                    ),
-                    left_controller_valid=True,
-                    provider="deterministic_replay_cli",
-                )
+                if not recorded_controller:
+                    # Known legacy recordings contain HTS only; retain their
+                    # explicit deterministic CLI clutch source.
+                    session.set_clutch_samples(
+                        index=AnalogClutchSample(
+                            1.0 if index_pressed else 0.0,
+                            now_ns,
+                            clutch_sequence,
+                        ),
+                        grip=AnalogClutchSample(
+                            1.0 if grip_pressed else 0.0,
+                            now_ns,
+                            clutch_sequence,
+                        ),
+                        left_controller_valid=True,
+                        provider="deterministic_replay_cli",
+                    )
                 session.control_tick(now_ns)
                 next_control_ns += control_period_ns
-            simulation.step(simulation.model.opt.timestep)
+            _step_smooth_simulation(
+                simulation,
+                session,
+                simulation.model.opt.timestep,
+            )
             if handle is not None and now_ns >= next_viewer_ns:
                 _sync_viewer(handle, simulation, session)
                 viewer_updates += 1
@@ -877,12 +1543,39 @@ def _replay_6dof(args: argparse.Namespace) -> int:
         deterministic=True,
         replay_speed=args.speed,
         viewer_update_count=viewer_updates,
+        recorded_controller_replayed=recorded_controller,
+        arm_output_mode=args.arm_output_mode,
+        **controller_router.telemetry(),
     )
     report_path = args.report or _paths("quest_jaka_replay_6dof")[0]
     events_path = args.events or report_path.with_suffix(".events.jsonl")
+    emitted_path = args.arm_emitted_events or report_path.with_suffix(
+        ".arm_emitted_125hz.jsonl"
+    )
     report["event_log"] = str(events_path.resolve())
+    if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
+        _write_events(session.arm_output.records, emitted_path)
+        report.update(session.arm_output.report())
+        report["arm_emitted_event_log"] = str(emitted_path.resolve())
+    report["recording_manifest"] = _run_manifest(
+        config_path=args.config,
+        duration_s=(end_ns - base_ns) / 1e9,
+        raw_input_path=args.recording,
+        report_path=report_path,
+        events_path=events_path,
+        target_hz=float(rates.get("target_generation_hz", 60.0)),
+        simulation=simulation,
+        arm_output_mode=args.arm_output_mode,
+        emitted_path=(
+            emitted_path
+            if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter)
+            else None
+        ),
+    )
     _write_events(session.event_records, events_path)
     _write_report(report, report_path)
+    if isinstance(session.arm_output, JakaEquivalent125HzMujocoAdapter):
+        session.arm_output.close()
     return 0 if report["accepted_target_count"] > 0 else 2
 
 

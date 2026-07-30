@@ -3,12 +3,15 @@ device_name: inspire_rh56
 transport: serial_rs485_pc_direct
 backend_type: serial_protocol
 serial:
-  port: /dev/ttyUSB0
+  # The operator must override this with the adapter's real stable by-id path.
+  port: /dev/serial/by-id/REPLACE_WITH_ACTUAL_RH56_ADAPTER_ID
   baudrate: 115200
   timeout_sec: 0.2
   hand_id: 1
 finger_count: 6
 control_frequency_hz: 15
+# Gate policy: two configured 0.2 s serial timeouts without fresh feedback.
+feedback_stale_timeout_sec: 0.4
 close_strength: 0.35
 pinch_strength: 0.25
 speed_default: [800, 800, 800, 800, 800, 800]

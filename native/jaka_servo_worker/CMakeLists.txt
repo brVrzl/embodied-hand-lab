@@ -19,8 +19,12 @@ endif()
 
 find_library(JAKA_API_LIBRARY NAMES jakaAPI PATHS "${JAKA_LIBRARY_DIR}" NO_DEFAULT_PATH REQUIRED)
 
+add_library(jaka_servo_resampler SHARED resampler_c_api.cpp)
+target_include_directories(jaka_servo_resampler PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(jaka_servo_resampler PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
 add_executable(jaka_servo_worker main.cpp)
-target_include_directories(jaka_servo_worker PRIVATE "${JAKA_INCLUDE_DIR}")
+target_include_directories(jaka_servo_worker PRIVATE "${JAKA_INCLUDE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(jaka_servo_worker PRIVATE "${JAKA_API_LIBRARY}" pthread)
 target_compile_options(jaka_servo_worker PRIVATE -Wall -Wextra -Wpedantic -Werror)
 set_target_properties(jaka_servo_worker PROPERTIES BUILD_RPATH "${JAKA_LIBRARY_DIR}")

@@ -30,6 +30,19 @@ Offline analyzers include:
 Select inputs explicitly. Do not commit large personal motion captures or
 generated logs solely because they exist locally.
 
+The simulation `live-6dof` bundle consists of the raw HTS+CTRL JSONL, the
+60 Hz shared event JSONL, and the JSON report. The report embeds the small
+`quest_jaka_joint_recording.v1` manifest with commit/config hash, duration,
+joint/channel order, rates, file paths, and `simulation_only=true`. In
+`jaka-equivalent-125hz` mode an additional
+`*.arm_emitted_125hz.jsonl` records source accepted sequence/time, emitted
+sequence/time, q/dq/ddq/jerk, PWL segment state, transition state, actual q,
+and command-actual error. The raw input is output-mode neutral.
+
+Operational commands for creating the bundle and replaying the same capture
+through either arm adapter are in the
+[Quest/JAKA MuJoCo simulation guide](../operation/simulation_demo.md).
+
 ---
 
 # 中文版：日志、证据与回放
@@ -59,3 +72,13 @@ generated logs solely because they exist locally.
 ```
 
 必须显式选择输入。不要仅因本地存在大型个人动作采集或生成日志就将其提交。
+
+仿真 `live-6dof` bundle 由 raw HTS+CTRL JSONL、60 Hz shared event JSONL 和 JSON report
+组成。report 内嵌小型 `quest_jaka_joint_recording.v1` manifest，记录 commit/config hash、
+时长、关节/通道顺序、频率、文件路径和 `simulation_only=true`。选择
+`jaka-equivalent-125hz` 时还会生成 `*.arm_emitted_125hz.jsonl`，其中包含 source accepted
+序列/时间、emitted 序列/时间、q/dq/ddq/jerk、PWL segment/transition 状态、actual q 和
+command-actual error。raw 输入不绑定 output mode。
+
+生成该 bundle，并把同一份 capture 通过两种 arm adapter 回放的操作命令见
+[Quest/JAKA MuJoCo 仿真指南](../operation/simulation_demo.md)。

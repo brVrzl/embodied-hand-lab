@@ -45,7 +45,9 @@ Usage / 用法:
     [options]
 
 Runs one bounded normal-speed Quest/JAKA arm-only teleoperation attempt through
-the production AcceptedArmTarget + 8 ms PWL path. It never commands RH56.
+the production AcceptedArmTarget + 8 ms PWL path. Releasing left index pauses
+the arm; pressing it again captures a fresh reference and resumes. It never
+commands RH56.
 通过 production AcceptedArmTarget + 8 ms PWL 路径执行一次有界正常速度机械臂遥操作，
 不会命令 RH56。
 
@@ -85,7 +87,11 @@ These are not official JAKA Mini2 maximum speeds.
 Retained hard stops / 保留硬停止:
   controller alarm, SDK error, hard timing fault, tracking fault, shared/native
   velocity or final acceleration contract violation, sustained recoverable
-  acceleration hold, stale input/heartbeat, clutch release, and Ctrl+C.
+  acceleration hold, stale input/heartbeat, and Ctrl+C.
+
+Arm clutch / 机械臂离合:
+  release left index -> bounded native pause; press again -> fresh reference
+  capture and resume. A stale or invalid clutch signal remains a hard stop.
 
 Recoverable transition / 可恢复过渡:
   an isolated PWL acceleration transition is held back before SDK dispatch;
@@ -197,7 +203,8 @@ echo "JOINT_VELOCITY_LIMITS_RAD_S=${JOINT_VELOCITY_LIMITS[*]}"
 echo "DURATION_SEC=${DURATION_SEC}"
 echo "LOG_PREFIX=${LOG_PREFIX}"
 echo "NO_AUTO_RETRY=true"
-echo "STOP=release left-index clutch or Ctrl+C"
+echo "ARM_CLUTCH=release pauses; press again captures a fresh reference and resumes"
+echo "STOP=Ctrl+C, stale input, controller/native hard fault, or duration elapsed"
 echo "No RH56 command or controller configuration write is performed."
 echo "不发送 RH56 命令，也不写入任何控制器配置。"
 

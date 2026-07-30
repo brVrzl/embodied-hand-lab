@@ -11,6 +11,7 @@ import time
 import numpy as np
 import pytest
 
+import quest_jaka_sim.simulation as simulation_module
 from motion_input import Pose6D, ReceivedHtsDatagram
 from quest_jaka_sim import (
     AnalogClutchSample,
@@ -32,7 +33,12 @@ from teleoperation.accepted_target import (
 )
 from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import build_viewer_mjcf
-from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, FeasibilityResult
+from quest_jaka_sim.simulation import (
+    BudgetExhaustionStage,
+    CandidateMetrics,
+    FeasibilityReason,
+    FeasibilityResult,
+)
 from teleoperation.jaka.quest_adapter import (
     E2IsolatedForwardTranslationGuard,
     JakaAcceptedJointTargetAdapter,
@@ -143,6 +149,16 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert config.mapping.translation_scale_per_axis == (1.0, 1.0, 1.0)
     assert config.mapping.orientation_scale == 1.0
     assert config.mapping.orientation_scale_per_axis == (1.0, 1.0, 1.0)
+    assert config.mapping.operator_to_robot_basis == (
+        (0.0, 0.0, -1.0),
+        (-1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    )
+    assert config.mapping.rotation_operator_to_robot_basis == (
+        (-1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
     assert rates["target_generation_hz"] == rates["ik_hz"] == 60
     assert rates["jaka_transport_hz"] == 125
     assert hardware["servo_period_ms"] == pytest.approx(8.0)
@@ -154,10 +170,205 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "continuation_enabled": True,
         "maximum_backtracks": 5,
         "minimum_continuation_fraction": 0.03125,
+        "control_compute_budget_ms": 20.0,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
     }
+
+
+def test_expired_control_compute_budget_never_commits_a_candidate() -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    held_tcp = generator.last_safe_target
+
+    result = generator.evaluate(
+        held_tcp,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=time.perf_counter_ns() - 1,
+    )
+
+    assert not result.accepted
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.joint_target_rad is None
+    assert result.reason_before_budget_override is None
+    assert (
+        result.budget_exhaustion_stage
+        is BudgetExhaustionStage.BEFORE_CANDIDATE_EVALUATION
+    )
+    assert not result.all_candidate_checks_completed
+    assert not result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns > 0
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    _assert_pose_equal(generator.last_safe_target, held_tcp)
+
+
+class _DeadlineAfterClassificationClock:
+    def __init__(self) -> None:
+        self.classification_completed = False
+
+    def __call__(self) -> int:
+        return 101 if self.classification_completed else 1
+
+
+def _output_tracker_state(generator: SharedJakaTargetGenerator) -> tuple[object, ...]:
+    tracker = generator.output_feasibility
+    return (
+        tracker._last_accepted_ns,
+        tracker._segment_start_rad,
+        tracker._segment_destination_rad,
+        tracker._segment_duration_ns,
+        tracker._segment_entry_velocity_rad_s,
+    )
+
+
+def _expire_after_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    forced_reason: FeasibilityReason | None = None,
+) -> None:
+    clock = _DeadlineAfterClassificationClock()
+    original_classify = simulation_module.classify_candidate
+
+    def classify(*args: object, **kwargs: object) -> FeasibilityReason:
+        reason = (
+            original_classify(*args, **kwargs)
+            if forced_reason is None
+            else forced_reason
+        )
+        clock.classification_completed = True
+        return reason
+
+    monkeypatch.setattr(simulation_module, "classify_candidate", classify)
+    monkeypatch.setattr(simulation_module.time, "perf_counter_ns", clock)
+
+
+def test_budget_diagnostics_preserve_feasible_classification_without_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    held_velocity = generator.last_safe_joint_velocity.copy()
+    held_tcp = generator.last_safe_target
+    output_state = _output_tracker_state(generator)
+    accepted_metrics_count = len(generator.accepted_metrics)
+    _expire_after_classification(monkeypatch)
+
+    result = generator.evaluate(
+        held_tcp,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=100,
+    )
+
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.reason_before_budget_override is FeasibilityReason.ACCEPTED
+    assert result.budget_exhaustion_stage is BudgetExhaustionStage.AFTER_ALL_CHECKS
+    assert result.all_candidate_checks_completed
+    assert result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns == 1
+    assert not result.accepted
+    assert result.joint_target_rad is None
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    assert generator.last_safe_joint_velocity == pytest.approx(held_velocity)
+    assert generator.arm_joints_rad == pytest.approx(held_q)
+    _assert_pose_equal(generator.last_safe_target, held_tcp)
+    assert _output_tracker_state(generator) == output_state
+    assert len(generator.accepted_metrics) == accepted_metrics_count
+
+
+def test_budget_diagnostics_preserve_nonfeasible_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    held_tcp = generator.last_safe_target
+    output_state = _output_tracker_state(generator)
+    _expire_after_classification(
+        monkeypatch,
+        forced_reason=FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE,
+    )
+
+    result = generator.evaluate(
+        held_tcp,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=100,
+    )
+
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert (
+        result.reason_before_budget_override
+        is FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
+    )
+    assert result.budget_exhaustion_stage is BudgetExhaustionStage.AFTER_ALL_CHECKS
+    assert result.all_candidate_checks_completed
+    assert not result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns == 1
+    assert not result.accepted
+    assert result.joint_target_rad is None
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    _assert_pose_equal(generator.last_safe_target, held_tcp)
+    assert _output_tracker_state(generator) == output_state
+
+
+def test_budget_diagnostics_distinguish_completed_ik_before_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    clock = _DeadlineAfterClassificationClock()
+
+    def complete_ik_then_expire(**_kwargs: object) -> bool:
+        clock.classification_completed = True
+        return True
+
+    monkeypatch.setattr(generator.ik, "apply_position_target", complete_ik_then_expire)
+    monkeypatch.setattr(simulation_module.time, "perf_counter_ns", clock)
+    result = generator.evaluate(
+        generator.last_safe_target,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=100,
+    )
+
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.reason_before_budget_override is None
+    assert (
+        result.budget_exhaustion_stage
+        is BudgetExhaustionStage.AFTER_IK_BEFORE_CLASSIFICATION
+    )
+    assert not result.all_candidate_checks_completed
+    assert not result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns == 1
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    assert generator.arm_joints_rad == pytest.approx(held_q)
+
+
+def test_budget_diagnostics_do_not_change_non_exhausted_acceptance() -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+
+    result = generator.evaluate(
+        generator.last_safe_target,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+    )
+
+    assert result.reason is FeasibilityReason.ACCEPTED
+    assert result.accepted
+    assert result.joint_target_rad is not None
+    assert result.reason_before_budget_override is None
+    assert result.budget_exhaustion_stage is None
+    assert result.all_candidate_checks_completed
+    assert not result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns == 0
+    assert generator.output_feasibility.has_accepted_target
 
 
 def _assert_pose_equal(left: Pose6D | None, right: Pose6D | None) -> None:
@@ -521,9 +732,9 @@ def _settled_mapper_target(mapper: LatchedHeadYawArmMapper, wrist: Pose6D) -> Po
 @pytest.mark.parametrize(
     ("quest_delta", "robot_delta"),
     [
-        ((0.01, 0.0, 0.0), (-0.01, 0.0, 0.0)),
+        ((0.01, 0.0, 0.0), (0.0, -0.01, 0.0)),
         ((0.0, 0.01, 0.0), (0.0, 0.0, 0.01)),
-        ((0.0, 0.0, 0.01), (0.0, 0.01, 0.0)),
+        ((0.0, 0.0, 0.01), (-0.01, 0.0, 0.0)),
     ],
 )
 def test_shared_translation_axes_are_one_to_one_with_committed_signs(quest_delta, robot_delta) -> None:
@@ -645,6 +856,28 @@ def test_hardware_adapter_pause_is_recoverable_and_stop_is_terminal() -> None:
     assert len(runtime.stop_sequences) == 1
 
 
+def test_fresh_disengaged_arm_keeps_native_liveness_without_motion_target(
+    tmp_path: Path,
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    session.ingest(_head(1, 20_000_000))
+    session.ingest(_hand(1, 20_000_000, identity))
+    _clutch(session, 0.0, 1, 20_000_000)
+    session.control_tick(20_000_000)
+    session.ingest(_hand(2, 40_000_000, identity))
+    _clutch(session, 1.0, 2, 40_000_000)
+    assert session.control_tick(40_000_000).accepted_target is not None
+    session.ingest(_hand(3, 60_000_000, identity))
+    _clutch(session, 0.0, 3, 60_000_000)
+    result = session.control_tick(60_000_000)
+    assert result.accepted_target is None
+    assert result.output_applied
+    assert len(recorder.targets) == 1
+    assert len(recorder.heartbeats) == 1
+    assert recorder.heartbeats[0].state is ArmControlState.DISENGAGED
+
+
 def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined() -> None:
     runtime = _MockRuntime()
     guard = ResearchThinBoundedMotionGuard(
@@ -656,7 +889,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
         baseline,
         sequence_number=2,
         filtered_tcp=AcceptedTcpPose(
-            (0.08, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
+            (0.12, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
         ),
     )
     assert guard.apply(forward)
@@ -664,7 +897,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
         baseline,
         sequence_number=3,
         filtered_tcp=AcceptedTcpPose(
-            (0.09, -0.2, 0.3),
+            (0.11, -0.2, 0.3),
             rotvec_to_quaternion_xyzw((math.radians(3.0), 0.0, 0.0)),
         ),
     )
@@ -672,7 +905,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
     assert guard.abort_reason == "research_combined_translation_rotation_forbidden"
 
 
-def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:
+def test_e2_guard_forwards_only_unchanged_continuous_positive_x_targets() -> None:
     runtime = _MockRuntime()
     output = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
     guard = E2IsolatedForwardTranslationGuard(
@@ -683,7 +916,7 @@ def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> Non
     assert guard.apply(baseline)
 
     forward_pose = AcceptedTcpPose(
-        (0.085, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
+        (0.115, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
     )
     forward = replace(
         baseline,
@@ -698,7 +931,7 @@ def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> Non
     assert guard.maximum_accepted_joint_displacement_rad == pytest.approx([0.01] * 6)
 
     lateral_pose = AcceptedTcpPose(
-        (0.085, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
+        (0.115, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
     )
     lateral = replace(
         forward,
@@ -1016,6 +1249,157 @@ def test_output_velocity_rejection_heartbeats_hold_and_recovers_without_restart(
         )
     )
     assert recovery_delta < 0.002
+
+
+def test_control_compute_budget_exhaustion_heartbeats_without_new_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for sequence, value in ((1, 0.0), (2, 1.0)):
+        now_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, now_ns, identity))
+        if sequence == 1:
+            session.ingest(_head(1, now_ns))
+        _clutch(session, value, sequence, now_ns)
+        session.control_tick(now_ns)
+    held = recorder.targets[-1]
+
+    monkeypatch.setattr(
+        session.target_generator,
+        "evaluate",
+        lambda *_args, **_kwargs: FeasibilityResult(
+            False,
+            FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+            None,
+            CandidateMetrics(),
+            budget_exhaustion_stage=BudgetExhaustionStage.DURING_IK,
+            deadline_overrun_ns=17,
+        ),
+    )
+    now_ns = 60_000_000
+    session.ingest(_hand(3, now_ns, Pose6D((0.004, 0.0, 0.0), identity.orientation_xyzw)))
+    _clutch(session, 1.0, 3, now_ns)
+    result = session.control_tick(now_ns)
+
+    assert result.accepted_target is None
+    assert result.reason == FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED.value
+    assert result.output_applied
+    assert recorder.targets == [held]
+    assert recorder.heartbeats[-1].state is ArmControlState.HOLD_REJECTED
+    assert (
+        recorder.heartbeats[-1].reason
+        == FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED.value
+    )
+    event = session.event_records[-1]
+    assert event["control_compute_budget_exhausted"] is True
+    assert event["continuation_backtracks"] == 0
+    assert event["reason_before_budget_override"] is None
+    assert event["budget_exhaustion_stage"] == "during_ik"
+    assert event["all_candidate_checks_completed"] is False
+    assert event["candidate_feasible_before_budget_override"] is False
+    assert event["deadline_overrun_ns"] == 17
+    attempt = event["output_feasibility_attempts"][0]
+    assert attempt["reason_before_budget_override"] is None
+    assert attempt["budget_exhaustion_stage"] == "during_ik"
+    assert attempt["all_candidate_checks_completed"] is False
+    assert attempt["candidate_feasible_before_budget_override"] is False
+    assert attempt["deadline_overrun_ns"] == 17
+    serialized = json.loads(json.dumps(event))
+    assert serialized["output_feasibility_attempts"][0]["deadline_overrun_ns"] == 17
+    assert session.control_compute_budget_exhausted_count == 1
+    assert session.budget_exhausted_before_checks_complete == 1
+    assert session.budget_exhausted_after_checks_nonfeasible == 0
+    assert session.budget_exhausted_after_checks_feasible == 0
+
+    classified_budget_results = (
+        FeasibilityResult(
+            False,
+            FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+            None,
+            CandidateMetrics(),
+            reason_before_budget_override=(
+                FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
+            ),
+            budget_exhaustion_stage=BudgetExhaustionStage.AFTER_ALL_CHECKS,
+            all_candidate_checks_completed=True,
+            deadline_overrun_ns=23,
+        ),
+        FeasibilityResult(
+            False,
+            FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+            None,
+            CandidateMetrics(),
+            reason_before_budget_override=FeasibilityReason.ACCEPTED,
+            budget_exhaustion_stage=BudgetExhaustionStage.AFTER_ALL_CHECKS,
+            all_candidate_checks_completed=True,
+            candidate_feasible_before_budget_override=True,
+            deadline_overrun_ns=31,
+        ),
+    )
+    for sequence, diagnostic_result in enumerate(
+        classified_budget_results, start=4
+    ):
+        monkeypatch.setattr(
+            session.target_generator,
+            "evaluate",
+            lambda *_args, result=diagnostic_result, **_kwargs: result,
+        )
+        tick_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, tick_ns, identity))
+        _clutch(session, 1.0, sequence, tick_ns)
+        session.control_tick(tick_ns)
+
+    assert session.control_compute_budget_exhausted_count == 3
+    assert session.budget_exhausted_before_checks_complete == 1
+    assert session.budget_exhausted_after_checks_nonfeasible == 1
+    assert session.budget_exhausted_after_checks_feasible == 1
+
+    legacy_event = dict(serialized)
+    legacy_attempt = dict(legacy_event["output_feasibility_attempts"][0])
+    for field in (
+        "reason_before_budget_override",
+        "budget_exhaustion_stage",
+        "all_candidate_checks_completed",
+        "candidate_feasible_before_budget_override",
+        "deadline_overrun_ns",
+    ):
+        legacy_event.pop(field, None)
+        legacy_attempt.pop(field, None)
+    legacy_event["output_feasibility_attempts"] = [legacy_attempt]
+    session.event_records[:] = [legacy_event]
+    session._motion_statistics()
+
+
+def test_control_compute_deadline_interrupts_ik_and_restores_safe_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    original_solve = generator.ik._solve_position_ik
+
+    def slow_solve() -> None:
+        time.sleep(0.003)
+        original_solve()
+
+    monkeypatch.setattr(generator.ik, "_solve_position_ik", slow_solve)
+    result = generator.evaluate(
+        generator.last_safe_target,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=time.perf_counter_ns() + 1_000_000,
+    )
+
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.timing.ik_iterations_completed < config.ik_iterations
+    assert result.reason_before_budget_override is None
+    assert result.budget_exhaustion_stage is BudgetExhaustionStage.DURING_IK
+    assert not result.all_candidate_checks_completed
+    assert not result.candidate_feasible_before_budget_override
+    assert result.deadline_overrun_ns > 0
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    assert generator.arm_joints_rad == pytest.approx(held_q)
 
 
 def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_restart(

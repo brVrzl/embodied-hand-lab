@@ -121,6 +121,12 @@ def main() -> None:
     parser.add_argument("--out", default="", help="Optional path to save the JSON result.")
     args = parser.parse_args()
 
+    if not args.preflight_only:
+        raise RuntimeError(
+            "This legacy bring-up entry is preflight-only. Use "
+            "scripts/run_quest_rh56_hand_test.sh with an exact RH56 approval for any serial-open operation."
+        )
+
     config_path = Path(args.config)
     config = load_yaml(config_path)
     config["mode"] = "real"

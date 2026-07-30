@@ -43,18 +43,20 @@ class RH56SerialBackend(HandBackend):
         self.protocol_order = tuple(schema_cfg.get("protocol_order", RH56_PROTOCOL_ORDER))
         self.gesture_order = schema_cfg.get("gesture_order", "canonical")
         self._last_mode = "idle"
+        self.register_write_count = 0
+        self.timeout_count = 0
+        self.checksum_failure_count = 0
+        self.protocol_error_count = 0
 
     def connect(self) -> bool:
+        """Open the serial transport without writing any RH56 register."""
         try:
             import serial  # type: ignore
         except Exception as exc:
             raise RuntimeError("pyserial is required for RH56 serial backend.") from exc
 
         self.ser = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=self.timeout)
-        self.clear_error()
-        self.set_canonical_speeds(self.config.get("speed_default", [800] * 6))
-        self.set_canonical_forces(self.config.get("force_default", [500] * 6))
-        self.logger.info("Connected to RH56 serial backend on %s", self.port)
+        self.logger.info("Opened RH56 serial backend on %s without register writes", self.port)
         return True
 
     def execute(self, command: HandCommand) -> bool:
@@ -150,20 +152,57 @@ class RH56SerialBackend(HandBackend):
         payload = [self.hand_id, 0x04, 0x11, address & 0xFF, (address >> 8) & 0xFF, length]
         frames = self._exchange(payload, expected_frames=1)
         if not frames:
+            self.timeout_count += 1
             raise RuntimeError(f"RH56 read_register timeout at address {address}.")
         frame = frames[0]
         if not self._validate_checksum(frame):
+            self.checksum_failure_count += 1
             raise RuntimeError("RH56 read_register checksum failure.")
+        if (
+            len(frame) < 8
+            or frame[0] != 0x90
+            or frame[1] != 0xEB
+            or frame[2] != self.hand_id
+            or frame[4] != 0x11
+            or frame[5] != (address & 0xFF)
+            or frame[6] != ((address >> 8) & 0xFF)
+        ):
+            self.protocol_error_count += 1
+            raise RuntimeError("RH56 read_register response validation failure.")
+        if frame[3] < 3:
+            self.protocol_error_count += 1
+            raise RuntimeError("RH56 read_register response length failure.")
         reg_len = frame[3] - 3
+        if reg_len != length or len(frame) != 8 + reg_len:
+            self.protocol_error_count += 1
+            raise RuntimeError("RH56 read_register response length mismatch.")
         return list(frame[7 : 7 + reg_len])
 
     def write_register(self, address: int, data_bytes: list[int]) -> bool:
+        self.register_write_count += 1
         payload = [self.hand_id, len(data_bytes) + 3, 0x12, address & 0xFF, (address >> 8) & 0xFF] + data_bytes
         frames = self._exchange(payload, expected_frames=1)
         if not frames:
+            self.timeout_count += 1
             raise RuntimeError(f"RH56 write_register timeout at address {address}.")
         frame = frames[0]
-        return self._validate_checksum(frame) and frame[4] == 0x12
+        if not self._validate_checksum(frame):
+            self.checksum_failure_count += 1
+            return False
+        valid = bool(
+            len(frame) == 9
+            and frame[0] == 0x90
+            and frame[1] == 0xEB
+            and frame[2] == self.hand_id
+            and frame[3] == 0x04
+            and frame[4] == 0x12
+            and frame[5] == (address & 0xFF)
+            and frame[6] == ((address >> 8) & 0xFF)
+            and frame[7] == 0x01
+        )
+        if not valid:
+            self.protocol_error_count += 1
+        return valid
 
     def _exchange(self, payload: list[int], expected_frames: int) -> list[bytes]:
         if self.ser is None:
@@ -172,10 +211,10 @@ class RH56SerialBackend(HandBackend):
         self.ser.reset_input_buffer()
         self.ser.write(frame)
         time.sleep(0.005)
-        deadline = time.time() + max(self.timeout * 4.0, 0.1)
+        deadline = time.monotonic() + max(self.timeout * 4.0, 0.1)
         buffer = bytearray()
         frames: list[bytes] = []
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             waiting = getattr(self.ser, "in_waiting", 0)
             chunk = self.ser.read(max(int(waiting), 1))
             if chunk:
@@ -210,7 +249,7 @@ class RH56SerialBackend(HandBackend):
 
     @staticmethod
     def _validate_checksum(frame: bytes) -> bool:
-        return (sum(frame[2:-1]) & 0xFF) == frame[-1]
+        return len(frame) >= 6 and (sum(frame[2:-1]) & 0xFF) == frame[-1]
 
     @staticmethod
     def _u16_list_to_bytes(values: list[int]) -> list[int]:
