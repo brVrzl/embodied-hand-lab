@@ -179,8 +179,9 @@ Implemented:
    enter hand-only/combined summaries.
 7. Added bounded JSONL buffering: capacity 64, normal flush after 16 records or
    1 s, immediate fault flush, and best-effort shutdown flush. File write and
-   flush failures remain `rh56_logging_failure.v1`/recorder summary data and do
-   not become serial failures or kill the worker. The buffer drops oldest
+   flush failures remain recorder-summary data; an escaping callback failure is
+   retained as `rh56_logging_failure.v1`. Neither becomes a serial failure or
+   kills the worker. The buffer drops oldest
    retained rows rather than growing without bound after persistent I/O error.
 8. Removed the combined run-long RH56 record list; only counters and the last
    telemetry row remain in memory.
@@ -293,7 +294,7 @@ Development diff before the final-report-only integration commit:
 Integration diff including this report:
 
 ```text
-13 files changed, 2227 insertions(+), 82 deletions(-)
+13 files changed, 2228 insertions(+), 82 deletions(-)
 ```
 
 The development and integration code content are identical at merge commit
