@@ -9,6 +9,7 @@ from motion_input import Side
 from motion_input.hts_protocol import HTS_JOINT_NAMES
 from quest_jaka_sim.hand_retarget import (
     HandRetargetCalibration,
+    PinchIntentDetector,
     ProjectRh56Retargeter,
     QuestHandSkeleton,
     RH56_FULL_JOINT_ORDER,
@@ -143,6 +144,68 @@ def test_finger_calibration_rejects_zero_span_and_nonfinite_features() -> None:
             closed_feature=1.0,
             curve_exponent=1.0,
         )
+
+
+def _pinch_detector() -> PinchIntentDetector:
+    return PinchIntentDetector(
+        enter_distance_palm=0.15,
+        exit_distance_palm=0.22,
+        tripod_enter_distance_palm=0.22,
+        tripod_exit_distance_palm=0.30,
+        minimum_finger_curl=0.12,
+        power_grasp_curl=0.70,
+    )
+
+
+@pytest.mark.parametrize(
+    ("distances", "curls", "expected"),
+    (
+        ((0.051, 0.258, 0.228), (0.446, 0.362, 0.328, 0.172), "index"),
+        ((0.733, 0.102, 0.757), (0.106, 0.490, 0.503, 0.050), "middle"),
+        ((0.06, 0.07, 0.08), (0.40, 0.45, 0.20, 0.15), "tripod"),
+    ),
+)
+def test_labelled_pinch_geometries_select_independent_modes(
+    distances: tuple[float, float, float],
+    curls: tuple[float, float, float, float],
+    expected: str,
+) -> None:
+    mode, confidence = _pinch_detector().update(
+        thumb_index_distance_palm=distances[0],
+        thumb_middle_distance_palm=distances[1],
+        index_middle_distance_palm=distances[2],
+        index_curl=curls[0],
+        middle_curl=curls[1],
+        ring_curl=curls[2],
+        pinky_curl=curls[3],
+    )
+    assert mode == expected
+    assert confidence > 0.0
+
+
+def test_pinch_hysteresis_rejects_power_grasp_and_tracking_loss() -> None:
+    detector = _pinch_detector()
+    common = {
+        "thumb_middle_distance_palm": 0.4,
+        "index_middle_distance_palm": 0.2,
+        "index_curl": 0.4,
+        "middle_curl": 0.2,
+        "ring_curl": 0.2,
+        "pinky_curl": 0.2,
+    }
+    assert detector.update(thumb_index_distance_palm=0.10, **common)[0] == "index"
+    assert detector.update(thumb_index_distance_palm=0.18, **common)[0] == "index"
+    assert detector.update(thumb_index_distance_palm=0.23, **common)[0] == "none"
+    assert detector.update(
+        thumb_index_distance_palm=0.05,
+        **{**common, "ring_curl": 0.8, "pinky_curl": 0.8},
+    )[0] == "none"
+    detector.update(thumb_index_distance_palm=0.05, **common)
+    assert detector.update(
+        thumb_index_distance_palm=0.05,
+        tracking_valid=False,
+        **common,
+    ) == ("none", 0.0)
 
 
 def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:

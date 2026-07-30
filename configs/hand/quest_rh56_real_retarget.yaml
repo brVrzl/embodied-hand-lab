@@ -29,6 +29,16 @@ calibration:
     neutral_across_palm: -0.817716
     opposed_across_palm: 0.060326
     frame_epsilon_m: 0.00001
+  pinch_intent:
+    # Labelled index/middle contacts measured 0.051/0.102 palm lengths. Entry
+    # is deliberately tighter than exit; tripod additionally requires the
+    # index and middle tips to be mutually close.
+    enter_distance_palm: 0.15
+    exit_distance_palm: 0.22
+    tripod_enter_distance_palm: 0.22
+    tripod_exit_distance_palm: 0.30
+    minimum_finger_curl: 0.12
+    power_grasp_curl: 0.70
   mcp_flexion_weight: 0.15
   mcp_flexion_deadband: 0.15
   maximum_normalized_step: 0.08

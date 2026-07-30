@@ -1286,6 +1286,19 @@ class SmoothQuestJakaSession:
                     and np.any(self._four_finger_saturated)
                 )
             ),
+            "pinch_intent_debug": {
+                "mode": thumb_diagnostics.get("pinch_mode"),
+                "confidence": thumb_diagnostics.get("pinch_confidence"),
+                "thumb_index_distance_palm": thumb_diagnostics.get(
+                    "thumb_index_distance_palm"
+                ),
+                "thumb_middle_distance_palm": thumb_diagnostics.get(
+                    "thumb_middle_distance_palm"
+                ),
+                "index_middle_distance_palm": thumb_diagnostics.get(
+                    "index_middle_distance_palm"
+                ),
+            },
             "four_finger_debug": {
                 "feature_rad": None if self._four_finger_features is None else self._four_finger_features.tolist(),
                 "captured_feature_reference_rad": None if self._four_finger_feature_reference is None else self._four_finger_feature_reference.tolist(),

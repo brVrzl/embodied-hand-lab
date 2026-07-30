@@ -134,7 +134,7 @@ class InspireRetargetResult:
     normalized_targets: Mapping[str, float]
     optimizer_cost: float | None
     tracking_confidence: float | None
-    pinch_diagnostics: Mapping[str, float | bool]
+    pinch_diagnostics: Mapping[str, float | bool | str]
     limit_violations: tuple[str, ...]
     rejection_reason: str | None
 
@@ -157,6 +157,12 @@ class HandRetargetCalibration:
     thumb_lateral_open_across_palm: float
     thumb_lateral_opposed_across_palm: float
     thumb_lateral_frame_epsilon_m: float
+    pinch_intent_enter_distance_palm: float
+    pinch_intent_exit_distance_palm: float
+    pinch_intent_tripod_enter_distance_palm: float
+    pinch_intent_tripod_exit_distance_palm: float
+    pinch_intent_minimum_finger_curl: float
+    pinch_intent_power_grasp_curl: float
     mcp_flexion_weight: float
     mcp_flexion_deadband: float
     maximum_normalized_step: float
@@ -168,6 +174,7 @@ class HandRetargetCalibration:
         calibration = values["calibration"]
         thumb_close = calibration.get("thumb_close", {})
         thumb_lateral = calibration.get("thumb_lateral", {})
+        pinch_intent = calibration.get("pinch_intent", {})
         result = cls(
             calibration_id=str(calibration["calibration_id"]),
             global_scale=float(calibration["global_scale"]),
@@ -212,6 +219,24 @@ class HandRetargetCalibration:
             thumb_lateral_frame_epsilon_m=float(
                 thumb_lateral.get("frame_epsilon_m", 1e-5)
             ),
+            pinch_intent_enter_distance_palm=float(
+                pinch_intent.get("enter_distance_palm", 0.15)
+            ),
+            pinch_intent_exit_distance_palm=float(
+                pinch_intent.get("exit_distance_palm", 0.22)
+            ),
+            pinch_intent_tripod_enter_distance_palm=float(
+                pinch_intent.get("tripod_enter_distance_palm", 0.22)
+            ),
+            pinch_intent_tripod_exit_distance_palm=float(
+                pinch_intent.get("tripod_exit_distance_palm", 0.30)
+            ),
+            pinch_intent_minimum_finger_curl=float(
+                pinch_intent.get("minimum_finger_curl", 0.12)
+            ),
+            pinch_intent_power_grasp_curl=float(
+                pinch_intent.get("power_grasp_curl", 0.70)
+            ),
             mcp_flexion_weight=float(calibration.get("mcp_flexion_weight", 0.0)),
             mcp_flexion_deadband=float(calibration.get("mcp_flexion_deadband", 0.15)),
             maximum_normalized_step=float(calibration["maximum_normalized_step"]),
@@ -252,6 +277,13 @@ class HandRetargetCalibration:
             >= result.thumb_lateral_opposed_across_palm
             or not math.isfinite(result.thumb_lateral_frame_epsilon_m)
             or result.thumb_lateral_frame_epsilon_m <= 0.0
+            or not 0.0 < result.pinch_intent_enter_distance_palm
+            < result.pinch_intent_exit_distance_palm
+            or not 0.0 < result.pinch_intent_tripod_enter_distance_palm
+            < result.pinch_intent_tripod_exit_distance_palm
+            or not 0.0 <= result.pinch_intent_minimum_finger_curl < 1.0
+            or not result.pinch_intent_minimum_finger_curl
+            < result.pinch_intent_power_grasp_curl <= 1.0
             or not 0 <= result.mcp_flexion_weight <= 1
             or not 0 <= result.mcp_flexion_deadband < 1
             or not 0 < result.maximum_normalized_step <= 1
@@ -291,6 +323,150 @@ def calibrate_finger_feature(
     return normalized**curve_exponent
 
 
+class PinchIntentDetector:
+    """Stateful index/middle/tripod classifier with entry/exit hysteresis."""
+
+    def __init__(
+        self,
+        *,
+        enter_distance_palm: float,
+        exit_distance_palm: float,
+        tripod_enter_distance_palm: float,
+        tripod_exit_distance_palm: float,
+        minimum_finger_curl: float,
+        power_grasp_curl: float,
+    ) -> None:
+        self.enter_distance_palm = float(enter_distance_palm)
+        self.exit_distance_palm = float(exit_distance_palm)
+        self.tripod_enter_distance_palm = float(tripod_enter_distance_palm)
+        self.tripod_exit_distance_palm = float(tripod_exit_distance_palm)
+        self.minimum_finger_curl = float(minimum_finger_curl)
+        self.power_grasp_curl = float(power_grasp_curl)
+        self.mode = "none"
+
+    def reset(self) -> None:
+        self.mode = "none"
+
+    def update(
+        self,
+        *,
+        thumb_index_distance_palm: float,
+        thumb_middle_distance_palm: float,
+        index_middle_distance_palm: float,
+        index_curl: float,
+        middle_curl: float,
+        ring_curl: float,
+        pinky_curl: float,
+        tracking_valid: bool = True,
+    ) -> tuple[str, float]:
+        values = (
+            thumb_index_distance_palm,
+            thumb_middle_distance_palm,
+            index_middle_distance_palm,
+            index_curl,
+            middle_curl,
+            ring_curl,
+            pinky_curl,
+        )
+        if not tracking_valid or not all(math.isfinite(value) for value in values):
+            self.reset()
+            return self.mode, 0.0
+        if (ring_curl + pinky_curl) / 2.0 >= self.power_grasp_curl:
+            self.reset()
+            return self.mode, 0.0
+
+        distance_limit = (
+            self.exit_distance_palm
+            if self.mode != "none"
+            else self.enter_distance_palm
+        )
+        tripod_limit = (
+            self.tripod_exit_distance_palm
+            if self.mode == "tripod"
+            else self.tripod_enter_distance_palm
+        )
+        tripod_fingertip_limit = (
+            self.exit_distance_palm
+            if self.mode == "tripod"
+            else self.enter_distance_palm
+        )
+        index_ready = (
+            thumb_index_distance_palm <= distance_limit
+            and index_curl >= self.minimum_finger_curl
+        )
+        middle_ready = (
+            thumb_middle_distance_palm <= distance_limit
+            and middle_curl >= self.minimum_finger_curl
+        )
+        tripod_ready = (
+            thumb_index_distance_palm <= tripod_fingertip_limit
+            and thumb_middle_distance_palm <= tripod_fingertip_limit
+            and index_curl >= self.minimum_finger_curl
+            and middle_curl >= self.minimum_finger_curl
+            and index_middle_distance_palm <= tripod_limit
+        )
+
+        if tripod_ready:
+            self.mode = "tripod"
+        elif self.mode == "index" and index_ready:
+            pass
+        elif self.mode == "middle" and middle_ready:
+            pass
+        elif index_ready and not middle_ready:
+            self.mode = "index"
+        elif middle_ready and not index_ready:
+            self.mode = "middle"
+        elif index_ready and middle_ready:
+            self.mode = (
+                "index"
+                if thumb_index_distance_palm <= thumb_middle_distance_palm
+                else "middle"
+            )
+        else:
+            self.mode = "none"
+
+        if self.mode == "none":
+            return self.mode, 0.0
+        relevant_distances = {
+            "index": (thumb_index_distance_palm,),
+            "middle": (thumb_middle_distance_palm,),
+            "tripod": (
+                thumb_index_distance_palm,
+                thumb_middle_distance_palm,
+            ),
+        }[self.mode]
+        confidence = min(
+            float(
+                np.clip(
+                    (self.exit_distance_palm - distance)
+                    / (self.exit_distance_palm - self.enter_distance_palm),
+                    0.0,
+                    1.0,
+                )
+            )
+            for distance in relevant_distances
+        )
+        if self.mode == "tripod":
+            confidence = min(
+                confidence,
+                float(
+                    np.clip(
+                        (
+                            self.tripod_exit_distance_palm
+                            - index_middle_distance_palm
+                        )
+                        / (
+                            self.tripod_exit_distance_palm
+                            - self.tripod_enter_distance_palm
+                        ),
+                        0.0,
+                        1.0,
+                    )
+                ),
+            )
+        return self.mode, confidence
+
+
 class ProjectRh56Retargeter:
     """Selectable angle-adaptive or AnyDex-style key-vector feature backend."""
 
@@ -302,11 +478,24 @@ class ProjectRh56Retargeter:
         self._previous: np.ndarray | None = None
         self._last_finger_raw = np.zeros(4, dtype=np.float64)
         self._last_finger_calibrated = np.zeros(4, dtype=np.float64)
+        self._pinch_intent = PinchIntentDetector(
+            enter_distance_palm=calibration.pinch_intent_enter_distance_palm,
+            exit_distance_palm=calibration.pinch_intent_exit_distance_palm,
+            tripod_enter_distance_palm=(
+                calibration.pinch_intent_tripod_enter_distance_palm
+            ),
+            tripod_exit_distance_palm=(
+                calibration.pinch_intent_tripod_exit_distance_palm
+            ),
+            minimum_finger_curl=calibration.pinch_intent_minimum_finger_curl,
+            power_grasp_curl=calibration.pinch_intent_power_grasp_curl,
+        )
 
     def reset(self) -> None:
         self._previous = None
         self._last_finger_raw.fill(0.0)
         self._last_finger_calibrated.fill(0.0)
+        self._pinch_intent.reset()
 
     def retarget(self, skeleton: QuestHandSkeleton) -> InspireRetargetResult:
         if not skeleton.valid or len(skeleton.positions_m) != 21:
@@ -366,6 +555,9 @@ class ProjectRh56Retargeter:
         thumb_tip_distances_m = np.asarray(
             [np.linalg.norm(points[4] - points[index]) for index in fingertip_indices]
         )
+        index_middle_distance_palm = float(
+            np.linalg.norm(points[8] - points[12]) / palm
+        )
         pinch_strengths = np.clip(
             (
                 self.calibration.thumb_pinch_open_distance_palm
@@ -406,6 +598,15 @@ class ProjectRh56Retargeter:
             normalized = self._adaptive(points, thumb_close, thumb_lateral)
         else:
             normalized = self._vector(points, thumb_close, thumb_lateral)
+        pinch_mode, pinch_confidence = self._pinch_intent.update(
+            thumb_index_distance_palm=float(thumb_tip_distances[0]),
+            thumb_middle_distance_palm=float(thumb_tip_distances[1]),
+            index_middle_distance_palm=index_middle_distance_palm,
+            index_curl=float(normalized[0]),
+            middle_curl=float(normalized[1]),
+            ring_curl=float(normalized[2]),
+            pinky_curl=float(normalized[3]),
+        )
         unbounded = normalized.copy()
         normalized = np.clip(normalized, 0.0, 1.0)
         violations = tuple(
@@ -428,14 +629,17 @@ class ProjectRh56Retargeter:
         }
         joints = _expand_mimic_targets(actuators)
         cost = float(np.mean((unbounded - normalized) ** 2))
-        diagnostics: dict[str, float | bool] = {
+        diagnostics: dict[str, float | bool | str] = {
             "thumb_index_distance_palm": float(thumb_tip_distances[0]),
             "thumb_middle_distance_palm": float(thumb_tip_distances[1]),
+            "index_middle_distance_palm": index_middle_distance_palm,
             "thumb_ring_distance_palm": float(thumb_tip_distances[2]),
             "thumb_pinky_distance_palm": float(thumb_tip_distances[3]),
             "thumb_index_pinch_strength": float(pinch_strengths[0]),
             "thumb_closest_fingertip_pinch_strength": pinch,
             "thumb_any_fingertip_pinching": pinch > 0.7,
+            "pinch_mode": pinch_mode,
+            "pinch_confidence": pinch_confidence,
             "thumb_raw_bend_rad": raw_thumb_bend_rad,
             "thumb_normalized_bend": normalized_thumb_bend,
             "thumb_closest_fingertip_index": fingertip_indices[closest_index],
