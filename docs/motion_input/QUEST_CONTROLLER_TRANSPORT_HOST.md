@@ -97,7 +97,7 @@ From the repository root:
 ```bash
 PYTHONPATH=src .venv/bin/python \
   tools/quest_controller_transport_gate.py \
-  --bind 0.0.0.0 --port 9000 --project-ip <HOST_IPV4> \
+  --bind 0.0.0.0 --port 9000 --project-ip "$HOST_IPV4" \
   --print-hz 5 --required-data-timeout-sec 20 --duration-sec 180
 ```
 

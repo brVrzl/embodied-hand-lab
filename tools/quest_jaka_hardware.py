@@ -2,12 +2,13 @@
 # Native acceleration-transition faults are classified explicitly; the legacy
 # accepted_target_transport_failure label is retained only for compatibility
 # with older summaries and is never used for this event.
-"""Run Quest/JAKA P2 command shadow or explicitly approved P4 arm teleoperation.
+"""Run Quest/JAKA shadow, arm teleoperation, or the separately gated combined path.
 
 P0 never invokes this entry point.  P2 connects read-only and sends accepted
 joint packets to the worker's no-EDG shadow mode.  P4 is separately gated and
 uses the identical Python target-generation session with a thin joint adapter.
-The Inspire hand is never imported or commanded by this tool.
+Only ``combined-normal-teleop`` constructs the independent PC-direct RH56
+controller; all other stages retain the arm-only no-RH56 contract.
 """
 
 from __future__ import annotations
@@ -41,6 +42,16 @@ from teleoperation.output_feasibility import (
     NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3,
     PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
 )
+from embodiment_core.config import load_yaml
+from rh56_driver.pc_direct_control import (
+    RH56_COMBINED_RUN_APPROVAL,
+    RH56PcDirectControl,
+    inspect_serial_device,
+    parse_rh56_approval,
+    require_serial_by_id_path,
+)
+from rh56_driver.pc_direct_worker import RH56PcDirectWorker
+from rh56_driver.serial_backend import RH56SerialBackend
 
 
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
@@ -55,6 +66,11 @@ RESEARCH_THIN_APPROVAL = (
 )
 PWL_OUTPUT_GENERATOR = "pwl-8ms"
 CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
+RECOVERABLE_CLUTCH_STAGES = frozenset((
+    "bounded-normal-teleop",
+    "combined-normal-teleop",
+    "research-thin-bounded",
+))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -67,6 +83,7 @@ def _parser() -> argparse.ArgumentParser:
             "p4-live",
             "post-payload-diagnostic",
             "bounded-normal-teleop",
+            "combined-normal-teleop",
             "research-thin-bounded",
         ),
     )
@@ -82,6 +99,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--estop-accessible", action="store_true")
     parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
+    parser.add_argument("--rh56-device")
+    parser.add_argument(
+        "--allow-direct-ch341-device",
+        action="store_true",
+        help=(
+            "allow an identity-checked /dev/ttyCH341USB<N> only when the "
+            "custom host driver creates no /dev/serial/by-id link"
+        ),
+    )
+    parser.add_argument("--rh56-config", type=Path, default=Path("configs/hand/rh56_pc_direct_teleop.yaml"))
+    parser.add_argument("--rh56-approval", default="")
+    parser.add_argument("--rh56-log", type=Path)
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--metrics", type=Path, required=True)
@@ -155,16 +184,42 @@ def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
     return reason != "DISENGAGED" and not output_applied
 
 
-def _synchronize_research_stopped_reference(
+def _producer_timing_summary(
+    rows: list[dict[str, float]],
+) -> dict[str, dict[str, float]]:
+    result: dict[str, dict[str, float]] = {}
+    for name in sorted({key for row in rows for key in row}):
+        values = sorted(float(row[name]) for row in rows if name in row)
+        if not values:
+            continue
+
+        def percentile(percent: float) -> float:
+            position = (len(values) - 1) * percent / 100.0
+            lower = int(math.floor(position))
+            upper = int(math.ceil(position))
+            if lower == upper:
+                return values[lower]
+            fraction = position - lower
+            return values[lower] * (1.0 - fraction) + values[upper] * fraction
+
+        result[name] = {
+            "mean": sum(values) / len(values),
+            "p99_9": percentile(99.9),
+            "max": values[-1],
+        }
+    return result
+
+
+def _synchronize_paused_stopped_reference(
     *,
     stage: str,
     status_flags: StatusFlags,
     target_generator: SharedJakaTargetGenerator,
     measured_joint_position_rad: tuple[float, ...],
 ) -> None:
-    """Refresh only the research resume seed after native braking completes."""
+    """Refresh the resume seed only after native braking is complete."""
 
-    if stage == "research-thin-bounded" and status_flags & StatusFlags.STOPPED_READY:
+    if stage in RECOVERABLE_CLUTCH_STAGES and status_flags & StatusFlags.STOPPED_READY:
         target_generator.synchronize_authoritative_arm_joints(
             list(measured_joint_position_rad)
         )
@@ -183,6 +238,22 @@ def _classify_worker_exit(metrics_path: Path, return_code: int | None) -> str:
         if classification
         else f"worker_exit:{return_code}"
     )
+
+
+def _native_terminal_reason_if_ready(metrics_path: Path) -> str | None:
+    """Read a typed native fault even during the process-reap race.
+
+    The worker writes its metrics before the parent necessarily observes a
+    non-None ``poll()`` result.  A transport send failure in that small window
+    must not hide an already-authoritative native stop classification.
+    """
+
+    try:
+        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    classification = metrics.get("stop_classification")
+    return str(classification) if classification else None
 
 
 def _resolve_output_jerk_limit(args: argparse.Namespace, config: ReplayConfig) -> float:
@@ -253,21 +324,23 @@ def main() -> int:
         "p4-live",
         "post-payload-diagnostic",
         "bounded-normal-teleop",
+        "combined-normal-teleop",
         "research-thin-bounded",
     )
     expected_approval = (
         E2_APPROVAL if args.stage == "e2-isolated"
         else POST_PAYLOAD_APPROVAL if args.stage == "post-payload-diagnostic"
-        else BOUNDED_NORMAL_APPROVAL if args.stage == "bounded-normal-teleop"
+        else BOUNDED_NORMAL_APPROVAL if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}
         else RESEARCH_THIN_APPROVAL if args.stage == "research-thin-bounded"
         else P4_APPROVAL if live else P2_APPROVAL
     )
     if args.approval != expected_approval:
         raise SystemExit(f"exact approval required: {expected_approval}")
     if live:
-        if not bool(hardware["physical_mapping_confirmed"]):
-            raise SystemExit("P4 blocked: physical Quest/JAKA mapping has not been confirmed after P1/P2")
-        if not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
+        if args.stage == "combined-normal-teleop":
+            if not (args.estop_accessible and args.workspace_clear):
+                raise SystemExit("combined teleoperation requires E-stop and clear-workspace confirmations")
+        elif not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
             raise SystemExit("P4 requires E-stop, clear-workspace, and no-RH56-command confirmations")
     if args.stage == "post-payload-diagnostic":
         if args.duration_sec > 60.0:
@@ -281,7 +354,7 @@ def main() -> int:
                 "post-payload diagnostic requires native recoverable output "
                 "acceleration transitions"
             )
-    if args.stage == "bounded-normal-teleop":
+    if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}:
         if args.duration_sec > 60.0:
             raise SystemExit("bounded normal teleoperation is limited to 60 seconds")
         if args.native_telemetry is None or args.event_extract is None:
@@ -308,6 +381,41 @@ def main() -> int:
                 "bounded normal teleoperation requires native recoverable "
                 "output acceleration transitions"
             )
+    hand_identity: dict[str, object] | None = None
+    hand_config: dict[str, object] | None = None
+    if args.stage == "combined-normal-teleop":
+        if args.rh56_device is None or args.rh56_log is None:
+            raise SystemExit("combined teleoperation requires --rh56-device and --rh56-log")
+        try:
+            require_serial_by_id_path(
+                args.rh56_device,
+                require_exists=not args.plant_free_no_network_check,
+                allow_direct_ch341=args.allow_direct_ch341_device,
+            )
+            if parse_rh56_approval(args.rh56_approval).value != "arm_hand_combined_run":
+                raise ValueError("wrong RH56 approval")
+        except (ValueError, PermissionError) as exc:
+            raise SystemExit(f"invalid combined RH56 gate before any I/O: {exc}") from exc
+        if not args.plant_free_no_network_check:
+            hand_identity = inspect_serial_device(
+                args.rh56_device,
+                allow_direct_ch341=args.allow_direct_ch341_device,
+            )
+            if args.allow_direct_ch341_device and not args.rh56_device.startswith(
+                "/dev/serial/by-id/"
+            ):
+                if (
+                    hand_identity.get("usb_vid") != "1a86"
+                    or hand_identity.get("usb_pid") != "7523"
+                    or hand_identity.get("usb_driver") != "usb_ch341"
+                ):
+                    raise SystemExit(
+                        "direct CH341 identity mismatch before any hardware I/O"
+                    )
+        hand_config = load_yaml(args.rh56_config)
+        hand_config["mode"] = "real"
+        hand_config["backend_type"] = "serial_protocol"
+        hand_config.setdefault("serial", {})["port"] = args.rh56_device
     if args.stage == "research-thin-bounded":
         if args.duration_sec > 30.0:
             raise SystemExit("research thin-adapter gate is limited to 30 seconds")
@@ -332,12 +440,17 @@ def main() -> int:
             "recoverable transition and legacy diagnostic acceleration abort "
             "are mutually exclusive"
         )
-    if args.plant_free_no_network_check and args.stage != "bounded-normal-teleop":
+    if args.plant_free_no_network_check and args.stage not in {"bounded-normal-teleop", "combined-normal-teleop"}:
         raise SystemExit(
             "--plant-free-no-network-check is only available for "
-            "bounded-normal-teleop"
+            "bounded-normal-teleop or combined-normal-teleop"
         )
-    print(f"STAGE={args.stage} STOP=Ctrl+C or release the left-index arm clutch")
+    clutch_behavior = (
+        "release left-index to pause; press again to resume"
+        if args.stage in RECOVERABLE_CLUTCH_STAGES
+        else "release left-index to stop"
+    )
+    print(f"STAGE={args.stage} STOP=Ctrl+C; ARM_CLUTCH={clutch_behavior}")
 
     rates = config.raw["rates"]
     target_hz = float(rates["target_generation_hz"])
@@ -380,6 +493,7 @@ def main() -> int:
                     "network_attempted": False,
                     "hardware_commands_sent": 0,
                     "rh56_commands": 0,
+                    "rh56_gate_validated": args.stage == "combined-normal-teleop",
                     "output_generator": args.output_generator,
                     "native_mode": "joint-teleop",
                     "native_ik_calls": 0,
@@ -428,6 +542,8 @@ def main() -> int:
         args.native_telemetry.parent.mkdir(parents=True, exist_ok=True)
     if args.event_extract is not None:
         args.event_extract.parent.mkdir(parents=True, exist_ok=True)
+    if args.rh56_log is not None:
+        args.rh56_log.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="quest_jaka_hardware_") as directory:
         temporary = Path(directory)
@@ -457,10 +573,32 @@ def main() -> int:
             if args.stage == "research-thin-bounded"
             else base_jaka_adapter
         )
+        rh56_worker: RH56PcDirectWorker | None = None
+        rh56_control: RH56PcDirectControl | None = None
+        rh56_backend: RH56SerialBackend | None = None
+        rh56_records: list[dict[str, object]] = []
+        rh56_log = None
+        if args.stage == "combined-normal-teleop":
+            assert hand_config is not None and args.rh56_log is not None
+            rh56_backend = RH56SerialBackend(hand_config)
+            rh56_control = RH56PcDirectControl(rh56_backend, hand_config)
+            rh56_log = args.rh56_log.open("x", encoding="utf-8")
+
+            def record_hand(row: dict[str, object]) -> None:
+                rh56_records.append(row)
+                assert rh56_log is not None
+                rh56_log.write(json.dumps(row, sort_keys=True) + "\n")
+                rh56_log.flush()
+
+            rh56_worker = RH56PcDirectWorker(rh56_control, record=record_hand)
         session = SmoothQuestJakaSession(
             config,
             target_generator,
             arm_output=jaka_adapter,
+            control_compute_budget_ms=float(
+                config.raw["shared_target_generation"]["control_compute_budget_ms"]
+            ),
+            normalized_hand_output=rh56_worker,
         )
         clutch = config.raw["clutches"]
         router = LiveQuestControllerRouter(
@@ -566,12 +704,20 @@ def main() -> int:
         maximum_quest_displacement_m = 0.0
         minimum_continuation_fraction = 1.0
         clutch_release_monotonic_ns: int | None = None
+        arm_clutch_pause_count = 0
         measured_joint_samples: list[tuple[float, ...]] = []
         native_output_acceleration_hold_status_count = 0
         native_output_acceleration_recovery_status_count = 0
         native_output_acceleration_hold_active = False
-        native.start()
+        producer_timing_rows: list[dict[str, float]] = []
+        pending_receiver_drain_and_ingest_ns = 0
+        arm_commands_while_index_released = 0
+        native_started = False
         try:
+            if rh56_worker is not None:
+                rh56_worker.start(args.rh56_approval)
+            native.start()
+            native_started = True
             status = _wait_status(runtime, native)
             measured_joint_samples.append(tuple(status.joint_position_rad))
             if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard):
@@ -594,6 +740,11 @@ def main() -> int:
                 next_tick = started
                 try:
                     while time.monotonic() - started < args.duration_sec:
+                        if rh56_worker is not None and rh56_worker.failed:
+                            abort_reason = "rh56_transport_or_feedback_fault"
+                            stop_reason = abort_reason
+                            jaka_adapter.stop()
+                            break
                         if native.process is None or native.process.poll() is not None:
                             return_code = None if native.process is None else native.process.returncode
                             abort_reason = _classify_worker_exit(
@@ -601,16 +752,26 @@ def main() -> int:
                             )
                             stop_reason = abort_reason
                             jaka_adapter.stop()
+                            if rh56_worker is not None:
+                                rh56_worker.arm_terminal_stop(abort_reason)
                             break
                         receiver.raise_if_failed()
+                        receiver_started_ns = time.perf_counter_ns()
                         for datagram in receiver.drain():
                             router.ingest(datagram, session)
+                        pending_receiver_drain_and_ingest_ns += (
+                            time.perf_counter_ns() - receiver_started_ns
+                        )
                         now = time.monotonic()
                         if now < next_tick:
                             time.sleep(min(0.001, next_tick - now))
                             continue
                         now_ns = time.monotonic_ns()
+                        outer_tick_started_ns = time.perf_counter_ns()
+                        poll_started_ns = time.perf_counter_ns()
                         router.poll(now_ns, session)
+                        router_poll_ns = time.perf_counter_ns() - poll_started_ns
+                        status_started_ns = time.perf_counter_ns()
                         latest_status = runtime.latest_status()
                         if latest_status is not None:
                             status = latest_status
@@ -635,13 +796,18 @@ def main() -> int:
                                 jaka_adapter, E2IsolatedForwardTranslationGuard
                             ):
                                 jaka_adapter.observe_measured_joint_position(sample)
-                            _synchronize_research_stopped_reference(
+                            _synchronize_paused_stopped_reference(
                                 stage=args.stage,
                                 status_flags=status_flags,
                                 target_generator=target_generator,
                                 measured_joint_position_rad=sample,
                             )
+                        status_sync_ns = time.perf_counter_ns() - status_started_ns
+                        session_started_ns = time.perf_counter_ns()
                         tick = session.control_tick(now_ns)
+                        session_control_tick_ns = (
+                            time.perf_counter_ns() - session_started_ns
+                        )
                         dispatch_failed = _control_output_failed(
                             reason=tick.reason,
                             output_applied=tick.output_applied,
@@ -650,9 +816,16 @@ def main() -> int:
                             control_state = session.event_records[-1].get(
                                 "control_state"
                             )
+                            native_return_code = (
+                                None
+                                if native.process is None
+                                else native.process.poll()
+                            )
+                            native_terminal_reason = (
+                                _native_terminal_reason_if_ready(args.metrics)
+                            )
                             if (
-                                native.process is not None
-                                and native.process.poll() is not None
+                                native_return_code is not None
                             ):
                                 # The worker's typed terminal reason is
                                 # authoritative. Do not collapse a native
@@ -661,8 +834,13 @@ def main() -> int:
                                 # live target socket.
                                 abort_reason = _classify_worker_exit(
                                     args.metrics,
-                                    native.process.returncode,
+                                    native_return_code,
                                 )
+                            elif native_terminal_reason is not None:
+                                # Metrics can be durably written just before
+                                # the parent observes process reaping. Prefer
+                                # that typed native reason over generic IPC.
+                                abort_reason = native_terminal_reason
                             elif control_state == "HARD_STOP":
                                 abort_reason = f"shared_hard_stop:{tick.reason}"
                             elif tick.accepted_target is None:
@@ -689,19 +867,38 @@ def main() -> int:
                                         abort_reason = "IPC_failure"
                             stop_reason = abort_reason
                             jaka_adapter.stop()
+                            if rh56_worker is not None:
+                                rh56_worker.arm_terminal_stop(abort_reason)
                         engaged = session.arm_clutch.state.value == "engaged"
                         disengaged = prior_engaged and not engaged
+                        clutch_edge_reason: str | None = None
+                        pause_failed = False
                         if disengaged:
-                            if args.stage == "research-thin-bounded":
+                            if args.stage in RECOVERABLE_CLUTCH_STAGES:
                                 if not jaka_adapter.pause():
                                     abort_reason = "recoverable_pause_transport_failure"
                                     stop_reason = abort_reason
+                                    pause_failed = True
+                                    clutch_edge_reason = stop_reason
+                                else:
+                                    arm_clutch_pause_count += 1
+                                    clutch_edge_reason = "operator_clutch_paused"
                             else:
                                 jaka_adapter.stop()
+                                stop_reason = (
+                                    session.arm_clutch.active_fault.reason
+                                    if session.arm_clutch.active_fault
+                                    else "operator_clutch_released"
+                                )
+                                clutch_edge_reason = stop_reason
                             clutch_release_monotonic_ns = now_ns
-                            stop_reason = session.arm_clutch.active_fault.reason if session.arm_clutch.active_fault else "operator_clutch_released"
                         prior_engaged = engaged
                         accepted += int(tick.accepted_target is not None and tick.output_applied)
+                        arm_commands_while_index_released += int(
+                            tick.accepted_target is not None
+                            and tick.output_applied
+                            and not engaged
+                        )
                         event = dict(session.event_records[-1])
                         operator_delta = event.get("operator_delta")
                         if operator_delta is not None:
@@ -746,12 +943,57 @@ def main() -> int:
                                 )
                             ),
                             stop_or_abort_reason=(
-                                stop_reason if disengaged or dispatch_failed else None
+                                stop_reason
+                                if dispatch_failed
+                                else clutch_edge_reason
+                            ),
+                            rh56_telemetry=(
+                                None
+                                if rh56_control is None
+                                else rh56_control.episode_record(now_ns)
                             ),
                         )
-                        log.write(json.dumps(event, sort_keys=True) + "\n")
-                        if dispatch_failed or (
-                            disengaged and args.stage != "research-thin-bounded"
+                        event["producer_outer_timing_ms"] = {
+                            "receiver_drain_and_router_ingest": (
+                                pending_receiver_drain_and_ingest_ns / 1e6
+                            ),
+                            "controller_router_poll": router_poll_ns / 1e6,
+                            "native_status_and_pause_sync": status_sync_ns / 1e6,
+                            "shared_session_control_tick": (
+                                session_control_tick_ns / 1e6
+                            ),
+                            "pre_log_outer_tick": (
+                                time.perf_counter_ns() - outer_tick_started_ns
+                            )
+                            / 1e6,
+                        }
+                        pending_receiver_drain_and_ingest_ns = 0
+                        serialize_started_ns = time.perf_counter_ns()
+                        serialized_event = json.dumps(event, sort_keys=True) + "\n"
+                        serialize_ns = time.perf_counter_ns() - serialize_started_ns
+                        write_started_ns = time.perf_counter_ns()
+                        log.write(serialized_event)
+                        write_ns = time.perf_counter_ns() - write_started_ns
+                        producer_timing_rows.append({
+                            **event["producer_outer_timing_ms"],
+                            "event_json_serialize": serialize_ns / 1e6,
+                            "event_log_write": write_ns / 1e6,
+                            "complete_outer_tick": (
+                                time.perf_counter_ns() - outer_tick_started_ns
+                            )
+                            / 1e6,
+                        })
+                        # The physical path has already persisted this complete
+                        # event to JSONL.  Keeping a second, unbounded in-memory
+                        # copy makes cyclic-GC scans grow with episode length and
+                        # can pause the command producer long enough to trip the
+                        # native liveness watchdog.  Simulation/replay retain
+                        # their event history for report generation; only this
+                        # streaming hardware path releases persisted records.
+                        session.event_records.clear()
+                        event.clear()
+                        if dispatch_failed or pause_failed or (
+                            disengaged and args.stage not in RECOVERABLE_CLUTCH_STAGES
                         ):
                             break
                         skipped = max(0, int((now - next_tick) * target_hz))
@@ -762,16 +1004,25 @@ def main() -> int:
             stop_reason = "operator_keyboard_stop"
             jaka_adapter.stop()
         finally:
+            if rh56_worker is not None:
+                if abort_reason is not None:
+                    rh56_worker.arm_terminal_stop(abort_reason)
+                else:
+                    rh56_worker.hold(stop_reason)
             if not jaka_adapter.stopped:
                 jaka_adapter.stop()
-            if native.process is not None and native.process.poll() is None:
+            if native_started and native.process is not None and native.process.poll() is None:
                 try:
                     native.process.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     native.stop()
-            else:
+            elif native_started:
                 native.stop()
             runtime.close()
+            if rh56_worker is not None:
+                rh56_worker.cleanup()
+            if rh56_log is not None:
+                rh56_log.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
     if args.stage == "research-thin-bounded":
@@ -819,6 +1070,9 @@ def main() -> int:
             "measured_joint_fk_tcp_motion": _measured_tcp_motion(
                 target_generator, measured_joint_samples
             ),
+            "producer_timing_ms": _producer_timing_summary(
+                producer_timing_rows
+            ),
         }
         args.summary.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n",
@@ -860,6 +1114,7 @@ def main() -> int:
     summary = {
         "schema_version": "quest_jaka_physical_gate.v1",
         "stage": args.stage,
+        "requested_duration_sec": args.duration_sec,
         "shared_config": str(args.config),
         "output_generator": (
             args.output_generator
@@ -889,6 +1144,13 @@ def main() -> int:
         ),
         "recoverable_output_acceleration_hold_count": metrics.get(
             "recoverable_output_acceleration_hold_count", 0
+        ),
+        "transition_limited_progress_points": metrics.get(
+            "transition_limited_progress_points", 0
+        ),
+        "true_output_hold_count": metrics.get("true_output_hold_count", 0),
+        "recovered_from_true_output_hold_count": metrics.get(
+            "recovered_from_true_output_hold_count", 0
         ),
         "recovered_from_output_acceleration_hold_count": metrics.get(
             "recovered_from_output_acceleration_hold_count", 0
@@ -927,11 +1189,33 @@ def main() -> int:
         "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
         "stop_reason": stop_reason,
         "abort_reason": abort_reason,
-        "rh56_commands": 0,
+        "arm_clutch_pause_count": arm_clutch_pause_count,
+        "rh56_commands": (
+            0
+            if rh56_backend is None
+            else rh56_backend.register_write_count
+        ),
+        "arm_commands_while_index_released": arm_commands_while_index_released,
+        "rh56_device": hand_identity,
+        "rh56_hand_initial_target_source": (
+            None if rh56_control is None else "measured_ANGLE_ACT"
+        ),
+        "rh56_feedback_records": len(rh56_records),
+        "rh56_final_record": None if not rh56_records else rh56_records[-1],
+        "rh56_fault_reason": None if rh56_control is None else rh56_control.fault_reason,
+        "combined_episode_valid": (
+            args.stage != "combined-normal-teleop"
+            or (abort_reason is None and rh56_control is not None and rh56_control.fault_reason is None)
+        ),
         "maximum_quest_displacement_m": maximum_quest_displacement_m,
         "minimum_continuation_fraction": minimum_continuation_fraction,
         "continuation_backtrack_count": session.continuation_backtrack_count,
         "ik_rejections": dict(sorted(session.rejections.items())),
+        "control_compute_budget_ms": session.control_compute_budget_ms,
+        "control_compute_budget_exhausted_count": (
+            session.control_compute_budget_exhausted_count
+        ),
+        "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
         "measured_joint_fk_tcp_motion": measured_tcp,
         "e2_maximum_requested_tcp_displacement_m": (
             None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m

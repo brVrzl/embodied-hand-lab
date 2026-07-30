@@ -20,12 +20,13 @@ the recorded result is not rewritten after the fact.
 
 ### Operation
 
-- [Quest/JAKA MuJoCo simulation](operation/simulation_demo.md)
+- [Quest/JAKA MuJoCo recording, replay, and 125 Hz simulation](operation/simulation_demo.md)
 - [RH56 H0 simulation self-test](operation/rh56_h0_self_test.md)
 - [Quest host setup](operation/quest_setup.md)
 - [Hardware prerequisites](operation/hardware_prerequisites.md)
 - [JAKA arm teleoperation](operation/jaka_arm_teleoperation.md)
 - [RH56 operation](operation/rh56_operation.md)
+- [Current normal JAKA + RH56 teleoperation](operation/jaka_rh56_combined_teleop.md)
 - [Troubleshooting](operation/troubleshooting.md)
 
 ### Safety and status
@@ -46,6 +47,7 @@ the recorded result is not rewritten after the fact.
 - [Testing](development/testing.md)
 - [Configuration](development/configuration.md)
 - [Logging and replay](development/logging_and_replay.md)
+- [Single-episode RGB-D dataset pipeline](development/single_episode_dataset.md)
 - [Contribution workflow](development/contribution_workflow.md)
 - [Quest/JAKA teleoperation rearchitecture research (offline)](research/teleop_rearchitecture.md)
 - [Teleoperation command-health ABI v1 (offline research)](research/teleop_command_abi.md)
@@ -96,12 +98,13 @@ evidence is intentionally not mixed into normal operator instructions.
 
 ### 操作
 
-- [Quest/JAKA MuJoCo 仿真](operation/simulation_demo.md)
+- [Quest/JAKA MuJoCo 录制、回放与 125 Hz 仿真](operation/simulation_demo.md)
 - [RH56 H0 仿真自检](operation/rh56_h0_self_test.md)
 - [Quest 主机设置](operation/quest_setup.md)
 - [真机前置条件](operation/hardware_prerequisites.md)
 - [JAKA 机械臂遥操作](operation/jaka_arm_teleoperation.md)
 - [RH56 操作](operation/rh56_operation.md)
+- [当前正常 JAKA + RH56 联合遥操作](operation/jaka_rh56_combined_teleop.md)
 - [故障排查](operation/troubleshooting.md)
 
 ### 安全与状态
@@ -122,6 +125,7 @@ evidence is intentionally not mixed into normal operator instructions.
 - [测试](development/testing.md)
 - [配置](development/configuration.md)
 - [日志与回放](development/logging_and_replay.md)
+- [单 episode RGB-D 数据管线](development/single_episode_dataset.md)
 - [贡献流程](development/contribution_workflow.md)
 - [Quest/JAKA 遥操作重构调研（仅离线）](research/teleop_rearchitecture.md)
 - [遥操作 command-health ABI v1（仅离线调研）](research/teleop_command_abi.md)

@@ -143,6 +143,16 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert config.mapping.translation_scale_per_axis == (1.0, 1.0, 1.0)
     assert config.mapping.orientation_scale == 1.0
     assert config.mapping.orientation_scale_per_axis == (1.0, 1.0, 1.0)
+    assert config.mapping.operator_to_robot_basis == (
+        (0.0, 0.0, -1.0),
+        (-1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+    )
+    assert config.mapping.rotation_operator_to_robot_basis == (
+        (-1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0),
+        (0.0, 0.0, 1.0),
+    )
     assert rates["target_generation_hz"] == rates["ik_hz"] == 60
     assert rates["jaka_transport_hz"] == 125
     assert hardware["servo_period_ms"] == pytest.approx(8.0)
@@ -154,10 +164,31 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "continuation_enabled": True,
         "maximum_backtracks": 5,
         "minimum_continuation_fraction": 0.03125,
+        "control_compute_budget_ms": 20.0,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
     }
+
+
+def test_expired_control_compute_budget_never_commits_a_candidate() -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    held_tcp = generator.last_safe_target
+
+    result = generator.evaluate(
+        held_tcp,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=time.perf_counter_ns() - 1,
+    )
+
+    assert not result.accepted
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.joint_target_rad is None
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    _assert_pose_equal(generator.last_safe_target, held_tcp)
 
 
 def _assert_pose_equal(left: Pose6D | None, right: Pose6D | None) -> None:
@@ -521,9 +552,9 @@ def _settled_mapper_target(mapper: LatchedHeadYawArmMapper, wrist: Pose6D) -> Po
 @pytest.mark.parametrize(
     ("quest_delta", "robot_delta"),
     [
-        ((0.01, 0.0, 0.0), (-0.01, 0.0, 0.0)),
+        ((0.01, 0.0, 0.0), (0.0, -0.01, 0.0)),
         ((0.0, 0.01, 0.0), (0.0, 0.0, 0.01)),
-        ((0.0, 0.0, 0.01), (0.0, 0.01, 0.0)),
+        ((0.0, 0.0, 0.01), (-0.01, 0.0, 0.0)),
     ],
 )
 def test_shared_translation_axes_are_one_to_one_with_committed_signs(quest_delta, robot_delta) -> None:
@@ -645,6 +676,28 @@ def test_hardware_adapter_pause_is_recoverable_and_stop_is_terminal() -> None:
     assert len(runtime.stop_sequences) == 1
 
 
+def test_fresh_disengaged_arm_keeps_native_liveness_without_motion_target(
+    tmp_path: Path,
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    session.ingest(_head(1, 20_000_000))
+    session.ingest(_hand(1, 20_000_000, identity))
+    _clutch(session, 0.0, 1, 20_000_000)
+    session.control_tick(20_000_000)
+    session.ingest(_hand(2, 40_000_000, identity))
+    _clutch(session, 1.0, 2, 40_000_000)
+    assert session.control_tick(40_000_000).accepted_target is not None
+    session.ingest(_hand(3, 60_000_000, identity))
+    _clutch(session, 0.0, 3, 60_000_000)
+    result = session.control_tick(60_000_000)
+    assert result.accepted_target is None
+    assert result.output_applied
+    assert len(recorder.targets) == 1
+    assert len(recorder.heartbeats) == 1
+    assert recorder.heartbeats[0].state is ArmControlState.DISENGAGED
+
+
 def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined() -> None:
     runtime = _MockRuntime()
     guard = ResearchThinBoundedMotionGuard(
@@ -656,7 +709,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
         baseline,
         sequence_number=2,
         filtered_tcp=AcceptedTcpPose(
-            (0.08, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
+            (0.12, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
         ),
     )
     assert guard.apply(forward)
@@ -664,7 +717,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
         baseline,
         sequence_number=3,
         filtered_tcp=AcceptedTcpPose(
-            (0.09, -0.2, 0.3),
+            (0.11, -0.2, 0.3),
             rotvec_to_quaternion_xyzw((math.radians(3.0), 0.0, 0.0)),
         ),
     )
@@ -672,7 +725,7 @@ def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined()
     assert guard.abort_reason == "research_combined_translation_rotation_forbidden"
 
 
-def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> None:
+def test_e2_guard_forwards_only_unchanged_continuous_positive_x_targets() -> None:
     runtime = _MockRuntime()
     output = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
     guard = E2IsolatedForwardTranslationGuard(
@@ -683,7 +736,7 @@ def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> Non
     assert guard.apply(baseline)
 
     forward_pose = AcceptedTcpPose(
-        (0.085, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
+        (0.115, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
     )
     forward = replace(
         baseline,
@@ -698,7 +751,7 @@ def test_e2_guard_forwards_only_unchanged_continuous_negative_x_targets() -> Non
     assert guard.maximum_accepted_joint_displacement_rad == pytest.approx([0.01] * 6)
 
     lateral_pose = AcceptedTcpPose(
-        (0.085, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
+        (0.115, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
     )
     lateral = replace(
         forward,
@@ -1016,6 +1069,76 @@ def test_output_velocity_rejection_heartbeats_hold_and_recovers_without_restart(
         )
     )
     assert recovery_delta < 0.002
+
+
+def test_control_compute_budget_exhaustion_heartbeats_without_new_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, session, _, recorder = _sessions(tmp_path)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    for sequence, value in ((1, 0.0), (2, 1.0)):
+        now_ns = sequence * 20_000_000
+        session.ingest(_hand(sequence, now_ns, identity))
+        if sequence == 1:
+            session.ingest(_head(1, now_ns))
+        _clutch(session, value, sequence, now_ns)
+        session.control_tick(now_ns)
+    held = recorder.targets[-1]
+
+    monkeypatch.setattr(
+        session.target_generator,
+        "evaluate",
+        lambda *_args, **_kwargs: FeasibilityResult(
+            False,
+            FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+            None,
+            CandidateMetrics(),
+        ),
+    )
+    now_ns = 60_000_000
+    session.ingest(_hand(3, now_ns, Pose6D((0.004, 0.0, 0.0), identity.orientation_xyzw)))
+    _clutch(session, 1.0, 3, now_ns)
+    result = session.control_tick(now_ns)
+
+    assert result.accepted_target is None
+    assert result.reason == FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED.value
+    assert result.output_applied
+    assert recorder.targets == [held]
+    assert recorder.heartbeats[-1].state is ArmControlState.HOLD_REJECTED
+    assert (
+        recorder.heartbeats[-1].reason
+        == FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED.value
+    )
+    event = session.event_records[-1]
+    assert event["control_compute_budget_exhausted"] is True
+    assert event["continuation_backtracks"] == 0
+    assert session.control_compute_budget_exhausted_count == 1
+
+
+def test_control_compute_deadline_interrupts_ik_and_restores_safe_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ReplayConfig.load(CONFIG)
+    generator = SharedJakaTargetGenerator(config)
+    held_q = generator.last_safe_joint_target.copy()
+    original_solve = generator.ik._solve_position_ik
+
+    def slow_solve() -> None:
+        time.sleep(0.003)
+        original_solve()
+
+    monkeypatch.setattr(generator.ik, "_solve_position_ik", slow_solve)
+    result = generator.evaluate(
+        generator.last_safe_target,
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        compute_deadline_ns=time.perf_counter_ns() + 1_000_000,
+    )
+
+    assert result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+    assert result.timing.ik_iterations_completed < config.ik_iterations
+    assert generator.last_safe_joint_target == pytest.approx(held_q)
+    assert generator.arm_joints_rad == pytest.approx(held_q)
 
 
 def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_restart(

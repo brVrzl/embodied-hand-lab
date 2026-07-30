@@ -35,11 +35,14 @@ frames:
 provisional_calibration:
   calibration_id: quest_jaka_live_sim_demo_uncalibrated_v1
   calibrated: false
-  notes: simulation-viewer-only axis hypothesis; not a physical Quest-to-JAKA calibration
+  notes: operator-aligned shared axis mapping; MuJoCo and bounded physical directions confirmed 2026-07-29
   # Rows are robot-base X/Y/Z, columns are canonical-operator X/Y/Z.
+  # With an operator aligned to the robot/workspace: OpenXR right (+X) maps
+  # to robot right (-Y), forward (-Z) maps to robot forward (+X), and up (+Y)
+  # maps to robot up (+Z).
   operator_to_robot_basis:
+    - [0.0, 0.0, -1.0]
     - [-1.0, 0.0, 0.0]
-    - [0.0, 0.0, 1.0]
     - [0.0, 1.0, 0.0]
   translation_scale_per_axis: [1.0, 1.0, 1.0]
   translation_deadband_m: 0.001
@@ -92,6 +95,12 @@ shared_target_generation:
   continuation_enabled: true
   maximum_backtracks: 5
   minimum_continuation_fraction: 0.03125
+  # Keep producer compute near the 60 Hz period and well below the retained
+  # 100 ms native liveness timeout. If mapping plus bounded continuation work
+  # reaches this wall-time budget, the current candidate is discarded and the
+  # existing HOLD_REJECTED heartbeat preserves native liveness without
+  # weakening any feasibility gate. Simulation sessions leave this disabled.
+  control_compute_budget_ms: 20.0
   rejection_policy: hold_last_accepted_and_allow_operator_retreat
   # Official generic ServoJ speed ceiling (180 deg/s), used as the shared outer
   # boundary. Launchers may select lower normal per-joint operating values.
@@ -128,6 +137,18 @@ hand_retargeting:
 
 simulation:
   mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  scene:
+    # Reuse the existing provisional physical-table measurements instead of
+    # maintaining a second set of dimensions in this live configuration.
+    workspace_config_path: digital_twin/configs/workspace.yaml
+    source_frame_to_robot_base_yaw_deg: 180.0
+    robot_base_world_position_m: [0.0, 0.0, 0.0]
+    robot_base_world_yaw_deg: 0.0
+    viewer_camera:
+      lookat_world_m: [0.03, 0.50, 0.28]
+      distance_m: 2.05
+      azimuth_deg: 0.0
+      elevation_deg: -25.0
   zero_gravity: true
   arm_position_kp: 500.0
   arm_position_kv: 50.0
@@ -138,7 +159,9 @@ simulation:
   # old posture entering the spherical-wrist J5~=0 branch and counter-winding
   # J4/J6 by roughly +/-2*pi; 65 deg kept the same 551 targets feasible with
   # J4/J6 spans of 1.46/1.16 rad and no winding or rejection.
-  initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 1.1344640138, -0.2617993878]
+  # J1=+90 deg points the installed RH56 toward the table workspace.  The
+  # physical worker still initializes its q_hold from measured robot joints.
+  initial_arm_joints_rad: [1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 1.1344640138, -0.2617993878]
   ik_gain: 0.70
   ik_damping: 0.05
   # Smooth DLS increase in the solver's weighted Jacobian domain. The local
@@ -229,13 +252,6 @@ hardware_adapter:
     native_hard_output_joint_acceleration: project_selected
     normal_output_joint_velocity: launcher_selected
     nlf_defaults: official_filter_planner_defaults_not_hardware_limits
-  # Confirmed by the 2026-07-22 P2 direction shadow plus side-by-side
-  # physical-seed twin review. Translation absolute directions and relative
-  # roll/pitch/yaw directions matched after accounting for the fixed 180 deg
-  # installation/model-base presentation difference. This does not authorize
-  # P4; the live entry still requires its exact approval and operator gates.
-  physical_mapping_confirmed: true
-
 axis_analysis:
   right_hand_left_right_s: null
   right_hand_forward_backward_s: null

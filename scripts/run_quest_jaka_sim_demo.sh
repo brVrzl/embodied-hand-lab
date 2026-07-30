@@ -16,6 +16,8 @@ DURATION_SEC="600"
 REPORT=""
 OUTPUT=""
 EVENTS=""
+ARM_EMITTED_EVENTS=""
+ARM_OUTPUT_MODE="shaped-500hz"
 TELEMETRY_HZ="2"
 VIEWER_FLAG="--viewer"
 IK_DEBUG_FLAG=""
@@ -42,6 +44,8 @@ simulation-only Quest 3 -> JAKA Mini2 MuJoCo 6D 相对遥操作演示。
   --report PATH           最终 JSON 报告路径（默认时间戳路径）
   --output PATH           原始 UDP JSONL 记录路径（默认时间戳路径）
   --events PATH           每控制 tick 的 JSONL 事件路径（默认由 report 派生）
+  --arm-emitted-events PATH  125 Hz arm emitted JSONL（仅 JAKA-equivalent 模式）
+  --arm-output-mode MODE  shaped-500hz（默认）或 jaka-equivalent-125hz
   --telemetry-hz HZ       终端状态输出频率（默认 2；0 关闭）
   --ik-debug              显示可选 joint/IK/奇异性/continuation 诊断
   --viewer                打开 MuJoCo viewer（演示默认）
@@ -75,6 +79,8 @@ while [[ $# -gt 0 ]]; do
     --report) require_value "$@"; REPORT="$2"; shift 2 ;;
     --output) require_value "$@"; OUTPUT="$2"; shift 2 ;;
     --events) require_value "$@"; EVENTS="$2"; shift 2 ;;
+    --arm-emitted-events) require_value "$@"; ARM_EMITTED_EVENTS="$2"; shift 2 ;;
+    --arm-output-mode) require_value "$@"; ARM_OUTPUT_MODE="$2"; shift 2 ;;
     --telemetry-hz) require_value "$@"; TELEMETRY_HZ="$2"; shift 2 ;;
     --ik-debug) IK_DEBUG_FLAG="--ik-debug"; shift ;;
     --viewer) VIEWER_FLAG="--viewer"; shift ;;
@@ -129,6 +135,7 @@ fi
 echo "SAFETY=SIMULATION_ONLY；不会导入、初始化或连接 JAKA / Inspire RH56DFX 真机 SDK"
 echo "ENTRY=tools/quest_jaka_mujoco_sim.py live-6dof"
 echo "CONFIG=${CONFIG}"
+echo "ARM_OUTPUT=${ARM_OUTPUT_MODE}"
 echo "QUEST_UDP=${PROJECT_IP:-<自动探测>}:${UDP_PORT}（unicast；host bind=${BIND_HOST}）"
 [[ "${VIEWER_FLAG}" == "--viewer" ]] && echo "VIEWER_X11=DISPLAY=${DESKTOP_DISPLAY} XAUTHORITY=${DESKTOP_XAUTHORITY:-<未设置>}"
 echo "请先在 Quest 端打开带 CTRL sidecar 的 Hand Tracking Streamer，开启右手、Head Pose、Debug Info，确认 CTRL sender 后 Start Streaming。"
@@ -142,6 +149,7 @@ CMD=(
   --port "${UDP_PORT}"
   --duration-sec "${DURATION_SEC}"
   --telemetry-hz "${TELEMETRY_HZ}"
+  --arm-output-mode "${ARM_OUTPUT_MODE}"
   "${VIEWER_FLAG}"
 )
 [[ -n "${PROJECT_IP}" ]] && CMD+=(--project-ip "${PROJECT_IP}")
@@ -149,6 +157,7 @@ CMD=(
 [[ -n "${REPORT}" ]] && CMD+=(--report "${REPORT}")
 [[ -n "${OUTPUT}" ]] && CMD+=(--output "${OUTPUT}")
 [[ -n "${EVENTS}" ]] && CMD+=(--events "${EVENTS}")
+[[ -n "${ARM_EMITTED_EVENTS}" ]] && CMD+=(--arm-emitted-events "${ARM_EMITTED_EVENTS}")
 [[ -n "${IK_DEBUG_FLAG}" ]] && CMD+=("${IK_DEBUG_FLAG}")
 [[ -n "${SPEED_PROFILE}" ]] && CMD+=(--speed-profile "${SPEED_PROFILE}")
 

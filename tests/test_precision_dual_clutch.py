@@ -253,6 +253,43 @@ def test_translation_is_robot_base_fixed_and_wrist_roll_is_tcp_local() -> None:
 
 
 @pytest.mark.parametrize(
+    ("operator_motion", "robot_motion"),
+    [
+        ((0.0, 0.0, -0.01), (0.01, 0.0, 0.0)),  # forward -> forward
+        ((0.01, 0.0, 0.0), (0.0, -0.01, 0.0)),  # right -> right
+        ((0.0, 0.01, 0.0), (0.0, 0.0, 0.01)),  # up -> up
+    ],
+)
+def test_operator_aligned_translation_axes_and_zero_capture(
+    operator_motion: tuple[float, float, float],
+    robot_motion: tuple[float, float, float],
+) -> None:
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    profile = Se3FilterProfile("test", 1e6, 0.0, 1e6, 1e6, 0.0, 1e6, 1.0)
+    mapper = LatchedHeadYawArmMapper(config.mapping, profile)
+    identity = Pose6D((0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0))
+    reference = Pose6D((0.2, -0.1, 0.4), identity.orientation_xyzw)
+    assert mapper.capture(
+        wrist=identity,
+        robot_tcp=reference,
+        head=identity,
+        timestamp_ns=1,
+    ) == reference
+    assert mapper.target(identity, timestamp_ns=2).position_m == pytest.approx(
+        reference.position_m,
+        abs=1e-12,
+    )
+    target = mapper.target(
+        Pose6D(operator_motion, identity.orientation_xyzw),
+        timestamp_ns=1_000_000_002,
+    )
+    assert np.asarray(target.position_m) - np.asarray(reference.position_m) == pytest.approx(
+        robot_motion,
+        abs=1e-8,
+    )
+
+
+@pytest.mark.parametrize(
     ("human_axis", "robot_axis"),
     [
         ((0.1, 0.0, 0.0), (-0.1, 0.0, 0.0)),

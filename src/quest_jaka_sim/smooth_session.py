@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, replace
 import math
 import time
-from typing import Any
+from typing import Any, Protocol, Sequence
 
 import numpy as np
 
@@ -27,7 +27,13 @@ from .clutch import (
     HandClutchMachine,
     HandClutchState,
 )
-from .hand_retarget import HandRetargetCalibration, InspireRetargetResult, ProjectRh56Retargeter, QuestHandSkeleton
+from .hand_retarget import (
+    HandRetargetCalibration,
+    InspireRetargetResult,
+    ProjectRh56Retargeter,
+    QuestHandSkeleton,
+    RH56_MUJOCO_ACTUATOR_MAX_RAD,
+)
 from .precision_mapping import LatchedHeadYawArmMapper
 from .output import (
     AcceptedArmTarget,
@@ -69,6 +75,16 @@ class ArmControlTickResult:
     reason: str
 
 
+class NormalizedHandOutput(Protocol):
+    max_target_normalized: float
+
+    def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]: ...
+
+    def submit_target(self, target: Sequence[float], monotonic_ns: int) -> None: ...
+
+    def hold(self, reason: str) -> None: ...
+
+
 class SmoothQuestJakaSession:
     """One fixed-rate session with independent index and grip clutches.
 
@@ -83,6 +99,10 @@ class SmoothQuestJakaSession:
         target_generator: SharedJakaTargetGenerator,
         *,
         arm_output: ArmTargetOutputAdapter | None = None,
+        mujoco_plant: JakaMujocoSimulation | None = None,
+        control_compute_budget_ms: float | None = None,
+        normalized_hand_output: NormalizedHandOutput | None = None,
+        arm_input_enabled: bool = True,
     ) -> None:
         filter_values = config.raw.get("filter", {})
         profile_name = str(filter_values.get("selected_profile", "simulation_exploration"))
@@ -98,16 +118,28 @@ class SmoothQuestJakaSession:
         self.mujoco_plant = (
             target_generator
             if isinstance(target_generator, JakaMujocoSimulation)
-            else None
+            else mujoco_plant
         )
         if arm_output is None:
             if self.mujoco_plant is None:
                 raise ValueError("a plant-free target generator requires an explicit output adapter")
             arm_output = MujocoArmTargetAdapter(self.mujoco_plant)
         self.arm_output = arm_output
+        self.normalized_hand_output = normalized_hand_output
+        self.arm_input_enabled = bool(arm_input_enabled)
         shared_policy = config.raw.get("shared_target_generation", {})
         self.continuation_enabled = bool(shared_policy.get("continuation_enabled", True))
         self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 5))
+        self.control_compute_budget_ms = (
+            None
+            if control_compute_budget_ms is None
+            else float(control_compute_budget_ms)
+        )
+        self.control_compute_budget_ns = (
+            None
+            if self.control_compute_budget_ms is None
+            else int(self.control_compute_budget_ms * 1e6)
+        )
         self.minimum_continuation_fraction = float(
             shared_policy.get("minimum_continuation_fraction", 1.0 / 32.0)
         )
@@ -119,6 +151,19 @@ class SmoothQuestJakaSession:
         )
         if self.maximum_continuation_backtracks < 0:
             raise ValueError("maximum continuation backtracks must be non-negative")
+        if self.control_compute_budget_ms is not None and (
+            not math.isfinite(self.control_compute_budget_ms) or not (
+                0.0 < self.control_compute_budget_ms
+                < float(
+                    config.raw.get("hardware_adapter", {}).get(
+                        "command_stream_timeout_ms", 100.0
+                    )
+                )
+            )
+        ):
+            raise ValueError(
+                "control compute budget must be positive and below command-stream timeout"
+            )
         if not 0.0 < self.minimum_continuation_fraction < 1.0:
             raise ValueError("minimum continuation fraction must be in (0, 1)")
         if self.rejection_policy != "hold_last_accepted_and_allow_operator_retreat":
@@ -166,11 +211,13 @@ class SmoothQuestJakaSession:
         self.accepted_targets = 0
         self._accepted_sequence = 0
         self._last_accepted_generated_ns: int | None = None
+        self.last_accepted_target: AcceptedArmTarget | None = None
         self._hold_rejected_started_ns: int | None = None
         self.reference_generation = 0
         self.consecutive_rejections = 0
         self.continuation_intervention_count = 0
         self.continuation_backtrack_count = 0
+        self.control_compute_budget_exhausted_count = 0
         self.singularity_warning_count = 0
         self.maximum_requested_backlog_m = 0.0
         self.maximum_requested_backlog_rad = 0.0
@@ -180,8 +227,13 @@ class SmoothQuestJakaSession:
         hand_values = config.raw.get("hand_retargeting", {})
         self.hand_enabled = (
             bool(hand_values.get("enabled", False))
-            and self.mujoco_plant is not None
-            and bool(getattr(self.mujoco_plant, "hand_available", True))
+            and (
+                normalized_hand_output is not None
+                or (
+                    self.mujoco_plant is not None
+                    and bool(getattr(self.mujoco_plant, "hand_available", True))
+                )
+            )
         )
         self.hand_retargeter: ProjectRh56Retargeter | None = None
         self.last_hand_result: InspireRetargetResult | None = None
@@ -239,6 +291,11 @@ class SmoothQuestJakaSession:
         )
         self._hand_target_reference: np.ndarray | None = None
         self._four_finger_feature_reference: np.ndarray | None = None
+        self._four_finger_features: np.ndarray | None = None
+        self._four_finger_feature_delta: np.ndarray | None = None
+        self._four_finger_requested_target: np.ndarray | None = None
+        self._four_finger_clipped_target: np.ndarray | None = None
+        self._four_finger_saturated: np.ndarray | None = None
         self._thumb_close_feature_reference: float | None = None
         self._thumb_lateral_feature_reference: float | None = None
         self._thumb_close_feature_delta: float | None = None
@@ -249,6 +306,8 @@ class SmoothQuestJakaSession:
         self._thumb_lateral_requested_target: float | None = None
         self._thumb_lateral_clipped_target: float | None = None
         self._thumb_lateral_saturated = False
+        self._requested_hand_target: np.ndarray | None = None
+        self._clipped_hand_target: np.ndarray | None = None
         self._hand_press_receive_ns: int | None = None
         self._index_sample = AnalogClutchSample(0.0, 0, 0, valid=False)
         self._grip_sample = AnalogClutchSample(0.0, 0, 0, valid=False)
@@ -384,6 +443,7 @@ class SmoothQuestJakaSession:
         return replace(state, host_monotonic_ns=now_ns, right=right, left=left, head=head)
 
     def control_tick(self, now_ns: int) -> ArmControlTickResult:
+        tick_started_ns = time.perf_counter_ns()
         self.control_timestamps_ns.append(now_ns)
         state = (
             self._shared_state_at(now_ns)
@@ -417,12 +477,16 @@ class SmoothQuestJakaSession:
             self.arm_clutch.fault(now_ns, "RIGHT_WRIST_TRACKING_LOST")
             self.arm_mapper.clear()
 
-        arm_action = self.arm_clutch.step(
-            self._index_sample,
-            now_ns=now_ns,
-            controller_valid=self.left_controller_valid,
-            continuous_inputs_valid=wrist_valid,
-            capture_inputs_valid=wrist_valid and head_valid,
+        arm_action = (
+            self.arm_clutch.step(
+                self._index_sample,
+                now_ns=now_ns,
+                controller_valid=self.left_controller_valid,
+                continuous_inputs_valid=wrist_valid,
+                capture_inputs_valid=wrist_valid and head_valid,
+            )
+            if self.arm_input_enabled
+            else ClutchAction.FREEZE
         )
         # The hand state machine receives grip only. Skeleton validity is
         # checked at capture below; during hold a transient landmark loss must
@@ -441,18 +505,63 @@ class SmoothQuestJakaSession:
         else:
             self._update_hand(state, hand_action, now_ns, skeleton_valid=skeleton_valid)
             if self.hand_clutch.state not in {HandClutchState.REACQUIRE, HandClutchState.ENGAGED}:
+                if self.normalized_hand_output is not None:
+                    self.normalized_hand_output.hold("grip_not_active")
                 self._clear_hand_reference()
+        mapping_started_ns = time.perf_counter_ns()
         desired = self._arm_target(state, arm_action, now_ns)
+        mapping_finished_ns = time.perf_counter_ns()
+        record_started_ns = time.perf_counter_ns()
         record = self._base_record(state, now_ns)
+        record_finished_ns = time.perf_counter_ns()
+        record["arm_clutch_action"] = arm_action.value
+        record["hand_clutch_action"] = hand_action.value
+        record["arm_reference_capture"] = arm_action is ClutchAction.CAPTURE_ARM_REFERENCE
+        record["hand_reference_capture"] = hand_action is ClutchAction.START_HAND_REACQUISITION
         record["raw_quest_wrist"] = _pose_dict(raw_quest_wrist)
         record["interpolated_wrist"] = _pose_dict(right.wrist_pose)
         record["filtered_mapped_tcp"] = _pose_dict(self.arm_mapper.filtered_mapped_target)
+        record["control_stage_timing_ms"] = {
+            "quest_input_clutch_and_hand": (mapping_started_ns - tick_started_ns) / 1e6,
+            "target_mapping": (mapping_finished_ns - mapping_started_ns) / 1e6,
+            "event_record_allocation": (record_finished_ns - record_started_ns) / 1e6,
+        }
         if desired is None:
             self._hold_rejected_started_ns = None
+            heartbeat_applied = False
+            if (
+                self.arm_input_enabled
+                and self.arm_clutch.state is ArmClutchState.DISENGAGED
+                and self.left_controller_valid
+                and wrist_valid
+                and state.right.host_sequence_number is not None
+                and state.right.host_receive_monotonic_ns is not None
+                and self.reference_generation > 0
+                and self.arm_clutch.cycle_count > 0
+            ):
+                heartbeat = ArmControlHeartbeat(
+                    input_sequence_number=state.right.host_sequence_number,
+                    input_receive_monotonic_ns=min(
+                        state.right.host_receive_monotonic_ns, now_ns
+                    ),
+                    generated_monotonic_ns=now_ns,
+                    reference_generation=self.reference_generation,
+                    clutch_generation=self.arm_clutch.cycle_count,
+                    state=ArmControlState.DISENGAGED,
+                    reason=FeasibilityReason.DISENGAGED.value,
+                    last_accepted_target_sequence=self._accepted_sequence,
+                )
+                heartbeat_applied = self.arm_output.heartbeat(heartbeat)
             record.update(
                 accepted=False,
                 reason=FeasibilityReason.DISENGAGED.value,
                 control_state=ArmControlState.DISENGAGED.value,
+                heartbeat_applied=heartbeat_applied,
+                heartbeat_generated_monotonic_ns=(
+                    now_ns if heartbeat_applied else None
+                ),
+                control_compute_budget_exhausted=False,
+                control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
             self.event_records.append(record)
             return ArmControlTickResult(
@@ -463,11 +572,16 @@ class SmoothQuestJakaSession:
                 None,
                 None,
                 None,
-                False,
+                heartbeat_applied,
                 FeasibilityReason.DISENGAGED.value,
             )
         self.ik_timestamps_ns.append(now_ns)
         started = time.perf_counter_ns()
+        compute_deadline_ns = (
+            None
+            if self.control_compute_budget_ns is None
+            else tick_started_ns + self.control_compute_budget_ns
+        )
         dt_s = (
             1.0 / float(self.config.raw.get("rates", {}).get("target_generation_hz", 60.0))
             if len(self.ik_timestamps_ns) < 2
@@ -479,6 +593,7 @@ class SmoothQuestJakaSession:
         attempted_reasons: list[str] = []
         attempted_continuation_fractions: list[float] = []
         output_feasibility_attempts: list[dict[str, Any]] = []
+        continuation_attempt_timing_ms: list[dict[str, Any]] = []
         if self.continuation_enabled:
             limits = self.config.feasibility
             # Stay just inside strict ``>`` gates without introducing a new
@@ -503,18 +618,21 @@ class SmoothQuestJakaSession:
             evaluated_target,
             dt_s=dt_s,
             generated_monotonic_ns=now_ns,
+            compute_deadline_ns=compute_deadline_ns,
         )
         attempted_reasons.append(result.reason.value)
         attempted_continuation_fractions.append(continuation_fraction)
         output_feasibility_attempts.append(
             _output_feasibility_attempt(result, continuation_fraction)
         )
+        continuation_attempt_timing_ms.append(asdict(result.timing))
         # A rejected trial never becomes authoritative.  Retry smaller points
         # on the same full-pose segment; all hard feasibility gates are run on
         # every trial and remain unchanged.
         while (
             self.continuation_enabled
             and not result.accepted
+            and result.reason is not FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
             and continuation_fraction > self.minimum_continuation_fraction
             and continuation_backtracks < self.maximum_continuation_backtracks
         ):
@@ -543,12 +661,14 @@ class SmoothQuestJakaSession:
                 evaluated_target,
                 dt_s=dt_s,
                 generated_monotonic_ns=now_ns,
+                compute_deadline_ns=compute_deadline_ns,
             )
             attempted_reasons.append(result.reason.value)
             attempted_continuation_fractions.append(continuation_fraction)
             output_feasibility_attempts.append(
                 _output_feasibility_attempt(result, continuation_fraction)
             )
+            continuation_attempt_timing_ms.append(asdict(result.timing))
         backlog_m = float(
             np.linalg.norm(
                 np.asarray(desired.position_m)
@@ -587,6 +707,7 @@ class SmoothQuestJakaSession:
             continuation_attempt_reasons=attempted_reasons,
             continuation_attempt_fractions=attempted_continuation_fractions,
             output_feasibility_attempts=output_feasibility_attempts,
+            continuation_attempt_timing_ms=continuation_attempt_timing_ms,
             requested_backlog_m=backlog_m,
             requested_backlog_deg=math.degrees(backlog_rad),
             singularity_warning=singularity_warning,
@@ -606,7 +727,13 @@ class SmoothQuestJakaSession:
             ik_rejection_reason=None if result.accepted else result.reason.value,
             hold_last=not result.accepted,
             ik_computation_ms=(time.perf_counter_ns() - started) / 1e6,
+            control_compute_budget_ms=self.control_compute_budget_ms,
+            control_compute_budget_exhausted=(
+                result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+            ),
         )
+        if result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED:
+            self.control_compute_budget_exhausted_count += 1
         if not result.accepted:
             self._handle_rejection(now_ns, result.reason.value)
             if result.metrics.hard_stop_required:
@@ -618,6 +745,8 @@ class SmoothQuestJakaSession:
                     control_state=ArmControlState.HARD_STOP.value,
                     heartbeat_applied=False,
                     hard_stop_reason="HARD_SINGULARITY_AT_ACCEPTED_STATE",
+                    adapter_dispatch_ms=0.0,
+                    control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
                 )
                 self.event_records.append(record)
                 return ArmControlTickResult(
@@ -647,7 +776,9 @@ class SmoothQuestJakaSession:
                 reason=result.reason.value,
                 last_accepted_target_sequence=self._accepted_sequence,
             )
+            dispatch_started_ns = time.perf_counter_ns()
             heartbeat_applied = self.arm_output.heartbeat(heartbeat)
+            adapter_dispatch_ms = (time.perf_counter_ns() - dispatch_started_ns) / 1e6
             record.update(
                 accepted=False,
                 reason=result.reason.value,
@@ -660,6 +791,8 @@ class SmoothQuestJakaSession:
                     if self._last_accepted_generated_ns is None
                     else (now_ns - self._last_accepted_generated_ns) / 1e9
                 ),
+                adapter_dispatch_ms=adapter_dispatch_ms,
+                control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
             self.event_records.append(record)
             return ArmControlTickResult(
@@ -707,7 +840,10 @@ class SmoothQuestJakaSession:
                 nearest_safe_joint_limit_margin_rad=result.metrics.nearest_safe_joint_limit_margin_rad,
             ),
         )
+        dispatch_started_ns = time.perf_counter_ns()
         output_applied = self.arm_output.apply(accepted_target)
+        self.last_accepted_target = accepted_target
+        adapter_dispatch_ms = (time.perf_counter_ns() - dispatch_started_ns) / 1e6
         recovery_event = self._hold_rejected_started_ns is not None
         self._hold_rejected_started_ns = None
         self._last_accepted_generated_ns = now_ns
@@ -736,6 +872,8 @@ class SmoothQuestJakaSession:
             control_state=ArmControlState.ACTIVE.value,
             recovery_event=recovery_event,
             heartbeat_applied=False,
+            adapter_dispatch_ms=adapter_dispatch_ms,
+            control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
         )
         self.event_records.append(record)
         return ArmControlTickResult(
@@ -787,12 +925,24 @@ class SmoothQuestJakaSession:
         features = self._hand_features(state, now_ns)
         if features is None:
             return False
-        assert self.mujoco_plant is not None
         self._four_finger_feature_reference = features[:4].copy()
+        self._four_finger_features = features[:4].copy()
+        self._four_finger_feature_delta = np.zeros(4, dtype=float)
         self._thumb_close_feature_reference = float(features[4])
         self._thumb_lateral_feature_reference = float(features[5])
-        self._hand_target_reference = self.mujoco_plant.commanded_hand_target.copy()
+        if self.normalized_hand_output is not None:
+            measured = self.normalized_hand_output.activate_from_measured(now_ns)
+            # Session-internal order is lateral, close, index, middle, ring, pinky.
+            self._hand_target_reference = np.asarray(
+                [measured[5], measured[4], *measured[:4]], dtype=np.float64
+            )
+        else:
+            assert self.mujoco_plant is not None
+            self._hand_target_reference = self.mujoco_plant.commanded_hand_target.copy()
         self._held_hand_command = self._hand_target_reference.copy()
+        self._four_finger_requested_target = self._hand_target_reference[2:].copy()
+        self._four_finger_clipped_target = self._hand_target_reference[2:].copy()
+        self._four_finger_saturated = np.zeros(4, dtype=bool)
         self._thumb_close_feature_delta = 0.0
         self._thumb_close_requested_target = float(self._hand_target_reference[1])
         self._thumb_close_clipped_target = float(self._hand_target_reference[1])
@@ -801,6 +951,8 @@ class SmoothQuestJakaSession:
         self._thumb_lateral_requested_target = float(self._hand_target_reference[0])
         self._thumb_lateral_clipped_target = float(self._hand_target_reference[0])
         self._thumb_lateral_saturated = False
+        self._requested_hand_target = self._hand_target_reference.copy()
+        self._clipped_hand_target = self._hand_target_reference.copy()
         self._hand_press_receive_ns = self._grip_sample.host_receive_monotonic_ns
         self.hand_engagement_latencies_ns.append(max(0, now_ns - self._hand_press_receive_ns))
         return True
@@ -827,9 +979,21 @@ class SmoothQuestJakaSession:
         if features is None:
             return
         finger_delta = features[:4] - self._four_finger_feature_reference
-        finger_delta[np.abs(finger_delta) <= self.four_finger_dead_zone_rad] = 0.0
+        finger_dead_zone = self.four_finger_dead_zone_rad
+        thumb_dead_zone = self.thumb_close_dead_zone_rad
+        if self.normalized_hand_output is not None:
+            finger_dead_zone = max(
+                self.four_finger_dead_zone_rad
+                / RH56_MUJOCO_ACTUATOR_MAX_RAD[name]
+                for name in ("index", "middle", "ring", "pinky")
+            )
+            thumb_dead_zone = (
+                self.thumb_close_dead_zone_rad
+                / RH56_MUJOCO_ACTUATOR_MAX_RAD["thumb_close"]
+            )
+        finger_delta[np.abs(finger_delta) <= finger_dead_zone] = 0.0
         thumb_delta = float(features[4] - self._thumb_close_feature_reference)
-        if abs(thumb_delta) <= self.thumb_close_dead_zone_rad:
+        if abs(thumb_delta) <= thumb_dead_zone:
             thumb_delta = 0.0
         lateral_delta = float(features[5] - self._thumb_lateral_feature_reference)
         if abs(lateral_delta) <= self.thumb_lateral_dead_zone:
@@ -879,31 +1043,46 @@ class SmoothQuestJakaSession:
             [self._hand_channel_model_ranges(index)[2] for index in range(6)],
             dtype=float,
         )
+        requested_target = target.copy()
         target = np.clip(target, channel_ranges[:, 0], channel_ranges[:, 1])
-        step = np.clip(
-            target[2:] - self._held_hand_command[2:],
-            -self.four_finger_max_step_rad,
-            self.four_finger_max_step_rad,
+        self._four_finger_features = features[:4].copy()
+        self._four_finger_feature_delta = finger_delta.copy()
+        self._four_finger_requested_target = requested_fingers.copy()
+        self._four_finger_clipped_target = target[2:].copy()
+        self._four_finger_saturated = ~np.isclose(
+            requested_fingers, target[2:], atol=1e-12, rtol=0.0
         )
-        target[2:] = self._held_hand_command[2:] + step
-        thumb_step = float(np.clip(
-            target[1] - self._held_hand_command[1],
-            -self.thumb_close_max_step_rad,
-            self.thumb_close_max_step_rad,
-        ))
-        target[1] = self._held_hand_command[1] + thumb_step
-        lateral_step = float(np.clip(
-            target[0] - self._held_hand_command[0],
-            -self.thumb_lateral_max_step_rad,
-            self.thumb_lateral_max_step_rad,
-        ))
-        target[0] = self._held_hand_command[0] + lateral_step
+        self._requested_hand_target = requested_target
+        self._clipped_hand_target = target.copy()
+        if self.normalized_hand_output is None:
+            step = np.clip(
+                target[2:] - self._held_hand_command[2:],
+                -self.four_finger_max_step_rad,
+                self.four_finger_max_step_rad,
+            )
+            target[2:] = self._held_hand_command[2:] + step
+            thumb_step = float(np.clip(
+                target[1] - self._held_hand_command[1],
+                -self.thumb_close_max_step_rad,
+                self.thumb_close_max_step_rad,
+            ))
+            target[1] = self._held_hand_command[1] + thumb_step
+            lateral_step = float(np.clip(
+                target[0] - self._held_hand_command[0],
+                -self.thumb_lateral_max_step_rad,
+                self.thumb_lateral_max_step_rad,
+            ))
+            target[0] = self._held_hand_command[0] + lateral_step
         if not np.all(np.isfinite(target)):
             return
-        order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
-        mapping = dict(zip(order, target.tolist(), strict=True))
-        assert self.mujoco_plant is not None
-        self.mujoco_plant.set_hand_actuator_target(mapping)
+        if self.normalized_hand_output is not None:
+            canonical_target = [*target[2:].tolist(), float(target[1]), float(target[0])]
+            self.normalized_hand_output.submit_target(canonical_target, now_ns)
+        else:
+            order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
+            mapping = dict(zip(order, target.tolist(), strict=True))
+            assert self.mujoco_plant is not None
+            self.mujoco_plant.set_hand_actuator_target(mapping)
         self._held_hand_command = target.copy()
         self._hand_updated_this_tick = True
 
@@ -919,11 +1098,13 @@ class SmoothQuestJakaSession:
         lateral_feature = result.pinch_diagnostics.get(
             "thumb_lateral_effective_feature"
         )
+        source = (
+            result.normalized_targets
+            if self.normalized_hand_output is not None
+            else result.actuator_targets
+        )
         features = np.asarray(
-            [
-                result.actuator_targets[name]
-                for name in ("index", "middle", "ring", "pinky", "thumb_close")
-            ]
+            [source[name] for name in ("index", "middle", "ring", "pinky", "thumb_close")]
             + [float(lateral_feature) if lateral_feature is not None else math.nan],
             dtype=float,
         )
@@ -934,9 +1115,16 @@ class SmoothQuestJakaSession:
 
     def _clear_hand_reference(self) -> None:
         self._four_finger_feature_reference = None
+        self._four_finger_features = None
+        self._four_finger_feature_delta = None
+        self._four_finger_requested_target = None
+        self._four_finger_clipped_target = None
+        self._four_finger_saturated = None
         self._thumb_close_feature_reference = None
         self._thumb_lateral_feature_reference = None
         self._hand_target_reference = None
+        self._requested_hand_target = None
+        self._clipped_hand_target = None
         self._thumb_close_feature_delta = None
         self._thumb_close_requested_target = None
         self._thumb_close_clipped_target = None
@@ -951,6 +1139,11 @@ class SmoothQuestJakaSession:
         self,
         actuator_order_index: int,
     ) -> tuple[tuple[float, float], tuple[float, float], tuple[float, float]]:
+        if self.normalized_hand_output is not None:
+            return (0.0, 1.0), (0.0, 1.0), (
+                0.0,
+                float(self.normalized_hand_output.max_target_normalized),
+            )
         assert self.mujoco_plant is not None
         actuator_id = int(
             self.mujoco_plant.hand_actuator_ids[actuator_order_index]
@@ -1009,6 +1202,28 @@ class SmoothQuestJakaSession:
             if self._hand_target_reference is None
             else float(self._hand_target_reference[0])
         )
+        actual_joint_position = None if plant is None else plant.arm_joints_rad
+        actual_tcp = None if plant is None else plant.current_tcp_pose
+        desired_tcp = self.target_generator.last_safe_target
+        tracking_error_m = (
+            None
+            if actual_tcp is None
+            else float(
+                np.linalg.norm(
+                    np.asarray(desired_tcp.position_m)
+                    - np.asarray(actual_tcp.position_m)
+                )
+            )
+        )
+        contact_summary = None
+        if plant is not None:
+            contact_summary = {
+                "count": int(plant.data.ncon),
+                "minimum_distance_m": min(
+                    (float(plant.data.contact[index].dist) for index in range(plant.data.ncon)),
+                    default=None,
+                ),
+            }
         return {
             "control_monotonic_ns": now_ns,
             "mujoco_time_s": None if plant is None else float(plant.data.time),
@@ -1050,11 +1265,35 @@ class SmoothQuestJakaSession:
             "raw_wrist": _pose_dict(self.arm_mapper.raw_wrist),
             "filtered_wrist": _pose_dict(self.arm_mapper.filtered_wrist),
             "shared_model_tcp": _pose_dict(self.target_generator.current_tcp_pose),
-            "actual_tcp": None if plant is None else _pose_dict(plant.current_tcp_pose),
-            "actual_joint_position_rad": None if plant is None else plant.arm_joints_rad.tolist(),
+            "desired_tcp": _pose_dict(desired_tcp),
+            "actual_tcp": _pose_dict(actual_tcp),
+            "tracking_error_m": tracking_error_m,
+            "actual_joint_position_rad": None if actual_joint_position is None else actual_joint_position.tolist(),
+            "actual_joint_velocity_rad_s": None if plant is None else plant.data.qvel[plant.arm_dof_ids].tolist(),
             "simulated_joint_target_rad": None if plant is None else plant.commanded_joint_target.tolist(),
             "commanded_hand_target_rad": None if plant is None else plant.commanded_hand_target.tolist(),
             "actual_hand_actuator_position_rad": hand_positions,
+            "contact_summary": contact_summary,
+            "hand_target_reference_rad": None if self._hand_target_reference is None else self._hand_target_reference.tolist(),
+            "hand_requested_target_rad": None if self._requested_hand_target is None else self._requested_hand_target.tolist(),
+            "hand_clipped_target_rad": None if self._clipped_hand_target is None else self._clipped_hand_target.tolist(),
+            "hand_target_valid": bool(self.last_hand_result is not None and self.last_hand_result.valid),
+            "hand_target_saturation": bool(
+                self._thumb_close_saturated
+                or self._thumb_lateral_saturated
+                or (
+                    self._four_finger_saturated is not None
+                    and np.any(self._four_finger_saturated)
+                )
+            ),
+            "four_finger_debug": {
+                "feature_rad": None if self._four_finger_features is None else self._four_finger_features.tolist(),
+                "captured_feature_reference_rad": None if self._four_finger_feature_reference is None else self._four_finger_feature_reference.tolist(),
+                "feature_delta_rad": None if self._four_finger_feature_delta is None else self._four_finger_feature_delta.tolist(),
+                "requested_target_rad": None if self._four_finger_requested_target is None else self._four_finger_requested_target.tolist(),
+                "clipped_target_rad": None if self._four_finger_clipped_target is None else self._four_finger_clipped_target.tolist(),
+                "saturation": None if self._four_finger_saturated is None else self._four_finger_saturated.tolist(),
+            },
             "thumb_close_debug": {
                 "raw_thumb_bend_rad": thumb_diagnostics.get(
                     "thumb_raw_bend_rad"
@@ -1154,6 +1393,17 @@ class SmoothQuestJakaSession:
             self.arm_mapper.clear()
 
     def report(self, replay_source: str) -> dict[str, Any]:
+        metrics = self.target_generator.metrics_report()
+        if self.mujoco_plant is not None and self.mujoco_plant is not self.target_generator:
+            plant_metrics = self.mujoco_plant.metrics_report()
+            for name in (
+                "maximum_desired_to_simulated_tcp_error_m",
+                "peak_actual_joint_velocity_rad_s",
+                "simulated_velocity_limit_hits_per_joint",
+                "simulated_acceleration_limit_hits_per_joint",
+                "simulated_jerk_limit_hits_per_joint",
+            ):
+                metrics[name] = plant_metrics[name]
         return {
             "schema_version": "quest_jaka_rh56_full_hand_grip.v1",
             "replay_source": replay_source,
@@ -1182,6 +1432,10 @@ class SmoothQuestJakaSession:
             "shared_rejection_policy": self.rejection_policy,
             "continuation_intervention_count": self.continuation_intervention_count,
             "continuation_backtrack_count": self.continuation_backtrack_count,
+            "control_compute_budget_ms": self.control_compute_budget_ms,
+            "control_compute_budget_exhausted_count": (
+                self.control_compute_budget_exhausted_count
+            ),
             "singularity_warning_count": self.singularity_warning_count,
             "maximum_requested_backlog_m": self.maximum_requested_backlog_m,
             "maximum_requested_backlog_deg": math.degrees(
@@ -1218,6 +1472,9 @@ class SmoothQuestJakaSession:
                 else self.hand_retargeter.calibration.thumb_lateral_opposed_across_palm
             ),
             "ik_computation_ms": _event_metric(self.event_records, "ik_computation_ms"),
+            "control_tick_wall_ms": _event_metric(
+                self.event_records, "control_tick_wall_ms"
+            ),
             "hand_retarget_computation_ms": _distribution_ms(self.hand_retarget_durations_ns),
             "arm_trigger_to_engagement_ms": _distribution_ms(self.arm_engagement_latencies_ns),
             "hand_trigger_to_engagement_ms": _distribution_ms(self.hand_engagement_latencies_ns),
@@ -1235,7 +1492,7 @@ class SmoothQuestJakaSession:
             "hardware_connections": False,
             "hardware_commands": False,
             **self._motion_statistics(),
-            **self.target_generator.metrics_report(),
+            **metrics,
         }
 
     def _motion_statistics(self) -> dict[str, Any]:

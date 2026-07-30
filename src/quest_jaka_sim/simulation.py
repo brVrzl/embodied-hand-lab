@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections import Counter
 import copy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 import math
 from pathlib import Path
+import time
 from typing import Any, Mapping
 import xml.etree.ElementTree as ET
 
@@ -66,6 +67,7 @@ class FeasibilityReason(str, Enum):
     IK_DISCONTINUITY = "IK_DISCONTINUITY"
     OUTPUT_VELOCITY_INFEASIBLE = "OUTPUT_VELOCITY_INFEASIBLE"
     OUTPUT_ACCELERATION_INFEASIBLE = "OUTPUT_ACCELERATION_INFEASIBLE"
+    CONTROL_COMPUTE_BUDGET_EXHAUSTED = "CONTROL_COMPUTE_BUDGET_EXHAUSTED"
     JOINT_LIMIT = "JOINT_LIMIT"
     NEAR_SINGULARITY = "NEAR_SINGULARITY"
     SINGULARITY_SLOWDOWN = "SINGULARITY_SLOWDOWN"
@@ -321,6 +323,21 @@ class CandidateMetrics:
     hard_stop_required: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateComputationTiming:
+    seed_fk_ms: float = 0.0
+    pre_ik_jacobian_ms: float = 0.0
+    ik_iterations_ms: float = 0.0
+    ik_final_fk_ms: float = 0.0
+    post_ik_jacobian_ms: float = 0.0
+    workspace_check_ms: float = 0.0
+    collision_check_ms: float = 0.0
+    output_feasibility_ms: float = 0.0
+    remaining_checks_ms: float = 0.0
+    total_ms: float = 0.0
+    ik_iterations_completed: int = 0
+
+
 def classify_candidate(
     metrics: CandidateMetrics,
     limits: FeasibilityLimits,
@@ -406,6 +423,9 @@ class FeasibilityResult:
     reason: FeasibilityReason
     joint_target_rad: tuple[float, ...] | None
     metrics: CandidateMetrics
+    timing: CandidateComputationTiming = field(
+        default_factory=CandidateComputationTiming
+    )
 
 
 def jerk_limited_position_step(
@@ -657,6 +677,7 @@ def build_viewer_mjcf(
     output_path: str | Path,
     *,
     arm_only: bool = False,
+    scene: Mapping[str, Any] | None = None,
 ) -> Path:
     base = Path(base_path).resolve()
     output = Path(output_path).resolve()
@@ -676,6 +697,8 @@ def build_viewer_mjcf(
     world = root.find("worldbody")
     if world is None:
         raise RuntimeError("MuJoCo model has no worldbody")
+    if scene is not None:
+        _add_workspace_scene(world, scene)
     # The committed mesh pair Link_0/Link_1 starts with four duplicate ~3 mm
     # penetrations at their shared physical joint.  It is already treated as a
     # baseline-allowed contact by feasibility checks, but leaving contact
@@ -743,10 +766,11 @@ def build_twin_viewer_mjcf(
     output_path: str | Path,
     *,
     twin_offset_m: float,
+    scene: Mapping[str, Any] | None = None,
 ) -> Path:
     """Build one viewer model with a complete, non-colliding physical-seed twin."""
 
-    output = build_viewer_mjcf(base_path, output_path)
+    output = build_viewer_mjcf(base_path, output_path, scene=scene)
     tree = ET.parse(output)
     root = tree.getroot()
     world = root.find("worldbody")
@@ -775,6 +799,131 @@ def build_twin_viewer_mjcf(
     world.append(twin)
     tree.write(output, encoding="utf-8")
     return output
+
+
+def _add_workspace_scene(world: ET.Element, scene: Mapping[str, Any]) -> None:
+    workspace = load_yaml(scene["workspace_config_path"])
+    table = workspace["tabletop"]
+    table_size = np.asarray(table["size_xyz_m"], dtype=float)
+    table_center_source = np.asarray(table["center_xyz_m"], dtype=float)
+    source_yaw = math.radians(float(scene["source_frame_to_robot_base_yaw_deg"]))
+    base_yaw = math.radians(float(scene["robot_base_world_yaw_deg"]))
+    base_position = np.asarray(scene["robot_base_world_position_m"], dtype=float)
+    source_to_base = _yaw_rotation(source_yaw)
+    base_to_world = _yaw_rotation(base_yaw)
+
+    base = next(
+        (body for body in world.findall("body") if body.get("name") == "jaka_Link_0"),
+        None,
+    )
+    if base is None:
+        raise RuntimeError("MuJoCo model has no top-level jaka_Link_0 body")
+    base.set("pos", _vector_text(base_position))
+    base.set("quat", _yaw_quaternion_text(base_yaw))
+
+    table_center_world = (
+        base_position + base_to_world @ source_to_base @ table_center_source
+    )
+    table_yaw_world = base_yaw + source_yaw
+    ET.SubElement(
+        world,
+        "geom",
+        {
+            "name": "quest_jaka_workspace_tabletop",
+            "type": "box",
+            "pos": _vector_text(table_center_world),
+            "quat": _yaw_quaternion_text(table_yaw_world),
+            "size": _vector_text(table_size / 2.0),
+            "rgba": "0.58 0.35 0.16 1",
+            "friction": "1.0 0.01 0.001",
+        },
+    )
+    for member in workspace.get("table_frame", {}).get("identified_members", ()):
+        center_source = np.asarray(member["center_P_m"], dtype=float)
+        dimensions = np.asarray(member["dimensions_m"], dtype=float)
+        center_world = base_position + base_to_world @ source_to_base @ center_source
+        ET.SubElement(
+            world,
+            "geom",
+            {
+                "name": f"quest_jaka_{member['name']}",
+                "type": "box",
+                "pos": _vector_text(center_world),
+                "quat": _yaw_quaternion_text(table_yaw_world),
+                "size": _vector_text(dimensions / 2.0),
+                "rgba": "0.72 0.76 0.80 1",
+                "friction": "0.8 0.01 0.001",
+            },
+        )
+
+    table_top_z = table_center_world[2] + table_size[2] / 2.0
+    floor = next(
+        (geom for geom in world.findall("geom") if geom.get("name") == "floor"),
+        None,
+    )
+    if floor is not None:
+        floor.set(
+            "pos",
+            _vector_text(
+                (0.0, 0.0, table_top_z - float(table["height_above_floor_m"]))
+            ),
+        )
+    marker = table_center_world.copy()
+    marker[2] = table_top_z + 0.015
+    ET.SubElement(
+        world,
+        "site",
+        {
+            "name": "quest_jaka_workspace_center",
+            "type": "sphere",
+            "pos": _vector_text(marker),
+            "size": "0.012",
+            "rgba": "1 0.75 0.05 0.9",
+            "group": "5",
+        },
+    )
+    axes = ET.SubElement(
+        world,
+        "body",
+        {
+            "name": "quest_jaka_robot_base_axes",
+            "pos": _vector_text(base_position),
+            "quat": _yaw_quaternion_text(base_yaw),
+        },
+    )
+    for name, endpoint, rgba in (
+        ("x", "0.14 0 0", "1 0 0 1"),
+        ("y", "0 0.14 0", "0 1 0 1"),
+        ("z", "0 0 0.14", "0 0 1 1"),
+    ):
+        ET.SubElement(
+            axes,
+            "site",
+            {
+                "name": f"quest_jaka_robot_base_{name}",
+                "type": "cylinder",
+                "fromto": f"0 0 0 {endpoint}",
+                "size": "0.0025",
+                "rgba": rgba,
+                "group": "5",
+            },
+        )
+
+
+def _yaw_rotation(yaw_rad: float) -> np.ndarray:
+    cosine, sine = math.cos(yaw_rad), math.sin(yaw_rad)
+    return np.asarray(
+        ((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0)),
+        dtype=float,
+    )
+
+
+def _yaw_quaternion_text(yaw_rad: float) -> str:
+    return _vector_text((math.cos(yaw_rad / 2.0), 0.0, 0.0, math.sin(yaw_rad / 2.0)))
+
+
+def _vector_text(values: Any) -> str:
+    return " ".join(f"{float(value):.12g}" for value in values)
 
 
 class SharedJakaTargetGenerator:
@@ -900,7 +1049,20 @@ class SharedJakaTargetGenerator:
         *,
         dt_s: float,
         generated_monotonic_ns: int | None = None,
+        compute_deadline_ns: int | None = None,
     ) -> FeasibilityResult:
+        evaluate_started_ns = time.perf_counter_ns()
+        if (
+            compute_deadline_ns is not None
+            and evaluate_started_ns >= compute_deadline_ns
+        ):
+            return FeasibilityResult(
+                False,
+                FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+                None,
+                CandidateMetrics(),
+                CandidateComputationTiming(),
+            )
         limits = self.config.feasibility
         dt = max(float(dt_s), 1e-6)
         if generated_monotonic_ns is None:
@@ -924,9 +1086,13 @@ class SharedJakaTargetGenerator:
         # never on a lagging actuator state or a global/random seed.
         ik_seed = self.last_safe_joint_target.copy()
         previous_target = self.last_safe_target
+        phase_started_ns = time.perf_counter_ns()
         self.ik.set_arm_joints_rad(ik_seed.tolist())
+        seed_fk_ns = time.perf_counter_ns() - phase_started_ns
+        phase_started_ns = time.perf_counter_ns()
         current_condition, current_sigma, _ = self._jacobian_quality()
-        self.ik.apply_position_target(
+        pre_ik_jacobian_ns = time.perf_counter_ns() - phase_started_ns
+        ik_completed = self.ik.apply_position_target(
             palm_target_position_m=list(target.position_m),
             palm_target_quaternion_wxyz=(
                 [target.orientation_xyzw[3], *target.orientation_xyzw[:3]]
@@ -935,7 +1101,42 @@ class SharedJakaTargetGenerator:
             ),
             wrist_roll_velocity_rad_s=0.0,
             dt=dt,
+            compute_deadline_ns=compute_deadline_ns,
         )
+        if (
+            ik_completed
+            and compute_deadline_ns is not None
+            and time.perf_counter_ns() >= compute_deadline_ns
+        ):
+            ik_completed = False
+        if not ik_completed:
+            # A partially computed candidate is never observable as the shared
+            # authoritative state. Restore the last accepted seed before
+            # returning the ordinary HOLD_REJECTED path to the output adapter.
+            self.ik.set_arm_joints_rad(ik_seed.tolist())
+            timing = CandidateComputationTiming(
+                seed_fk_ms=seed_fk_ns / 1e6,
+                pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
+                ik_iterations_ms=(
+                    self.ik.last_position_target_ik_iterations_ns / 1e6
+                ),
+                ik_final_fk_ms=(
+                    self.ik.last_position_target_final_fk_ns / 1e6
+                ),
+                total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6,
+                ik_iterations_completed=(
+                    self.ik.last_position_target_iterations_completed
+                ),
+            )
+            return FeasibilityResult(
+                False,
+                FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+                None,
+                CandidateMetrics(
+                    ik_seed_rad=tuple(float(value) for value in ik_seed)
+                ),
+                timing,
+            )
         candidate_q = self.ik.arm_joints_rad.copy()
         joint_target_jump = candidate_q - ik_seed
         joint_velocity = joint_target_jump / dt
@@ -949,10 +1150,14 @@ class SharedJakaTargetGenerator:
         target_tool_swing_rad = quaternion_angle_rad(
             target_tool_swing, (0.0, 0.0, 0.0, 1.0)
         )
+        phase_started_ns = time.perf_counter_ns()
         displacement = float(
             np.linalg.norm(np.asarray(target.position_m) - np.asarray(self.initial_tcp.position_m))
         )
+        workspace_check_ns = time.perf_counter_ns() - phase_started_ns
+        phase_started_ns = time.perf_counter_ns()
         condition, sigma_min, jacr = self._jacobian_quality()
+        post_ik_jacobian_ns = time.perf_counter_ns() - phase_started_ns
         current_risk = _singularity_risk(current_condition, current_sigma, limits)
         candidate_risk = _singularity_risk(condition, sigma_min, limits)
         risk_delta = candidate_risk - current_risk
@@ -1005,6 +1210,7 @@ class SharedJakaTargetGenerator:
                 safe_joint_limits_rad(limits.joint_limit_margin_rad)
             )
         )
+        phase_started_ns = time.perf_counter_ns()
         new_contacts = self._contact_pairs(self.ik.data) - self._baseline_contacts
         self_collision = any(self._pair_kind(pair) == "self" for pair in new_contacts)
         environment_collision = any(
@@ -1015,6 +1221,7 @@ class SharedJakaTargetGenerator:
             for index in range(self.ik.data.ncon)
             if self._contact_pair(self.ik.data, index) in new_contacts
         ]
+        collision_check_ns = time.perf_counter_ns() - phase_started_ns
         limit_blockers = joint_limit_margin_blockers(
             candidate_q, margin_rad=limits.joint_limit_margin_rad
         )
@@ -1023,10 +1230,13 @@ class SharedJakaTargetGenerator:
                 f"joint_{index}_clipped_to_safe_limit"
                 for index in self.ik.limited_joint_indices_1_based
             )
+        phase_started_ns = time.perf_counter_ns()
         output_prediction: JointOutputFeasibility = self.output_feasibility.preview(
             candidate_q,
             generated_monotonic_ns=candidate_generated_ns,
         )
+        output_feasibility_ns = time.perf_counter_ns() - phase_started_ns
+        remaining_checks_started_ns = time.perf_counter_ns()
         metrics = CandidateMetrics(
             target_displacement_m=displacement,
             target_jump_m=float(np.linalg.norm(target_delta)),
@@ -1115,14 +1325,45 @@ class SharedJakaTargetGenerator:
                 and singularity_direction == "TOWARD"
             ):
                 reason = FeasibilityReason.SINGULARITY_SLOWDOWN
+        if (
+            compute_deadline_ns is not None
+            and time.perf_counter_ns() >= compute_deadline_ns
+        ):
+            # All candidate checks completed, but too late for this producer
+            # cycle. It remains non-authoritative and the session publishes a
+            # HOLD_REJECTED heartbeat instead of a late accepted destination.
+            reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+            self.ik.set_arm_joints_rad(ik_seed.tolist())
         if reason is FeasibilityReason.ACCEPTED:
             self.output_feasibility.commit(output_prediction)
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
             self.last_safe_target = target
             self.accepted_metrics.append(metrics)
-            return FeasibilityResult(True, reason, tuple(float(v) for v in candidate_q), metrics)
-        return FeasibilityResult(False, reason, None, metrics)
+            joint_target = tuple(float(v) for v in candidate_q)
+        else:
+            joint_target = None
+        remaining_checks_ns = time.perf_counter_ns() - remaining_checks_started_ns
+        timing = CandidateComputationTiming(
+            seed_fk_ms=seed_fk_ns / 1e6,
+            pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
+            ik_iterations_ms=self.ik.last_position_target_ik_iterations_ns / 1e6,
+            ik_final_fk_ms=self.ik.last_position_target_final_fk_ns / 1e6,
+            post_ik_jacobian_ms=post_ik_jacobian_ns / 1e6,
+            workspace_check_ms=workspace_check_ns / 1e6,
+            collision_check_ms=collision_check_ns / 1e6,
+            output_feasibility_ms=output_feasibility_ns / 1e6,
+            remaining_checks_ms=remaining_checks_ns / 1e6,
+            total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6,
+            ik_iterations_completed=self.ik.last_position_target_iterations_completed,
+        )
+        return FeasibilityResult(
+            reason is FeasibilityReason.ACCEPTED,
+            reason,
+            joint_target,
+            metrics,
+            timing,
+        )
 
     def _jacobian_quality(self) -> tuple[float, float, np.ndarray]:
         jacp = np.zeros((3, self.model.nv))
@@ -1269,6 +1510,7 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         self.command_velocity_limit_hits = np.zeros(6, dtype=np.int64)
         self.command_acceleration_limit_hits = np.zeros(6, dtype=np.int64)
         self.command_jerk_limit_hits = np.zeros(6, dtype=np.int64)
+        self.arm_output_mode = "shaped-500hz"
         self.desired_marker_mocap_id = self._mocap_id(DESIRED_MARKER_BODY)
         self.actual_marker_mocap_id = self._mocap_id(ACTUAL_MARKER_BODY)
 
@@ -1334,9 +1576,29 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         joints = np.asarray(joints_rad, dtype=np.float64)
         if joints.shape != (6,) or not np.all(np.isfinite(joints)):
             raise ValueError("accepted arm target must contain six finite joint radians")
-        if not np.allclose(joints, self.last_safe_joint_target, atol=1e-12, rtol=0.0):
-            raise ValueError("MuJoCo adapter received a target other than the accepted IK solution")
         self.commanded_joint_target = joints.copy()
+
+    def set_accepted_arm_tcp_pose(self, pose: Any) -> None:
+        self.last_safe_target = Pose6D(
+            tuple(float(value) for value in pose.position_m),
+            tuple(float(value) for value in pose.orientation_xyzw),
+        )
+
+    def enable_direct_125hz_arm_output(self) -> None:
+        if float(self.data.time) != 0.0:
+            raise RuntimeError("arm output mode must be selected before simulation starts")
+        self.arm_output_mode = "jaka-equivalent-125hz"
+        self.commanded_joint_velocity[:] = 0.0
+        self.commanded_joint_acceleration[:] = 0.0
+
+    def set_emitted_arm_joint_target(self, joints_rad: tuple[float, ...]) -> None:
+        if self.arm_output_mode != "jaka-equivalent-125hz":
+            raise RuntimeError("direct arm commands require jaka-equivalent-125hz mode")
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("emitted arm target must contain six finite joint radians")
+        self.commanded_joint_target = joints.copy()
+        self.data.ctrl[self.arm_actuator_ids] = joints
 
     def set_hand_actuator_target(self, targets_rad: Mapping[str, float]) -> None:
         """Set only the six simulated RH56 actuator goals in explicit model order."""
@@ -1358,40 +1620,41 @@ class JakaMujocoSimulation(SharedJakaTargetGenerator):
         steps = max(0, int(round(max(0.0, dt_s) / self.model.opt.timestep)))
         for _ in range(steps):
             timestep = float(self.model.opt.timestep)
-            limits = self.config.command_limits
-            omega = limits.position_tracking_frequency_rad_s
-            desired_jerk = (
-                omega**3 * (self.commanded_joint_target - self.data.ctrl[self.arm_actuator_ids])
-                - 3.0 * omega**2 * self.commanded_joint_velocity
-                - 3.0 * omega * self.commanded_joint_acceleration
-            )
-            bounded_jerk = np.clip(
-                desired_jerk, -limits.maximum_jerk_rad_s3, limits.maximum_jerk_rad_s3
-            )
-            acceleration_unbounded = self.commanded_joint_acceleration + bounded_jerk * timestep
-            acceleration_bounded = np.clip(
-                acceleration_unbounded,
-                -limits.maximum_acceleration_rad_s2,
-                limits.maximum_acceleration_rad_s2,
-            )
-            velocity_unbounded = self.commanded_joint_velocity + acceleration_bounded * timestep
-            velocity_bounds = np.asarray(limits.velocity_boundaries_rad_s, dtype=float)
-            self.command_jerk_limit_hits += np.abs(desired_jerk) > limits.maximum_jerk_rad_s3
-            self.command_acceleration_limit_hits += (
-                np.abs(acceleration_unbounded) > limits.maximum_acceleration_rad_s2
-            )
-            self.command_velocity_limit_hits += np.abs(velocity_unbounded) > velocity_bounds
-            position, velocity, acceleration = jerk_limited_position_step(
-                self.data.ctrl[self.arm_actuator_ids],
-                self.commanded_joint_target,
-                self.commanded_joint_velocity,
-                self.commanded_joint_acceleration,
-                dt_s=timestep,
-                limits=self.config.command_limits,
-            )
-            self.data.ctrl[self.arm_actuator_ids] = position
-            self.commanded_joint_velocity = velocity
-            self.commanded_joint_acceleration = acceleration
+            if self.arm_output_mode == "shaped-500hz":
+                limits = self.config.command_limits
+                omega = limits.position_tracking_frequency_rad_s
+                desired_jerk = (
+                    omega**3 * (self.commanded_joint_target - self.data.ctrl[self.arm_actuator_ids])
+                    - 3.0 * omega**2 * self.commanded_joint_velocity
+                    - 3.0 * omega * self.commanded_joint_acceleration
+                )
+                bounded_jerk = np.clip(
+                    desired_jerk, -limits.maximum_jerk_rad_s3, limits.maximum_jerk_rad_s3
+                )
+                acceleration_unbounded = self.commanded_joint_acceleration + bounded_jerk * timestep
+                acceleration_bounded = np.clip(
+                    acceleration_unbounded,
+                    -limits.maximum_acceleration_rad_s2,
+                    limits.maximum_acceleration_rad_s2,
+                )
+                velocity_unbounded = self.commanded_joint_velocity + acceleration_bounded * timestep
+                velocity_bounds = np.asarray(limits.velocity_boundaries_rad_s, dtype=float)
+                self.command_jerk_limit_hits += np.abs(desired_jerk) > limits.maximum_jerk_rad_s3
+                self.command_acceleration_limit_hits += (
+                    np.abs(acceleration_unbounded) > limits.maximum_acceleration_rad_s2
+                )
+                self.command_velocity_limit_hits += np.abs(velocity_unbounded) > velocity_bounds
+                position, velocity, acceleration = jerk_limited_position_step(
+                    self.data.ctrl[self.arm_actuator_ids],
+                    self.commanded_joint_target,
+                    self.commanded_joint_velocity,
+                    self.commanded_joint_acceleration,
+                    dt_s=timestep,
+                    limits=self.config.command_limits,
+                )
+                self.data.ctrl[self.arm_actuator_ids] = position
+                self.commanded_joint_velocity = velocity
+                self.commanded_joint_acceleration = acceleration
             if self.hand_available:
                 hand_error = self.commanded_hand_target - self.data.ctrl[self.hand_actuator_ids]
                 desired_hand_velocity = np.clip(hand_error / timestep, -4.0, 4.0)

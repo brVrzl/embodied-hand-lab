@@ -131,6 +131,7 @@ class InspireRetargetResult:
     backend: str
     joint_targets: Mapping[str, float]
     actuator_targets: Mapping[str, float]
+    normalized_targets: Mapping[str, float]
     optimizer_cost: float | None
     tracking_confidence: float | None
     pinch_diagnostics: Mapping[str, float | bool]
@@ -251,6 +252,7 @@ class ProjectRh56Retargeter:
                 self.backend,
                 {},
                 {},
+                {},
                 None,
                 skeleton.tracking_confidence,
                 {},
@@ -264,6 +266,7 @@ class ProjectRh56Retargeter:
                 skeleton.timestamp_monotonic_ns,
                 False,
                 self.backend,
+                {},
                 {},
                 {},
                 None,
@@ -281,6 +284,7 @@ class ProjectRh56Retargeter:
                 skeleton.timestamp_monotonic_ns,
                 False,
                 self.backend,
+                {},
                 {},
                 {},
                 None,
@@ -365,6 +369,7 @@ class ProjectRh56Retargeter:
             self.backend,
             joints,
             actuators,
+            canonical,
             cost,
             skeleton.tracking_confidence,
             {

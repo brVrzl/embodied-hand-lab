@@ -26,6 +26,11 @@ vision-teleop = [
 realsense = [
   "pyrealsense2>=2.55",
 ]
+dataset-export = [
+  "h5py>=3.10",
+  "lerobot==0.6.1",
+  "opencv-contrib-python>=4.13",
+]
 phone-teleop = [
   "hebi-py>=2.13",
 ]

@@ -110,7 +110,7 @@ class JakaAcceptedJointTargetAdapter:
 class E2IsolatedForwardTranslationGuard:
     """E2-only reject gate; forwards the immutable target without modification.
 
-    The confirmed mapping sends operator-forward motion toward robot-base -X.
+    The operator-aligned mapping sends operator-forward motion toward robot-base +X.
     This commissioning guard prevents E2 from becoming a general 6D session;
     it never scales, filters, interpolates, or rewrites an accepted target.
     """
@@ -266,7 +266,7 @@ class ResearchThinBoundedMotionGuard:
             return False
         if translation_norm > 0.003:
             if not (
-                -0.025 <= delta[0] <= 0.003
+                -0.003 <= delta[0] <= 0.025
                 and abs(delta[1]) <= 0.004
                 and abs(delta[2]) <= 0.004
                 and rotation_norm <= math.radians(3.0)
@@ -301,9 +301,9 @@ def _e2_violation(
     accepted_delta: tuple[float, float, float],
 ) -> str | None:
     for label, delta in (("requested", requested_delta), ("accepted", accepted_delta)):
-        if -delta[0] > E2_MAXIMUM_FORWARD_DISPLACEMENT_M:
+        if delta[0] > E2_MAXIMUM_FORWARD_DISPLACEMENT_M:
             return f"e2_{label}_forward_displacement_exceeded"
-        if delta[0] > E2_MAXIMUM_NEUTRAL_OVERSHOOT_M:
+        if -delta[0] > E2_MAXIMUM_NEUTRAL_OVERSHOOT_M:
             return f"e2_{label}_opposite_direction"
         if max(abs(delta[1]), abs(delta[2])) > E2_MAXIMUM_CROSS_AXIS_DISPLACEMENT_M:
             return f"e2_{label}_cross_axis_displacement"

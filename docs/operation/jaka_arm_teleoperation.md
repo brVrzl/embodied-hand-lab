@@ -8,7 +8,9 @@ normal quick-start command. Inspecting help is safe:
 ```
 
 Its stages are deliberately separated (`p2-shadow`, `e2-isolated`, `p4-live`,
-and `post-payload-diagnostic`) and require stage-specific acknowledgements.
+`post-payload-diagnostic`, `bounded-normal-teleop`, and
+`combined-normal-teleop`) and require
+stage-specific acknowledgements.
 Never copy an old historical invocation without reconciling it with current
 `--help`, current config, and the approved gate.
 
@@ -40,35 +42,26 @@ See [current status](../status/current_status.md) before proposing a physical
 stage. The next recommended gate is not yet authorized and must occur in a new
 session.
 
-## Current bounded manual command entry
+## Current normal combined command entry
 
-The repository provides a wrapper only for the currently recommended bounded
-post-payload diagnostic. Inspecting help does not connect:
-
-```bash
-./scripts/run_quest_jaka_post_payload_manual.sh --help
-```
-
-After verifying the controller and receiving explicit authorization for this
-exact gate, the operator may run:
+The current operator-facing physical wrapper is the normal JAKA + RH56 entry.
+Inspecting help does not connect:
 
 ```bash
-./scripts/run_quest_jaka_post_payload_manual.sh \
-  --robot-ip 192.168.71.50 \
-  --edg-state-ip 192.168.71.19 \
-  --duration-sec 60 \
-  --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
-  --estop-accessible \
-  --workspace-clear \
-  --rh56-command-path-absent
+./scripts/run_quest_jaka_rh56_teleop.sh --help
 ```
 
-Verify the IP addresses instead of treating these recorded values as permanent
-configuration. The wrapper always selects `post-payload-diagnostic`, limits the
-run to at most 60 seconds, uses a 1.0 rad/s run-specific output boundary,
-enables the pre-SDK acceleration abort, and creates timestamped logs. It cannot
-transition to another gate. Release the left-index clutch or press Ctrl+C to
-stop. Any alarm or hard fault requires evidence review, not an automatic retry.
+The exact command and dual approvals are documented in
+[JAKA + RH56 combined teleoperation](jaka_rh56_combined_teleop.md). It reuses
+the production 8 ms PWL arm path, the 20 ms producer compute budget, and the
+PC-direct RH56 controller. Left index pauses/resumes only the arm; grip
+holds/resumes only the hand. It does not use the post-payload 1 rad/s or hand
+single-channel diagnostic restrictions. Production velocity, acceleration,
+jerk, workspace, tracking, stale, collision, protocol, feedback, and cleanup
+boundaries remain active.
+
+`run_quest_jaka_bounded_teleop.sh` remains the arm-only isolation entry. It
+sends zero RH56 commands and is no longer the normal combined operator entry.
 
 ---
 
@@ -80,8 +73,8 @@ stop. Any alarm or hard fault requires evidence review, not an automatic retry.
 .venv/bin/python tools/quest_jaka_hardware.py --help
 ```
 
-stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live` 和
-`post-payload-diagnostic`，每个都要求精确 acknowledgement。不得直接复制历史命令，
+stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live`、
+`post-payload-diagnostic`、`bounded-normal-teleop` 和 `combined-normal-teleop`，每个都要求精确 acknowledgement。不得直接复制历史命令，
 必须与当前 `--help`、配置和已批准 gate 核对。
 
 ## 当前运行契约
@@ -99,30 +92,19 @@ stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live` 和
 在提出真机 gate 前先阅读[当前状态](../status/current_status.md)。当前推荐 gate 仍需新的
 显式授权。
 
-## 当前受限手动命令入口
+## 当前正常联合命令入口
 
 以下 `--help` 不会连接真机：
 
 ```bash
-./scripts/run_quest_jaka_post_payload_manual.sh --help
+./scripts/run_quest_jaka_rh56_teleop.sh --help
 ```
 
-在控制器检查完成、并获得这个精确 gate 的明确授权后，操作者可以运行：
+精确命令与双授权见[JAKA + RH56 联合遥操作](jaka_rh56_combined_teleop.md)。该入口复用
+production 8 ms PWL arm、20 ms producer compute budget 和 PC-direct RH56 controller。
+left-index 只暂停/恢复 arm，grip 只保持/恢复 hand。正常入口不使用 post-payload 1 rad/s
+或 hand 单通道诊断限制，但 production 的速度、加速度、jerk、workspace、tracking、stale、
+collision、协议、feedback 和 cleanup 边界全部保留。
 
-```bash
-./scripts/run_quest_jaka_post_payload_manual.sh \
-  --robot-ip 192.168.71.50 \
-  --edg-state-ip 192.168.71.19 \
-  --duration-sec 60 \
-  --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
-  --estop-accessible \
-  --workspace-clear \
-  --rh56-command-path-absent
-```
-
-IP 是当前记录值，运行前必须核实，不能当作永久配置。wrapper 固定选择
-`post-payload-diagnostic`，最多运行 60 秒，使用 1.0 rad/s 的运行期输出边界，启用 SDK
-下发前加速度中止，并生成带时间戳日志；它不能自动进入其他 gate。
-
-停止方式：释放左手食指 clutch 或按 Ctrl+C。出现任何报警或硬故障后必须分析证据，不能
-自动重试。
+`run_quest_jaka_bounded_teleop.sh` 保留为 arm-only 隔离入口，发送零 RH56 命令，不再是
+正常联合操作者入口。

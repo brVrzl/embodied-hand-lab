@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import mujoco
 import numpy as np
@@ -150,6 +151,9 @@ class PalmTargetIkState:
         self.target_workspace_radius_m = abs(float(target_workspace_radius_m))
         self.joint_limit_margin_rad = abs(float(joint_limit_margin_rad))
         self.orientation_ik_weight = max(0.0, float(orientation_ik_weight))
+        self.last_position_target_ik_iterations_ns = 0
+        self.last_position_target_final_fk_ns = 0
+        self.last_position_target_iterations_completed = 0
 
         self.arm_joint_ids = np.asarray(
             [
@@ -248,7 +252,8 @@ class PalmTargetIkState:
         palm_target_quaternion_wxyz: list[float] | None = None,
         wrist_roll_velocity_rad_s: float,
         dt: float,
-    ) -> None:
+        compute_deadline_ns: int | None = None,
+    ) -> bool:
         if len(palm_target_position_m) != 3:
             raise ValueError("palm_target_position_m must contain 3 values.")
         dt = max(0.0, min(float(dt), 0.1))
@@ -261,9 +266,25 @@ class PalmTargetIkState:
         self._clip_target_workspace()
         self.arm_joints_rad[5] += float(wrist_roll_velocity_rad_s) * dt
         self._clip_arm_joints()
+        self.last_position_target_ik_iterations_ns = 0
+        self.last_position_target_final_fk_ns = 0
+        self.last_position_target_iterations_completed = 0
         for _ in range(self.ik_iterations):
+            if (
+                compute_deadline_ns is not None
+                and time.perf_counter_ns() >= compute_deadline_ns
+            ):
+                return False
+            started_ns = time.perf_counter_ns()
             self._solve_position_ik()
+            self.last_position_target_ik_iterations_ns += (
+                time.perf_counter_ns() - started_ns
+            )
+            self.last_position_target_iterations_completed += 1
+        started_ns = time.perf_counter_ns()
         self._forward()
+        self.last_position_target_final_fk_ns = time.perf_counter_ns() - started_ns
+        return True
 
     def hold_current_target(self) -> None:
         self.target_palm_position_m = self.current_palm_position_m.copy()

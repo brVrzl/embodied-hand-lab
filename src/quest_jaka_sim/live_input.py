@@ -52,7 +52,7 @@ class QuestDatagramReceiverWorker:
 
     def raise_if_failed(self) -> None:
         if self.error is not None:
-            raise RuntimeError("Quest receive worker failed") from self.error
+            raise RuntimeError(f"Quest receive worker failed: {self.error}") from self.error
 
     def _run(self) -> None:
         try:

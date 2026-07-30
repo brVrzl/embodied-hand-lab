@@ -3,8 +3,19 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from motion_input import AnalogClutchSample, ReceivedHtsDatagram
-from quest_jaka_sim import JakaMujocoSimulation, ReplayConfig, SmoothQuestJakaSession
+from motion_input import (
+    AnalogClutchSample,
+    HtsRawRecordingReader,
+    HtsRawRecordingWriter,
+    ReceivedHtsDatagram,
+)
+from quest_jaka_sim import (
+    JakaMujocoSimulation,
+    ReplayConfig,
+    SharedJakaTargetGenerator,
+    SmoothQuestJakaSession,
+)
+from quest_jaka_sim.output import RecordingArmTargetAdapter
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.simulation import build_viewer_mjcf
 
@@ -166,3 +177,145 @@ def test_hand_tracking_without_controller_cannot_authorize_motion(tmp_path: Path
     assert session.arm_clutch.state.value == "tracking_fault"
     assert session.accepted_targets == 0
     assert session.arm_mapper.robot_reference is None
+
+
+def test_physical_hand_only_mode_uses_same_router_and_never_generates_arm_target() -> None:
+    class HandOutput:
+        max_target_normalized = 0.8
+
+        def __init__(self) -> None:
+            self.activations = 0
+            self.targets: list[tuple[float, ...]] = []
+            self.holds: list[str] = []
+
+        def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]:
+            self.activations += 1
+            return (0.3, 0.3, 0.3, 0.3, 0.2, 0.1)
+
+        def submit_target(self, target, monotonic_ns: int) -> None:
+            self.targets.append(tuple(target))
+
+        def hold(self, reason: str) -> None:
+            self.holds.append(reason)
+
+    config = replace(
+        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+        engagement_schedule_s=(),
+    )
+    hand = HandOutput()
+    arm = RecordingArmTargetAdapter()
+    session = SmoothQuestJakaSession(
+        config,
+        SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path),
+        arm_output=arm,
+        normalized_hand_output=hand,
+        arm_input_enabled=False,
+    )
+    router = LiveQuestControllerRouter(stale_after_s=1.0)
+    router.ingest(_hand(1, 0), session)
+    router.ingest(_head(1, 0), session)
+    router.ingest(_ctrl(1, 0), session)
+    session.control_tick(0)
+
+    # A large wrist move plus held index remains unable to produce arm motion;
+    # grip independently captures measured ANGLE_ACT and becomes active.
+    now_ns = 10_000_000
+    router.ingest(_hand(2, now_ns, x=0.25), session)
+    router.ingest(_ctrl(2, now_ns, index=1.0, grip=1.0), session)
+    session.control_tick(now_ns)
+    assert hand.activations == 1
+    now_ns = 250_000_000
+    router.ingest(_hand(3, now_ns, x=0.25), session)
+    router.ingest(_ctrl(3, now_ns, index=1.0, grip=1.0), session)
+    session.control_tick(now_ns)
+    assert hand.targets
+    assert arm.targets == []
+    assert session.accepted_targets == 0
+
+    now_ns = 260_000_000
+    router.ingest(_ctrl(4, now_ns, index=1.0, grip=0.0), session)
+    session.control_tick(now_ns)
+    assert hand.holds[-1] == "grip_not_active"
+
+
+def test_combined_session_allows_arm_and_hand_active_from_one_router() -> None:
+    class HandOutput:
+        max_target_normalized = 0.8
+
+        def __init__(self) -> None:
+            self.targets: list[tuple[float, ...]] = []
+
+        def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]:
+            return (0.2, 0.2, 0.2, 0.2, 0.2, 0.2)
+
+        def submit_target(self, target, monotonic_ns: int) -> None:
+            self.targets.append(tuple(target))
+
+        def hold(self, reason: str) -> None:
+            pass
+
+    config = replace(
+        ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+        engagement_schedule_s=(),
+    )
+    hand = HandOutput()
+    arm = RecordingArmTargetAdapter()
+    session = SmoothQuestJakaSession(
+        config,
+        SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path),
+        arm_output=arm,
+        normalized_hand_output=hand,
+    )
+    router = LiveQuestControllerRouter(stale_after_s=1.0)
+    router.ingest(_hand(1, 0), session)
+    router.ingest(_head(1, 0), session)
+    router.ingest(_ctrl(1, 0), session)
+    session.control_tick(0)
+    now_ns = 10_000_000
+    router.ingest(_hand(2, now_ns), session)
+    router.ingest(_head(2, now_ns), session)
+    router.ingest(_ctrl(2, now_ns, index=1.0, grip=1.0), session)
+    session.control_tick(now_ns)
+    now_ns = 250_000_000
+    router.ingest(_hand(3, now_ns), session)
+    router.ingest(_head(3, now_ns), session)
+    router.ingest(_ctrl(3, now_ns, index=1.0, grip=1.0), session)
+    session.control_tick(now_ns)
+    assert arm.targets
+    assert hand.targets
+    assert session.arm_clutch.state.value == "engaged"
+    assert session.hand_clutch.state.value == "engaged"
+
+
+def test_recorded_index_and_grip_replay_through_the_live_router_together(
+    tmp_path: Path,
+) -> None:
+    recording = tmp_path / "joint-clutch.hts.jsonl"
+    packets = (
+        _hand(1, 1),
+        _head(1, 1),
+        _ctrl(1, 1),
+        _hand(2, 33_333_334),
+        _ctrl(2, 33_333_334, index=1.0, grip=1.0),
+    )
+    with HtsRawRecordingWriter(recording) as writer:
+        for packet in packets:
+            writer.write(packet)
+
+    session = _session(tmp_path)
+    router = LiveQuestControllerRouter(stale_after_s=0.15)
+    replayed = list(HtsRawRecordingReader(recording).datagrams())
+    for packet in replayed[:3]:
+        router.ingest(packet, session)
+    router.poll(1, session)
+    session.control_tick(1)
+    for packet in replayed[3:]:
+        router.ingest(packet, session)
+    router.poll(33_333_334, session)
+    session.control_tick(33_333_334)
+
+    assert session.clutch_provider == "quest_ctrl_udp_v1"
+    assert session.arm_clutch.state.value == "engaged"
+    assert session.hand_clutch.state.value == "reacquire"
+    assert session.event_records[-1]["arm_reference_capture"]
+    assert session.event_records[-1]["hand_reference_capture"]

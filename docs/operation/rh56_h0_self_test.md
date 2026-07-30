@@ -50,7 +50,7 @@ feature. Thumb lateral uses the cosine between thumb metacarpal-to-tip and
 index-base-to-pinky-base vectors. These are computed features, not transported
 curl values.
 
-The current normal single-arm entry deliberately calls
+The explicit arm-only simulation mode deliberately calls
 `build_viewer_mjcf(..., arm_only=True)`. Commit `0c30c2d` added that flag and
 removes all `rh56_*` actuators from the generated viewer model. The hand bodies,
 visual/collision geoms, 12 joints, and equality constraints remain in the XML,

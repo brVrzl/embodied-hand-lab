@@ -25,7 +25,9 @@ from .smooth_operator import Se3FilterProfile, SmoothRightHandOperator
 from .smooth_session import ArmControlTickResult, SmoothQuestJakaSession
 from .output import (
     AcceptedArmTarget,
+    ArmOutputMode,
     CompositeArmTargetAdapter,
+    JakaEquivalent125HzMujocoAdapter,
     MujocoArmTargetAdapter,
     RecordingArmTargetAdapter,
 )
@@ -60,9 +62,11 @@ __all__ = [
     "SmoothQuestJakaSession",
     "ArmControlTickResult",
     "AcceptedArmTarget",
+    "ArmOutputMode",
     "AcceptedTargetDiagnostics",
     "AcceptedTcpPose",
     "CompositeArmTargetAdapter",
+    "JakaEquivalent125HzMujocoAdapter",
     "MujocoArmTargetAdapter",
     "RecordingArmTargetAdapter",
     "SmoothRightHandOperator",

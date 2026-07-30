@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from rh56_driver.serial_backend import RH56SerialBackend
 
 
@@ -8,6 +10,18 @@ def _u16_bytes(values: list[int]) -> list[int]:
     for value in values:
         data.extend([value & 0xFF, (value >> 8) & 0xFF])
     return data
+
+
+def _response(hand_id: int, command: int, address: int, data: list[int]) -> bytes:
+    body = [
+        hand_id,
+        len(data) + 3,
+        command,
+        address & 0xFF,
+        (address >> 8) & 0xFF,
+        *data,
+    ]
+    return bytes([0x90, 0xEB, *body, sum(body) & 0xFF])
 
 
 def test_serial_backend_converts_canonical_commands_to_official_protocol_order() -> None:
@@ -59,3 +73,48 @@ def test_serial_backend_decodes_force_feedback_as_signed_16_bit() -> None:
 
     assert backend.get_forces() == [-1.0, -31.0, 10.0, 0.0, -187.0, -32767.0]
     assert backend.get_canonical_forces() == [0.0, 10.0, -31.0, -1.0, -187.0, -32767.0]
+
+
+@pytest.mark.parametrize(
+    "failure", ["header", "id", "command", "address", "length", "trailing", "checksum"]
+)
+def test_read_register_rejects_mismatched_response_boundary(failure: str) -> None:
+    backend = RH56SerialBackend({"serial": {"hand_id": 1}})
+    address = backend.REG["ANGLE_ACT"]
+    frame = bytearray(_response(1, 0x11, address, [0] * 12))
+    if failure == "header":
+        frame[0] = 0x00
+    elif failure == "id":
+        frame[2] = 2
+    elif failure == "command":
+        frame[4] = 0x12
+    elif failure == "address":
+        frame[5] ^= 1
+    elif failure == "length":
+        frame[3] -= 1
+    elif failure == "trailing":
+        frame.append(0)
+    elif failure == "checksum":
+        frame[-1] ^= 1
+    if failure != "checksum":
+        frame[-1] = sum(frame[2:-1]) & 0xFF
+    backend._exchange = lambda payload, expected_frames: [bytes(frame)]  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="validation|length|checksum"):
+        backend.read_register(address, 12)
+
+
+def test_write_register_requires_matching_acknowledgement() -> None:
+    backend = RH56SerialBackend({"serial": {"hand_id": 1}})
+    address = backend.REG["ANGLE_SET"]
+    accepted = _response(1, 0x12, address, [1])
+    backend._exchange = lambda payload, expected_frames: [accepted]  # type: ignore[method-assign]
+    assert backend.write_register(address, [0] * 12)
+
+    wrong_address = _response(1, 0x12, address + 1, [1])
+    backend._exchange = lambda payload, expected_frames: [wrong_address]  # type: ignore[method-assign]
+    assert not backend.write_register(address, [0] * 12)
+
+    trailing = accepted + b"\x00"
+    backend._exchange = lambda payload, expected_frames: [trailing]  # type: ignore[method-assign]
+    assert not backend.write_register(address, [0] * 12)

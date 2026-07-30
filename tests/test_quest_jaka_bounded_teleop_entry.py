@@ -8,11 +8,19 @@ import argparse
 import pytest
 
 from quest_jaka_sim import ReplayConfig
-from tools.quest_jaka_hardware import _parser, _resolve_output_jerk_limit
+from teleoperation.wire import StatusFlags
+from tools.quest_jaka_hardware import (
+    RECOVERABLE_CLUTCH_STAGES,
+    _parser,
+    _native_terminal_reason_if_ready,
+    _resolve_output_jerk_limit,
+    _synchronize_paused_stopped_reference,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_quest_jaka_bounded_teleop.sh"
+COMBINED_SCRIPT = ROOT / "scripts" / "run_quest_jaka_rh56_teleop.sh"
 APPROVAL = "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 
 
@@ -197,3 +205,86 @@ def test_output_generator_is_explicit_and_not_diagnostic_disguise(
     assert "post-payload-diagnostic" not in source
     assert "rh56-command-path-absent" in source
     assert "One exec, no retry loop." in source
+
+
+def test_normal_entry_uses_native_pause_resume_reference_contract() -> None:
+    class TargetGenerator:
+        synchronized: list[list[float]] = []
+
+        def synchronize_authoritative_arm_joints(self, joints: list[float]) -> None:
+            self.synchronized.append(joints)
+
+    generator = TargetGenerator()
+    measured = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    assert "bounded-normal-teleop" in RECOVERABLE_CLUTCH_STAGES
+    assert "post-payload-diagnostic" not in RECOVERABLE_CLUTCH_STAGES
+
+    _synchronize_paused_stopped_reference(
+        stage="bounded-normal-teleop",
+        status_flags=StatusFlags.STOPPED_READY,
+        target_generator=generator,
+        measured_joint_position_rad=measured,
+    )
+    assert generator.synchronized == [list(measured)]
+
+    _synchronize_paused_stopped_reference(
+        stage="post-payload-diagnostic",
+        status_flags=StatusFlags.STOPPED_READY,
+        target_generator=generator,
+        measured_joint_position_rad=measured,
+    )
+    assert generator.synchronized == [list(measured)]
+
+
+def test_native_fault_metrics_win_process_reap_ipc_race(tmp_path: Path) -> None:
+    metrics = tmp_path / "native-metrics.json"
+    metrics.write_text(
+        '{"stop_classification":"native_output_jerk_hard_fault"}\n',
+        encoding="utf-8",
+    )
+    assert _native_terminal_reason_if_ready(metrics) == (
+        "native_output_jerk_hard_fault"
+    )
+
+
+def test_combined_entry_validates_both_gates_without_network_or_device_open(
+    tmp_path: Path,
+) -> None:
+    result = _run([
+        str(COMBINED_SCRIPT),
+        "--robot-ip", "192.0.2.1",
+        "--rh56-device", "/dev/serial/by-id/offline-test",
+        "--arm-approval", APPROVAL,
+        "--hand-approval", "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN",
+        "--hand-prerequisites-complete",
+        "--no-auto-retry",
+        "--estop-accessible",
+        "--workspace-clear",
+        "--worker", "/bin/true",
+        "--log-dir", str(tmp_path / "logs"),
+        "--plant-free-no-network-check",
+    ])
+    assert result.returncode == 0, result.stderr
+    report = json.loads(next(line for line in reversed(result.stdout.splitlines()) if line.startswith("{")))
+    assert report["stage"] == "combined-normal-teleop"
+    assert report["network_attempted"] is False
+    assert report["rh56_gate_validated"] is True
+    assert report["hardware_commands_sent"] == 0
+    assert not (tmp_path / "logs").exists()
+
+
+def test_combined_entry_requires_both_approvals_before_outputs(tmp_path: Path) -> None:
+    command = [
+        str(COMBINED_SCRIPT), "--robot-ip", "192.0.2.1",
+        "--rh56-device", "/dev/serial/by-id/offline-test",
+        "--arm-approval", APPROVAL,
+        "--hand-approval", "WRONG",
+        "--hand-prerequisites-complete", "--no-auto-retry",
+        "--estop-accessible", "--workspace-clear",
+        "--worker", "/bin/true", "--log-dir", str(tmp_path / "logs"),
+        "--plant-free-no-network-check",
+    ]
+    result = _run(command)
+    assert result.returncode == 2
+    assert "Exact hand approval" in result.stderr
+    assert not (tmp_path / "logs").exists()

@@ -16,10 +16,11 @@ For each current wrist sample, the local relative transform is:
 T_relative = inverse(T_wrist_reference) * T_wrist_current
 ```
 
-Translation is expressed in the latched horizontal head-yaw frame and mapped
-to robot-base coordinates with the current basis rows `[-X, +Z, +Y]`.
-Configured translational gains are 1.0. Later head motion does not drag an
-engaged arm reference.
+Translation is expressed in the latched horizontal head-yaw frame. For the
+current operator-aligned setup, OpenXR right/up/forward map to robot-base
+`-Y/+Z/+X`; equivalently the basis rows are `[-Z, -X, +Y]`. Configured
+translational gains are 1.0. Later head motion does not drag an engaged arm
+reference.
 
 Orientation remains the local/body wrist-relative rotation and is conjugated
 by `diag(-1, -1, +1)` for the robot mapping. Translation and rotation then pass
@@ -54,7 +55,8 @@ Hand Tracking Streamer 输入使用 Unity/OpenXR 约定，并先由
 T_relative = inverse(T_wrist_reference) * T_wrist_current
 ```
 
-平移先在锁存的水平 head-yaw 坐标中表达，再以当前 `[-X, +Z, +Y]` 基映射到 robot base。
+平移先在锁存的水平 head-yaw 坐标中表达。当前操作者与机器人同向时，OpenXR 的
+右/上/前分别映射到 robot-base `-Y/+Z/+X`，等价矩阵各行为 `[-Z, -X, +Y]`。
 平移增益为 1.0。engage 后继续移动头部不会拖动机械臂参考。
 
 旋转保留手腕局部/body 相对旋转，并用 `diag(-1, -1, +1)` 共轭映射到机器人。平移和旋转
