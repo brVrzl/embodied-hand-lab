@@ -2,12 +2,12 @@
 
 Date: 2026-07-30 (Asia/Shanghai)
 
-Status: **fast40 combined remains physically unverified**. One 60.10 s hardware
-control episode completed without a native/controller/RH56 fault, but its
-Python summary construction failed after cleanup. A second episode reproduced
-the native timing fault with Quest streaming absent and therefore was not a
-normal combined teleoperation run. The CPU-isolation correction is offline
-validated but still requires physical validation with live Quest input.
+Status: **fast40 combined remains physically unverified at five minutes**. A
+60.105 s live-Quest episode passed after CPU isolation and timing-path fixes.
+A later live-Quest episode exposed observer-induced timing load and failed at
+60.416 s. After correcting that instrumentation, a 200.943 s episode had zero
+native hard timing faults but correctly stopped on Quest controller liveness
+loss. No episode has completed the full 300 s gate.
 
 ## Fault chain and direct finding
 
@@ -53,6 +53,15 @@ was governed by `schedutil`; the terminal CPU was observed at 972 MHz. Pressure
 files are unavailable on this kernel. The evidence does not justify changing
 the hard-timing threshold or claiming one individual IRQ as the unique cause.
 
+The 19:56 live-Quest episode identified an additional run-local cause. A
+recoverable warning (9.205 ms period, 1.327 ms wake lateness) requested a full
+OS snapshot even though it was not the first warning of the run. The observer
+snapshot took 8.85 ms and overlapped the next absolute deadline. The following
+cycle had a 10.097 ms period and 2.097 ms wake lateness, completing the
+unchanged two-consecutive-warning hard-stop condition. The worker stayed on
+CPU6 with zero migrations and SDK-call p99 was 0.141 ms. Repeated warning
+snapshots were therefore an instrumentation-induced load amplifier.
+
 ## Implemented corrections
 
 - `f83e3d8`: early target-endpoint shutdown, metrics-before-large-telemetry
@@ -69,6 +78,15 @@ the hard-timing threshold or claiming one individual IRQ as the unique cause.
   native control thread must verify a single-CPU affinity or fail explicitly.
   The observer remains on non-real-time CPUs. No scheduling priority, timing
   threshold, heartbeat, IK, feasibility, clutch, or safety policy changed.
+- `56ae313`: applies native affinity after JAKA SDK setup so SDK helper threads
+  do not inherit the isolated control CPU.
+- `2baacf5`: bounds measured RH56 activation commands to the configured command
+  envelope while preserving the measurement as the delta reference.
+- `10b56ef`: re-arms a completion miss from completion time, preventing an
+  immediate catch-up ServoJ command.
+- `549df74`: requests the bounded `/proc` snapshot only for the first timing
+  warning. Terminal and shutdown snapshots, timing thresholds, and fail-closed
+  behavior remain unchanged.
 
 The repair validation will explicitly use CPU6 on the observed 14-CPU host.
 The CPU number is not hard-coded and isolation is disabled when the option is
@@ -109,6 +127,60 @@ Log prefix:
 - RH56 feedback remained bounded and fault-free; RH56 writes 0;
 - this is an isolation/failure reproduction, not combined teleoperation.
 
+### 19:40:01, live Quest, CPU6 isolated
+
+Log prefix:
+`logs/quest_jaka_rh56_combined_20260730_194001_3792423`
+
+- elapsed 60.105 s, `duration_complete`, valid combined summary;
+- 7,495 native cycles, zero hard timing misses and zero CPU migrations;
+- 26 recoverable warnings/realignments; period p99 8.064 ms and maximum
+  12.691 ms; wake p99 0.084 ms and maximum 4.750 ms;
+- controller, cleanup, transport, RH56 worker, and RH56 protocol faults zero;
+- RH56 completed 190/190 writes; feedback was approximately 15 Hz for ANGLE
+  and 10 Hz for CURRENT/FORCE/STATUS/ERROR with no age warning.
+
+This is a bounded 60-second physical PASS, not five-minute validation.
+
+### 19:56:37, live Quest, CPU6 isolated
+
+Log prefix:
+`logs/quest_jaka_rh56_combined_20260730_195637_3799451`
+
+- elapsed 60.416 s; primary `consecutive_start_timing_misses` / native
+  `hard_timing_fault`; `control_heartbeat_transport_failure` remained a
+  secondary transport symptom;
+- terminal period 10.097 ms and wake lateness 2.097 ms; the preceding warning
+  period was 9.205 ms with 1.327 ms wake lateness;
+- CPU migrations, controller faults, cleanup faults, and RH56 faults zero;
+- RH56 completed 301 writes at 29.83 Hz, with unique targets at 37.24 Hz;
+- the repeated warning snapshot immediately before the terminal cycle took
+  8.85 ms and overlapped the next deadline.
+
+This is a physical FAIL and motivated `549df74`. No automatic retry occurred.
+
+### 20:04:22, live Quest, CPU6 isolated, post-observer fix
+
+Log prefix:
+`logs/quest_jaka_rh56_combined_20260730_200422_3802773`
+
+- elapsed 200.943 s; native hard timing misses zero, migrations zero, accepted
+  target rate 40.05 Hz, SDK-call p99 0.163 ms;
+- period p99 8.014 ms and wake p99 0.070 ms; no terminal timing object;
+- controller alarms, native cleanup faults, transport symptoms, RH56 serial,
+  protocol, logging, and worker faults zero;
+- hand frames remained live at about 70.07 Hz;
+- immediately before the stop, fresh CTRL datagrams explicitly reported
+  `connected=1, active=0, tracked=1, index=0, grip=0`. The producer correctly
+  stopped heartbeats for this protocol-invalid controller state, and the native
+  100 ms liveness gate stopped with `command_stream_timeout` /
+  `producer_liveness_loss`;
+- this was not ordinary clutch release: current protocol validity requires
+  `connected && active && tracked && fresh`.
+
+This is a physical FAIL due to actual controller liveness loss. Weakening that
+gate is not an acceptable repair.
+
 ## Offline validation
 
 The CPU-isolation and evidence batch passed:
@@ -125,11 +197,10 @@ zero. Compileall, shell syntax, build, and `git diff --check` also passed.
 
 ## Remaining physical validation
 
-With Quest HTS/CTRL streaming active, run fast40 combined using explicit CPU6
-isolation. Confirm non-zero Quest hand frames, arm targets, RH56 targets, and
-command writes before counting a segment. Complete consecutive independent
-60 s bounded episodes equivalent to the requested 2–3, 5, and 10 minute
-envelopes, stopping at the first hard fault. Required acceptance evidence is:
+Run the fast40 combined wrapper's 300 s default with Quest HTS and CTRL active
+for the complete segment and explicit CPU6 isolation. Confirm non-zero hand
+frames, arm targets, RH56 targets, and command writes before counting it. Stop
+at the first hard fault or actual input liveness loss. Required evidence is:
 
 - native actual affinity `{6}`, migration count 0, and observer off CPU6;
 - zero native hard timing/controller/cleanup faults;
@@ -138,4 +209,5 @@ envelopes, stopping at the first hard fault. Required acceptance evidence is:
 - stable arm accepted-target/heartbeat path and non-zero normal hand activity;
 - timing and command-age comparison against the unpinned episodes.
 
-Until those episodes complete, do not claim physical stability.
+Until one full 300 s episode completes, do not claim five-minute physical
+stability.

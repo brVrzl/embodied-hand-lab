@@ -173,7 +173,13 @@ these changes, `quest_jaka_rh56_combined_20260730_194001_3792423` completed a
 60.105 s `fast40` combined physical run with zero hard timing miss, controller
 alarm, arm/RH56 worker fault, serial/protocol fault, or transport symptom. This
 is a bounded 60 second physical PASS; five-minute operation remains physically
-unvalidated.
+unvalidated. A later 60.416 s run showed that repeated warning-boundary OS
+snapshots could overlap the next deadline; `549df74` now records the first
+warning only while retaining terminal evidence and the unchanged hard-timing
+policy. Its post-fix run reached 200.943 s with zero hard timing faults before
+fresh CTRL packets reported `active=0` and correctly triggered
+`producer_liveness_loss`. The full 300 s gate therefore remains a physical
+FAIL/unverified until Quest controller validity remains active throughout.
 
 ## Repository and research state
 
@@ -334,6 +340,11 @@ completion miss 现在从 `cycle_end` 重新布置 deadline，不再在慢周期
 `quest_jaka_rh56_combined_20260730_194001_3792423` 完成 60.105 秒 `fast40` combined
 真机运行，hard timing miss、controller alarm、arm/RH56 worker fault、serial/protocol fault
 与 transport symptom 均为 0。这是有界 60 秒真机 PASS；5 分钟运行仍未完成真机验证。
+之后一段 60.416 秒运行表明，重复的 warning 边界 OS snapshot 会覆盖下一个 deadline；
+`549df74` 仅保留首次 warning snapshot，同时保留 terminal 证据与原 hard-timing policy。
+修复后的运行达到 200.943 秒且 hard timing fault 为 0，随后新鲜 CTRL 包明确报告
+`active=0`，正确触发 `producer_liveness_loss`。因此完整 300 秒 gate 仍是物理
+FAIL/未验证，后续复验必须让 Quest controller validity 全程保持 active。
 
 ## 仓库与研究状态
 
