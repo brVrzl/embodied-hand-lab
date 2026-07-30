@@ -93,6 +93,7 @@ def test_exact_duplicate_is_suppressed_but_different_and_forced_targets_write() 
         assert len(backend.position_writes) == 1
 
         clock.advance_ms(70)
+        worker.submit_target([0.05] * 6, clock())
         assert worker.run_cycle()
         assert len(backend.position_writes) == 1
         assert control.last_command_disposition == "exact_duplicate_suppressed"
@@ -137,16 +138,20 @@ def test_command_sequence_age_and_feedback_register_timings_are_reported() -> No
         }
         diagnostics = record["rh56_diagnostics"]
         assert diagnostics["successful_serial_write_count"] == 1
-        assert diagnostics["complete_feedback_record_count"] >= 2
+        assert diagnostics["complete_feedback_record_count"] == 1
+        assert diagnostics["requested_command_rate_hz"] == 15
+        assert set(worker.diagnostics_snapshot()["feedback"]) == {
+            "ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR"
+        }
         assert diagnostics["command_age_ms"]["p95"] == pytest.approx(25.0)
         assert diagnostics["complete_feedback_latency_ms"]["max"] >= 0.0
         worker_timing = worker.diagnostics_snapshot()["timing_ms"]
-        assert worker_timing["complete_feedback_interval"]["max"] == pytest.approx(25.0)
+        assert worker_timing["complete_feedback_interval"] is None
     finally:
         worker.cleanup()
 
 
-def test_command_follows_complete_feedback_poll_on_the_one_backend() -> None:
+def test_due_command_no_longer_waits_for_complete_feedback_poll() -> None:
     class OrderedBackend(FakeRH56PcDirectBackend):
         def __init__(self) -> None:
             super().__init__()
@@ -180,14 +185,7 @@ def test_command_follows_complete_feedback_poll_on_the_one_backend() -> None:
         backend.operations.clear()
         worker.submit_target([0.2] * 6, clock())
         worker.run_cycle()
-        assert backend.operations == [
-            "ANGLE",
-            "CURRENT",
-            "FORCE",
-            "STATUS",
-            "ERROR",
-            "COMMAND",
-        ]
+        assert backend.operations == ["COMMAND"]
     finally:
         worker.cleanup()
 
@@ -386,7 +384,7 @@ def test_worker_exception_is_persisted_with_traceback_and_context() -> None:
         assert failure["exception_type"] == "RuntimeError"
         assert "injected feedback failure" in failure["message"]
         assert "Traceback" in failure["traceback"]
-        assert failure["control_failure"]["stage"] == "feedback_poll"
+        assert failure["control_failure"]["stage"] == "feedback_register_poll"
         assert records[-1]["record_type"] == "rh56_worker_failure"
     finally:
         worker.cleanup()
@@ -460,5 +458,7 @@ def test_default_command_and_feedback_rates_are_unchanged() -> None:
     control = RH56PcDirectControl(FakeRH56PcDirectBackend(), config)
     worker = RH56PcDirectWorker(control)
     assert control.control_frequency_hz == 15
+    assert control.command_rate_hz == 15
     assert control.command_period_ns == round(1e9 / 15)
+    assert set(control.feedback_rate_hz.values()) == {15}
     assert worker.stale_command_drop_enabled is False

@@ -114,6 +114,7 @@ def test_quest_hand_only_uses_command_approval_and_production_mode() -> None:
     assert validate_gate(args) is HandAuthorization.HAND_ONLY_COMMAND
     assert args.channel is None
     assert args.delta is None
+    assert _parse("--preflight-only", "--scheduler-profile", "fast30").scheduler_profile == "fast30"
 
 
 def test_custom_ch341_fallback_requires_explicit_flag(monkeypatch: pytest.MonkeyPatch) -> None:
