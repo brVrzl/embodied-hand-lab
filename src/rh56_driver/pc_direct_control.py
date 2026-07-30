@@ -4,10 +4,11 @@ import grp
 import os
 import subprocess
 import time
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 import numpy as np
 
@@ -184,6 +185,7 @@ class PcDirectFeedback:
     status: tuple[int, ...]
     error: tuple[int, ...]
     read_latency_ms: float
+    register_latency_ms: Mapping[str, float] | None = None
     state_source: str = "rh56_angle_act_register"
 
 
@@ -209,16 +211,69 @@ def _calibration_from_config(config: Mapping[str, Any]) -> dict[str, HandDofCali
 class RH56PcDirectControl:
     """Authorized PC-direct hand control, independent from the JAKA arm path."""
 
-    def __init__(self, backend: PcDirectBackend, config: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        backend: PcDirectBackend,
+        config: Mapping[str, Any],
+        *,
+        perf_counter_ns: Callable[[], int] = time.perf_counter_ns,
+    ) -> None:
         self.backend = backend
         self.config = config
         self.state = HandControlState.DISABLED
         self.transport_state = "CLOSED"
         self.authorization: HandAuthorization | None = None
-        self.control_frequency_hz = float(config.get("control_frequency_hz", 15.0))
-        if self.control_frequency_hz <= 0.0:
-            raise ValueError("RH56 control_frequency_hz must be positive.")
-        self.command_period_ns = int(round(1e9 / self.control_frequency_hz))
+        profile_name = str(config.get("scheduler_profile", "baseline"))
+        profiles = config.get("scheduler_profiles", {})
+        profile = profiles.get(profile_name, {}) if isinstance(profiles, Mapping) else {}
+        if profiles and not profile:
+            raise ValueError(f"Unknown RH56 scheduler_profile={profile_name!r}.")
+        if not isinstance(profile, Mapping):
+            raise ValueError(f"RH56 scheduler profile {profile_name!r} must be a mapping.")
+        self.scheduler_profile = profile_name
+
+        def scheduler_value(name: str, fallback: Any) -> Any:
+            return profile.get(name, config.get(name, fallback))
+
+        self.command_rate_hz = float(
+            scheduler_value("command_rate_hz", config.get("control_frequency_hz", 15.0))
+        )
+        if self.command_rate_hz <= 0.0:
+            raise ValueError("RH56 command_rate_hz must be positive.")
+        # Retain the old public name while command and feedback rates are now
+        # independently scheduled by RH56PcDirectWorker.
+        self.control_frequency_hz = self.command_rate_hz
+        self.command_period_ns = int(round(1e9 / self.command_rate_hz))
+        self.feedback_rate_hz = {
+            name: float(
+                scheduler_value(
+                    f"{name.lower()}_feedback_rate_hz",
+                    config.get("control_frequency_hz", 15.0),
+                )
+            )
+            for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        if any(rate <= 0.0 for rate in self.feedback_rate_hz.values()):
+            raise ValueError("RH56 feedback rates must be positive.")
+        warning_defaults_ms = {
+            "ANGLE": 150.0,
+            "CURRENT": 250.0,
+            "FORCE": 250.0,
+            "STATUS": 250.0,
+            "ERROR": 250.0,
+        }
+        configured_warning_ms = config.get("feedback_warning_age_ms", {})
+        self.feedback_warning_age_ns = {
+            name: int(
+                round(
+                    float(configured_warning_ms.get(name.lower(), default_ms))
+                    * 1e6
+                )
+            )
+            for name, default_ms in warning_defaults_ms.items()
+        }
+        if any(age <= 0 for age in self.feedback_warning_age_ns.values()):
+            raise ValueError("RH56 feedback warning ages must be positive.")
         serial_timeout_sec = float(config.get("serial", {}).get("timeout_sec", 0.2))
         self.feedback_stale_timeout_ns = int(
             round(float(config.get("feedback_stale_timeout_sec", 2.0 * serial_timeout_sec)) * 1e9)
@@ -228,12 +283,50 @@ class RH56PcDirectControl:
         )
         self.max_close = float(config.get("safety", {}).get("max_close_strength", 1.0))
         self.calibration = _calibration_from_config(config)
+        diagnostics = config.get("diagnostics", {})
+        self.diagnostics_enabled = bool(diagnostics.get("enabled", False))
+        self.diagnostics_window_size = int(diagnostics.get("window_size", 256))
+        if self.diagnostics_window_size <= 0:
+            raise ValueError("RH56 diagnostics window_size must be positive.")
+        self.exact_duplicate_suppression = bool(
+            diagnostics.get("exact_duplicate_suppression", True)
+        )
+        self._perf_counter_ns = perf_counter_ns
         self.last_feedback: PcDirectFeedback | None = None
         self.last_command_normalized: tuple[float, ...] | None = None
         self.last_command_raw: tuple[int, ...] | None = None
         self.last_command_monotonic_ns: int | None = None
         self.next_command_monotonic_ns: int | None = None
         self.fault_reason: str | None = None
+        self.last_failure_record: dict[str, Any] | None = None
+        self.last_command_disposition = "never_evaluated"
+        self.last_submitted_sequence: int | None = None
+        self.last_written_sequence: int | None = None
+        self.last_command_age_ms: float | None = None
+        self.last_write_latency_ms: float | None = None
+        self._force_next_command = False
+        self.command_evaluation_count = 0
+        self.command_rate_limited_count = 0
+        self.command_write_attempt_count = 0
+        self.successful_command_write_count = 0
+        self.duplicate_suppressed_count = 0
+        self.feedback_record_count = 0
+        self._first_write_attempt_ns: int | None = None
+        self._last_write_attempt_ns: int | None = None
+        self._command_age_ms: deque[float] = deque(maxlen=self.diagnostics_window_size)
+        self._write_latency_ms: deque[float] = deque(maxlen=self.diagnostics_window_size)
+        self._feedback_latency_ms: deque[float] = deque(maxlen=self.diagnostics_window_size)
+        self._register_latency_ms: dict[str, deque[float]] = {
+            name: deque(maxlen=self.diagnostics_window_size)
+            for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        self._feedback_values: dict[str, tuple[Any, ...] | None] = {
+            name: None for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        self._feedback_success_ns: dict[str, int | None] = {
+            name: None for name in self._feedback_values
+        }
+        self._feedback_latest_latency_ms: dict[str, float] = {}
 
     def open(self, approval_token: str) -> None:
         authorization = parse_rh56_approval(approval_token)
@@ -251,15 +344,30 @@ class RH56PcDirectControl:
 
     def poll_feedback(self, monotonic_ns: int) -> PcDirectFeedback:
         self._require_open()
-        started_ns = time.perf_counter_ns()
+        started_ns = self._perf_counter_ns()
+        register_latency_ms: dict[str, float] = {}
+
+        def timed(name: str, operation: Callable[[], Sequence[float] | Sequence[int]]) -> tuple[Any, ...]:
+            register_started_ns = self._perf_counter_ns()
+            try:
+                return tuple(operation())
+            finally:
+                if self.diagnostics_enabled:
+                    elapsed_ms = (self._perf_counter_ns() - register_started_ns) / 1e6
+                    register_latency_ms[name] = elapsed_ms
+                    self._register_latency_ms[name].append(elapsed_ms)
+
         try:
-            position = tuple(self.backend.get_canonical_angles())
-            currents = tuple(self.backend.get_canonical_currents())
-            loads = tuple(self.backend.get_canonical_forces())
+            position = timed("ANGLE", self.backend.get_canonical_angles)
+            currents = timed("CURRENT", self.backend.get_canonical_currents)
+            loads = timed("FORCE", self.backend.get_canonical_forces)
             status = tuple(
                 int(value)
                 for value in raw_to_canonical(
-                    self.backend.read_register(self.backend.REG["STATUS"], 6),
+                    timed(
+                        "STATUS",
+                        lambda: self.backend.read_register(self.backend.REG["STATUS"], 6),
+                    ),
                     raw_order=self.config.get("hand_schema", {}).get(
                         "protocol_order", CANONICAL_HAND_ORDER
                     ),
@@ -268,14 +376,23 @@ class RH56PcDirectControl:
             errors = tuple(
                 int(value)
                 for value in raw_to_canonical(
-                    self.backend.read_register(self.backend.REG["ERROR"], 6),
+                    timed(
+                        "ERROR",
+                        lambda: self.backend.read_register(self.backend.REG["ERROR"], 6),
+                    ),
                     raw_order=self.config.get("hand_schema", {}).get(
                         "protocol_order", CANONICAL_HAND_ORDER
                     ),
                 )
             )
-        except Exception:
+        except Exception as exc:
             self._fault("serial_feedback_failure")
+            self._capture_failure(
+                "feedback_poll",
+                exc,
+                monotonic_ns,
+                {"completed_register_latency_ms": register_latency_ms},
+            )
             raise
         normalized = tuple(
             normalize_raw(
@@ -284,7 +401,7 @@ class RH56PcDirectControl:
                 calibration=self.calibration,
             )
         )
-        read_latency_ms = (time.perf_counter_ns() - started_ns) / 1e6
+        read_latency_ms = (self._perf_counter_ns() - started_ns) / 1e6
         feedback = PcDirectFeedback(
             monotonic_ns=int(monotonic_ns),
             position_raw=position,
@@ -294,20 +411,162 @@ class RH56PcDirectControl:
             status=status,
             error=errors,
             read_latency_ms=read_latency_ms,
+            register_latency_ms=register_latency_ms if self.diagnostics_enabled else None,
         )
         self.last_feedback = feedback
+        for name, values in {
+            "ANGLE": position,
+            "CURRENT": currents,
+            "FORCE": loads,
+            "STATUS": status,
+            "ERROR": errors,
+        }.items():
+            self._feedback_values[name] = values
+            self._feedback_success_ns[name] = int(monotonic_ns)
+        self._feedback_latest_latency_ms.update(register_latency_ms)
+        self.feedback_record_count += 1
+        if self.diagnostics_enabled:
+            self._feedback_latency_ms.append(read_latency_ms)
         if any(errors):
             self._fault("device_error_status")
-            raise RuntimeError(f"RH56 device error registers are nonzero: {list(errors)}")
+            exc = RuntimeError(f"RH56 device error registers are nonzero: {list(errors)}")
+            self._capture_failure(
+                "device_error_status",
+                exc,
+                monotonic_ns,
+                {"error": list(errors), "status": list(status)},
+            )
+            raise exc
         if read_latency_ms * 1e6 > self.feedback_stale_timeout_ns:
             self._fault("feedback_stale_during_read")
-            raise RuntimeError(
+            exc = RuntimeError(
                 f"RH56 feedback read took {read_latency_ms:.3f} ms, exceeding the stale boundary."
             )
+            self._capture_failure(
+                "feedback_stale_during_read",
+                exc,
+                monotonic_ns,
+                {"read_latency_ms": read_latency_ms},
+            )
+            raise exc
         if self.last_command_normalized is None:
             self.last_command_normalized = normalized
             self.last_command_raw = tuple(int(round(value)) for value in position)
         return feedback
+
+    def poll_feedback_register(
+        self, register: str, monotonic_ns: int
+    ) -> PcDirectFeedback:
+        """Read exactly one feedback register and refresh the cached snapshot."""
+
+        self._require_open()
+        name = str(register).upper()
+        if name not in self._feedback_values:
+            raise ValueError(f"Unknown RH56 feedback register {register!r}.")
+        started_ns = self._perf_counter_ns()
+        try:
+            if name == "ANGLE":
+                values: tuple[Any, ...] = tuple(self.backend.get_canonical_angles())
+            elif name == "CURRENT":
+                values = tuple(self.backend.get_canonical_currents())
+            elif name == "FORCE":
+                values = tuple(self.backend.get_canonical_forces())
+            else:
+                values = tuple(
+                    int(value)
+                    for value in raw_to_canonical(
+                        self.backend.read_register(self.backend.REG[name], 6),
+                        raw_order=self.config.get("hand_schema", {}).get(
+                            "protocol_order", CANONICAL_HAND_ORDER
+                        ),
+                    )
+                )
+        except Exception as exc:
+            self._fault("serial_feedback_failure")
+            self._capture_failure(
+                "feedback_register_poll",
+                exc,
+                monotonic_ns,
+                {"register": name},
+            )
+            raise
+        latency_ms = (self._perf_counter_ns() - started_ns) / 1e6
+        self._feedback_values[name] = values
+        self._feedback_success_ns[name] = int(monotonic_ns)
+        self._feedback_latest_latency_ms[name] = latency_ms
+        if self.diagnostics_enabled:
+            self._register_latency_ms[name].append(latency_ms)
+        if name == "ERROR" and any(values):
+            self._fault("device_error_status")
+            exc = RuntimeError(
+                f"RH56 device error registers are nonzero: {list(values)}"
+            )
+            self._capture_failure(
+                "device_error_status",
+                exc,
+                monotonic_ns,
+                {
+                    "error": list(values),
+                    "status": None
+                    if self._feedback_values["STATUS"] is None
+                    else list(self._feedback_values["STATUS"]),
+                },
+            )
+            raise exc
+        if latency_ms * 1e6 > self.feedback_stale_timeout_ns:
+            self._fault("feedback_stale_during_read")
+            exc = RuntimeError(
+                f"RH56 {name} feedback read took {latency_ms:.3f} ms, "
+                "exceeding the stale boundary."
+            )
+            self._capture_failure(
+                "feedback_stale_during_read",
+                exc,
+                monotonic_ns,
+                {"register": name, "read_latency_ms": latency_ms},
+            )
+            raise exc
+        feedback = self._feedback_from_cache(latency_ms)
+        self.last_feedback = feedback
+        if name == "ANGLE" and self.last_command_normalized is None:
+            self.last_command_normalized = feedback.position_normalized
+            self.last_command_raw = tuple(
+                int(round(value)) for value in feedback.position_raw
+            )
+        return feedback
+
+    def _feedback_from_cache(self, read_latency_ms: float) -> PcDirectFeedback:
+        if any(value is None for value in self._feedback_values.values()):
+            raise RuntimeError("RH56 feedback cache is incomplete.")
+        position = self._feedback_values["ANGLE"]
+        assert position is not None
+        angle_ns = self._feedback_success_ns["ANGLE"]
+        assert angle_ns is not None
+        return PcDirectFeedback(
+            monotonic_ns=angle_ns,
+            position_raw=tuple(float(value) for value in position),
+            position_normalized=tuple(
+                normalize_raw(
+                    position,
+                    raw_order=CANONICAL_HAND_ORDER,
+                    calibration=self.calibration,
+                )
+            ),
+            current_raw_count=tuple(
+                float(value) for value in self._feedback_values["CURRENT"] or ()
+            ),
+            load_or_force_raw_count=tuple(
+                float(value) for value in self._feedback_values["FORCE"] or ()
+            ),
+            status=tuple(int(value) for value in self._feedback_values["STATUS"] or ()),
+            error=tuple(int(value) for value in self._feedback_values["ERROR"] or ()),
+            read_latency_ms=float(read_latency_ms),
+            register_latency_ms=(
+                dict(self._feedback_latest_latency_ms)
+                if self.diagnostics_enabled
+                else None
+            ),
+        )
 
     def activate(self, monotonic_ns: int) -> None:
         if self.authorization not in {
@@ -329,6 +588,7 @@ class RH56PcDirectControl:
         self.state = HandControlState.ACTIVE
         self.transport_state = "CONNECTED_COMMAND_AUTHORIZED"
         self.next_command_monotonic_ns = int(monotonic_ns)
+        self._force_next_command = True
 
     def command(
         self,
@@ -337,7 +597,12 @@ class RH56PcDirectControl:
         *,
         grip_fresh: bool = True,
         arm_terminal_stop: bool = False,
+        submitted_monotonic_ns: int | None = None,
+        target_sequence: int | None = None,
+        force_write: bool = False,
     ) -> bool:
+        self.command_evaluation_count += 1
+        self.last_submitted_sequence = target_sequence
         if arm_terminal_stop:
             self._fault("arm_terminal_hard_stop")
             return False
@@ -345,11 +610,15 @@ class RH56PcDirectControl:
             self.hold("grip_stale")
             return False
         if self.state is not HandControlState.ACTIVE:
+            self.last_command_disposition = "inactive"
             return False
         self._require_fresh_feedback(monotonic_ns)
         if self.state is HandControlState.FAULT:
+            self.last_command_disposition = "faulted"
             return False
         if self.next_command_monotonic_ns is not None and monotonic_ns < self.next_command_monotonic_ns:
+            self.command_rate_limited_count += 1
+            self.last_command_disposition = "rate_limited"
             return False
         requested = np.asarray(target_normalized, dtype=np.float64).reshape(-1)
         if requested.size != len(CANONICAL_HAND_ORDER):
@@ -357,6 +626,21 @@ class RH56PcDirectControl:
         if not np.all(np.isfinite(requested)) or np.any(requested < 0.0) or np.any(requested > self.max_close):
             raise ValueError(f"RH56 normalized target must remain within [0, {self.max_close}].")
         assert self.last_command_normalized is not None
+        requested_tuple = tuple(float(value) for value in requested)
+        if (
+            self.exact_duplicate_suppression
+            and not force_write
+            and not self._force_next_command
+            and requested_tuple == self.last_command_normalized
+        ):
+            self.duplicate_suppressed_count += 1
+            self.last_command_disposition = "exact_duplicate_suppressed"
+            self.next_command_monotonic_ns = int(monotonic_ns) + self.command_period_ns
+            if submitted_monotonic_ns is not None:
+                self.last_command_age_ms = max(
+                    0.0, (monotonic_ns - submitted_monotonic_ns) / 1e6
+                )
+            return False
         previous = np.asarray(self.last_command_normalized, dtype=np.float64)
         selected = previous + np.clip(requested - previous, -self.delta_limit, self.delta_limit)
         raw = denormalize_canonical(
@@ -365,18 +649,62 @@ class RH56PcDirectControl:
             calibration=self.calibration,
         )
         raw_int = [int(round(value)) for value in raw]
+        command_age_ms = (
+            None
+            if submitted_monotonic_ns is None
+            else max(0.0, (monotonic_ns - submitted_monotonic_ns) / 1e6)
+        )
+        write_started_ns = self._perf_counter_ns()
+        self.command_write_attempt_count += 1
+        if self._first_write_attempt_ns is None:
+            self._first_write_attempt_ns = int(monotonic_ns)
+        self._last_write_attempt_ns = int(monotonic_ns)
+        self._force_next_command = False
         try:
             ok = self.backend.set_canonical_angles(raw_int)
-        except Exception:
+        except Exception as exc:
+            self.last_write_latency_ms = (self._perf_counter_ns() - write_started_ns) / 1e6
             self._fault("serial_command_failure")
+            self._capture_failure(
+                "command_write",
+                exc,
+                monotonic_ns,
+                {
+                    "target_sequence": target_sequence,
+                    "command_age_ms": command_age_ms,
+                    "selected_raw": raw_int,
+                    "write_latency_ms": self.last_write_latency_ms,
+                },
+            )
             raise
+        self.last_write_latency_ms = (self._perf_counter_ns() - write_started_ns) / 1e6
         if not ok:
             self._fault("serial_command_rejected")
-            raise RuntimeError("RH56 rejected the position command.")
+            exc = RuntimeError("RH56 rejected the position command.")
+            self._capture_failure(
+                "command_write",
+                exc,
+                monotonic_ns,
+                {
+                    "target_sequence": target_sequence,
+                    "command_age_ms": command_age_ms,
+                    "selected_raw": raw_int,
+                    "write_latency_ms": self.last_write_latency_ms,
+                },
+            )
+            raise exc
         self.last_command_normalized = tuple(float(value) for value in selected)
         self.last_command_raw = tuple(raw_int)
         self.last_command_monotonic_ns = int(monotonic_ns)
         self.next_command_monotonic_ns = int(monotonic_ns) + self.command_period_ns
+        self.last_written_sequence = target_sequence
+        self.last_command_age_ms = command_age_ms
+        self.last_command_disposition = "serial_write_success"
+        self.successful_command_write_count += 1
+        if self.diagnostics_enabled:
+            self._write_latency_ms.append(self.last_write_latency_ms)
+            if command_age_ms is not None:
+                self._command_age_ms.append(command_age_ms)
         return True
 
     def write_runtime_config(
@@ -413,6 +741,20 @@ class RH56PcDirectControl:
     def mark_feedback_timeout(self, monotonic_ns: int) -> bool:
         if self.last_feedback is None or monotonic_ns - self.last_feedback.monotonic_ns > self.feedback_stale_timeout_ns:
             self._fault("feedback_timeout")
+            exc = RuntimeError("RH56 feedback is stale or absent.")
+            self._capture_failure(
+                "feedback_freshness",
+                exc,
+                monotonic_ns,
+                {
+                    "last_feedback_monotonic_ns": (
+                        None
+                        if self.last_feedback is None
+                        else self.last_feedback.monotonic_ns
+                    ),
+                    "feedback_stale_timeout_ns": self.feedback_stale_timeout_ns,
+                },
+            )
             return True
         return False
 
@@ -428,6 +770,8 @@ class RH56PcDirectControl:
         self,
         monotonic_ns: int,
         requested_target: Sequence[float] | None = None,
+        *,
+        include_diagnostics: bool = True,
     ) -> dict[str, Any]:
         feedback = self.last_feedback
         return {
@@ -466,9 +810,22 @@ class RH56PcDirectControl:
             "hand_command_timestamp": self.last_command_monotonic_ns,
             "hand_feedback_timestamp": None if feedback is None else feedback.monotonic_ns,
             "hand_feedback_read_latency_ms": None if feedback is None else feedback.read_latency_ms,
+            "hand_feedback_register_latency_ms": (
+                None if feedback is None else feedback.register_latency_ms
+            ),
             "hand_error": None if feedback is None else list(feedback.error),
             "hand_status": None if feedback is None else list(feedback.status),
             "hand_fault_reason": self.fault_reason,
+            "hand_failure": self.last_failure_record,
+            "hand_target_sequence": self.last_submitted_sequence,
+            "hand_written_sequence": self.last_written_sequence,
+            "hand_command_disposition": self.last_command_disposition,
+            "hand_command_age_ms": self.last_command_age_ms,
+            "rh56_diagnostics": (
+                self.diagnostics_snapshot()
+                if self.diagnostics_enabled and include_diagnostics
+                else None
+            ),
             "combined_episode_valid": self.state is not HandControlState.FAULT,
             "required_arm_action": None
             if self.state is not HandControlState.FAULT
@@ -489,6 +846,72 @@ class RH56PcDirectControl:
         self.fault_reason = reason
         self.next_command_monotonic_ns = None
 
+    def diagnostics_snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": self.diagnostics_enabled,
+            "window_size": self.diagnostics_window_size,
+            "scheduler_profile": self.scheduler_profile,
+            "requested_command_rate_hz": self.command_rate_hz,
+            "requested_feedback_rate_hz": dict(self.feedback_rate_hz),
+            "exact_duplicate_suppression": self.exact_duplicate_suppression,
+            "command_evaluation_count": self.command_evaluation_count,
+            "command_rate_limited_count": self.command_rate_limited_count,
+            "serial_write_attempt_count": self.command_write_attempt_count,
+            "serial_write_attempt_rate_hz": _rate(
+                self.command_write_attempt_count,
+                self._first_write_attempt_ns,
+                self._last_write_attempt_ns,
+            ),
+            "successful_serial_write_count": self.successful_command_write_count,
+            "exact_duplicate_suppressed_count": self.duplicate_suppressed_count,
+            "complete_feedback_record_count": self.feedback_record_count,
+            "last_target_sequence": self.last_submitted_sequence,
+            "last_written_sequence": self.last_written_sequence,
+            "last_command_age_ms": self.last_command_age_ms,
+            "maximum_command_age_ms": max(self._command_age_ms, default=None),
+            "command_age_ms": _distribution(self._command_age_ms),
+            "last_write_latency_ms": self.last_write_latency_ms,
+            "maximum_write_latency_ms": max(self._write_latency_ms, default=None),
+            "serial_write_latency_ms": _distribution(self._write_latency_ms),
+            "maximum_feedback_latency_ms": max(self._feedback_latency_ms, default=None),
+            "complete_feedback_latency_ms": _distribution(
+                self._feedback_latency_ms
+            ),
+            "feedback_register_maximum_latency_ms": {
+                name: max(values, default=None)
+                for name, values in self._register_latency_ms.items()
+            },
+            "feedback_register_latency_ms": {
+                name: _distribution(values)
+                for name, values in self._register_latency_ms.items()
+            },
+        }
+
+    def _capture_failure(
+        self,
+        stage: str,
+        exc: BaseException,
+        monotonic_ns: int,
+        context: Mapping[str, Any] | None = None,
+    ) -> None:
+        serial_context = getattr(exc, "as_dict", None)
+        if callable(serial_context):
+            serial_details = serial_context()
+        else:
+            serial_details = getattr(self.backend, "last_failure_context", None)
+        self.last_failure_record = {
+            "schema_version": "rh56_control_failure.v1",
+            "stage": stage,
+            "monotonic_ns": int(monotonic_ns),
+            "exception_type": type(exc).__name__,
+            "message": str(exc),
+            "fault_reason": self.fault_reason,
+            "control_state": self.state.value,
+            "transport_state": self.transport_state,
+            "serial": serial_details,
+            "context": dict(context or {}),
+        }
+
     @staticmethod
     def _validated_int_vector(
         values: Sequence[int], min_value: int, max_value: int, name: str
@@ -499,6 +922,29 @@ class RH56PcDirectControl:
         if any(value < min_value or value > max_value for value in result):
             raise ValueError(f"RH56 {name} values must remain within [{min_value}, {max_value}].")
         return result
+
+
+def _distribution(values: Sequence[float]) -> dict[str, float] | None:
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+
+    def percentile(fraction: float) -> float:
+        index = int(round((len(ordered) - 1) * fraction))
+        return ordered[index]
+
+    return {
+        "p50": percentile(0.50),
+        "p95": percentile(0.95),
+        "p99": percentile(0.99),
+        "max": ordered[-1],
+    }
+
+
+def _rate(count: int, first_ns: int | None, last_ns: int | None) -> float | None:
+    if count < 2 or first_ns is None or last_ns is None or last_ns <= first_ns:
+        return None
+    return (count - 1) * 1e9 / (last_ns - first_ns)
 
 
 class FakeRH56PcDirectBackend:

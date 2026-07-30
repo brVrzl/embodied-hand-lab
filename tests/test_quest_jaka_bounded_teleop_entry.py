@@ -261,6 +261,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         "--estop-accessible",
         "--workspace-clear",
         "--worker", "/bin/true",
+        "--rh56-scheduler-profile", "fast40",
         "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
     ])
@@ -269,6 +270,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["stage"] == "combined-normal-teleop"
     assert report["network_attempted"] is False
     assert report["rh56_gate_validated"] is True
+    assert report["rh56_scheduler_profile"] == "fast40"
     assert report["hardware_commands_sent"] == 0
     assert not (tmp_path / "logs").exists()
 

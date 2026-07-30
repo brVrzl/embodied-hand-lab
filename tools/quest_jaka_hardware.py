@@ -52,6 +52,7 @@ from rh56_driver.pc_direct_control import (
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend
+from rh56_driver.telemetry import BoundedJsonlRecorder
 
 
 P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
@@ -71,6 +72,14 @@ RECOVERABLE_CLUTCH_STAGES = frozenset((
     "combined-normal-teleop",
     "research-thin-bounded",
 ))
+
+
+def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
+    if len(timestamps_ns) < 2 or timestamps_ns[-1] <= timestamps_ns[0]:
+        return None
+    return (len(timestamps_ns) - 1) * 1e9 / (
+        timestamps_ns[-1] - timestamps_ns[0]
+    )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -109,6 +118,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--rh56-config", type=Path, default=Path("configs/hand/rh56_pc_direct_teleop.yaml"))
+    parser.add_argument(
+        "--rh56-scheduler-profile",
+        choices=("baseline", "fast30", "fast40", "fast50"),
+        help="Override the RH56 command/feedback scheduler profile.",
+    )
     parser.add_argument("--rh56-approval", default="")
     parser.add_argument("--rh56-log", type=Path)
     parser.add_argument("--log", type=Path, required=True)
@@ -413,6 +427,8 @@ def main() -> int:
                         "direct CH341 identity mismatch before any hardware I/O"
                     )
         hand_config = load_yaml(args.rh56_config)
+        if args.rh56_scheduler_profile is not None:
+            hand_config["scheduler_profile"] = args.rh56_scheduler_profile
         hand_config["mode"] = "real"
         hand_config["backend_type"] = "serial_protocol"
         hand_config.setdefault("serial", {})["port"] = args.rh56_device
@@ -494,6 +510,11 @@ def main() -> int:
                     "hardware_commands_sent": 0,
                     "rh56_commands": 0,
                     "rh56_gate_validated": args.stage == "combined-normal-teleop",
+                    "rh56_scheduler_profile": (
+                        None
+                        if hand_config is None
+                        else hand_config.get("scheduler_profile", "baseline")
+                    ),
                     "output_generator": args.output_generator,
                     "native_mode": "joint-teleop",
                     "native_ik_calls": 0,
@@ -576,21 +597,29 @@ def main() -> int:
         rh56_worker: RH56PcDirectWorker | None = None
         rh56_control: RH56PcDirectControl | None = None
         rh56_backend: RH56SerialBackend | None = None
-        rh56_records: list[dict[str, object]] = []
         rh56_log = None
+        rh56_recorder: BoundedJsonlRecorder | None = None
         if args.stage == "combined-normal-teleop":
             assert hand_config is not None and args.rh56_log is not None
             rh56_backend = RH56SerialBackend(hand_config)
             rh56_control = RH56PcDirectControl(rh56_backend, hand_config)
             rh56_log = args.rh56_log.open("x", encoding="utf-8")
-
-            def record_hand(row: dict[str, object]) -> None:
-                rh56_records.append(row)
-                assert rh56_log is not None
-                rh56_log.write(json.dumps(row, sort_keys=True) + "\n")
-                rh56_log.flush()
-
-            rh56_worker = RH56PcDirectWorker(rh56_control, record=record_hand)
+            rh56_diagnostics = hand_config.get("diagnostics", {})
+            rh56_recorder = BoundedJsonlRecorder(
+                rh56_log,
+                capacity=int(
+                    rh56_diagnostics.get("telemetry_buffer_capacity", 64)
+                ),
+                flush_every_records=int(
+                    rh56_diagnostics.get("telemetry_flush_every_records", 16)
+                ),
+                flush_interval_sec=float(
+                    rh56_diagnostics.get("telemetry_flush_interval_sec", 1.0)
+                ),
+            )
+            rh56_worker = RH56PcDirectWorker(
+                rh56_control, record=rh56_recorder
+            )
         session = SmoothQuestJakaSession(
             config,
             target_generator,
@@ -1021,6 +1050,8 @@ def main() -> int:
             runtime.close()
             if rh56_worker is not None:
                 rh56_worker.cleanup()
+            if rh56_recorder is not None:
+                rh56_recorder.close()
             if rh56_log is not None:
                 rh56_log.close()
 
@@ -1200,9 +1231,34 @@ def main() -> int:
         "rh56_hand_initial_target_source": (
             None if rh56_control is None else "measured_ANGLE_ACT"
         ),
-        "rh56_feedback_records": len(rh56_records),
-        "rh56_final_record": None if not rh56_records else rh56_records[-1],
+        "rh56_feedback_records": (
+            0 if rh56_recorder is None else rh56_recorder.telemetry_record_count
+        ),
+        "rh56_final_record": (
+            None if rh56_recorder is None else rh56_recorder.last_telemetry_record
+        ),
         "rh56_fault_reason": None if rh56_control is None else rh56_control.fault_reason,
+        "rh56_worker_failure": (
+            None if rh56_worker is None else rh56_worker.failure_record
+        ),
+        "rh56_diagnostics": (
+            None if rh56_worker is None else rh56_worker.diagnostics_snapshot()
+        ),
+        "rh56_logging": (
+            None if rh56_recorder is None else rh56_recorder.summary()
+        ),
+        "rh56_quest_input_frame_count": len(session.input_timestamps_ns),
+        "rh56_quest_input_rate_hz": _timestamp_rate_hz(
+            session.input_timestamps_ns
+        ),
+        "rh56_grip_sample_count": len(session.grip_timestamps_ns),
+        "rh56_grip_sample_rate_hz": _timestamp_rate_hz(
+            session.grip_timestamps_ns
+        ),
+        "rh56_hand_retarget_count": len(session.hand_timestamps_ns),
+        "rh56_hand_retarget_rate_hz": _timestamp_rate_hz(
+            session.hand_timestamps_ns
+        ),
         "combined_episode_valid": (
             args.stage != "combined-normal-teleop"
             or (abort_reason is None and rh56_control is not None and rh56_control.fault_reason is None)
@@ -1214,6 +1270,15 @@ def main() -> int:
         "control_compute_budget_ms": session.control_compute_budget_ms,
         "control_compute_budget_exhausted_count": (
             session.control_compute_budget_exhausted_count
+        ),
+        "budget_exhausted_before_checks_complete": (
+            session.budget_exhausted_before_checks_complete
+        ),
+        "budget_exhausted_after_checks_nonfeasible": (
+            session.budget_exhausted_after_checks_nonfeasible
+        ),
+        "budget_exhausted_after_checks_feasible": (
+            session.budget_exhausted_after_checks_feasible
         ),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
         "measured_joint_fk_tcp_motion": measured_tcp,

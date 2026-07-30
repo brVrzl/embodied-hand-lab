@@ -9,7 +9,24 @@ serial:
   timeout_sec: 0.2
   hand_id: 1
 finger_count: 6
-control_frequency_hz: 15
+control_frequency_hz: 40
+scheduler_profile: fast40
+scheduler_profiles:
+  baseline: {command_rate_hz: 15, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 15, force_feedback_rate_hz: 15, status_feedback_rate_hz: 15, error_feedback_rate_hz: 15}
+  fast30: {command_rate_hz: 30, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+  fast40: {command_rate_hz: 40, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+  fast50: {command_rate_hz: 50, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+serial_inter_transaction_delay_ms: 5
+feedback_warning_age_ms: {angle: 150, current: 250, force: 250, status: 250, error: 250}
+diagnostics:
+  enabled: true
+  window_size: 256
+  exact_duplicate_suppression: true
+  stale_command_drop_enabled: false
+  stale_command_max_age_sec: 0.25
+  telemetry_buffer_capacity: 64
+  telemetry_flush_every_records: 16
+  telemetry_flush_interval_sec: 1.0
 close_strength: 0.35
 pinch_strength: 0.25
 speed_default: [800, 800, 800, 800, 800, 800]

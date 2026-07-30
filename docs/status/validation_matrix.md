@@ -29,7 +29,7 @@ tested” and “simulation validated” do not mean physically passed.
 | Collision-event propagation | implemented; tested offline | fake-worker validated | not intentionally validated | collision remains hard stop |
 | Payload-corrected post-fix path | implemented through acceleration fix | replay validated | incomplete | polling timing passed; acceleration fix pending |
 | TCP calibration | interfaces exist | model frames tested | not validated | TCP1–TCP10 recorded zero |
-| RH56 physical teleoperation | separate drivers tested offline | simulation hand validated | not validated in Quest path | separately gated legacy paths |
+| RH56 physical teleoperation | command-priority scheduler tested offline | simulation hand validated | hand-only validated at 15/30/40/50 Hz; combined failed on arm timing | fast40 selected; zero RH56 serial faults |
 | Foundation J6 gates | historical implementation | n/a | passed for exact +0.25°/+5° gates | July 16 evidence; not full teleop |
 | Digital-twin workspace | implemented; tested | integrated workspace | not applicable | 3 failed trajectories; calibration pending |
 
@@ -60,6 +60,6 @@ tested” and “simulation validated” do not mean physically passed.
 | 碰撞事件传播 | 离线测试 | fake 验证 | 未故意触发验证 | collision 是 hard stop |
 | Payload 修正后的修复路径 | 加速度修复已实现 | 回放验证 | 未完成 | 下一受限 gate |
 | TCP 标定 | 接口存在 | 模型 frame 测试 | 未验证 | TCP1–TCP10 记录为零 |
-| Quest 到真机 RH56 | 独立 driver 有离线测试 | 仿真手已验证 | 未验证 | 必须另行 gate |
+| Quest 到真机 RH56 | command-priority scheduler 已离线测试 | 仿真手已验证 | hand-only 已验证 15/30/40/50 Hz；combined 因 arm timing 失败 | 选择 fast40；RH56 串口零故障 |
 | 历史 J6 foundation gate | 历史实现 | 不适用 | 精确 +0.25°/+5° 通过 | 不代表完整遥操作 |
 | 数字孪生工作区 | 已实现、测试 | Integrated Workspace | 不适用 | 三条失败 trajectory，标定待完成 |

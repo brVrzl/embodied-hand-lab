@@ -4,17 +4,15 @@ This is the current normal physical teleoperation entry. The arm and hand use
 their production operating envelopes rather than the temporary post-payload or
 single-channel diagnostic restrictions. All production safety limits remain
 active. RH56 Quest hand-only completed a 60 second physical run on 2026-07-29;
-the combined entry has multiple short physical run records, but no run is a
-complete, long-duration, all-gates PASS.
+no successful combined physical run has yet been completed.
 
 The first combined attempt on 2026-07-29 ran for 27.34 seconds and then exposed
 a recoverable-clutch protocol defect: `HOLD_CURRENT` was misclassified as a
 motion target without `ALLOW_MOTION`. The worker now handles it as bounded
 braking, publishes `STOPPED_READY`, and keeps fresh non-motion producer
-heartbeats while index is released. This correction is offline-tested. Later
-short combined runs exercised the entry and exposed additional retained timing,
-Quest-liveness, and producer-liveness stop paths; none establishes an overall
-combined PASS.
+heartbeats while index is released. A later 2026-07-30 combined run exercised
+this path but failed after 21.02 seconds at a separate retained arm hard-timing
+gate; combined operation therefore remains unvalidated.
 
 ```text
 one Quest UDP receiver/router
@@ -52,7 +50,7 @@ The entry uses the same normal production arm limits as
 plus all shared/native position, workspace, velocity, acceleration, jerk,
 tracking, controller, collision, stale, timing, and cleanup boundaries. It
 does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
-0--1000 position range, 15 Hz command rate, 0.05 delta limit, configured 0.8
+0--1000 position range, physically selected `fast40` command profile, 0.05 delta limit, configured 0.8
 closure boundary, feedback/protocol/fault gates, and measured-first startup.
 There is no unlimited or safety-disable option.
 
@@ -78,6 +76,7 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
   --hand-prerequisites-complete \
   --no-auto-retry --estop-accessible --workspace-clear \
+  --rh56-scheduler-profile fast40 \
   --log-dir logs
 ```
 
@@ -93,14 +92,13 @@ extract, RH56 telemetry, and combined summary files under `logs/`.
 
 这是当前正常真机遥操作入口。arm 与 hand 使用 production 正常工作范围，不继承
 post-payload 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。2026-07-29
-RH56 Quest hand-only 已完成一次 60 秒真机运行。联合入口已有多次短时真机运行记录，但
-尚无完整、长期、所有 gate 均 PASS 的验证。
+RH56 Quest hand-only 已完成一次 60 秒真机运行；联合真机运行尚未成功验证。
 
 2026-07-29 首次联合运行持续 27.34 秒后暴露 recoverable clutch 协议缺陷：
 `HOLD_CURRENT` 被误当成不带 `ALLOW_MOTION` 的运动 target。worker 现已将其处理为有界减速，
-发布 `STOPPED_READY`，并在 index 释放且输入新鲜时维持非运动 producer heartbeat。该修复
-已完成离线测试；后续短时联合运行又覆盖到保留的 timing、Quest-liveness 和 producer-
-liveness 停止路径，但都不能作为联合整体 PASS。
+发布 `STOPPED_READY`，并在 index 释放且输入新鲜时维持非运动 producer heartbeat。
+2026-07-30 后续 combined 运行覆盖了该路径，但在 21.02 秒因另一处保留的 arm hard-timing
+gate 失败，因此 combined 仍未验证通过。
 
 联合入口只有一个 Quest UDP receiver/router、一个 `SmoothQuestJakaSession`、一个 JAKA
 SDK/native 125 Hz PWL session 和一个 PC-direct RH56 controller。RH56 I/O worker 只负责把
@@ -121,7 +119,8 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 
 入口复用 arm normal production 的 J1--J3 1.5 rad/s、J4--J6 1.2 rad/s，以及所有关节/
 workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/cleanup 安全边界；不使用
-post-payload 的临时 1 rad/s。hand 保留 0--1000、15 Hz、0.05 delta、0.8 closure 和全部
+post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
+0.05 delta、0.8 closure 和全部
 feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
 
 正常联合真机运行使用上文命令模板。该模板不是某次运行的授权；操作者仍需核实 IP、

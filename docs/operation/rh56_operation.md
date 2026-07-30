@@ -4,17 +4,17 @@ The maintained physical path is `RH56DFX -> USB/RS485 adapter -> Thor`. It does
 not use JAKA tool-RS485 and never creates a JAKA SDK session. A 60 second Quest
 hand-only run completed on 2026-07-29 with 903 feedback records, no timeout,
 checksum, protocol, or hand fault, and zero JAKA sessions. Combined physical
-operation has multiple short run records, but no complete, long-duration,
-all-gates PASS.
+operation remains unvalidated.
 
 The control order is
 `[index, middle, ring, pinky, thumb_close, thumb_lateral]`; the wire protocol
 order is `[pinky, ring, middle, index, thumb_close, thumb_lateral]`. The driver
 uses 115200 baud, device address 1, `ANGLE_SET=1486`, `ANGLE_ACT=1546`,
 `FORCE_ACT=1582`, `CURRENT=1594`, `ERROR=1606`, and `STATUS=1612`. Position,
-speed, and force register ranges are 0--1000. Production hand control is 15 Hz,
-with a maximum normalized change of 0.05 per command and configured maximum
-closure 0.8.
+speed, and force register ranges are 0--1000. Production hand control defaults
+to the physically tested `fast40` scheduler profile, with a maximum normalized
+change of 0.05 per command and configured maximum closure 0.8. The 15 Hz
+baseline remains selectable for comparison.
 
 Opening the serial transport performs zero writes: it does not clear errors,
 write speed/force, send a hold target, or open the hand. `ANGLE_ACT` is measured
@@ -125,7 +125,7 @@ not the default procedure and does not disable any production hand limits.
      tests/test_quest_jaka_bounded_teleop_entry.py
    ```
 
-9. Run one short combined physical gate with left index released throughout;
+9. Run the first combined physical test with left index released throughout;
    operate grip only. See [combined teleoperation](jaka_rh56_combined_teleop.md).
    Arm commands while index is released must remain zero.
 
@@ -155,7 +155,7 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 ```
 
 Normal hand teleoperation does not mean safety is disabled. Register range,
-canonical/protocol ordering, 15 Hz rate, per-cycle delta, serial timeouts,
+canonical/protocol ordering, selected scheduler rate, per-cycle delta, serial timeouts,
 frame/checksum validation, feedback stale, ERROR/STATUS response gates, grip
 stale, measured/commanded separation, and cleanup remain active.
 
@@ -182,13 +182,14 @@ combined-episode validity.
 当前维护的真机链路是 `RH56DFX -> USB/RS485 转换器 -> Thor`，不使用 JAKA
 tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Quest hand-only
 真机运行：903 条 feedback，无 timeout/checksum/protocol/hand fault，JAKA session 为 0；
-联合路径已有多次短时真机运行记录，但尚无完整、长期、所有 gate 均 PASS 的验证。
+联合真机运行仍未验证。
 
 控制层规范顺序为 `[index, middle, ring, pinky, thumb_close, thumb_lateral]`，协议顺序为
 `[pinky, ring, middle, index, thumb_close, thumb_lateral]`。协议为 115200 baud、地址 1；
 `ANGLE_SET=1486`、`ANGLE_ACT=1546`、`FORCE_ACT=1582`、`CURRENT=1594`、
 `ERROR=1606`、`STATUS=1612`。position/speed/force 寄存器范围是 0--1000。正式手部控制
-为 15 Hz，每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
+默认使用已完成真机测试的 `fast40` scheduler profile；15 Hz baseline 仍可显式选择。
+每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
 
 打开串口时寄存器写入数为零：不 clear error、不写 speed/force、不发送 hold target、也不
 自动张开。`ANGLE_ACT` 是实测反馈，command 不会伪装成 measured。非零 `ERROR`、读帧/
@@ -220,7 +221,7 @@ hand 安全限制。
 7. 按[JAKA 机械臂遥操作](jaka_arm_teleoperation.md)完成 arm-only normal teleop 的 producer-
    budget 复测；该 gate 不发送 RH56 命令。
 8. 用上文三个 pytest 文件执行 deterministic fake combined 检查。
-9. 按[联合遥操作](jaka_rh56_combined_teleop.md)进行一次短时联合真机 gate：全程不按 left-index，
+9. 按[联合遥操作](jaka_rh56_combined_teleop.md)进行首次联合真机测试：全程不按 left-index，
    只操作 grip；index 未按时新增 arm motion target 必须为 0。
 10. Step 9 通过且另行授权后，才执行 arm 与 hand 同时 ACTIVE。
 11. 联合真机验证完成后，最后才接入双相机单 episode 数据采集；本任务不开始采集。
@@ -228,6 +229,6 @@ hand 安全限制。
 如果操作者基于既往 RH56 真机经验明确选择直接进行 Quest hand-only，可使用英文部分的
 timestamp 模板。四个输出都采用唯一时间戳和 exclusive-create，避免覆盖旧证据。
 
-正常 hand teleop 不等于取消安全限制。0--1000 范围、通道顺序、15 Hz、每周期 delta、
+正常 hand teleop 不等于取消安全限制。0--1000 范围、通道顺序、所选 scheduler rate、每周期 delta、
 串口 timeout、帧/checksum、feedback stale、ERROR/STATUS 响应、grip stale、measured/commanded
 区分和 cleanup 都继续生效。联合入口不会自动 clear error、写 speed、写 force 或张开手。

@@ -23,9 +23,18 @@ from rh56_driver.pc_direct_control import (
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend
+from rh56_driver.telemetry import BoundedJsonlRecorder
 
 MAX_READ_ONLY_DURATION_SEC = 60.0
 MAX_BOUNDED_COMMAND_DURATION_SEC = 10.0
+
+
+def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
+    if len(timestamps_ns) < 2 or timestamps_ns[-1] <= timestamps_ns[0]:
+        return None
+    return (len(timestamps_ns) - 1) * 1e9 / (
+        timestamps_ns[-1] - timestamps_ns[0]
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -49,6 +58,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--config", default="configs/hand/rh56_pc_direct_teleop.yaml")
+    parser.add_argument(
+        "--scheduler-profile",
+        choices=("baseline", "fast30", "fast40", "fast50"),
+        help="Override the RH56 command/feedback scheduler profile.",
+    )
     parser.add_argument("--quest-config", default="configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
     parser.add_argument("--approval", default="")
     modes = parser.add_mutually_exclusive_group()
@@ -186,7 +200,7 @@ def _run_read_only(
     args: argparse.Namespace,
     control: RH56PcDirectControl,
     backend: RH56SerialBackend,
-    stream: TextIO | None,
+    recorder: BoundedJsonlRecorder,
 ) -> dict[str, Any]:
     positions: list[tuple[float, ...]] = []
     latencies: list[float] = []
@@ -204,7 +218,7 @@ def _run_read_only(
         latencies.append(feedback.read_latency_ms)
         errors_seen.add(feedback.error)
         status_seen.add(feedback.status)
-        _write_jsonl(stream, _feedback_row(control))
+        recorder(_feedback_row(control))
         print(
             f"RH56 READ angle={list(map(int, feedback.position_raw))} "
             f"current={list(map(int, feedback.current_raw_count))} "
@@ -233,7 +247,7 @@ def _run_bounded(
     args: argparse.Namespace,
     control: RH56PcDirectControl,
     backend: RH56SerialBackend,
-    stream: TextIO | None,
+    recorder: BoundedJsonlRecorder,
 ) -> dict[str, Any]:
     first = control.poll_feedback(time.monotonic_ns())
     if abs(float(args.delta)) > control.delta_limit:
@@ -253,14 +267,14 @@ def _run_bounded(
         control.command(target, now_ns)
         if time.monotonic() >= next_feedback:
             control.poll_feedback(now_ns)
-            _write_jsonl(stream, _feedback_row(control))
+            recorder(_feedback_row(control))
             next_feedback += args.feedback_period_sec
         time.sleep(0.001)
     control.hold("bounded_target_reached")
     hold_deadline = time.monotonic() + args.hold_sec
     while time.monotonic() < hold_deadline:
         control.poll_feedback(time.monotonic_ns())
-        _write_jsonl(stream, _feedback_row(control))
+        recorder(_feedback_row(control))
         time.sleep(args.feedback_period_sec)
     return {
         "channel": args.channel,
@@ -275,10 +289,9 @@ def _run_bounded(
 def _run_quest(
     args: argparse.Namespace,
     control: RH56PcDirectControl,
-    stream: TextIO | None,
+    recorder: BoundedJsonlRecorder,
 ) -> dict[str, Any]:
-    records: list[dict[str, object]] = []
-    worker = RH56PcDirectWorker(control, record=lambda row: (records.append(row), _write_jsonl(stream, row)))
+    worker = RH56PcDirectWorker(control, record=recorder)
     worker.start(args.approval)
     quest_config = ReplayConfig.load(args.quest_config)
     generator = SharedJakaTargetGenerator(quest_config, mjcf_path=quest_config.mjcf_path)
@@ -343,9 +356,24 @@ def _run_quest(
         "quest_receiver_count": 1,
         "jaka_sessions": 0,
         "arm_accepted_targets": len(arm_record.targets),
-        "hand_telemetry_records": len(records),
+        "hand_telemetry_records": recorder.telemetry_record_count,
         "hand_initial_target_source": "measured_ANGLE_ACT",
-        "final_hand_record": None if not records else records[-1],
+        "final_hand_record": recorder.last_telemetry_record,
+        "rh56_worker_failure": worker.failure_record,
+        "rh56_diagnostics": worker.diagnostics_snapshot(),
+        "rh56_logging": recorder.summary(),
+        "quest_hand_input_frame_count": len(session.input_timestamps_ns),
+        "quest_hand_input_rate_hz": _timestamp_rate_hz(
+            session.input_timestamps_ns
+        ),
+        "quest_grip_sample_count": len(session.grip_timestamps_ns),
+        "quest_grip_sample_rate_hz": _timestamp_rate_hz(
+            session.grip_timestamps_ns
+        ),
+        "hand_retarget_count": len(session.hand_timestamps_ns),
+        "hand_retarget_rate_hz": _timestamp_rate_hz(
+            session.hand_timestamps_ns
+        ),
     }
 
 
@@ -412,17 +440,26 @@ def main() -> None:
         _write_summary(result, summary_path)
         return
     config = load_yaml(args.config)
+    if args.scheduler_profile is not None:
+        config["scheduler_profile"] = args.scheduler_profile
     config["mode"] = "real"
     config["backend_type"] = "serial_protocol"
     config.setdefault("serial", {})["port"] = args.device
     backend = RH56SerialBackend(config)
     control = RH56PcDirectControl(backend, config)
     stream = _open_output(args.jsonl)
+    diagnostics = config.get("diagnostics", {})
+    recorder = BoundedJsonlRecorder(
+        stream,
+        capacity=int(diagnostics.get("telemetry_buffer_capacity", 64)),
+        flush_every_records=int(diagnostics.get("telemetry_flush_every_records", 16)),
+        flush_interval_sec=float(diagnostics.get("telemetry_flush_interval_sec", 1.0)),
+    )
     started_ns = time.monotonic_ns()
     try:
         assert authorization is not None
         if _mode(args) == "quest-teleop":
-            result.update(_run_quest(args, control, stream))
+            result.update(_run_quest(args, control, recorder))
         else:
             control.open(args.approval)
             result["authorization"] = authorization.value
@@ -430,9 +467,9 @@ def main() -> None:
                 control.write_runtime_config(args.speed, args.force)
                 result["runtime_config_write"] = {"speed": args.speed, "force": args.force}
             elif args.bounded_command:
-                result.update(_run_bounded(args, control, backend, stream))
+                result.update(_run_bounded(args, control, backend, recorder))
             else:
-                result.update(_run_read_only(args, control, backend, stream))
+                result.update(_run_read_only(args, control, backend, recorder))
             control.hold("duration_elapsed")
             control.cleanup()
         result["outcome"] = "completed"
@@ -447,12 +484,14 @@ def main() -> None:
     finally:
         if control.state.value != "HAND_DISABLED":
             control.cleanup()
+        recorder.close()
         if stream is not None:
             stream.close()
         result["elapsed_sec"] = (time.monotonic_ns() - started_ns) / 1e9
         result["final_state"] = control.state.value
         result["final_transport"] = control.transport_state
         result.update(_backend_counts(backend))
+        result["rh56_logging"] = recorder.summary()
         _write_summary(result, summary_path)
 
 
