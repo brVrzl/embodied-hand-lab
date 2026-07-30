@@ -194,8 +194,8 @@ J4-J6) and normal hand range/rate/delta rather than diagnostic restrictions.
 All production safety boundaries remain active. Each run still requires both
 exact approvals, E-stop access, a clear workspace, completed RH56 prerequisites,
 a combined-only duration no greater than 300 seconds, and no automatic retry.
-The default remains 60 seconds; arm-only and diagnostic gates retain their
-shorter bounds. Releasing left
+The combined wrapper defaults to 300 seconds; arm-only and diagnostic gates
+retain their shorter bounds. Releasing left
 index pauses only the arm; releasing grip holds only the hand; either may resume
 without ending the process. `run_quest_jaka_bounded_teleop.sh` remains the
 arm-only isolation gate, while the post-payload wrapper remains diagnostic.

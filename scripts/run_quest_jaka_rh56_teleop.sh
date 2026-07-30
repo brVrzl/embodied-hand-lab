@@ -13,7 +13,7 @@ RH56_DEVICE=""
 BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 ALLOWED_SENDER=""
-DURATION_SEC="60"
+DURATION_SEC="300"
 ARM_APPROVAL=""
 HAND_APPROVAL=""
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
@@ -58,7 +58,7 @@ Options:
   --bind HOST               Quest bind, default 0.0.0.0
   --port PORT               Quest/CTRL port, default 9000
   --allowed-sender IPV4
-  --duration-sec SEC        >0 and <=300, default 60
+  --duration-sec SEC        >0 and <=300, default 300
   --config PATH
   --rh56-config PATH
   --rh56-scheduler-profile baseline|fast30|fast40|fast50
