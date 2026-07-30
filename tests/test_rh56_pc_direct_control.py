@@ -139,6 +139,26 @@ def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> No
         worker.cleanup()
 
 
+def test_pc_direct_worker_clamps_measured_activation_to_command_envelope() -> None:
+    backend = FakeRH56PcDirectBackend()
+    backend.position = [185.0] * 6
+    control = RH56PcDirectControl(backend, _config())
+    worker = RH56PcDirectWorker(control)
+    first = worker.start(RH56_COMBINED_RUN_APPROVAL)
+    try:
+        reference = worker.activate_from_measured(first.monotonic_ns)
+        assert reference == pytest.approx([0.8] * 6)
+        deadline = time.monotonic() + 0.3
+        while not backend.position_writes and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert backend.position_writes[0] == [200] * 6
+        diagnostics = worker.diagnostics_snapshot()
+        assert diagnostics["measured_activation_target_count"] == 1
+        assert diagnostics["clamped_activation_target_count"] == 1
+    finally:
+        worker.cleanup()
+
+
 def test_combined_approval_is_only_a_state_machine_contract() -> None:
     control, backend = _opened_control(RH56_COMBINED_RUN_APPROVAL)
     control.activate(1_000_000_000)

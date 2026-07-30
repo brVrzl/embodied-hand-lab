@@ -53,6 +53,7 @@ class RH56PcDirectWorker:
         self._last_submitted_values: tuple[float, ...] | None = None
         self._submit_count = 0
         self._activation_target_count = 0
+        self._clamped_activation_target_count = 0
         self._unique_submit_count = 0
         self._coalesced_count = 0
         self._stale_drop_count = 0
@@ -170,19 +171,30 @@ class RH56PcDirectWorker:
             ):
                 raise RuntimeError("RH56 feedback is stale or absent at grip engagement.")
             self._active_requested = True
+            measured_target = tuple(float(value) for value in feedback.position_normalized)
+            activation_target = tuple(
+                min(self.max_target_normalized, max(0.0, value))
+                for value in measured_target
+            )
+            if activation_target != measured_target:
+                self._clamped_activation_target_count += 1
             # A measured activation target is safety-significant and must not
             # be dropped as stale or suppressed as an ordinary duplicate.
+            # ANGLE_ACT may be outside the configured command envelope (for
+            # example after a previous session used a wider range).  Keep the
+            # actual measurement as the controller's delta reference, but the
+            # forced command itself must remain inside the current envelope.
             self._submitted_sequence += 1
             self._activation_target_count += 1
             self._pending_target = PendingTarget(
-                tuple(feedback.position_normalized),
+                activation_target,
                 self._submitted_sequence,
                 int(monotonic_ns),
             )
             self._force_write_pending = True
             self._command_due_ns = int(monotonic_ns)
             self._wake.set()
-            return feedback.position_normalized
+            return activation_target
 
     def submit_target(self, target: Sequence[float], monotonic_ns: int) -> None:
         self.raise_if_failed()
@@ -484,6 +496,7 @@ class RH56PcDirectWorker:
             "pending_target_sequence": None if pending is None else pending.sequence,
             "submitted_target_count": self._submit_count,
             "measured_activation_target_count": self._activation_target_count,
+            "clamped_activation_target_count": self._clamped_activation_target_count,
             "unique_submitted_target_count": self._unique_submit_count,
             "coalesced_unobserved_target_count": self._coalesced_count,
             "last_submitted_sequence": self._submitted_sequence,
