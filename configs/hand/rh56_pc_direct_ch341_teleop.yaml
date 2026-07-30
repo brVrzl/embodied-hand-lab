@@ -10,8 +10,16 @@ serial:
   hand_id: 1
 finger_count: 6
 control_frequency_hz: 15
+scheduler_profile: baseline
+scheduler_profiles:
+  baseline: {command_rate_hz: 15, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 15, force_feedback_rate_hz: 15, status_feedback_rate_hz: 15, error_feedback_rate_hz: 15}
+  fast30: {command_rate_hz: 30, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+  fast40: {command_rate_hz: 40, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+  fast50: {command_rate_hz: 50, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
+serial_inter_transaction_delay_ms: 5
+feedback_warning_age_ms: {angle: 150, current: 250, force: 250, status: 250, error: 250}
 diagnostics:
-  enabled: false
+  enabled: true
   window_size: 256
   exact_duplicate_suppression: true
   stale_command_drop_enabled: false

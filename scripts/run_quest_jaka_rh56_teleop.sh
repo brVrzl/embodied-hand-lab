@@ -18,6 +18,7 @@ ARM_APPROVAL=""
 HAND_APPROVAL=""
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 RH56_CONFIG="configs/hand/rh56_pc_direct_teleop.yaml"
+RH56_SCHEDULER_PROFILE="baseline"
 WORKER="build/jaka_servo_worker/jaka_servo_worker"
 LOG_DIR="logs"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
@@ -59,6 +60,7 @@ Options:
   --duration-sec SEC        >0 and <=60, default 60
   --config PATH
   --rh56-config PATH
+  --rh56-scheduler-profile baseline|fast30|fast40|fast50
   --allow-direct-ch341-device
                             allow only an identity-checked /dev/ttyCH341USB<N>
                             when the host's custom driver creates no by-id link
@@ -83,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --duration-sec) need_value "$@"; DURATION_SEC="$2"; shift 2 ;;
     --config) need_value "$@"; CONFIG="$2"; shift 2 ;;
     --rh56-config) need_value "$@"; RH56_CONFIG="$2"; shift 2 ;;
+    --rh56-scheduler-profile) need_value "$@"; RH56_SCHEDULER_PROFILE="$2"; shift 2 ;;
     --allow-direct-ch341-device) ALLOW_DIRECT_CH341_DEVICE="true"; shift ;;
     --worker) need_value "$@"; WORKER="$2"; shift 2 ;;
     --log-dir) need_value "$@"; LOG_DIR="$2"; shift 2 ;;
@@ -132,6 +135,7 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --bind "${BIND_HOST}" --port "${UDP_PORT}" --duration-sec "${DURATION_SEC}"
   --approval "${ARM_APPROVAL}" --rh56-device "${RH56_DEVICE}"
   --rh56-config "${RH56_CONFIG}" --rh56-approval "${HAND_APPROVAL}"
+  --rh56-scheduler-profile "${RH56_SCHEDULER_PROFILE}"
   --output-generator pwl-8ms
   --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2
   --recover-output-acceleration-transition --no-auto-retry

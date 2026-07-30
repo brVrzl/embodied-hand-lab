@@ -10,11 +10,48 @@ serial:
   hand_id: 1
 finger_count: 6
 control_frequency_hz: 15
+scheduler_profile: baseline
+scheduler_profiles:
+  baseline:
+    command_rate_hz: 15
+    angle_feedback_rate_hz: 15
+    current_feedback_rate_hz: 15
+    force_feedback_rate_hz: 15
+    status_feedback_rate_hz: 15
+    error_feedback_rate_hz: 15
+  fast30:
+    command_rate_hz: 30
+    angle_feedback_rate_hz: 15
+    current_feedback_rate_hz: 10
+    force_feedback_rate_hz: 10
+    status_feedback_rate_hz: 10
+    error_feedback_rate_hz: 10
+  fast40:
+    command_rate_hz: 40
+    angle_feedback_rate_hz: 15
+    current_feedback_rate_hz: 10
+    force_feedback_rate_hz: 10
+    status_feedback_rate_hz: 10
+    error_feedback_rate_hz: 10
+  fast50:
+    command_rate_hz: 50
+    angle_feedback_rate_hz: 15
+    current_feedback_rate_hz: 10
+    force_feedback_rate_hz: 10
+    status_feedback_rate_hz: 10
+    error_feedback_rate_hz: 10
+serial_inter_transaction_delay_ms: 5
+feedback_warning_age_ms:
+  angle: 150
+  current: 250
+  force: 250
+  status: 250
+  error: 250
 # Gate policy: two configured 0.2 s serial timeouts without fresh feedback.
 feedback_stale_timeout_sec: 0.4
 diagnostics:
   # Timing windows and per-register latency fields are opt-in and bounded.
-  enabled: false
+  enabled: true
   window_size: 256
   exact_duplicate_suppression: true
   # No stale target is dropped unless a later hand-only experiment explicitly
@@ -55,6 +92,6 @@ safety:
   max_close_strength: 0.8
   teleop_notes:
     - This config is for RH56 PC-direct hand-only teleop.
-    - Default live teleop uses command_hz 15 and delta_limit 0.05; speed/force values are recorded defaults but this gate performs no automatic config writes.
+    - Scheduler profile is selected explicitly; baseline uses command_hz 15 and fast30/fast40/fast50 change scheduling only. Delta_limit remains 0.05 and this gate performs no automatic config writes.
     - No PC-direct low-pass filter is configured.
     - /hand/command_angles expects canonical raw count order.

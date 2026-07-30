@@ -58,6 +58,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--config", default="configs/hand/rh56_pc_direct_teleop.yaml")
+    parser.add_argument(
+        "--scheduler-profile",
+        choices=("baseline", "fast30", "fast40", "fast50"),
+        help="Override the RH56 command/feedback scheduler profile.",
+    )
     parser.add_argument("--quest-config", default="configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
     parser.add_argument("--approval", default="")
     modes = parser.add_mutually_exclusive_group()
@@ -435,6 +440,8 @@ def main() -> None:
         _write_summary(result, summary_path)
         return
     config = load_yaml(args.config)
+    if args.scheduler_profile is not None:
+        config["scheduler_profile"] = args.scheduler_profile
     config["mode"] = "real"
     config["backend_type"] = "serial_protocol"
     config.setdefault("serial", {})["port"] = args.device

@@ -118,6 +118,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--rh56-config", type=Path, default=Path("configs/hand/rh56_pc_direct_teleop.yaml"))
+    parser.add_argument(
+        "--rh56-scheduler-profile",
+        choices=("baseline", "fast30", "fast40", "fast50"),
+        help="Override the RH56 command/feedback scheduler profile.",
+    )
     parser.add_argument("--rh56-approval", default="")
     parser.add_argument("--rh56-log", type=Path)
     parser.add_argument("--log", type=Path, required=True)
@@ -422,6 +427,8 @@ def main() -> int:
                         "direct CH341 identity mismatch before any hardware I/O"
                     )
         hand_config = load_yaml(args.rh56_config)
+        if args.rh56_scheduler_profile is not None:
+            hand_config["scheduler_profile"] = args.rh56_scheduler_profile
         hand_config["mode"] = "real"
         hand_config["backend_type"] = "serial_protocol"
         hand_config.setdefault("serial", {})["port"] = args.rh56_device
@@ -503,6 +510,11 @@ def main() -> int:
                     "hardware_commands_sent": 0,
                     "rh56_commands": 0,
                     "rh56_gate_validated": args.stage == "combined-normal-teleop",
+                    "rh56_scheduler_profile": (
+                        None
+                        if hand_config is None
+                        else hand_config.get("scheduler_profile", "baseline")
+                    ),
                     "output_generator": args.output_generator,
                     "native_mode": "joint-teleop",
                     "native_ik_calls": 0,
