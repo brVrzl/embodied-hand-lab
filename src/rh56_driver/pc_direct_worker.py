@@ -469,6 +469,8 @@ class RH56PcDirectWorker:
         with self._lock:
             pending = self._pending_target
             logging_failures = list(self._logging_failures)
+            submit_interval_ms = tuple(self._submit_interval_ms)
+            unique_submit_interval_ms = tuple(self._unique_submit_interval_ms)
         result: dict[str, object] = {
             "diagnostics_enabled": self.diagnostics_enabled,
             "mailbox_kind": "latest_only_single_slot",
@@ -528,9 +530,9 @@ class RH56PcDirectWorker:
             result["timing_ms"] = {
                 "worker_cycle_duration": _distribution(self._cycle_duration_ms),
                 "worker_cycle_interval": _distribution(self._cycle_interval_ms),
-                "target_submit_interval": _distribution(self._submit_interval_ms),
+                "target_submit_interval": _distribution(submit_interval_ms),
                 "unique_target_interval": _distribution(
-                    self._unique_submit_interval_ms
+                    unique_submit_interval_ms
                 ),
                 "successful_write_interval": _distribution(
                     self._write_interval_ms

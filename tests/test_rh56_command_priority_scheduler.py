@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import threading
 
 import pytest
 
@@ -328,4 +329,29 @@ def test_logging_is_compact_per_command_and_full_only_on_angle_feedback() -> Non
         assert rows[-1]["rh56_worker"] is not None
         assert rows[-1]["rh56_diagnostics"] is not None
     finally:
+        worker.cleanup()
+
+
+def test_diagnostics_snapshot_copies_producer_windows_under_mailbox_lock() -> None:
+    worker, _control, _backend, clock, _first = _worker("fast30")
+    failures: list[BaseException] = []
+
+    def produce() -> None:
+        try:
+            for index in range(5000):
+                clock.advance_ms(0.01)
+                worker.submit_target([float(index % 80) / 100.0] * 6, clock())
+        except BaseException as exc:
+            failures.append(exc)
+
+    producer = threading.Thread(target=produce)
+    producer.start()
+    try:
+        while producer.is_alive():
+            snapshot = worker.diagnostics_snapshot()
+            assert snapshot["timing_ms"]["target_submit_interval"] is not None
+        producer.join()
+        assert not failures
+    finally:
+        producer.join()
         worker.cleanup()
