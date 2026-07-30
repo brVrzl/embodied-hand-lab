@@ -2596,9 +2596,9 @@ int run(const Options& o) {
             placement.record(PlacementEventReason::FirstTimingWarning,
                              cycle_start, cycle_cpu,
                              placement.previous_cpu(), false, false);
+            system_observer.request(SystemSnapshotTrigger::TimingWarning,
+                                    cycle_start, cycle_cpu);
           }
-          system_observer.request(SystemSnapshotTrigger::TimingWarning,
-                                  cycle_start, cycle_cpu);
         } else consecutive_timing_warnings = 0;
         if (consecutive_timing_warnings >= 2 && !startup_grace) {
           const std::size_t row = samples.count++;
@@ -3083,9 +3083,9 @@ int run(const Options& o) {
             placement.record(PlacementEventReason::FirstTimingWarning,
                              cycle_end, completion_cpu,
                              placement.previous_cpu(), false, false);
+            system_observer.request(SystemSnapshotTrigger::TimingWarning,
+                                    cycle_end, completion_cpu);
           }
-          system_observer.request(SystemSnapshotTrigger::TimingWarning,
-                                  cycle_end, completion_cpu);
           samples.maximum_consecutive = std::max(samples.maximum_consecutive, consecutive_completion_misses);
           const bool startup_grace = startup_timing_grace_active && !ever_received;
           if (cycle_end > deadline + 12'000'000 ||

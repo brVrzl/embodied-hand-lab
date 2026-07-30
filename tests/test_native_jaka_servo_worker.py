@@ -577,6 +577,15 @@ def test_joint_teleop_startup_grace_escalates_persistent_misses(tmp_path) -> Non
     assert result.returncode == 2
     assert payload["hard_timing_misses"] >= 1
     assert payload["accepted_targets"] == 0
+    assert [
+        snapshot["trigger"]
+        for snapshot in payload["system_boundary_observer"]["snapshots"]
+    ] == [
+        "worker_start",
+        "timing_warning",
+        "terminal_timing_fault",
+        "worker_shutdown",
+    ]
 
 
 def test_quest_joint_teleop_time_resamples_latest_target_without_ik_or_endpoint_change(tmp_path) -> None:
