@@ -13,16 +13,21 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <fcntl.h>
+#include <glob.h>
 #include <iomanip>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <sched.h>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <sys/resource.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/un.h>
+#include <thread>
 #include <time.h>
 #include <unistd.h>
 #include <vector>
@@ -999,6 +1004,341 @@ struct RecordedServoPoint {
   OutputMotionSample motion;
 };
 
+enum class PlacementEventReason : std::uint8_t {
+  WorkerStart,
+  FirstTimingWarning,
+  CpuMigration,
+  TerminalTimingFault,
+  WorkerShutdown,
+};
+
+const char* placement_event_reason_name(PlacementEventReason reason) {
+  switch (reason) {
+    case PlacementEventReason::WorkerStart: return "worker_start";
+    case PlacementEventReason::FirstTimingWarning: return "first_timing_warning";
+    case PlacementEventReason::CpuMigration: return "cpu_migration";
+    case PlacementEventReason::TerminalTimingFault: return "terminal_timing_fault";
+    case PlacementEventReason::WorkerShutdown: return "worker_shutdown";
+  }
+  return "unknown";
+}
+
+std::int64_t read_locked_memory_kb() noexcept {
+  try {
+    std::ifstream status("/proc/self/status");
+    std::string key;
+    while (status >> key) {
+      if (key == "VmLck:") {
+        std::int64_t value = -1;
+        status >> value;
+        return value;
+      }
+      std::string rest;
+      std::getline(status, rest);
+    }
+  } catch (...) {
+    return -1;
+  }
+  return -1;
+}
+
+struct PlacementEvent {
+  PlacementEventReason reason = PlacementEventReason::WorkerStart;
+  std::uint64_t monotonic_ns = 0;
+  pid_t process_id = 0;
+  pid_t thread_id = 0;
+  int cpu = -1;
+  int previous_cpu = -1;
+  std::uint64_t migration_count = 0;
+  std::uint64_t time_since_last_migration_ns = 0;
+  int scheduler_policy = -1;
+  int scheduler_priority = -1;
+  int nice_value = 0;
+  cpu_set_t affinity{};
+  bool affinity_available = false;
+  std::int64_t locked_memory_kb = -1;
+};
+
+class PlacementEvidence {
+ public:
+  PlacementEvidence() : process_id_(getpid()), thread_id_(static_cast<pid_t>(syscall(SYS_gettid))) {}
+
+  void record(PlacementEventReason reason, std::uint64_t monotonic_ns,
+              int cpu, int previous_cpu, bool include_full_state,
+              bool include_memory_state) noexcept {
+    if (count_ >= events_.size()) {
+      ++dropped_events_;
+      return;
+    }
+    auto& event = events_[count_++];
+    event.reason = reason;
+    event.monotonic_ns = monotonic_ns;
+    event.process_id = process_id_;
+    event.thread_id = thread_id_;
+    event.cpu = cpu;
+    event.previous_cpu = previous_cpu;
+    event.migration_count = migration_count_;
+    event.time_since_last_migration_ns =
+        last_migration_ns_ == 0 || monotonic_ns < last_migration_ns_
+            ? 0 : monotonic_ns - last_migration_ns_;
+    if (include_full_state) {
+      event.scheduler_policy = sched_getscheduler(thread_id_);
+      sched_param parameter{};
+      if (sched_getparam(thread_id_, &parameter) == 0)
+        event.scheduler_priority = parameter.sched_priority;
+      errno = 0;
+      const int nice_value = getpriority(PRIO_PROCESS, thread_id_);
+      if (errno == 0) event.nice_value = nice_value;
+      CPU_ZERO(&event.affinity);
+      event.affinity_available =
+          sched_getaffinity(thread_id_, sizeof(event.affinity), &event.affinity) == 0;
+      cached_scheduler_policy_ = event.scheduler_policy;
+      cached_scheduler_priority_ = event.scheduler_priority;
+      cached_nice_value_ = event.nice_value;
+      cached_affinity_ = event.affinity;
+      cached_affinity_available_ = event.affinity_available;
+      cached_full_state_available_ = true;
+    } else if (cached_full_state_available_) {
+      event.scheduler_policy = cached_scheduler_policy_;
+      event.scheduler_priority = cached_scheduler_priority_;
+      event.nice_value = cached_nice_value_;
+      event.affinity = cached_affinity_;
+      event.affinity_available = cached_affinity_available_;
+    }
+    if (include_memory_state) event.locked_memory_kb = read_locked_memory_kb();
+  }
+
+  void observe_cpu(std::uint64_t monotonic_ns, int current_cpu) noexcept {
+    if (previous_cpu_ < 0) {
+      previous_cpu_ = current_cpu;
+      last_migration_ns_ = monotonic_ns;
+      return;
+    }
+    if (current_cpu == previous_cpu_) return;
+    const int prior = previous_cpu_;
+    previous_cpu_ = current_cpu;
+    ++migration_count_;
+    record(PlacementEventReason::CpuMigration, monotonic_ns, current_cpu,
+           prior, false, false);
+    last_migration_ns_ = monotonic_ns;
+  }
+
+  const auto& events() const { return events_; }
+  std::size_t count() const { return count_; }
+  std::uint64_t migration_count() const { return migration_count_; }
+  std::uint64_t dropped_events() const { return dropped_events_; }
+  int previous_cpu() const { return previous_cpu_; }
+  std::uint64_t last_migration_ns() const { return last_migration_ns_; }
+
+ private:
+  static constexpr std::size_t kMaximumPlacementEvents = 256;
+  std::array<PlacementEvent, kMaximumPlacementEvents> events_{};
+  pid_t process_id_ = 0;
+  pid_t thread_id_ = 0;
+  std::size_t count_ = 0;
+  std::uint64_t migration_count_ = 0;
+  std::uint64_t dropped_events_ = 0;
+  int previous_cpu_ = -1;
+  std::uint64_t last_migration_ns_ = 0;
+  int cached_scheduler_policy_ = -1;
+  int cached_scheduler_priority_ = -1;
+  int cached_nice_value_ = 0;
+  cpu_set_t cached_affinity_{};
+  bool cached_affinity_available_ = false;
+  bool cached_full_state_available_ = false;
+};
+
+enum class SystemSnapshotTrigger : std::uint8_t {
+  FirstTimingWarning = 1,
+  TerminalTimingFault = 2,
+};
+
+const char* system_snapshot_trigger_name(SystemSnapshotTrigger trigger) {
+  switch (trigger) {
+    case SystemSnapshotTrigger::FirstTimingWarning: return "first_timing_warning";
+    case SystemSnapshotTrigger::TerminalTimingFault: return "terminal_timing_fault";
+  }
+  return "unknown";
+}
+
+struct SystemSnapshotRequest {
+  SystemSnapshotTrigger trigger = SystemSnapshotTrigger::FirstTimingWarning;
+  std::uint64_t requested_monotonic_ns = 0;
+  int trigger_cpu = -1;
+};
+
+struct SystemSnapshot {
+  SystemSnapshotRequest request{};
+  std::uint64_t collected_start_monotonic_ns = 0;
+  std::uint64_t collected_end_monotonic_ns = 0;
+  pid_t observer_thread_id = 0;
+  int observer_cpu = -1;
+  int observer_scheduler_policy = -1;
+  int observer_scheduler_priority = -1;
+  int observer_nice_value = 0;
+  std::string proc_stat;
+  std::string proc_loadavg;
+  std::string proc_interrupts;
+  std::string proc_softirqs;
+  std::string pressure_cpu;
+  std::string pressure_io;
+  std::string pressure_memory;
+  std::string cpu_frequency;
+  std::string cpu_governor;
+  std::string thermal_state;
+  std::string errors;
+};
+
+std::string read_bounded_text(const std::string& path, std::size_t limit,
+                              std::string& errors) {
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    if (!errors.empty()) errors += ";";
+    errors += "open:" + path;
+    return {};
+  }
+  std::string value(limit, '\0');
+  input.read(value.data(), static_cast<std::streamsize>(limit));
+  value.resize(static_cast<std::size_t>(input.gcount()));
+  return value;
+}
+
+std::string read_thermal_state(std::string& errors) {
+  glob_t matches{};
+  const int result = glob("/sys/class/thermal/thermal_zone*/temp", 0, nullptr, &matches);
+  if (result != 0 && result != GLOB_NOMATCH) {
+    errors += errors.empty() ? "glob:thermal" : ";glob:thermal";
+    globfree(&matches);
+    return {};
+  }
+  std::ostringstream out;
+  const std::size_t count = std::min<std::size_t>(matches.gl_pathc, 32);
+  for (std::size_t i = 0; i < count; ++i) {
+    out << matches.gl_pathv[i] << '='
+        << read_bounded_text(matches.gl_pathv[i], 128, errors);
+  }
+  globfree(&matches);
+  return out.str();
+}
+
+class BoundarySystemObserver {
+ public:
+  explicit BoundarySystemObserver(bool enabled) : enabled_(enabled) {
+    if (!enabled_) return;
+    if (pipe(pipe_fds_) != 0) {
+      enabled_ = false;
+      startup_error_ = "pipe_failed:" + std::to_string(errno);
+      return;
+    }
+    const int flags = fcntl(pipe_fds_[1], F_GETFL, 0);
+    if (flags < 0 || fcntl(pipe_fds_[1], F_SETFL, flags | O_NONBLOCK) != 0) {
+      startup_error_ = "pipe_nonblocking_failed:" + std::to_string(errno);
+      close(pipe_fds_[0]);
+      close(pipe_fds_[1]);
+      pipe_fds_[0] = pipe_fds_[1] = -1;
+      enabled_ = false;
+      return;
+    }
+    observer_ = std::thread([this] { run(); });
+  }
+
+  ~BoundarySystemObserver() { stop(); }
+
+  void request(SystemSnapshotTrigger trigger, std::uint64_t monotonic_ns,
+               int cpu) noexcept {
+    if (!enabled_ || pipe_fds_[1] < 0) return;
+    const SystemSnapshotRequest request{trigger, monotonic_ns, cpu};
+    const ssize_t written = write(pipe_fds_[1], &request, sizeof(request));
+    if (written != static_cast<ssize_t>(sizeof(request)))
+      dropped_requests_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void stop() noexcept {
+    if (pipe_fds_[1] >= 0) {
+      close(pipe_fds_[1]);
+      pipe_fds_[1] = -1;
+    }
+    if (observer_.joinable()) observer_.join();
+    if (pipe_fds_[0] >= 0) {
+      close(pipe_fds_[0]);
+      pipe_fds_[0] = -1;
+    }
+  }
+
+  const auto& snapshots() const { return snapshots_; }
+  std::uint64_t dropped_requests() const {
+    return dropped_requests_.load(std::memory_order_relaxed);
+  }
+  const std::string& startup_error() const { return startup_error_; }
+  const std::string& runtime_error() const { return runtime_error_; }
+
+ private:
+  void run() noexcept {
+    try {
+      const pid_t thread_id = static_cast<pid_t>(syscall(SYS_gettid));
+      setpriority(PRIO_PROCESS, thread_id, 10);
+      while (true) {
+        SystemSnapshotRequest request{};
+        const ssize_t received = read(pipe_fds_[0], &request, sizeof(request));
+        if (received == 0) break;
+        if (received < 0) {
+          if (errno == EINTR) continue;
+          break;
+        }
+        if (received != static_cast<ssize_t>(sizeof(request))) continue;
+        if (snapshots_.size() >= 8) {
+          dropped_requests_.fetch_add(1, std::memory_order_relaxed);
+          continue;
+        }
+        SystemSnapshot snapshot{};
+        snapshot.request = request;
+        snapshot.collected_start_monotonic_ns = now_ns();
+        snapshot.observer_thread_id = thread_id;
+        snapshot.observer_cpu = sched_getcpu();
+        snapshot.observer_scheduler_policy = sched_getscheduler(thread_id);
+        sched_param parameter{};
+        if (sched_getparam(thread_id, &parameter) == 0)
+          snapshot.observer_scheduler_priority = parameter.sched_priority;
+        errno = 0;
+        const int nice_value = getpriority(PRIO_PROCESS, thread_id);
+        if (errno == 0) snapshot.observer_nice_value = nice_value;
+        snapshot.proc_stat = read_bounded_text("/proc/stat", 48 * 1024, snapshot.errors);
+        snapshot.proc_loadavg = read_bounded_text("/proc/loadavg", 1024, snapshot.errors);
+        snapshot.proc_interrupts = read_bounded_text("/proc/interrupts", 48 * 1024, snapshot.errors);
+        snapshot.proc_softirqs = read_bounded_text("/proc/softirqs", 48 * 1024, snapshot.errors);
+        snapshot.pressure_cpu = read_bounded_text("/proc/pressure/cpu", 4096, snapshot.errors);
+        snapshot.pressure_io = read_bounded_text("/proc/pressure/io", 4096, snapshot.errors);
+        snapshot.pressure_memory = read_bounded_text("/proc/pressure/memory", 4096, snapshot.errors);
+        if (request.trigger_cpu >= 0) {
+          const std::string cpu_path = "/sys/devices/system/cpu/cpu" +
+              std::to_string(request.trigger_cpu) + "/cpufreq/";
+          snapshot.cpu_frequency = read_bounded_text(
+              cpu_path + "scaling_cur_freq", 1024, snapshot.errors);
+          snapshot.cpu_governor = read_bounded_text(
+              cpu_path + "scaling_governor", 1024, snapshot.errors);
+        }
+        snapshot.thermal_state = read_thermal_state(snapshot.errors);
+        snapshot.collected_end_monotonic_ns = now_ns();
+        snapshots_.push_back(std::move(snapshot));
+      }
+    } catch (const std::exception& error) {
+      try {
+        runtime_error_ = error.what();
+      } catch (...) {}
+    } catch (...) {
+      try { runtime_error_ = "unknown_observer_failure"; } catch (...) {}
+    }
+  }
+
+  bool enabled_ = false;
+  int pipe_fds_[2]{-1, -1};
+  std::thread observer_;
+  std::vector<SystemSnapshot> snapshots_;
+  std::atomic<std::uint64_t> dropped_requests_{0};
+  std::string startup_error_;
+  std::string runtime_error_;
+};
+
 struct CycleTelemetry {
   std::uint64_t monotonic_ns = 0;
   std::uint64_t wall_ns = 0;
@@ -1010,6 +1350,8 @@ struct CycleTelemetry {
   std::uint64_t command_start_ns = 0;
   std::uint64_t command_end_ns = 0;
   std::uint64_t command_duration_ns = 0;
+  int cpu = -1;
+  std::uint64_t cpu_migration_count = 0;
   std::uint64_t last_sequence = 0;
   std::uint64_t heartbeat_age_ns = 0;
   std::string event = "normal_output";
@@ -1055,6 +1397,8 @@ void write_cycle_telemetry(const Options& options,
         << ",\"command_start_ns\":" << row.command_start_ns
         << ",\"command_end_ns\":" << row.command_end_ns
         << ",\"command_duration_ns\":" << row.command_duration_ns
+        << ",\"cpu\":" << row.cpu
+        << ",\"cpu_migration_count\":" << row.cpu_migration_count
         << ",\"output_event\":\"" << row.event << "\""
         << ",\"controller_health_monotonic_ns\":" << row.health.monotonic_ns
         << ",\"controller_health_age_ns\":"
@@ -1456,7 +1800,14 @@ class TargetSocket {
     std::strncpy(address.sun_path, path_.c_str(), sizeof(address.sun_path) - 1);
     if (bind(fd_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) throw std::runtime_error("target socket bind failed");
   }
-  ~TargetSocket() { if (fd_ >= 0) close(fd_); unlink(path_.c_str()); }
+  ~TargetSocket() { shutdown(); }
+  void shutdown() noexcept {
+    if (fd_ >= 0) {
+      close(fd_);
+      fd_ = -1;
+    }
+    unlink(path_.c_str());
+  }
   bool drain_newest(TargetPacket& newest, std::uint64_t last_sequence, bool has_previous,
                     std::uint64_t now, std::uint64_t& rejected, bool& invalid_command,
                     bool& transport_failure) noexcept {
@@ -1651,6 +2002,34 @@ std::string json_escape(const std::string& value) {
   return result;
 }
 
+const char* scheduler_policy_name(int policy) {
+  switch (policy) {
+    case SCHED_OTHER: return "SCHED_OTHER";
+    case SCHED_FIFO: return "SCHED_FIFO";
+    case SCHED_RR: return "SCHED_RR";
+#ifdef SCHED_BATCH
+    case SCHED_BATCH: return "SCHED_BATCH";
+#endif
+#ifdef SCHED_IDLE
+    case SCHED_IDLE: return "SCHED_IDLE";
+#endif
+    default: return "unknown";
+  }
+}
+
+std::string affinity_mask_string(const PlacementEvent& event) {
+  if (!event.affinity_available) return {};
+  std::ostringstream out;
+  bool first = true;
+  for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+    if (!CPU_ISSET(cpu, &event.affinity)) continue;
+    if (!first) out << ',';
+    out << cpu;
+    first = false;
+  }
+  return out.str();
+}
+
 const char* mode_name(Mode mode) {
   switch (mode) {
     case Mode::DryRun: return "native_no_robot";
@@ -1722,7 +2101,9 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
                    const OutputMotionDiagnostics& output_diagnostics,
                    const OutputNoProgressHoldTracker& output_hold,
                    std::uint64_t transition_limited_progress_points,
-                   const std::array<double, 6>& final_accepted_target_rad) {
+                   const std::array<double, 6>& final_accepted_target_rad,
+                   const PlacementEvidence& placement,
+                   const BoundarySystemObserver& system_observer) {
   std::ofstream file;
   std::ostream* output = &std::cout;
   if (!o.metrics_file.empty()) { file.open(o.metrics_file); if (!file) throw std::runtime_error("cannot open metrics file"); output = &file; }
@@ -1845,6 +2226,76 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
         << ",\"consecutive_warning_count\":" << s.terminal_consecutive_warning_count
         << ",\"cpu\":" << s.terminal_cpu << "},\n";
   }
+  out << "  \"worker_placement\":{\"migration_count\":"
+      << placement.migration_count()
+      << ",\"dropped_events\":" << placement.dropped_events()
+      << ",\"events\":[";
+  for (std::size_t index = 0; index < placement.count(); ++index) {
+    const auto& event = placement.events()[index];
+    out << (index ? "," : "")
+        << "{\"reason\":\"" << placement_event_reason_name(event.reason)
+        << "\",\"monotonic_ns\":" << event.monotonic_ns
+        << ",\"process_id\":" << event.process_id
+        << ",\"thread_id\":" << event.thread_id
+        << ",\"cpu\":" << event.cpu
+        << ",\"previous_cpu\":" << event.previous_cpu
+        << ",\"migration_count\":" << event.migration_count
+        << ",\"time_since_last_migration_ns\":"
+        << event.time_since_last_migration_ns
+        << ",\"migration_near_boundary\":"
+        << ((event.reason == PlacementEventReason::FirstTimingWarning ||
+             event.reason == PlacementEventReason::TerminalTimingFault) &&
+            event.migration_count > 0 &&
+            event.time_since_last_migration_ns <= 50'000'000
+                ? "true" : "false")
+        << ",\"scheduler_policy\":\""
+        << scheduler_policy_name(event.scheduler_policy)
+        << "\",\"scheduler_policy_value\":" << event.scheduler_policy
+        << ",\"scheduler_priority\":" << event.scheduler_priority
+        << ",\"nice_value\":" << event.nice_value
+        << ",\"affinity_mask\":\""
+        << affinity_mask_string(event)
+        << "\",\"locked_memory_kb\":" << event.locked_memory_kb << '}';
+  }
+  out << "]},\n";
+  out << "  \"system_boundary_observer\":{\"startup_error\":\""
+      << json_escape(system_observer.startup_error())
+      << "\",\"runtime_error\":\""
+      << json_escape(system_observer.runtime_error())
+      << "\",\"dropped_requests\":" << system_observer.dropped_requests()
+      << ",\"snapshots\":[";
+  for (std::size_t index = 0; index < system_observer.snapshots().size(); ++index) {
+    const auto& snapshot = system_observer.snapshots()[index];
+    out << (index ? "," : "")
+        << "{\"trigger\":\""
+        << system_snapshot_trigger_name(snapshot.request.trigger)
+        << "\",\"requested_monotonic_ns\":"
+        << snapshot.request.requested_monotonic_ns
+        << ",\"trigger_cpu\":" << snapshot.request.trigger_cpu
+        << ",\"collected_start_monotonic_ns\":"
+        << snapshot.collected_start_monotonic_ns
+        << ",\"collected_end_monotonic_ns\":"
+        << snapshot.collected_end_monotonic_ns
+        << ",\"observer_thread_id\":" << snapshot.observer_thread_id
+        << ",\"observer_cpu\":" << snapshot.observer_cpu
+        << ",\"observer_scheduler_policy\":\""
+        << scheduler_policy_name(snapshot.observer_scheduler_policy)
+        << "\",\"observer_scheduler_priority\":"
+        << snapshot.observer_scheduler_priority
+        << ",\"observer_nice_value\":" << snapshot.observer_nice_value
+        << ",\"proc_stat\":\"" << json_escape(snapshot.proc_stat)
+        << "\",\"proc_loadavg\":\"" << json_escape(snapshot.proc_loadavg)
+        << "\",\"proc_interrupts\":\"" << json_escape(snapshot.proc_interrupts)
+        << "\",\"proc_softirqs\":\"" << json_escape(snapshot.proc_softirqs)
+        << "\",\"pressure_cpu\":\"" << json_escape(snapshot.pressure_cpu)
+        << "\",\"pressure_io\":\"" << json_escape(snapshot.pressure_io)
+        << "\",\"pressure_memory\":\"" << json_escape(snapshot.pressure_memory)
+        << "\",\"cpu_frequency\":\"" << json_escape(snapshot.cpu_frequency)
+        << "\",\"cpu_governor\":\"" << json_escape(snapshot.cpu_governor)
+        << "\",\"thermal_state\":\"" << json_escape(snapshot.thermal_state)
+        << "\",\"errors\":\"" << json_escape(snapshot.errors) << "\"}";
+  }
+  out << "]},\n";
   out << "  \"statistics\":{\n";
   metric_json(out, "actual_cycle_period", s.periods, s.count, true);
   metric_json(out, "wake_lateness", s.wakes, s.count, true);
@@ -1910,6 +2361,13 @@ int run(const Options& o) {
   std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler); std::signal(SIGHUP, signal_handler);
   auto backend = uses_fake_backend(o.mode) ? std::unique_ptr<Backend>(new FakeBackend(o)) : std::unique_ptr<Backend>(new RealBackend(o));
   TargetSocket target_socket(o.target_socket); StatusSender status_sender(o.status_socket);
+  PlacementEvidence placement;
+  const auto placement_start_ns = now_ns();
+  const int placement_start_cpu = sched_getcpu();
+  placement.observe_cpu(placement_start_ns, placement_start_cpu);
+  placement.record(PlacementEventReason::WorkerStart, placement_start_ns,
+                   placement_start_cpu, -1, true, true);
+  BoundarySystemObserver system_observer(!o.metrics_file.empty());
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
   JerkBoundedJointTracker tracker(o);
@@ -1925,6 +2383,7 @@ int run(const Options& o) {
   TargetPacket latest{}; bool ever_received = false;
   std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, last_target_dispatch = 0, consecutive_overruns = 0;
   std::uint64_t consecutive_timing_warnings = 0, consecutive_completion_misses = 0;
+  bool first_timing_warning_recorded = false;
   std::uint32_t startup_timing_cycles = 0;
   bool startup_timing_grace_active = is_joint_teleop_mode(o.mode);
   std::uint64_t warning_cycles = 0;
@@ -2028,6 +2487,8 @@ int run(const Options& o) {
         fake_start_delay_injected = true;
       }
       const auto cycle_start = now_ns();
+      const int cycle_cpu = sched_getcpu();
+      placement.observe_cpu(cycle_start, cycle_cpu);
       if (startup_timing_grace_active) {
         if (ever_received || startup_timing_cycles >= o.startup_timing_grace_cycles)
           startup_timing_grace_active = false;
@@ -2073,7 +2534,12 @@ int run(const Options& o) {
           samples.terminal_wake_lateness_ns = wake_lateness;
           samples.terminal_consecutive_warning_count =
               consecutive_timing_warnings + 1;
-          samples.terminal_cpu = sched_getcpu();
+          samples.terminal_cpu = cycle_cpu;
+          placement.record(PlacementEventReason::TerminalTimingFault,
+                           cycle_start, cycle_cpu, placement.previous_cpu(),
+                           true, false);
+          system_observer.request(SystemSnapshotTrigger::TerminalTimingFault,
+                                  cycle_start, cycle_cpu);
           state = State::Fault;
           outcome = "hard_start_timing_miss";
           break;
@@ -2083,6 +2549,14 @@ int run(const Options& o) {
           ++samples.timing_warnings;
           ++consecutive_timing_warnings;
           schedule_realign = true;
+          if (!first_timing_warning_recorded) {
+            first_timing_warning_recorded = true;
+            placement.record(PlacementEventReason::FirstTimingWarning,
+                             cycle_start, cycle_cpu,
+                             placement.previous_cpu(), false, false);
+            system_observer.request(SystemSnapshotTrigger::FirstTimingWarning,
+                                    cycle_start, cycle_cpu);
+          }
         } else consecutive_timing_warnings = 0;
         if (consecutive_timing_warnings >= 2 && !startup_grace) {
           const std::size_t row = samples.count++;
@@ -2095,7 +2569,12 @@ int run(const Options& o) {
           samples.terminal_wake_lateness_ns = wake_lateness;
           samples.terminal_consecutive_warning_count =
               consecutive_timing_warnings;
-          samples.terminal_cpu = sched_getcpu();
+          samples.terminal_cpu = cycle_cpu;
+          placement.record(PlacementEventReason::TerminalTimingFault,
+                           cycle_start, cycle_cpu, placement.previous_cpu(),
+                           true, false);
+          system_observer.request(SystemSnapshotTrigger::TerminalTimingFault,
+                                  cycle_start, cycle_cpu);
           state = State::Fault;
           outcome = "consecutive_start_timing_misses";
           break;
@@ -2478,6 +2957,8 @@ int run(const Options& o) {
           row.command_start_ns = command_start;
           row.command_end_ns = command_time;
           row.command_duration_ns = write_duration;
+          row.cpu = cycle_cpu;
+          row.cpu_migration_count = placement.migration_count();
           cycle_telemetry.push_back(row);
         }
         if (is_joint_zero_motion_mode(o.mode)) {
@@ -2506,6 +2987,8 @@ int run(const Options& o) {
         const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
       }
       const auto cycle_end = now_ns();
+      const int completion_cpu = sched_getcpu();
+      placement.observe_cpu(cycle_end, completion_cpu);
       bool exit_after_cycle = false;
       if (stop_requested && is_bounded_mode(o.mode) && backend->edg_active()) {
         if (tracker.stationary()) {
@@ -2540,6 +3023,14 @@ int run(const Options& o) {
           ++samples.timing_warnings;
           ++consecutive_completion_misses;
           schedule_realign = true;
+          if (!first_timing_warning_recorded) {
+            first_timing_warning_recorded = true;
+            placement.record(PlacementEventReason::FirstTimingWarning,
+                             cycle_end, completion_cpu,
+                             placement.previous_cpu(), false, false);
+            system_observer.request(SystemSnapshotTrigger::FirstTimingWarning,
+                                    cycle_end, completion_cpu);
+          }
           samples.maximum_consecutive = std::max(samples.maximum_consecutive, consecutive_completion_misses);
           const bool startup_grace = startup_timing_grace_active && !ever_received;
           if (cycle_end > deadline + 12'000'000 ||
@@ -2552,7 +3043,12 @@ int run(const Options& o) {
             samples.terminal_completion_lateness_ns = cycle_end - deadline;
             samples.terminal_consecutive_warning_count =
                 consecutive_completion_misses;
-            samples.terminal_cpu = sched_getcpu();
+            samples.terminal_cpu = completion_cpu;
+            placement.record(PlacementEventReason::TerminalTimingFault,
+                             cycle_end, samples.terminal_cpu,
+                             placement.previous_cpu(), true, false);
+            system_observer.request(SystemSnapshotTrigger::TerminalTimingFault,
+                                    cycle_end, samples.terminal_cpu);
             state = State::Fault;
             outcome = "hard_completion_timing_miss";
             break;
@@ -2610,6 +3106,11 @@ int run(const Options& o) {
     fault_outcome = std::string("fault: ") + e.what();
     outcome = fault_outcome.c_str();
   }
+  // Make terminal state visible to the non-blocking producer before SDK
+  // cleanup and non-critical telemetry serialization.  This prevents a bound
+  // but undrained datagram endpoint from turning the authoritative native
+  // fault into a prolonged secondary transport symptom.
+  target_socket.shutdown();
   output_hold.finalize(now_ns());
   backend->cleanup();
   const int cleanup_error_code = backend->cleanup_error_code();
@@ -2623,14 +3124,22 @@ int run(const Options& o) {
                             now_ns(), 0, now_ns(), {}, error_code, 0};
   std::copy(observed.begin(), observed.end(), final_status.joint_position_rad);
   status_sender.send_status(final_status);
+  system_observer.stop();
+  const auto placement_shutdown_ns = now_ns();
+  placement.record(PlacementEventReason::WorkerShutdown,
+                   placement_shutdown_ns, sched_getcpu(),
+                   placement.previous_cpu(), true, true);
   getrusage(RUSAGE_SELF, &usage_end); const auto end = now_ns();
-  write_emitted_points(o, recorded_servo_points);
-  write_cycle_telemetry(o, cycle_telemetry);
+  // Persist the authoritative terminal object and bounded scheduling context
+  // before large optional JSONL artifacts.
   write_metrics(o, samples, accepted, rejected, warning_cycles, (end - start) / 1e9,
                 cpu_seconds(usage_end) - cpu_seconds(usage_start), maximum_command_delta_rad,
                 maximum_observed_delta_rad, error_code, cleanup_error_code, outcome, teleop, tracker,
                 initial, joint_resampler, output_diagnostics,
-                output_hold, transition_limited_progress_points, ik_target);
+                output_hold, transition_limited_progress_points, ik_target,
+                placement, system_observer);
+  write_emitted_points(o, recorded_servo_points);
+  write_cycle_telemetry(o, cycle_telemetry);
   return error_code == 0 ? 0 : 2;
 }
 }  // namespace

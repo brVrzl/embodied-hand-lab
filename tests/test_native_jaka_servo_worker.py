@@ -319,6 +319,14 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert payload["timing_warning_events"] >= 1
     assert payload["schedule_realignments"] >= 1
     assert payload["terminal_timing_fault"] is None
+    placement_reasons = [
+        event["reason"] for event in payload["worker_placement"]["events"]
+    ]
+    assert "first_timing_warning" in placement_reasons
+    assert [
+        snapshot["trigger"]
+        for snapshot in payload["system_boundary_observer"]["snapshots"]
+    ] == ["first_timing_warning"]
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
@@ -351,6 +359,24 @@ def test_full_period_start_delay_is_a_nonzero_hard_fault(tmp_path) -> None:
     assert terminal["completion_lateness_ns"] == 0
     assert terminal["consecutive_warning_count"] >= 1
     assert terminal["cpu"] >= 0
+    assert not target.exists()
+    placement = payload["worker_placement"]
+    assert placement["dropped_events"] == 0
+    assert [event["reason"] for event in placement["events"]] == [
+        "worker_start",
+        "terminal_timing_fault",
+        "worker_shutdown",
+    ]
+    assert all(event["process_id"] > 0 for event in placement["events"])
+    assert all(event["thread_id"] > 0 for event in placement["events"])
+    assert placement["events"][0]["affinity_mask"]
+    observer = payload["system_boundary_observer"]
+    assert observer["startup_error"] == ""
+    assert observer["runtime_error"] == ""
+    assert observer["dropped_requests"] == 0
+    assert [snapshot["trigger"] for snapshot in observer["snapshots"]] == [
+        "terminal_timing_fault"
+    ]
 
 
 def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:
@@ -576,6 +602,8 @@ def test_cycle_telemetry_uses_current_emitted_command_for_tracking(tmp_path) -> 
     assert payload["controller_alarm_events"] == 0
     assert payload["joint_specific_servo_alarm_code_available"] is False
     for row in rows:
+        assert row["cpu"] >= 0
+        assert row["cpu_migration_count"] >= 0
         assert row["controller_health_age_ns"] < 25_000_000
         expected = [
             math.remainder(command - measured, 2.0 * math.pi)
