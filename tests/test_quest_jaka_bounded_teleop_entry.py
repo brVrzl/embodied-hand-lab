@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import argparse
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ from quest_jaka_sim import ReplayConfig
 from teleoperation.wire import StatusFlags
 from tools.quest_jaka_hardware import (
     RECOVERABLE_CLUTCH_STAGES,
+    _control_compute_budget_summary,
     _task_placement,
     _parser,
     _native_terminal_reason_if_ready,
@@ -39,6 +41,17 @@ def test_task_placement_reports_current_python_thread() -> None:
     assert placement["current_cpu"] >= 0
     assert placement["affinity_mask"]
     assert placement["scheduler_policy"] >= 0
+
+
+def test_physical_summary_uses_production_budget_counters() -> None:
+    session = SimpleNamespace(
+        control_compute_budget_ms=20.0,
+        control_compute_budget_exhausted_count=17,
+    )
+    assert _control_compute_budget_summary(session) == {
+        "control_compute_budget_ms": 20.0,
+        "control_compute_budget_exhausted_count": 17,
+    }
 
 
 def _base_args(tmp_path: Path) -> list[str]:

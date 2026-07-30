@@ -84,6 +84,19 @@ def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
     )
 
 
+def _control_compute_budget_summary(
+    session: SmoothQuestJakaSession,
+) -> dict[str, float | int | None]:
+    """Return only budget counters maintained by the production session."""
+
+    return {
+        "control_compute_budget_ms": session.control_compute_budget_ms,
+        "control_compute_budget_exhausted_count": (
+            session.control_compute_budget_exhausted_count
+        ),
+    }
+
+
 def _task_placement(
     *, component: str, process_id: int, thread_id: int, thread_name: str
 ) -> dict[str, object]:
@@ -1453,19 +1466,7 @@ def main() -> int:
         "minimum_continuation_fraction": minimum_continuation_fraction,
         "continuation_backtrack_count": session.continuation_backtrack_count,
         "ik_rejections": dict(sorted(session.rejections.items())),
-        "control_compute_budget_ms": session.control_compute_budget_ms,
-        "control_compute_budget_exhausted_count": (
-            session.control_compute_budget_exhausted_count
-        ),
-        "budget_exhausted_before_checks_complete": (
-            session.budget_exhausted_before_checks_complete
-        ),
-        "budget_exhausted_after_checks_nonfeasible": (
-            session.budget_exhausted_after_checks_nonfeasible
-        ),
-        "budget_exhausted_after_checks_feasible": (
-            session.budget_exhausted_after_checks_feasible
-        ),
+        **_control_compute_budget_summary(session),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
         "component_placement_snapshots": component_placement_snapshots,
         "native_worker_placement": metrics.get("worker_placement"),
