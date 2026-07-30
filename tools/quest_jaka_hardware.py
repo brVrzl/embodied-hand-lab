@@ -270,6 +270,43 @@ def _native_terminal_reason_if_ready(metrics_path: Path) -> str | None:
     return str(classification) if classification else None
 
 
+def _reconcile_terminal_transport_symptom(
+    abort_reason: str | None,
+    metrics: dict[str, object],
+) -> tuple[str | None, str | None]:
+    """Replace a secondary IPC symptom with a completed native fault record.
+
+    A Unix-datagram send can fail after the worker has stopped but before
+    ``poll()`` or the metrics file is observable in the producer loop. Cleanup
+    waits for the worker and then loads its durable metrics, so this is the last
+    point at which the primary stop can be classified without guessing. Keep
+    the transport symptom separately for timeline/provenance.
+    """
+
+    transport_symptoms = frozenset((
+        "control_heartbeat_transport_failure",
+        "IPC_failure",
+    ))
+    if abort_reason not in transport_symptoms:
+        return abort_reason, None
+    try:
+        error_code = int(metrics.get("error_code", 0))
+    except (TypeError, ValueError):
+        return abort_reason, None
+    classification = metrics.get("stop_classification")
+    if (
+        error_code == 0
+        or not classification
+        or classification in {
+            "normal_completion",
+            "normal_clutch_release",
+            "worker_exit",
+        }
+    ):
+        return abort_reason, None
+    return str(classification), abort_reason
+
+
 def _resolve_output_jerk_limit(args: argparse.Namespace, config: ReplayConfig) -> float:
     """Resolve CLI > typed config > project default before any I/O."""
 
@@ -1056,6 +1093,11 @@ def main() -> int:
                 rh56_log.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
+    abort_reason, transport_symptom_reason = (
+        _reconcile_terminal_transport_symptom(abort_reason, metrics)
+    )
+    if transport_symptom_reason is not None:
+        stop_reason = abort_reason or stop_reason
     if args.stage == "research-thin-bounded":
         bounded_gate_pass = bool(
             metrics.get("outcome") == "duration_complete"
@@ -1096,7 +1138,10 @@ def main() -> int:
             "rh56_commands": metrics.get("rh56_command_count"),
             "stop_reason": stop_reason,
             "abort_reason": abort_reason,
+            "transport_symptom_reason": transport_symptom_reason,
             "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
+            "arm_transport_packets_sent": runtime.publisher.sent,
+            "arm_transport_packets_dropped": runtime.publisher.dropped,
             "ik_rejections": dict(sorted(session.rejections.items())),
             "measured_joint_fk_tcp_motion": _measured_tcp_motion(
                 target_generator, measured_joint_samples
@@ -1218,8 +1263,11 @@ def main() -> int:
         "mujoco_plant_instantiated": False,
         "shared_continuation_enabled": session.continuation_enabled,
         "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
+        "arm_transport_packets_sent": runtime.publisher.sent,
+        "arm_transport_packets_dropped": runtime.publisher.dropped,
         "stop_reason": stop_reason,
         "abort_reason": abort_reason,
+        "transport_symptom_reason": transport_symptom_reason,
         "arm_clutch_pause_count": arm_clutch_pause_count,
         "rh56_commands": (
             0

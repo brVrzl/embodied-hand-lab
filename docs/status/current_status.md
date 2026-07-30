@@ -150,6 +150,16 @@ arm `control_heartbeat_transport_failure` / native hard timing gate. RH56 live
 feedback remained bounded and fault-free, but the combined episode is a physical
 FAIL and was not retried.
 
+Offline timeline reconstruction shows that the native
+`consecutive_start_timing_misses` hard fault occurred before the producer's
+heartbeat send failed. During native cleanup and deferred 8.48 MB cycle-log
+serialization the target socket stopped draining, its bounded buffer filled,
+and the wrapper recorded the secondary transport symptom before process
+reap/metrics visibility. Final summary classification now reconciles against
+durable native metrics and preserves the earlier symptom separately. No timing
+or safety threshold changed; the cause of the consecutive OS wake delays still
+requires physical instrumentation.
+
 ## Repository and research state
 
 PWL/root-cause-fix and the RH56 simulation hand implementation are merged into
@@ -290,6 +300,12 @@ generation、全部安全检查与两个 watchdog 均未改变。该修复仅完
 有效吞吐增益且 tail latency 变差，因此选择 `fast40`。随后一次 `fast40` combined 运行在
 21.02 秒因保留的 arm `control_heartbeat_transport_failure` / native hard timing gate
 停止；RH56 live feedback 有界且无故障，但 combined episode 判定为真机 FAIL，未自动重试。
+
+离线时间线确认 native `consecutive_start_timing_misses` hard fault 先发生；native cleanup
+及延后写入 8.48 MB cycle log 期间 target socket 不再 drain，有界 buffer 随后填满，producer
+在 process reap/metrics 可见前记录了二级 heartbeat transport symptom。summary 现在会在
+durable native metrics 就绪后回填权威分类，并单独保留早期 transport symptom。未修改任何
+timing 或 safety threshold；连续 OS wake delay 的系统级原因仍需真机 instrumentation。
 
 ## 仓库与研究状态
 

@@ -13,6 +13,7 @@ from tools.quest_jaka_hardware import (
     RECOVERABLE_CLUTCH_STAGES,
     _parser,
     _native_terminal_reason_if_ready,
+    _reconcile_terminal_transport_symptom,
     _resolve_output_jerk_limit,
     _synchronize_paused_stopped_reference,
 )
@@ -245,6 +246,32 @@ def test_native_fault_metrics_win_process_reap_ipc_race(tmp_path: Path) -> None:
     assert _native_terminal_reason_if_ready(metrics) == (
         "native_output_jerk_hard_fault"
     )
+
+
+def test_completed_native_fault_replaces_earlier_heartbeat_transport_symptom() -> None:
+    reason, symptom = _reconcile_terminal_transport_symptom(
+        "control_heartbeat_transport_failure",
+        {
+            "error_code": 1,
+            "outcome": "consecutive_start_timing_misses",
+            "stop_classification": "hard_timing_fault",
+        },
+    )
+    assert reason == "hard_timing_fault"
+    assert symptom == "control_heartbeat_transport_failure"
+
+
+def test_transport_failure_is_not_relabelled_without_native_fault_evidence() -> None:
+    reason, symptom = _reconcile_terminal_transport_symptom(
+        "control_heartbeat_transport_failure",
+        {
+            "error_code": 0,
+            "outcome": "operator_stop_command",
+            "stop_classification": "normal_clutch_release",
+        },
+    )
+    assert reason == "control_heartbeat_transport_failure"
+    assert symptom is None
 
 
 def test_combined_entry_validates_both_gates_without_network_or_device_open(
