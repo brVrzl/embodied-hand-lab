@@ -187,6 +187,62 @@ def _component_placement_snapshot(
     }
 
 
+def _validate_control_cpu(control_cpu: int | None) -> tuple[set[int], set[int]]:
+    allowed = set(os.sched_getaffinity(0))
+    if control_cpu is None:
+        return allowed, allowed
+    if control_cpu not in allowed:
+        raise SystemExit(
+            f"native control CPU {control_cpu} is not in the allowed affinity "
+            f"mask {sorted(allowed)}"
+        )
+    non_realtime = allowed - {control_cpu}
+    if not non_realtime:
+        raise SystemExit("CPU isolation requires at least two allowed CPUs")
+    return allowed, non_realtime
+
+
+def _configure_cpu_isolation(control_cpu: int | None) -> dict[str, object]:
+    """Reserve one CPU for native control and move current Python tasks away."""
+
+    allowed, non_realtime = _validate_control_cpu(control_cpu)
+    if control_cpu is None:
+        return {
+            "enabled": False,
+            "native_control_cpu": None,
+            "python_affinity_mask": sorted(allowed),
+        }
+    process_id = os.getpid()
+    try:
+        task_ids = sorted(
+            int(path.name) for path in Path(f"/proc/{process_id}/task").iterdir()
+        )
+        for thread_id in task_ids:
+            try:
+                os.sched_setaffinity(thread_id, non_realtime)
+            except ProcessLookupError:
+                continue
+        failed = [
+            thread_id
+            for thread_id in task_ids
+            if Path(f"/proc/{process_id}/task/{thread_id}").exists()
+            and control_cpu in os.sched_getaffinity(thread_id)
+        ]
+    except OSError as exc:
+        raise SystemExit(f"failed to configure non-real-time CPU affinity: {exc}") from exc
+    if failed:
+        raise SystemExit(
+            "non-real-time CPU affinity verification failed for task ids "
+            + ",".join(str(value) for value in failed)
+        )
+    return {
+        "enabled": True,
+        "native_control_cpu": control_cpu,
+        "python_affinity_mask": sorted(non_realtime),
+        "reassigned_existing_python_tasks": len(task_ids),
+    }
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -209,6 +265,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--allowed-sender")
     parser.add_argument("--duration-sec", type=float, default=60.0)
+    parser.add_argument(
+        "--native-control-cpu",
+        type=int,
+        help=(
+            "reserve this CPU for the native control thread and move current "
+            "Python/non-real-time tasks to the remaining allowed CPUs"
+        ),
+    )
     parser.add_argument("--approval", required=True)
     parser.add_argument("--estop-accessible", action="store_true")
     parser.add_argument("--workspace-clear", action="store_true")
@@ -642,6 +706,9 @@ def main() -> int:
         and 2 <= maximum_hold_cycles <= 10_000
     ):
         raise SystemExit("output acceleration recovery policy is invalid")
+    allowed_cpus, non_realtime_cpus = _validate_control_cpu(
+        args.native_control_cpu
+    )
     if args.plant_free_no_network_check:
         print(
             json.dumps(
@@ -693,6 +760,12 @@ def main() -> int:
                         args.recover_output_acceleration_transition
                     ),
                     "no_auto_retry": args.no_auto_retry,
+                    "cpu_isolation": {
+                        "enabled": args.native_control_cpu is not None,
+                        "native_control_cpu": args.native_control_cpu,
+                        "python_affinity_mask": sorted(non_realtime_cpus),
+                        "allowed_affinity_mask": sorted(allowed_cpus),
+                    },
                 },
                 sort_keys=True,
             )
@@ -707,6 +780,7 @@ def main() -> int:
         args.event_extract.parent.mkdir(parents=True, exist_ok=True)
     if args.rh56_log is not None:
         args.rh56_log.parent.mkdir(parents=True, exist_ok=True)
+    cpu_isolation = _configure_cpu_isolation(args.native_control_cpu)
 
     with tempfile.TemporaryDirectory(prefix="quest_jaka_hardware_") as directory:
         temporary = Path(directory)
@@ -863,6 +937,8 @@ def main() -> int:
             worker_args.append("--abort-on-diagnostic-acceleration-boundary")
         if args.recover_output_acceleration_transition and args.stage != "research-thin-bounded":
             worker_args.append("--recover-output-acceleration-transition")
+        if args.native_control_cpu is not None:
+            worker_args.extend(("--control-cpu", str(args.native_control_cpu)))
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
         stop_reason = "duration_complete"
@@ -1300,6 +1376,7 @@ def main() -> int:
             "native_system_boundary_observer": metrics.get(
                 "system_boundary_observer"
             ),
+            "cpu_isolation": cpu_isolation,
         }
         args.summary.write_text(
             json.dumps(summary, indent=2, sort_keys=True) + "\n",
@@ -1473,6 +1550,7 @@ def main() -> int:
         "native_system_boundary_observer": metrics.get(
             "system_boundary_observer"
         ),
+        "cpu_isolation": cpu_isolation,
         "measured_joint_fk_tcp_motion": measured_tcp,
         "e2_maximum_requested_tcp_displacement_m": (
             None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m

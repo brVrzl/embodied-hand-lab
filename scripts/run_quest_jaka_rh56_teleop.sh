@@ -28,6 +28,7 @@ NO_AUTO_RETRY="false"
 HAND_PREREQUISITES_COMPLETE="false"
 PLANT_FREE_NO_NETWORK_CHECK="false"
 ALLOW_DIRECT_CH341_DEVICE="false"
+NATIVE_CONTROL_CPU=""
 
 EXPECTED_ARM_APPROVAL="I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 EXPECTED_HAND_APPROVAL="I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
@@ -61,6 +62,7 @@ Options:
   --config PATH
   --rh56-config PATH
   --rh56-scheduler-profile baseline|fast30|fast40|fast50
+  --native-control-cpu CPU  reserve one CPU for native control; disabled by default
   --allow-direct-ch341-device
                             allow only an identity-checked /dev/ttyCH341USB<N>
                             when the host's custom driver creates no by-id link
@@ -86,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --config) need_value "$@"; CONFIG="$2"; shift 2 ;;
     --rh56-config) need_value "$@"; RH56_CONFIG="$2"; shift 2 ;;
     --rh56-scheduler-profile) need_value "$@"; RH56_SCHEDULER_PROFILE="$2"; shift 2 ;;
+    --native-control-cpu) need_value "$@"; NATIVE_CONTROL_CPU="$2"; shift 2 ;;
     --allow-direct-ch341-device) ALLOW_DIRECT_CH341_DEVICE="true"; shift ;;
     --worker) need_value "$@"; WORKER="$2"; shift 2 ;;
     --log-dir) need_value "$@"; LOG_DIR="$2"; shift 2 ;;
@@ -146,6 +149,7 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --event-extract "${prefix}.event_extract.jsonl"
   --rh56-log "${prefix}.rh56.jsonl")
 if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"); fi
+if [[ -n "${NATIVE_CONTROL_CPU}" ]]; then cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}"); fi
 if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == true ]]; then cmd+=(--plant-free-no-network-check); fi
 exec "${cmd[@]}"

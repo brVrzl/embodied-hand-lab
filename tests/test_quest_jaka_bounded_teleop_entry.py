@@ -306,6 +306,7 @@ def test_transport_failure_is_not_relabelled_without_native_fault_evidence() -> 
 def test_combined_entry_validates_both_gates_without_network_or_device_open(
     tmp_path: Path,
 ) -> None:
+    control_cpu = min(os.sched_getaffinity(0))
     result = _run([
         str(COMBINED_SCRIPT),
         "--robot-ip", "192.0.2.1",
@@ -318,6 +319,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         "--workspace-clear",
         "--worker", "/bin/true",
         "--rh56-scheduler-profile", "fast40",
+        "--native-control-cpu", str(control_cpu),
         "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
     ])
@@ -328,6 +330,9 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["rh56_gate_validated"] is True
     assert report["rh56_scheduler_profile"] == "fast40"
     assert report["hardware_commands_sent"] == 0
+    assert report["cpu_isolation"]["enabled"] is True
+    assert report["cpu_isolation"]["native_control_cpu"] == control_cpu
+    assert control_cpu not in report["cpu_isolation"]["python_affinity_mask"]
     assert not (tmp_path / "logs").exists()
 
 

@@ -205,6 +205,7 @@ struct Options {
   std::uint32_t maximum_consecutive_output_acceleration_hold_cycles = 250;
   std::uint32_t startup_timing_grace_cycles = 25;
   bool monitor_controller_health_each_cycle = false;
+  int control_cpu = -1;
 };
 
 bool is_shadow_mode(Mode mode) {
@@ -360,6 +361,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--maximum-consecutive-output-acceleration-hold-cycles") o.maximum_consecutive_output_acceleration_hold_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--startup-timing-grace-cycles") o.startup_timing_grace_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
+    else if (a == "--control-cpu") o.control_cpu = std::stoi(value_after(i, argc, argv));
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
@@ -368,10 +370,13 @@ Options parse_options(int argc, char** argv) {
       std::cout << "  --recover-output-acceleration-transition\n";
       std::cout << "  --diagnostic-joint-acceleration-boundary-rad-s2 VALUE (shared recoverable boundary)\n";
       std::cout << "  --maximum-output-joint-acceleration-rad-s2 VALUE (native final hard boundary)\n";
+      std::cout << "  --control-cpu CPU (pin only the native control thread; default disabled)\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
   if (!(o.duration_s > 0.0 && o.duration_s <= 2000.0)) throw std::runtime_error("duration must be in (0, 2000] s");
+  if (o.control_cpu < -1 || o.control_cpu >= CPU_SETSIZE)
+    throw std::runtime_error("control CPU must be -1 (disabled) or a valid CPU index");
   if (!(o.warning_ns < o.hold_ns && o.hold_ns < o.stop_ns && o.stop_ns < o.fatal_ns))
     throw std::runtime_error("stale thresholds must be strictly increasing");
   if (is_connected_mode(o.mode)) {
@@ -1150,7 +1155,7 @@ class PlacementEvidence {
 
 enum class SystemSnapshotTrigger : std::uint8_t {
   WorkerStart = 1,
-  FirstTimingWarning = 2,
+  TimingWarning = 2,
   TerminalTimingFault = 3,
   WorkerShutdown = 4,
 };
@@ -1158,7 +1163,7 @@ enum class SystemSnapshotTrigger : std::uint8_t {
 const char* system_snapshot_trigger_name(SystemSnapshotTrigger trigger) {
   switch (trigger) {
     case SystemSnapshotTrigger::WorkerStart: return "worker_start";
-    case SystemSnapshotTrigger::FirstTimingWarning: return "first_timing_warning";
+    case SystemSnapshotTrigger::TimingWarning: return "timing_warning";
     case SystemSnapshotTrigger::TerminalTimingFault: return "terminal_timing_fault";
     case SystemSnapshotTrigger::WorkerShutdown: return "worker_shutdown";
   }
@@ -1166,7 +1171,7 @@ const char* system_snapshot_trigger_name(SystemSnapshotTrigger trigger) {
 }
 
 struct SystemSnapshotRequest {
-  SystemSnapshotTrigger trigger = SystemSnapshotTrigger::FirstTimingWarning;
+  SystemSnapshotTrigger trigger = SystemSnapshotTrigger::TimingWarning;
   std::uint64_t requested_monotonic_ns = 0;
   int trigger_cpu = -1;
 };
@@ -1290,7 +1295,7 @@ class BoundarySystemObserver {
           break;
         }
         if (received != static_cast<ssize_t>(sizeof(request))) continue;
-        if (snapshots_.size() >= 8) {
+      if (snapshots_.size() >= 32) {
           dropped_requests_.fetch_add(1, std::memory_order_relaxed);
           continue;
         }
@@ -2118,6 +2123,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"stop_classification\":\""
       << stop_classification(outcome, error_code) << "\",\n"
       << "  \"requested_period_ns\":" << kPeriodNs << ",\n"
+      << "  \"configured_control_cpu\":" << o.control_cpu << ",\n"
       << "  \"elapsed_s\":" << elapsed_s << ",\n  \"worker_cpu_s\":" << cpu_s << ",\n  \"worker_cpu_percent\":" << (elapsed_s > 0 ? cpu_s / elapsed_s * 100.0 : 0.0) << ",\n"
       << "  \"loop_rate_hz\":" << (elapsed_s > 0 ? s.count / elapsed_s : 0.0) << ",\n"
       << "  \"accepted_target_rate_hz\":" << (elapsed_s > 0 ? accepted / elapsed_s : 0.0) << ",\n"
@@ -2361,17 +2367,39 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
 
 double smoothstep5(double x) { x = std::clamp(x, 0.0, 1.0); return x*x*x*(10.0 + x*(-15.0 + 6.0*x)); }
 
+void configure_control_cpu_affinity(int control_cpu) {
+  if (control_cpu < 0) return;
+  cpu_set_t requested{};
+  CPU_ZERO(&requested);
+  CPU_SET(control_cpu, &requested);
+  if (sched_setaffinity(0, sizeof(requested), &requested) != 0)
+    throw std::runtime_error(
+        "failed to apply native control CPU affinity cpu=" +
+        std::to_string(control_cpu) + " errno=" + std::to_string(errno));
+  cpu_set_t actual{};
+  CPU_ZERO(&actual);
+  if (sched_getaffinity(0, sizeof(actual), &actual) != 0 ||
+      CPU_COUNT(&actual) != 1 || !CPU_ISSET(control_cpu, &actual))
+    throw std::runtime_error(
+        "native control CPU affinity verification failed for cpu=" +
+        std::to_string(control_cpu));
+}
+
 int run(const Options& o) {
   std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler); std::signal(SIGHUP, signal_handler);
   auto backend = uses_fake_backend(o.mode) ? std::unique_ptr<Backend>(new FakeBackend(o)) : std::unique_ptr<Backend>(new RealBackend(o));
   TargetSocket target_socket(o.target_socket); StatusSender status_sender(o.status_socket);
+  // The observer inherits the parent/non-real-time affinity. Pin only this
+  // calling control thread after the observer exists so /proc collection can
+  // never contend on the explicitly isolated control CPU.
+  BoundarySystemObserver system_observer(!o.metrics_file.empty());
+  configure_control_cpu_affinity(o.control_cpu);
   PlacementEvidence placement;
   const auto placement_start_ns = now_ns();
   const int placement_start_cpu = sched_getcpu();
   placement.observe_cpu(placement_start_ns, placement_start_cpu);
   placement.record(PlacementEventReason::WorkerStart, placement_start_ns,
                    placement_start_cpu, -1, true, true);
-  BoundarySystemObserver system_observer(!o.metrics_file.empty());
   system_observer.request(SystemSnapshotTrigger::WorkerStart,
                           placement_start_ns, placement_start_cpu);
   auto samples_storage = std::make_unique<Samples>();
@@ -2560,9 +2588,9 @@ int run(const Options& o) {
             placement.record(PlacementEventReason::FirstTimingWarning,
                              cycle_start, cycle_cpu,
                              placement.previous_cpu(), false, false);
-            system_observer.request(SystemSnapshotTrigger::FirstTimingWarning,
-                                    cycle_start, cycle_cpu);
           }
+          system_observer.request(SystemSnapshotTrigger::TimingWarning,
+                                  cycle_start, cycle_cpu);
         } else consecutive_timing_warnings = 0;
         if (consecutive_timing_warnings >= 2 && !startup_grace) {
           const std::size_t row = samples.count++;
@@ -3034,9 +3062,9 @@ int run(const Options& o) {
             placement.record(PlacementEventReason::FirstTimingWarning,
                              cycle_end, completion_cpu,
                              placement.previous_cpu(), false, false);
-            system_observer.request(SystemSnapshotTrigger::FirstTimingWarning,
-                                    cycle_end, completion_cpu);
           }
+          system_observer.request(SystemSnapshotTrigger::TimingWarning,
+                                  cycle_end, completion_cpu);
           samples.maximum_consecutive = std::max(samples.maximum_consecutive, consecutive_completion_misses);
           const bool startup_grace = startup_timing_grace_active && !ever_received;
           if (cycle_end > deadline + 12'000'000 ||

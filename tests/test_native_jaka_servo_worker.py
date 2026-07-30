@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import signal
 import socket
 import subprocess
@@ -25,6 +26,30 @@ from teleoperation.wire import (
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
+
+
+def test_native_control_cpu_affinity_is_applied_and_reported(tmp_path) -> None:
+    control_cpu = min(os.sched_getaffinity(0))
+    metrics = tmp_path / "cpu-affinity.json"
+    target = tmp_path / "cpu-affinity.sock"
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "dry-run",
+            "--duration-s", "0.05",
+            "--control-cpu", str(control_cpu),
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    assert result.returncode == 0
+    assert payload["configured_control_cpu"] == control_cpu
+    assert payload["worker_placement"]["migration_count"] == 0
+    assert payload["worker_placement"]["events"][0]["affinity_mask"] == str(
+        control_cpu
+    )
 
 
 def packet(sequence: int) -> TargetPacket:
@@ -326,7 +351,7 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert [
         snapshot["trigger"]
         for snapshot in payload["system_boundary_observer"]["snapshots"]
-    ] == ["worker_start", "first_timing_warning", "worker_shutdown"]
+    ] == ["worker_start", "timing_warning", "worker_shutdown"]
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
