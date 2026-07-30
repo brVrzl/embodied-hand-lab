@@ -104,6 +104,12 @@ the authoritative `abort_reason`; the original transport symptom is retained as
 `transport_symptom_reason`. Future summaries also record bounded arm transport
 sent/drop counters.
 
+Native metrics now also preserve a terminal hard-timing object even when the
+loop exits before allocating its ordinary cycle row. It records the phase,
+exact `CLOCK_MONOTONIC` timestamp, actual start period, wake/completion
+lateness, consecutive warning count, and CPU number. This is additive
+observability; it does not change wake scheduling or fault policy.
+
 The deterministic regression uses the captured native outcome
 `consecutive_start_timing_misses`, `error_code=1`, and
 `stop_classification=hard_timing_fault`. It verifies that the final reason is
@@ -119,8 +125,8 @@ The OS-level cause of the consecutive native wake delays remains unresolved.
 Before combined operation can be called stable, a separately authorized
 physical run must retain the current hard timing policy and capture:
 
-- native terminal cycle start period/wake lateness and process scheduling/CPU
-  placement;
+- the new native terminal timing object and enough system scheduling evidence
+  to interpret its CPU placement;
 - producer sent/drop counters and the reconciled primary/symptom reasons;
 - the same per-stage producer timing, native cycle telemetry, RH56 diagnostics,
   controller status, and exact cleanup ordering;

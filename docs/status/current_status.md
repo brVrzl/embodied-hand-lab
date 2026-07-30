@@ -158,7 +158,9 @@ and the wrapper recorded the secondary transport symptom before process
 reap/metrics visibility. Final summary classification now reconciles against
 durable native metrics and preserves the earlier symptom separately. No timing
 or safety threshold changed; the cause of the consecutive OS wake delays still
-requires physical instrumentation.
+requires physical instrumentation. Future native metrics retain the terminal
+timing phase, monotonic timestamp, period, lateness, consecutive count, and CPU
+even when the ordinary cycle row was not allocated.
 
 ## Repository and research state
 
@@ -306,6 +308,8 @@ generation、全部安全检查与两个 watchdog 均未改变。该修复仅完
 在 process reap/metrics 可见前记录了二级 heartbeat transport symptom。summary 现在会在
 durable native metrics 就绪后回填权威分类，并单独保留早期 transport symptom。未修改任何
 timing 或 safety threshold；连续 OS wake delay 的系统级原因仍需真机 instrumentation。
+后续 native metrics 会在普通 cycle row 尚未分配时仍保存 terminal timing phase、monotonic
+timestamp、period、lateness、连续计数与 CPU。
 
 ## 仓库与研究状态
 

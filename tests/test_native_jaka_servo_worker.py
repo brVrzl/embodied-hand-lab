@@ -318,6 +318,7 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert payload["hard_timing_misses"] == 0
     assert payload["timing_warning_events"] >= 1
     assert payload["schedule_realignments"] >= 1
+    assert payload["terminal_timing_fault"] is None
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
@@ -340,6 +341,16 @@ def test_full_period_start_delay_is_a_nonzero_hard_fault(tmp_path) -> None:
     assert payload["outcome"] == "hard_start_timing_miss"
     assert payload["hard_timing_misses"] == 1
     assert payload["error_code"] == 1
+    terminal = payload["terminal_timing_fault"]
+    assert terminal["phase"] == "cycle_start"
+    assert terminal["monotonic_ns"] > 0
+    assert (
+        terminal["actual_cycle_period_ns"] > 16_000_000
+        or terminal["wake_lateness_ns"] >= 8_000_000
+    )
+    assert terminal["completion_lateness_ns"] == 0
+    assert terminal["consecutive_warning_count"] >= 1
+    assert terminal["cpu"] >= 0
 
 
 def test_stream_timing_rearms_after_explicit_edg_activation(tmp_path) -> None:

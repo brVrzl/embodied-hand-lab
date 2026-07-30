@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <sched.h>
 #include <stdexcept>
 #include <string>
 #include <sys/resource.h>
@@ -1605,6 +1606,13 @@ struct Samples {
   std::size_t count = 0;
   std::uint64_t missed = 0, maximum_consecutive = 0;
   std::uint64_t timing_warnings = 0, hard_timing_misses = 0, schedule_realignments = 0;
+  std::string terminal_timing_fault_phase;
+  std::uint64_t terminal_timing_fault_monotonic_ns = 0;
+  std::uint64_t terminal_actual_cycle_period_ns = 0;
+  std::uint64_t terminal_wake_lateness_ns = 0;
+  std::uint64_t terminal_completion_lateness_ns = 0;
+  std::uint64_t terminal_consecutive_warning_count = 0;
+  int terminal_cpu = -1;
 };
 
 double percentile(std::vector<std::uint64_t>& values, double p) {
@@ -1824,7 +1832,20 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"missed_deadlines\":" << s.missed << ",\n  \"max_consecutive_missed_deadlines\":" << s.maximum_consecutive << ",\n"
       << "  \"timing_warning_events\":" << s.timing_warnings << ",\n"
       << "  \"hard_timing_misses\":" << s.hard_timing_misses << ",\n"
-      << "  \"schedule_realignments\":" << s.schedule_realignments << ",\n  \"statistics\":{\n";
+      << "  \"schedule_realignments\":" << s.schedule_realignments << ",\n"
+      << "  \"terminal_timing_fault\":";
+  if (s.terminal_timing_fault_phase.empty()) {
+    out << "null,\n";
+  } else {
+    out << "{\"phase\":\"" << s.terminal_timing_fault_phase
+        << "\",\"monotonic_ns\":" << s.terminal_timing_fault_monotonic_ns
+        << ",\"actual_cycle_period_ns\":" << s.terminal_actual_cycle_period_ns
+        << ",\"wake_lateness_ns\":" << s.terminal_wake_lateness_ns
+        << ",\"completion_lateness_ns\":" << s.terminal_completion_lateness_ns
+        << ",\"consecutive_warning_count\":" << s.terminal_consecutive_warning_count
+        << ",\"cpu\":" << s.terminal_cpu << "},\n";
+  }
+  out << "  \"statistics\":{\n";
   metric_json(out, "actual_cycle_period", s.periods, s.count, true);
   metric_json(out, "wake_lateness", s.wakes, s.count, true);
   metric_json(out, "sdk_call_duration", s.sdk, s.count, true);
@@ -2046,6 +2067,13 @@ int run(const Options& o) {
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
           ++samples.hard_timing_misses;
+          samples.terminal_timing_fault_phase = "cycle_start";
+          samples.terminal_timing_fault_monotonic_ns = cycle_start;
+          samples.terminal_actual_cycle_period_ns = start_period;
+          samples.terminal_wake_lateness_ns = wake_lateness;
+          samples.terminal_consecutive_warning_count =
+              consecutive_timing_warnings + 1;
+          samples.terminal_cpu = sched_getcpu();
           state = State::Fault;
           outcome = "hard_start_timing_miss";
           break;
@@ -2061,6 +2089,13 @@ int run(const Options& o) {
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
           ++samples.hard_timing_misses;
+          samples.terminal_timing_fault_phase = "cycle_start";
+          samples.terminal_timing_fault_monotonic_ns = cycle_start;
+          samples.terminal_actual_cycle_period_ns = start_period;
+          samples.terminal_wake_lateness_ns = wake_lateness;
+          samples.terminal_consecutive_warning_count =
+              consecutive_timing_warnings;
+          samples.terminal_cpu = sched_getcpu();
           state = State::Fault;
           outcome = "consecutive_start_timing_misses";
           break;
@@ -2510,6 +2545,14 @@ int run(const Options& o) {
           if (cycle_end > deadline + 12'000'000 ||
               (!startup_grace && consecutive_completion_misses >= 2)) {
             ++samples.hard_timing_misses;
+            samples.terminal_timing_fault_phase = "cycle_completion";
+            samples.terminal_timing_fault_monotonic_ns = cycle_end;
+            samples.terminal_actual_cycle_period_ns = start_period;
+            samples.terminal_wake_lateness_ns = wake_lateness;
+            samples.terminal_completion_lateness_ns = cycle_end - deadline;
+            samples.terminal_consecutive_warning_count =
+                consecutive_completion_misses;
+            samples.terminal_cpu = sched_getcpu();
             state = State::Fault;
             outcome = "hard_completion_timing_miss";
             break;
