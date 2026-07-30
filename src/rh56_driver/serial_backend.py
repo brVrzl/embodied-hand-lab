@@ -69,6 +69,11 @@ class RH56SerialBackend(HandBackend):
         self.baudrate = int(serial_cfg.get("baudrate", 115200))
         self.timeout = float(serial_cfg.get("timeout_sec", 0.2))
         self.hand_id = int(serial_cfg.get("hand_id", 1))
+        self.inter_transaction_delay_sec = float(
+            config.get("serial_inter_transaction_delay_ms", 5.0)
+        ) / 1000.0
+        if self.inter_transaction_delay_sec < 0.0:
+            raise ValueError("serial_inter_transaction_delay_ms must be nonnegative")
         schema_cfg = config.get("hand_schema", {})
         self.protocol_order = tuple(schema_cfg.get("protocol_order", RH56_PROTOCOL_ORDER))
         self.gesture_order = schema_cfg.get("gesture_order", "canonical")
@@ -295,7 +300,10 @@ class RH56SerialBackend(HandBackend):
         frame = self._build_frame(payload)
         self.ser.reset_input_buffer()
         self.ser.write(frame)
-        time.sleep(0.005)
+        # The local protocol evidence only establishes this as a per-request
+        # device response delay. Keep the historical 5 ms default; the worker
+        # scheduler avoids stacking six such transactions in every cycle.
+        time.sleep(self.inter_transaction_delay_sec)
         deadline = time.monotonic() + max(self.timeout * 4.0, 0.1)
         buffer = bytearray()
         frames: list[bytes] = []

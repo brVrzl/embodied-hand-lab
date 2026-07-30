@@ -17,6 +17,7 @@ class PendingTarget:
     values: tuple[float, ...]
     sequence: int
     submitted_monotonic_ns: int
+    force_write: bool = False
 
 
 class RH56PcDirectWorker:
@@ -35,6 +36,7 @@ class RH56PcDirectWorker:
         self._monotonic_ns = monotonic_ns
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._active_requested = False
         self._pending_target: PendingTarget | None = None
@@ -47,6 +49,7 @@ class RH56PcDirectWorker:
         self._submitted_sequence = 0
         self._observed_sequence = 0
         self._written_sequence: int | None = None
+        self._evaluated_sequence = 0
         self._last_submitted_values: tuple[float, ...] | None = None
         self._submit_count = 0
         self._activation_target_count = 0
@@ -95,15 +98,54 @@ class RH56PcDirectWorker:
             maxlen=self.diagnostics_window_size
         )
         self._last_cycle_started_ns: int | None = None
+        self._command_due_ns: int | None = None
+        self._last_command_due_ns: int | None = None
+        self._last_command_actual_start_ns: int | None = None
+        self._last_command_actual_end_ns: int | None = None
+        self._last_command_deadline_lateness_ms: float | None = None
+        self._last_submit_to_write_ms: float | None = None
+        self._command_deadline_lateness_ms: deque[float] = deque(
+            maxlen=self.diagnostics_window_size
+        )
+        self._submit_to_write_ms: deque[float] = deque(
+            maxlen=self.diagnostics_window_size
+        )
+        self._io_busy_ns = 0
+        self._first_io_start_ns: int | None = None
+        self._last_io_end_ns: int | None = None
+        self._feedback_schedule: dict[str, dict[str, object]] = {}
+        for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR"):
+            self._feedback_schedule[name] = {
+                "period_ns": int(round(1e9 / control.feedback_rate_hz[name])),
+                "next_due_ns": None,
+                "last_attempt_ns": None,
+                "last_success_ns": None,
+                "failure_count": 0,
+                "warning_count": 0,
+                "warning_active": False,
+                "success_count": 0,
+                "first_success_ns": None,
+                "lateness_ms": deque(maxlen=self.diagnostics_window_size),
+                "age_ms": deque(maxlen=self.diagnostics_window_size),
+                "interval_ms": deque(maxlen=self.diagnostics_window_size),
+            }
 
     def start(
         self, approval_token: str, *, run_in_thread: bool = True
     ) -> PcDirectFeedback:
         self.control.open(approval_token)
         feedback = self.control.poll_feedback(self._monotonic_ns())
+        startup_end_ns = self._monotonic_ns()
         with self._lock:
             self._feedback = feedback
         self._note_feedback(feedback.monotonic_ns)
+        for name in self._feedback_schedule:
+            schedule = self._feedback_schedule[name]
+            schedule["last_attempt_ns"] = startup_end_ns
+            schedule["last_success_ns"] = startup_end_ns
+            schedule["first_success_ns"] = startup_end_ns
+            schedule["success_count"] = 1
+            schedule["next_due_ns"] = startup_end_ns + int(schedule["period_ns"])
         if run_in_thread:
             self._thread = threading.Thread(
                 target=self._run, name="rh56-pc-direct", daemon=True
@@ -130,7 +172,10 @@ class RH56PcDirectWorker:
                 tuple(feedback.position_normalized),
                 self._submitted_sequence,
                 int(monotonic_ns),
+                True,
             )
+            self._command_due_ns = int(monotonic_ns)
+            self._wake.set()
             return feedback.position_normalized
 
     def submit_target(self, target: Sequence[float], monotonic_ns: int) -> None:
@@ -147,8 +192,13 @@ class RH56PcDirectWorker:
             ):
                 self._coalesced_count += 1
             self._submitted_sequence += 1
+            force_write = bool(
+                self._pending_target is not None
+                and self._pending_target.force_write
+                and self._pending_target.sequence > self._evaluated_sequence
+            )
             self._pending_target = PendingTarget(
-                values, self._submitted_sequence, int(monotonic_ns)
+                values, self._submitted_sequence, int(monotonic_ns), force_write
             )
             self._submit_count += 1
             if (
@@ -176,18 +226,21 @@ class RH56PcDirectWorker:
                     self._first_unique_submit_ns = int(monotonic_ns)
                 self._last_unique_submit_ns = int(monotonic_ns)
             self._last_submitted_values = values
+        self._wake.set()
 
     def hold(self, reason: str) -> None:
         with self._lock:
             self._active_requested = False
             self._pending_target = None
             self._hold_reason = reason
+        self._wake.set()
 
     def arm_terminal_stop(self, reason: str) -> None:
         with self._lock:
             self._terminal_reason = reason
             self._active_requested = False
             self._pending_target = None
+        self._wake.set()
 
     @property
     def latest_feedback(self) -> PcDirectFeedback | None:
@@ -212,6 +265,7 @@ class RH56PcDirectWorker:
 
     def cleanup(self) -> None:
         self._stop.set()
+        self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
             if self._thread.is_alive():
@@ -228,11 +282,7 @@ class RH56PcDirectWorker:
         self.control.cleanup()
 
     def run_cycle(self) -> bool:
-        """Run one serialized feedback/command cycle.
-
-        This public single-cycle form supports deterministic fake-clock/fake-
-        serial verification. The production thread calls the same method.
-        """
+        """Run the single highest-priority due serial operation."""
 
         cycle_started_ns = self._monotonic_ns()
         if (
@@ -244,66 +294,141 @@ class RH56PcDirectWorker:
                 (cycle_started_ns - self._last_cycle_started_ns) / 1e6
             )
         self._last_cycle_started_ns = cycle_started_ns
-        feedback = self.control.poll_feedback(cycle_started_ns)
-        self._note_feedback(feedback.monotonic_ns)
         with self._lock:
-            self._feedback = feedback
             active = self._active_requested
             target = self._pending_target
             hold_reason = self._hold_reason
             terminal_reason = self._terminal_reason
-            if target is not None:
-                self._observed_sequence = max(
-                    self._observed_sequence, target.sequence
-                )
         if terminal_reason is not None:
             self.control.arm_terminal_stop(terminal_reason)
             return False
-        command_now_ns = self._monotonic_ns()
-        if active:
-            just_activated = self.control.state.value == "HAND_HOLD"
-            if just_activated:
-                self.control.activate(command_now_ns)
-            if target is not None:
-                command_age_ns = max(
-                    0, command_now_ns - target.submitted_monotonic_ns
-                )
-                if (
-                    self.stale_command_drop_enabled
-                    and not just_activated
-                    and command_age_ns > self.stale_command_max_age_ns
-                ):
-                    self._stale_drop_count += 1
-                    self.control.last_command_disposition = "stale_target_dropped"
-                else:
-                    written = self.control.command(
-                        target.values,
-                        command_now_ns,
-                        submitted_monotonic_ns=target.submitted_monotonic_ns,
-                        target_sequence=target.sequence,
-                        force_write=just_activated,
-                    )
-                    if written:
-                        self._written_sequence = target.sequence
-                        self._write_count += 1
-                        if (
-                            self.diagnostics_enabled
-                            and self._last_write_ns is not None
-                            and command_now_ns > self._last_write_ns
-                        ):
-                            self._write_interval_ms.append(
-                                (command_now_ns - self._last_write_ns) / 1e6
-                            )
-                        if self._first_write_ns is None:
-                            self._first_write_ns = command_now_ns
-                        self._last_write_ns = command_now_ns
-        else:
+        now_ns = self._monotonic_ns()
+        if not active:
             self.control.hold(hold_reason)
+        elif self.control.state.value == "HAND_HOLD":
+            self.control.activate(now_ns)
+
+        target_requires_command = self._target_requires_command(target)
+        command_due_ns = self._command_due_ns
+        command_is_due = bool(
+            active
+            and target_requires_command
+            and (
+                target.force_write
+                or command_due_ns is None
+                or now_ns >= command_due_ns
+            )
+        )
+        operation = "idle"
+        if command_is_due:
+            assert target is not None
+            operation = "COMMAND"
+            due_ns = now_ns if command_due_ns is None else command_due_ns
+            actual_start_ns = self._monotonic_ns()
+            command_age_ns = max(
+                0, actual_start_ns - target.submitted_monotonic_ns
+            )
+            lateness_ms = max(0.0, (actual_start_ns - due_ns) / 1e6)
+            self._last_command_due_ns = due_ns
+            self._last_command_actual_start_ns = actual_start_ns
+            self._last_command_deadline_lateness_ms = lateness_ms
+            if self.diagnostics_enabled:
+                self._command_deadline_lateness_ms.append(lateness_ms)
+            if (
+                self.stale_command_drop_enabled
+                and not target.force_write
+                and command_age_ns > self.stale_command_max_age_ns
+            ):
+                self._stale_drop_count += 1
+                self.control.last_command_disposition = "stale_target_dropped"
+                self._evaluated_sequence = target.sequence
+                actual_end_ns = self._monotonic_ns()
+            else:
+                written = self.control.command(
+                    target.values,
+                    actual_start_ns,
+                    submitted_monotonic_ns=target.submitted_monotonic_ns,
+                    target_sequence=target.sequence,
+                    force_write=target.force_write,
+                )
+                actual_end_ns = self._monotonic_ns()
+                self._note_io(actual_start_ns, actual_end_ns)
+                if written:
+                    self._written_sequence = target.sequence
+                    self._write_count += 1
+                    submit_to_write_ms = max(
+                        0.0, (actual_end_ns - target.submitted_monotonic_ns) / 1e6
+                    )
+                    self._last_submit_to_write_ms = submit_to_write_ms
+                    if self.diagnostics_enabled:
+                        self._submit_to_write_ms.append(submit_to_write_ms)
+                    if (
+                        self.diagnostics_enabled
+                        and self._last_write_ns is not None
+                        and actual_start_ns > self._last_write_ns
+                    ):
+                        self._write_interval_ms.append(
+                            (actual_start_ns - self._last_write_ns) / 1e6
+                        )
+                    if self._first_write_ns is None:
+                        self._first_write_ns = actual_start_ns
+                    self._last_write_ns = actual_start_ns
+                if written or self.control.last_command_disposition == "exact_duplicate_suppressed":
+                    self._evaluated_sequence = target.sequence
+            self._observed_sequence = max(self._observed_sequence, target.sequence)
+            self._last_command_actual_end_ns = actual_end_ns
+            self._command_due_ns = self._advance_deadline(
+                due_ns, self.control.command_period_ns, actual_end_ns
+            )
+            self.control.next_command_monotonic_ns = self._command_due_ns
+        else:
+            register = self._select_feedback_register(now_ns)
+            if register is not None:
+                operation = register
+                schedule = self._feedback_schedule[register]
+                due_ns = int(schedule["next_due_ns"])
+                actual_start_ns = self._monotonic_ns()
+                schedule["last_attempt_ns"] = actual_start_ns
+                lateness_ms = max(0.0, (actual_start_ns - due_ns) / 1e6)
+                cast_lateness = schedule["lateness_ms"]
+                assert isinstance(cast_lateness, deque)
+                if self.diagnostics_enabled:
+                    cast_lateness.append(lateness_ms)
+                try:
+                    feedback = self.control.poll_feedback_register(
+                        register, actual_start_ns
+                    )
+                except BaseException:
+                    schedule["failure_count"] = int(schedule["failure_count"]) + 1
+                    raise
+                actual_end_ns = self._monotonic_ns()
+                self._note_io(actual_start_ns, actual_end_ns)
+                previous_success_ns = schedule["last_success_ns"]
+                schedule["last_success_ns"] = actual_end_ns
+                schedule["success_count"] = int(schedule["success_count"]) + 1
+                intervals = schedule["interval_ms"]
+                assert isinstance(intervals, deque)
+                if (
+                    self.diagnostics_enabled
+                    and isinstance(previous_success_ns, int)
+                    and actual_end_ns > previous_success_ns
+                ):
+                    intervals.append((actual_end_ns - previous_success_ns) / 1e6)
+                schedule["next_due_ns"] = self._advance_deadline(
+                    due_ns, int(schedule["period_ns"]), actual_end_ns
+                )
+                schedule["warning_active"] = False
+                with self._lock:
+                    self._feedback = feedback
+                if register == "ANGLE":
+                    self._note_feedback(actual_end_ns)
+        self._update_feedback_ages(self._monotonic_ns())
         record_now_ns = self._monotonic_ns()
         row = self.control.episode_record(
             record_now_ns, None if target is None else target.values
         )
         row["record_type"] = "rh56_telemetry"
+        row["rh56_scheduled_operation"] = operation
         row["rh56_worker"] = (
             self.diagnostics_snapshot(include_windows=True)
             if self.diagnostics_enabled
@@ -338,6 +463,15 @@ class RH56PcDirectWorker:
             "complete_feedback_record_count": self._feedback_count,
             "worker_cycle_count": self._cycle_count,
             "worker_cycle_overrun_count": self._cycle_overrun_count,
+            "scheduler_profile": self.control.scheduler_profile,
+            "requested_command_rate_hz": self.control.command_rate_hz,
+            "command_period_ms": self.control.command_period_ns / 1e6,
+            "command_due_ns": self._last_command_due_ns,
+            "command_actual_start_ns": self._last_command_actual_start_ns,
+            "command_actual_end_ns": self._last_command_actual_end_ns,
+            "command_deadline_lateness_ms": self._last_command_deadline_lateness_ms,
+            "command_age_at_write_ms": self.control.last_command_age_ms,
+            "submit_to_write_ms": self._last_submit_to_write_ms,
             "stale_command_drop_enabled": self.stale_command_drop_enabled,
             "stale_command_max_age_ms": self.stale_command_max_age_ns / 1e6,
             "stale_command_drop_count": self._stale_drop_count,
@@ -362,6 +496,8 @@ class RH56PcDirectWorker:
                 None if not logging_failures else logging_failures[-1]
             ),
             "control": self.control.diagnostics_snapshot(),
+            "serial_utilization_estimate": self._serial_utilization(),
+            "feedback": self._feedback_diagnostics(self._monotonic_ns()),
         }
         if include_windows and self.diagnostics_enabled:
             result["timing_ms"] = {
@@ -374,6 +510,13 @@ class RH56PcDirectWorker:
                 "successful_write_interval": _distribution(
                     self._write_interval_ms
                 ),
+                "command_deadline_lateness": _distribution(
+                    self._command_deadline_lateness_ms
+                ),
+                "command_age_at_write": self.control.diagnostics_snapshot().get(
+                    "command_age_ms"
+                ),
+                "submit_to_write": _distribution(self._submit_to_write_ms),
                 "complete_feedback_interval": _distribution(
                     self._feedback_interval_ms
                 ),
@@ -384,17 +527,15 @@ class RH56PcDirectWorker:
         return result
 
     def _run(self) -> None:
-        next_cycle_ns = self._monotonic_ns()
         try:
             while not self._stop.is_set():
                 if not self.run_cycle():
                     return
-                next_cycle_ns += self.control.command_period_ns
-                wait_ns = next_cycle_ns - self._monotonic_ns()
-                if wait_ns <= 0:
-                    next_cycle_ns = self._monotonic_ns()
-                    continue
-                self._stop.wait(wait_ns / 1e9)
+                self._wake.clear()
+                now_ns = self._monotonic_ns()
+                wake_ns = self._next_wake_ns(now_ns)
+                if wake_ns > now_ns:
+                    self._wake.wait((wake_ns - now_ns) / 1e9)
         except BaseException as exc:
             if self.control.fault_reason is None:
                 self.control.transport_fault("pc_direct_worker_failure")
@@ -452,6 +593,142 @@ class RH56PcDirectWorker:
         if self._first_feedback_ns is None:
             self._first_feedback_ns = int(monotonic_ns)
         self._last_feedback_ns = int(monotonic_ns)
+
+    @staticmethod
+    def _advance_deadline(due_ns: int, period_ns: int, now_ns: int) -> int:
+        next_due_ns = due_ns + period_ns
+        if next_due_ns <= now_ns:
+            next_due_ns += ((now_ns - next_due_ns) // period_ns + 1) * period_ns
+        return next_due_ns
+
+    def _select_feedback_register(self, now_ns: int) -> str | None:
+        for name in ("STATUS", "ERROR"):
+            last_success_ns = self._feedback_schedule[name]["last_success_ns"]
+            if isinstance(last_success_ns, int) and (
+                now_ns - last_success_ns >= self.control.feedback_warning_age_ns[name]
+            ):
+                return name
+        due = [
+            name
+            for name, schedule in self._feedback_schedule.items()
+            if isinstance(schedule["next_due_ns"], int)
+            and now_ns >= int(schedule["next_due_ns"])
+        ]
+        if not due:
+            return None
+        priority = {"ANGLE": 0, "STATUS": 1, "ERROR": 2, "CURRENT": 3, "FORCE": 4}
+        return min(
+            due,
+            key=lambda name: (
+                int(self._feedback_schedule[name]["next_due_ns"]),
+                priority[name],
+            ),
+        )
+
+    def _next_wake_ns(self, now_ns: int) -> int:
+        with self._lock:
+            active = self._active_requested
+            target = self._pending_target
+        if (
+            active
+            and target is not None
+            and self._target_requires_command(target)
+            and target.force_write
+        ):
+            return now_ns
+        candidates = [
+            int(schedule["next_due_ns"])
+            for schedule in self._feedback_schedule.values()
+            if isinstance(schedule["next_due_ns"], int)
+        ]
+        for name in ("STATUS", "ERROR"):
+            last_success_ns = self._feedback_schedule[name]["last_success_ns"]
+            if isinstance(last_success_ns, int):
+                candidates.append(
+                    last_success_ns + self.control.feedback_warning_age_ns[name]
+                )
+        if (
+            active
+            and target is not None
+            and self._target_requires_command(target)
+        ):
+            candidates.append(
+                now_ns if self._command_due_ns is None else self._command_due_ns
+            )
+        return min(candidates, default=now_ns + 1_000_000)
+
+    def _target_requires_command(self, target: PendingTarget | None) -> bool:
+        if target is None:
+            return False
+        if target.sequence > self._evaluated_sequence:
+            return True
+        return bool(
+            target.sequence == self._written_sequence
+            and self.control.last_command_normalized is not None
+            and target.values != self.control.last_command_normalized
+        )
+
+    def _note_io(self, started_ns: int, ended_ns: int) -> None:
+        self._io_busy_ns += max(0, ended_ns - started_ns)
+        if self._first_io_start_ns is None:
+            self._first_io_start_ns = started_ns
+        self._last_io_end_ns = ended_ns
+
+    def _serial_utilization(self) -> float | None:
+        if (
+            self._first_io_start_ns is None
+            or self._last_io_end_ns is None
+            or self._last_io_end_ns <= self._first_io_start_ns
+        ):
+            return None
+        return min(
+            1.0,
+            self._io_busy_ns / (self._last_io_end_ns - self._first_io_start_ns),
+        )
+
+    def _update_feedback_ages(self, now_ns: int) -> None:
+        for name, schedule in self._feedback_schedule.items():
+            last_success_ns = schedule["last_success_ns"]
+            if not isinstance(last_success_ns, int):
+                continue
+            age_ms = max(0.0, (now_ns - last_success_ns) / 1e6)
+            ages = schedule["age_ms"]
+            assert isinstance(ages, deque)
+            if self.diagnostics_enabled:
+                ages.append(age_ms)
+            overdue = now_ns - last_success_ns > self.control.feedback_warning_age_ns[name]
+            if overdue and not bool(schedule["warning_active"]):
+                schedule["warning_count"] = int(schedule["warning_count"]) + 1
+            schedule["warning_active"] = overdue
+
+    def _feedback_diagnostics(self, now_ns: int) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for name, schedule in self._feedback_schedule.items():
+            last_success_ns = schedule["last_success_ns"]
+            success_count = int(schedule["success_count"])
+            first_success_ns = schedule["first_success_ns"]
+            result[name] = {
+                "requested_rate_hz": self.control.feedback_rate_hz[name],
+                "achieved_rate_hz": _rate(
+                    success_count,
+                    first_success_ns if isinstance(first_success_ns, int) else None,
+                    last_success_ns if isinstance(last_success_ns, int) else None,
+                ),
+                "next_due_ns": schedule["next_due_ns"],
+                "last_attempt_ns": schedule["last_attempt_ns"],
+                "last_success_ns": last_success_ns,
+                "age_ms": None
+                if not isinstance(last_success_ns, int)
+                else max(0.0, (now_ns - last_success_ns) / 1e6),
+                "warning_age_ms": self.control.feedback_warning_age_ns[name] / 1e6,
+                "warning_active": bool(schedule["warning_active"]),
+                "warning_count": int(schedule["warning_count"]),
+                "failure_count": int(schedule["failure_count"]),
+                "deadline_lateness_ms": _distribution(schedule["lateness_ms"]),
+                "observed_age_ms": _distribution(schedule["age_ms"]),
+                "success_interval_ms": _distribution(schedule["interval_ms"]),
+            }
+        return result
 
 
 def _rate(count: int, first_ns: int | None, last_ns: int | None) -> float | None:

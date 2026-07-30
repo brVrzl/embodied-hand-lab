@@ -223,10 +223,57 @@ class RH56PcDirectControl:
         self.state = HandControlState.DISABLED
         self.transport_state = "CLOSED"
         self.authorization: HandAuthorization | None = None
-        self.control_frequency_hz = float(config.get("control_frequency_hz", 15.0))
-        if self.control_frequency_hz <= 0.0:
-            raise ValueError("RH56 control_frequency_hz must be positive.")
-        self.command_period_ns = int(round(1e9 / self.control_frequency_hz))
+        profile_name = str(config.get("scheduler_profile", "baseline"))
+        profiles = config.get("scheduler_profiles", {})
+        profile = profiles.get(profile_name, {}) if isinstance(profiles, Mapping) else {}
+        if profiles and not profile:
+            raise ValueError(f"Unknown RH56 scheduler_profile={profile_name!r}.")
+        if not isinstance(profile, Mapping):
+            raise ValueError(f"RH56 scheduler profile {profile_name!r} must be a mapping.")
+        self.scheduler_profile = profile_name
+
+        def scheduler_value(name: str, fallback: Any) -> Any:
+            return profile.get(name, config.get(name, fallback))
+
+        self.command_rate_hz = float(
+            scheduler_value("command_rate_hz", config.get("control_frequency_hz", 15.0))
+        )
+        if self.command_rate_hz <= 0.0:
+            raise ValueError("RH56 command_rate_hz must be positive.")
+        # Retain the old public name while command and feedback rates are now
+        # independently scheduled by RH56PcDirectWorker.
+        self.control_frequency_hz = self.command_rate_hz
+        self.command_period_ns = int(round(1e9 / self.command_rate_hz))
+        self.feedback_rate_hz = {
+            name: float(
+                scheduler_value(
+                    f"{name.lower()}_feedback_rate_hz",
+                    config.get("control_frequency_hz", 15.0),
+                )
+            )
+            for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        if any(rate <= 0.0 for rate in self.feedback_rate_hz.values()):
+            raise ValueError("RH56 feedback rates must be positive.")
+        warning_defaults_ms = {
+            "ANGLE": 150.0,
+            "CURRENT": 250.0,
+            "FORCE": 250.0,
+            "STATUS": 250.0,
+            "ERROR": 250.0,
+        }
+        configured_warning_ms = config.get("feedback_warning_age_ms", {})
+        self.feedback_warning_age_ns = {
+            name: int(
+                round(
+                    float(configured_warning_ms.get(name.lower(), default_ms))
+                    * 1e6
+                )
+            )
+            for name, default_ms in warning_defaults_ms.items()
+        }
+        if any(age <= 0 for age in self.feedback_warning_age_ns.values()):
+            raise ValueError("RH56 feedback warning ages must be positive.")
         serial_timeout_sec = float(config.get("serial", {}).get("timeout_sec", 0.2))
         self.feedback_stale_timeout_ns = int(
             round(float(config.get("feedback_stale_timeout_sec", 2.0 * serial_timeout_sec)) * 1e9)
@@ -273,6 +320,13 @@ class RH56PcDirectControl:
             name: deque(maxlen=self.diagnostics_window_size)
             for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
         }
+        self._feedback_values: dict[str, tuple[Any, ...] | None] = {
+            name: None for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        self._feedback_success_ns: dict[str, int | None] = {
+            name: None for name in self._feedback_values
+        }
+        self._feedback_latest_latency_ms: dict[str, float] = {}
 
     def open(self, approval_token: str) -> None:
         authorization = parse_rh56_approval(approval_token)
@@ -360,6 +414,16 @@ class RH56PcDirectControl:
             register_latency_ms=register_latency_ms if self.diagnostics_enabled else None,
         )
         self.last_feedback = feedback
+        for name, values in {
+            "ANGLE": position,
+            "CURRENT": currents,
+            "FORCE": loads,
+            "STATUS": status,
+            "ERROR": errors,
+        }.items():
+            self._feedback_values[name] = values
+            self._feedback_success_ns[name] = int(monotonic_ns)
+        self._feedback_latest_latency_ms.update(register_latency_ms)
         self.feedback_record_count += 1
         if self.diagnostics_enabled:
             self._feedback_latency_ms.append(read_latency_ms)
@@ -389,6 +453,120 @@ class RH56PcDirectControl:
             self.last_command_normalized = normalized
             self.last_command_raw = tuple(int(round(value)) for value in position)
         return feedback
+
+    def poll_feedback_register(
+        self, register: str, monotonic_ns: int
+    ) -> PcDirectFeedback:
+        """Read exactly one feedback register and refresh the cached snapshot."""
+
+        self._require_open()
+        name = str(register).upper()
+        if name not in self._feedback_values:
+            raise ValueError(f"Unknown RH56 feedback register {register!r}.")
+        started_ns = self._perf_counter_ns()
+        try:
+            if name == "ANGLE":
+                values: tuple[Any, ...] = tuple(self.backend.get_canonical_angles())
+            elif name == "CURRENT":
+                values = tuple(self.backend.get_canonical_currents())
+            elif name == "FORCE":
+                values = tuple(self.backend.get_canonical_forces())
+            else:
+                values = tuple(
+                    int(value)
+                    for value in raw_to_canonical(
+                        self.backend.read_register(self.backend.REG[name], 6),
+                        raw_order=self.config.get("hand_schema", {}).get(
+                            "protocol_order", CANONICAL_HAND_ORDER
+                        ),
+                    )
+                )
+        except Exception as exc:
+            self._fault("serial_feedback_failure")
+            self._capture_failure(
+                "feedback_register_poll",
+                exc,
+                monotonic_ns,
+                {"register": name},
+            )
+            raise
+        latency_ms = (self._perf_counter_ns() - started_ns) / 1e6
+        self._feedback_values[name] = values
+        self._feedback_success_ns[name] = int(monotonic_ns)
+        self._feedback_latest_latency_ms[name] = latency_ms
+        if self.diagnostics_enabled:
+            self._register_latency_ms[name].append(latency_ms)
+        if name == "ERROR" and any(values):
+            self._fault("device_error_status")
+            exc = RuntimeError(
+                f"RH56 device error registers are nonzero: {list(values)}"
+            )
+            self._capture_failure(
+                "device_error_status",
+                exc,
+                monotonic_ns,
+                {
+                    "error": list(values),
+                    "status": None
+                    if self._feedback_values["STATUS"] is None
+                    else list(self._feedback_values["STATUS"]),
+                },
+            )
+            raise exc
+        if latency_ms * 1e6 > self.feedback_stale_timeout_ns:
+            self._fault("feedback_stale_during_read")
+            exc = RuntimeError(
+                f"RH56 {name} feedback read took {latency_ms:.3f} ms, "
+                "exceeding the stale boundary."
+            )
+            self._capture_failure(
+                "feedback_stale_during_read",
+                exc,
+                monotonic_ns,
+                {"register": name, "read_latency_ms": latency_ms},
+            )
+            raise exc
+        feedback = self._feedback_from_cache(latency_ms)
+        self.last_feedback = feedback
+        if name == "ANGLE" and self.last_command_normalized is None:
+            self.last_command_normalized = feedback.position_normalized
+            self.last_command_raw = tuple(
+                int(round(value)) for value in feedback.position_raw
+            )
+        return feedback
+
+    def _feedback_from_cache(self, read_latency_ms: float) -> PcDirectFeedback:
+        if any(value is None for value in self._feedback_values.values()):
+            raise RuntimeError("RH56 feedback cache is incomplete.")
+        position = self._feedback_values["ANGLE"]
+        assert position is not None
+        angle_ns = self._feedback_success_ns["ANGLE"]
+        assert angle_ns is not None
+        return PcDirectFeedback(
+            monotonic_ns=angle_ns,
+            position_raw=tuple(float(value) for value in position),
+            position_normalized=tuple(
+                normalize_raw(
+                    position,
+                    raw_order=CANONICAL_HAND_ORDER,
+                    calibration=self.calibration,
+                )
+            ),
+            current_raw_count=tuple(
+                float(value) for value in self._feedback_values["CURRENT"] or ()
+            ),
+            load_or_force_raw_count=tuple(
+                float(value) for value in self._feedback_values["FORCE"] or ()
+            ),
+            status=tuple(int(value) for value in self._feedback_values["STATUS"] or ()),
+            error=tuple(int(value) for value in self._feedback_values["ERROR"] or ()),
+            read_latency_ms=float(read_latency_ms),
+            register_latency_ms=(
+                dict(self._feedback_latest_latency_ms)
+                if self.diagnostics_enabled
+                else None
+            ),
+        )
 
     def activate(self, monotonic_ns: int) -> None:
         if self.authorization not in {
@@ -668,6 +846,9 @@ class RH56PcDirectControl:
         return {
             "enabled": self.diagnostics_enabled,
             "window_size": self.diagnostics_window_size,
+            "scheduler_profile": self.scheduler_profile,
+            "requested_command_rate_hz": self.command_rate_hz,
+            "requested_feedback_rate_hz": dict(self.feedback_rate_hz),
             "exact_duplicate_suppression": self.exact_duplicate_suppression,
             "command_evaluation_count": self.command_evaluation_count,
             "command_rate_limited_count": self.command_rate_limited_count,
