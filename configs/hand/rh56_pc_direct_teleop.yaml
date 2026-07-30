@@ -9,8 +9,8 @@ serial:
   timeout_sec: 0.2
   hand_id: 1
 finger_count: 6
-control_frequency_hz: 15
-scheduler_profile: baseline
+control_frequency_hz: 40
+scheduler_profile: fast40
 scheduler_profiles:
   baseline:
     command_rate_hz: 15
@@ -92,6 +92,6 @@ safety:
   max_close_strength: 0.8
   teleop_notes:
     - This config is for RH56 PC-direct hand-only teleop.
-    - Scheduler profile is selected explicitly; baseline uses command_hz 15 and fast30/fast40/fast50 change scheduling only. Delta_limit remains 0.05 and this gate performs no automatic config writes.
+    - Fast40 is the physically selected default; baseline/fast30/fast50 remain explicit comparison profiles. Delta_limit remains 0.05 and this gate performs no automatic config writes.
     - No PC-direct low-pass filter is configured.
     - /hand/command_angles expects canonical raw count order.

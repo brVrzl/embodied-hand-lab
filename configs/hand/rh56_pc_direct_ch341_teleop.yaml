@@ -9,8 +9,8 @@ serial:
   timeout_sec: 0.2
   hand_id: 1
 finger_count: 6
-control_frequency_hz: 15
-scheduler_profile: baseline
+control_frequency_hz: 40
+scheduler_profile: fast40
 scheduler_profiles:
   baseline: {command_rate_hz: 15, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 15, force_feedback_rate_hz: 15, status_feedback_rate_hz: 15, error_feedback_rate_hz: 15}
   fast30: {command_rate_hz: 30, angle_feedback_rate_hz: 15, current_feedback_rate_hz: 10, force_feedback_rate_hz: 10, status_feedback_rate_hz: 10, error_feedback_rate_hz: 10}
