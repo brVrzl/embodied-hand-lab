@@ -139,6 +139,15 @@ episode-length-dependent GC workload without changing target generation,
 safety checks, or either watchdog. This correction is offline-tested and has
 not yet received a physical validation run.
 
+On 2026-07-30, independent RH56 command/feedback scheduling completed 60 second
+Quest hand-only runs at requested 15/30/40/50 Hz. Actual successful write rates
+were 15.01/29.14/37.66/38.23 Hz with zero RH56 serial/protocol/worker faults;
+`fast40` is selected because 50 Hz added no useful throughput and worsened tail
+latency. A following `fast40` combined run stopped after 21.02 s at the retained
+arm `control_heartbeat_transport_failure` / native hard timing gate. RH56 live
+feedback remained bounded and fault-free, but the combined episode is a physical
+FAIL and was not retried.
+
 ## Repository and research state
 
 PWL/root-cause-fix and the RH56 simulation hand implementation are merged into
@@ -271,6 +280,13 @@ streaming 路径当时仍在内存中保留已写入 JSONL 的全部 1208 条大
 完整 JSONL 写入后即释放对应内存 event，消除随 episode 长度增长的 GC 工作量；target
 generation、全部安全检查与两个 watchdog 均未改变。该修复仅完成离线测试，尚未进行
 新的真机验证。
+
+2026-07-30，RH56 command/feedback 独立调度完成了 requested 15/30/40/50 Hz、每档
+约 60 秒的 Quest hand-only 真机运行；actual successful write rate 分别为
+15.01/29.14/37.66/38.23 Hz，RH56 serial/protocol/worker fault 均为零。50 Hz 没有带来
+有效吞吐增益且 tail latency 变差，因此选择 `fast40`。随后一次 `fast40` combined 运行在
+21.02 秒因保留的 arm `control_heartbeat_transport_failure` / native hard timing gate
+停止；RH56 live feedback 有界且无故障，但 combined episode 判定为真机 FAIL，未自动重试。
 
 ## 仓库与研究状态
 

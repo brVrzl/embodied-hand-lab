@@ -11,9 +11,10 @@ The control order is
 order is `[pinky, ring, middle, index, thumb_close, thumb_lateral]`. The driver
 uses 115200 baud, device address 1, `ANGLE_SET=1486`, `ANGLE_ACT=1546`,
 `FORCE_ACT=1582`, `CURRENT=1594`, `ERROR=1606`, and `STATUS=1612`. Position,
-speed, and force register ranges are 0--1000. Production hand control is 15 Hz,
-with a maximum normalized change of 0.05 per command and configured maximum
-closure 0.8.
+speed, and force register ranges are 0--1000. Production hand control defaults
+to the physically tested `fast40` scheduler profile, with a maximum normalized
+change of 0.05 per command and configured maximum closure 0.8. The 15 Hz
+baseline remains selectable for comparison.
 
 Opening the serial transport performs zero writes: it does not clear errors,
 write speed/force, send a hold target, or open the hand. `ANGLE_ACT` is measured
@@ -154,7 +155,7 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 ```
 
 Normal hand teleoperation does not mean safety is disabled. Register range,
-canonical/protocol ordering, 15 Hz rate, per-cycle delta, serial timeouts,
+canonical/protocol ordering, selected scheduler rate, per-cycle delta, serial timeouts,
 frame/checksum validation, feedback stale, ERROR/STATUS response gates, grip
 stale, measured/commanded separation, and cleanup remain active.
 
@@ -187,7 +188,8 @@ tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Q
 `[pinky, ring, middle, index, thumb_close, thumb_lateral]`。协议为 115200 baud、地址 1；
 `ANGLE_SET=1486`、`ANGLE_ACT=1546`、`FORCE_ACT=1582`、`CURRENT=1594`、
 `ERROR=1606`、`STATUS=1612`。position/speed/force 寄存器范围是 0--1000。正式手部控制
-为 15 Hz，每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
+默认使用已完成真机测试的 `fast40` scheduler profile；15 Hz baseline 仍可显式选择。
+每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
 
 打开串口时寄存器写入数为零：不 clear error、不写 speed/force、不发送 hold target、也不
 自动张开。`ANGLE_ACT` 是实测反馈，command 不会伪装成 measured。非零 `ERROR`、读帧/
@@ -227,6 +229,6 @@ hand 安全限制。
 如果操作者基于既往 RH56 真机经验明确选择直接进行 Quest hand-only，可使用英文部分的
 timestamp 模板。四个输出都采用唯一时间戳和 exclusive-create，避免覆盖旧证据。
 
-正常 hand teleop 不等于取消安全限制。0--1000 范围、通道顺序、15 Hz、每周期 delta、
+正常 hand teleop 不等于取消安全限制。0--1000 范围、通道顺序、所选 scheduler rate、每周期 delta、
 串口 timeout、帧/checksum、feedback stale、ERROR/STATUS 响应、grip stale、measured/commanded
 区分和 cleanup 都继续生效。联合入口不会自动 clear error、写 speed、写 force 或张开手。
