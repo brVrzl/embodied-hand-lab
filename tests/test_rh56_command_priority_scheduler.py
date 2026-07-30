@@ -31,12 +31,17 @@ class ScheduledBackend(FakeRH56PcDirectBackend):
         self.operations: list[str] = []
         self.duration_ms: dict[str, float] = {}
         self.angle_hook = None
+        self.command_hook = None
 
     def _operation(self, name: str, callback):
         self.operations.append(name)
         if name == "ANGLE" and self.angle_hook is not None:
             hook = self.angle_hook
             self.angle_hook = None
+            hook()
+        if name == "COMMAND" and self.command_hook is not None:
+            hook = self.command_hook
+            self.command_hook = None
             hook()
         result = callback()
         self.clock.advance_ms(self.duration_ms.get(name, 0.0))
@@ -210,6 +215,27 @@ def test_one_latest_target_continues_delta_limited_progress_without_duplicate_wr
         assert control.last_command_normalized == pytest.approx([0.2] * 6)
         worker.run_cycle()
         assert len(backend.position_writes) == 4
+    finally:
+        worker.cleanup()
+
+
+def test_activation_force_is_consumed_before_concurrent_latest_target_arrives() -> None:
+    worker, _control, backend, clock, first = _worker("fast40")
+    try:
+        worker.activate_from_measured(first.monotonic_ns)
+        worker.submit_target([0.2] * 6, clock())
+        backend.command_hook = lambda: worker.submit_target([0.3] * 6, clock())
+        worker.run_cycle()
+        assert backend.operations == ["COMMAND"]
+
+        # The target submitted during the forced write remains latest-only,
+        # but it is an ordinary target and cannot bypass the next deadline.
+        worker.run_cycle()
+        assert backend.operations == ["COMMAND"]
+        clock.advance_ms(25)
+        worker.run_cycle()
+        assert backend.operations == ["COMMAND", "COMMAND"]
+        assert worker.diagnostics_snapshot()["last_written_sequence"] == 3
     finally:
         worker.cleanup()
 

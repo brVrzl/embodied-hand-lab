@@ -17,7 +17,6 @@ class PendingTarget:
     values: tuple[float, ...]
     sequence: int
     submitted_monotonic_ns: int
-    force_write: bool = False
 
 
 class RH56PcDirectWorker:
@@ -40,6 +39,7 @@ class RH56PcDirectWorker:
         self._thread: threading.Thread | None = None
         self._active_requested = False
         self._pending_target: PendingTarget | None = None
+        self._force_write_pending = False
         self._hold_reason = "startup"
         self._terminal_reason: str | None = None
         self._feedback: PcDirectFeedback | None = None
@@ -172,8 +172,8 @@ class RH56PcDirectWorker:
                 tuple(feedback.position_normalized),
                 self._submitted_sequence,
                 int(monotonic_ns),
-                True,
             )
+            self._force_write_pending = True
             self._command_due_ns = int(monotonic_ns)
             self._wake.set()
             return feedback.position_normalized
@@ -192,13 +192,8 @@ class RH56PcDirectWorker:
             ):
                 self._coalesced_count += 1
             self._submitted_sequence += 1
-            force_write = bool(
-                self._pending_target is not None
-                and self._pending_target.force_write
-                and self._pending_target.sequence > self._evaluated_sequence
-            )
             self._pending_target = PendingTarget(
-                values, self._submitted_sequence, int(monotonic_ns), force_write
+                values, self._submitted_sequence, int(monotonic_ns)
             )
             self._submit_count += 1
             if (
@@ -232,6 +227,7 @@ class RH56PcDirectWorker:
         with self._lock:
             self._active_requested = False
             self._pending_target = None
+            self._force_write_pending = False
             self._hold_reason = reason
         self._wake.set()
 
@@ -240,6 +236,7 @@ class RH56PcDirectWorker:
             self._terminal_reason = reason
             self._active_requested = False
             self._pending_target = None
+            self._force_write_pending = False
         self._wake.set()
 
     @property
@@ -297,6 +294,7 @@ class RH56PcDirectWorker:
         with self._lock:
             active = self._active_requested
             target = self._pending_target
+            force_write = self._force_write_pending
             hold_reason = self._hold_reason
             terminal_reason = self._terminal_reason
         if terminal_reason is not None:
@@ -314,7 +312,7 @@ class RH56PcDirectWorker:
             active
             and target_requires_command
             and (
-                target.force_write
+                force_write
                 or command_due_ns is None
                 or now_ns >= command_due_ns
             )
@@ -322,6 +320,9 @@ class RH56PcDirectWorker:
         operation = "idle"
         if command_is_due:
             assert target is not None
+            if force_write:
+                with self._lock:
+                    self._force_write_pending = False
             operation = "COMMAND"
             due_ns = now_ns if command_due_ns is None else command_due_ns
             actual_start_ns = self._monotonic_ns()
@@ -336,7 +337,7 @@ class RH56PcDirectWorker:
                 self._command_deadline_lateness_ms.append(lateness_ms)
             if (
                 self.stale_command_drop_enabled
-                and not target.force_write
+                and not force_write
                 and command_age_ns > self.stale_command_max_age_ns
             ):
                 self._stale_drop_count += 1
@@ -349,7 +350,7 @@ class RH56PcDirectWorker:
                     actual_start_ns,
                     submitted_monotonic_ns=target.submitted_monotonic_ns,
                     target_sequence=target.sequence,
-                    force_write=target.force_write,
+                    force_write=force_write,
                 )
                 actual_end_ns = self._monotonic_ns()
                 self._note_io(actual_start_ns, actual_end_ns)
@@ -377,9 +378,12 @@ class RH56PcDirectWorker:
                     self._evaluated_sequence = target.sequence
             self._observed_sequence = max(self._observed_sequence, target.sequence)
             self._last_command_actual_end_ns = actual_end_ns
-            self._command_due_ns = self._advance_deadline(
-                due_ns, self.control.command_period_ns, actual_end_ns
-            )
+            if self.control.last_command_disposition == "rate_limited":
+                self._command_due_ns = self.control.next_command_monotonic_ns
+            else:
+                self._command_due_ns = self._advance_deadline(
+                    due_ns, self.control.command_period_ns, actual_end_ns
+                )
             self.control.next_command_monotonic_ns = self._command_due_ns
         else:
             register = self._select_feedback_register(now_ns)
@@ -650,11 +654,12 @@ class RH56PcDirectWorker:
         with self._lock:
             active = self._active_requested
             target = self._pending_target
+            force_write = self._force_write_pending
         if (
             active
             and target is not None
             and self._target_requires_command(target)
-            and target.force_write
+            and force_write
         ):
             return now_ns
         candidates = [
