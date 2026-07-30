@@ -153,6 +153,12 @@ class RH56PcDirectWorker:
             self._thread.start()
         return feedback
 
+    @property
+    def native_thread_id(self) -> int | None:
+        """OS thread id for boundary-only placement diagnostics."""
+
+        return None if self._thread is None else self._thread.native_id
+
     def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]:
         self.raise_if_failed()
         with self._lock:

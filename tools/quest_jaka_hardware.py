@@ -17,10 +17,12 @@ import argparse
 from dataclasses import replace
 import json
 import math
+import os
 from pathlib import Path
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 
 from motion_input.hts_transport import HtsRawRecordingWriter
@@ -80,6 +82,96 @@ def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
     return (len(timestamps_ns) - 1) * 1e9 / (
         timestamps_ns[-1] - timestamps_ns[0]
     )
+
+
+def _task_placement(
+    *, component: str, process_id: int, thread_id: int, thread_name: str
+) -> dict[str, object]:
+    """Read one bounded /proc scheduling record outside command-critical work."""
+
+    result: dict[str, object] = {
+        "component": component,
+        "process_id": process_id,
+        "thread_id": thread_id,
+        "thread_name": thread_name,
+    }
+    try:
+        stat = Path(f"/proc/{process_id}/task/{thread_id}/stat").read_text(
+            encoding="utf-8"
+        )
+        closing = stat.rfind(")")
+        fields = stat[closing + 2 :].split()
+        # The first split field is Linux task-stat field 3 (state), while
+        # processor is field 39.
+        result["current_cpu"] = int(fields[36])
+        result["scheduler_policy"] = int(os.sched_getscheduler(thread_id))
+        result["scheduler_priority"] = int(
+            os.sched_getparam(thread_id).sched_priority
+        )
+        result["nice_value"] = int(os.getpriority(os.PRIO_PROCESS, thread_id))
+        result["affinity_mask"] = sorted(os.sched_getaffinity(thread_id))
+    except (IndexError, OSError, ValueError) as exc:
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    return result
+
+
+def _component_placement_snapshot(
+    *,
+    boundary: str,
+    native: NativeWorkerProcess,
+    receiver: QuestDatagramReceiverWorker | None,
+    rh56_worker: RH56PcDirectWorker | None,
+) -> dict[str, object]:
+    """Capture bounded component placement without touching control locks."""
+
+    process_id = os.getpid()
+    known_threads: dict[int, tuple[str, str]] = {
+        threading.get_native_id(): ("python_combined_wrapper", "main"),
+    }
+    if receiver is not None and receiver.thread.native_id is not None:
+        known_threads[int(receiver.thread.native_id)] = (
+            "quest_receiver",
+            receiver.thread.name,
+        )
+    if rh56_worker is not None and rh56_worker.native_thread_id is not None:
+        known_threads[int(rh56_worker.native_thread_id)] = (
+            "rh56_serial_and_logging",
+            "rh56-pc-direct",
+        )
+    tasks: list[dict[str, object]] = []
+    try:
+        task_ids = sorted(
+            int(path.name) for path in Path(f"/proc/{process_id}/task").iterdir()
+        )
+    except OSError:
+        task_ids = sorted(known_threads)
+    for thread_id in task_ids:
+        component, name = known_threads.get(
+            thread_id, ("other_python_thread", "unknown")
+        )
+        tasks.append(
+            _task_placement(
+                component=component,
+                process_id=process_id,
+                thread_id=thread_id,
+                thread_name=name,
+            )
+        )
+    if native.process is not None:
+        tasks.append(
+            _task_placement(
+                component="native_jaka_worker_process",
+                process_id=native.process.pid,
+                thread_id=native.process.pid,
+                thread_name="native-main-control",
+            )
+        )
+    return {
+        "boundary": boundary,
+        "monotonic_ns": time.monotonic_ns(),
+        "tasks": tasks,
+        "logging_execution": "synchronous_on_rh56_serial_worker",
+    }
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -767,6 +859,7 @@ def main() -> int:
         next_tick = started
         status = None
         receiver: QuestDatagramReceiverWorker | None = None
+        component_placement_snapshots: list[dict[str, object]] = []
         maximum_quest_displacement_m = 0.0
         minimum_continuation_fraction = 1.0
         clutch_release_monotonic_ns: int | None = None
@@ -802,6 +895,14 @@ def main() -> int:
                     record=capture.write,
                 )
                 receiver.start()
+                component_placement_snapshots.append(
+                    _component_placement_snapshot(
+                        boundary="combined_workers_started",
+                        native=native,
+                        receiver=receiver,
+                        rh56_worker=rh56_worker,
+                    )
+                )
                 started = time.monotonic()
                 next_tick = started
                 try:
@@ -809,6 +910,14 @@ def main() -> int:
                         if rh56_worker is not None and rh56_worker.failed:
                             abort_reason = "rh56_transport_or_feedback_fault"
                             stop_reason = abort_reason
+                            component_placement_snapshots.append(
+                                _component_placement_snapshot(
+                                    boundary=abort_reason,
+                                    native=native,
+                                    receiver=receiver,
+                                    rh56_worker=rh56_worker,
+                                )
+                            )
                             jaka_adapter.stop()
                             break
                         if native.process is None or native.process.poll() is not None:
@@ -817,6 +926,14 @@ def main() -> int:
                                 args.metrics, return_code
                             )
                             stop_reason = abort_reason
+                            component_placement_snapshots.append(
+                                _component_placement_snapshot(
+                                    boundary=abort_reason,
+                                    native=native,
+                                    receiver=receiver,
+                                    rh56_worker=rh56_worker,
+                                )
+                            )
                             jaka_adapter.stop()
                             if rh56_worker is not None:
                                 rh56_worker.arm_terminal_stop(abort_reason)
@@ -932,6 +1049,14 @@ def main() -> int:
                                     else:
                                         abort_reason = "IPC_failure"
                             stop_reason = abort_reason
+                            component_placement_snapshots.append(
+                                _component_placement_snapshot(
+                                    boundary=abort_reason,
+                                    native=native,
+                                    receiver=receiver,
+                                    rh56_worker=rh56_worker,
+                                )
+                            )
                             jaka_adapter.stop()
                             if rh56_worker is not None:
                                 rh56_worker.arm_terminal_stop(abort_reason)
@@ -1065,6 +1190,14 @@ def main() -> int:
                         skipped = max(0, int((now - next_tick) * target_hz))
                         next_tick += (skipped + 1) / target_hz
                 finally:
+                    component_placement_snapshots.append(
+                        _component_placement_snapshot(
+                            boundary="combined_receiver_shutdown",
+                            native=native,
+                            receiver=receiver,
+                            rh56_worker=rh56_worker,
+                        )
+                    )
                     receiver.close()
         except KeyboardInterrupt:
             stop_reason = "operator_keyboard_stop"
@@ -1148,6 +1281,11 @@ def main() -> int:
             ),
             "producer_timing_ms": _producer_timing_summary(
                 producer_timing_rows
+            ),
+            "component_placement_snapshots": component_placement_snapshots,
+            "native_worker_placement": metrics.get("worker_placement"),
+            "native_system_boundary_observer": metrics.get(
+                "system_boundary_observer"
             ),
         }
         args.summary.write_text(
@@ -1329,6 +1467,11 @@ def main() -> int:
             session.budget_exhausted_after_checks_feasible
         ),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
+        "component_placement_snapshots": component_placement_snapshots,
+        "native_worker_placement": metrics.get("worker_placement"),
+        "native_system_boundary_observer": metrics.get(
+            "system_boundary_observer"
+        ),
         "measured_joint_fk_tcp_motion": measured_tcp,
         "e2_maximum_requested_tcp_displacement_m": (
             None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m

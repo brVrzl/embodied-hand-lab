@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import argparse
+import threading
 
 import pytest
 
@@ -11,6 +13,7 @@ from quest_jaka_sim import ReplayConfig
 from teleoperation.wire import StatusFlags
 from tools.quest_jaka_hardware import (
     RECOVERABLE_CLUTCH_STAGES,
+    _task_placement,
     _parser,
     _native_terminal_reason_if_ready,
     _reconcile_terminal_transport_symptom,
@@ -23,6 +26,19 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_quest_jaka_bounded_teleop.sh"
 COMBINED_SCRIPT = ROOT / "scripts" / "run_quest_jaka_rh56_teleop.sh"
 APPROVAL = "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
+
+
+def test_task_placement_reports_current_python_thread() -> None:
+    placement = _task_placement(
+        component="test_main",
+        process_id=os.getpid(),
+        thread_id=threading.get_native_id(),
+        thread_name="pytest-main",
+    )
+    assert "error" not in placement
+    assert placement["current_cpu"] >= 0
+    assert placement["affinity_mask"]
+    assert placement["scheduler_policy"] >= 0
 
 
 def _base_args(tmp_path: Path) -> list[str]:
