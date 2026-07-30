@@ -275,3 +275,31 @@ def test_diagnostics_report_requested_and_achieved_command_rates() -> None:
         assert diagnostics["timing_ms"]["command_deadline_lateness"]["max"] == pytest.approx(0.0)
     finally:
         worker.cleanup()
+
+
+def test_logging_is_compact_per_command_and_full_only_on_angle_feedback() -> None:
+    rows: list[dict[str, object]] = []
+    clock = ManualClock()
+    backend = ScheduledBackend(clock)
+    control = RH56PcDirectControl(
+        backend, _config("fast30"), perf_counter_ns=clock
+    )
+    worker = RH56PcDirectWorker(control, monotonic_ns=clock, record=rows.append)
+    first = worker.start(RH56_COMBINED_RUN_APPROVAL, run_in_thread=False)
+    try:
+        worker.activate_from_measured(first.monotonic_ns)
+        worker.submit_target([0.05] * 6, clock())
+        worker.run_cycle()
+        assert rows[-1]["rh56_scheduled_operation"] == "COMMAND"
+        assert rows[-1]["rh56_command_timing"] is not None
+        assert rows[-1]["rh56_worker"] is None
+        assert rows[-1]["rh56_diagnostics"] is None
+
+        clock.advance_ms(70)
+        worker.run_cycle()
+        assert rows[-1]["rh56_scheduled_operation"] == "ANGLE"
+        assert rows[-1]["rh56_command_timing"] is None
+        assert rows[-1]["rh56_worker"] is not None
+        assert rows[-1]["rh56_diagnostics"] is not None
+    finally:
+        worker.cleanup()

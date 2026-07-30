@@ -423,18 +423,36 @@ class RH56PcDirectWorker:
                 if register == "ANGLE":
                     self._note_feedback(actual_end_ns)
         self._update_feedback_ages(self._monotonic_ns())
-        record_now_ns = self._monotonic_ns()
-        row = self.control.episode_record(
-            record_now_ns, None if target is None else target.values
-        )
-        row["record_type"] = "rh56_telemetry"
-        row["rh56_scheduled_operation"] = operation
-        row["rh56_worker"] = (
-            self.diagnostics_snapshot(include_windows=True)
-            if self.diagnostics_enabled
-            else None
-        )
-        self._emit_record(row)
+        if self.record is not None and operation in {"COMMAND", "ANGLE"}:
+            record_now_ns = self._monotonic_ns()
+            full_diagnostics = operation == "ANGLE"
+            row = self.control.episode_record(
+                record_now_ns,
+                None if target is None else target.values,
+                include_diagnostics=full_diagnostics,
+            )
+            row["record_type"] = "rh56_telemetry"
+            row["rh56_scheduled_operation"] = operation
+            row["rh56_worker"] = (
+                self.diagnostics_snapshot(include_windows=True)
+                if self.diagnostics_enabled and full_diagnostics
+                else None
+            )
+            row["rh56_command_timing"] = (
+                {
+                    "command_due_ns": self._last_command_due_ns,
+                    "command_actual_start_ns": self._last_command_actual_start_ns,
+                    "command_actual_end_ns": self._last_command_actual_end_ns,
+                    "command_deadline_lateness_ms": (
+                        self._last_command_deadline_lateness_ms
+                    ),
+                    "command_age_at_write_ms": self.control.last_command_age_ms,
+                    "submit_to_write_ms": self._last_submit_to_write_ms,
+                }
+                if operation == "COMMAND"
+                else None
+            )
+            self._emit_record(row)
         self._cycle_count += 1
         cycle_duration_ms = (self._monotonic_ns() - cycle_started_ns) / 1e6
         if cycle_duration_ms * 1e6 > self.control.command_period_ns:
@@ -497,6 +515,9 @@ class RH56PcDirectWorker:
             ),
             "control": self.control.diagnostics_snapshot(),
             "serial_utilization_estimate": self._serial_utilization(),
+            "telemetry_emission_policy": (
+                "compact_each_command_full_snapshot_each_angle_feedback"
+            ),
             "feedback": self._feedback_diagnostics(self._monotonic_ns()),
         }
         if include_windows and self.diagnostics_enabled:

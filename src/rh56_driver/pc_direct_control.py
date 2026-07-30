@@ -770,6 +770,8 @@ class RH56PcDirectControl:
         self,
         monotonic_ns: int,
         requested_target: Sequence[float] | None = None,
+        *,
+        include_diagnostics: bool = True,
     ) -> dict[str, Any]:
         feedback = self.last_feedback
         return {
@@ -820,7 +822,9 @@ class RH56PcDirectControl:
             "hand_command_disposition": self.last_command_disposition,
             "hand_command_age_ms": self.last_command_age_ms,
             "rh56_diagnostics": (
-                self.diagnostics_snapshot() if self.diagnostics_enabled else None
+                self.diagnostics_snapshot()
+                if self.diagnostics_enabled and include_diagnostics
+                else None
             ),
             "combined_episode_valid": self.state is not HandControlState.FAULT,
             "required_arm_action": None
