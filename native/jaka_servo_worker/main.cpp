@@ -170,6 +170,7 @@ struct Options {
   std::uint64_t fake_connect_delay_ns = 0;
   std::uint64_t fake_edg_delay_ns = 0;
   std::uint64_t fake_start_delay_once_ns = 0;
+  std::uint64_t fake_pre_command_delay_once_ns = 0;
   std::uint64_t fake_read_delay_ns = 0;
   std::uint64_t fake_write_delay_ns = 0;
   std::uint64_t fake_fail_after = 0;
@@ -323,6 +324,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--fake-connect-delay-us") o.fake_connect_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-edg-delay-us") o.fake_edg_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-start-delay-once-us") o.fake_start_delay_once_ns = std::stoull(value_after(i, argc, argv)) * 1000;
+    else if (a == "--fake-pre-command-delay-once-us") o.fake_pre_command_delay_once_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-read-delay-us") o.fake_read_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-write-delay-us") o.fake_write_delay_ns = std::stoull(value_after(i, argc, argv)) * 1000;
     else if (a == "--fake-fail-after") o.fake_fail_after = std::stoull(value_after(i, argc, argv));
@@ -2514,6 +2516,7 @@ int run(const Options& o) {
     previous = start;
     deadline = start;
     bool fake_start_delay_injected = false;
+    bool fake_pre_command_delay_injected = false;
     while (!g_stop.load(std::memory_order_relaxed) && samples.count < kMaximumSamples) {
       deadline += kPeriodNs;
       timespec wake{static_cast<time_t>(deadline / 1'000'000'000), static_cast<long>(deadline % 1'000'000'000)};
@@ -2618,6 +2621,17 @@ int run(const Options& o) {
           outcome = "consecutive_start_timing_misses";
           break;
         }
+      }
+      if (!fake_pre_command_delay_injected &&
+          o.fake_pre_command_delay_once_ns > 0) {
+        timespec delay{
+            static_cast<time_t>(
+                o.fake_pre_command_delay_once_ns / 1'000'000'000),
+            static_cast<long>(
+                o.fake_pre_command_delay_once_ns % 1'000'000'000)};
+        while (nanosleep(&delay, &delay) == -1 && errno == EINTR &&
+               !g_stop.load()) {}
+        fake_pre_command_delay_injected = true;
       }
       TargetPacket packet{};
       bool invalid_command = false, transport_failure = false;
@@ -3029,6 +3043,7 @@ int run(const Options& o) {
       const int completion_cpu = sched_getcpu();
       placement.observe_cpu(cycle_end, completion_cpu);
       bool exit_after_cycle = false;
+      bool completion_schedule_realign = false;
       if (stop_requested && is_bounded_mode(o.mode) && backend->edg_active()) {
         if (tracker.stationary()) {
           state = State::ControlledStop;
@@ -3062,6 +3077,7 @@ int run(const Options& o) {
           ++samples.timing_warnings;
           ++consecutive_completion_misses;
           schedule_realign = true;
+          completion_schedule_realign = true;
           if (!first_timing_warning_recorded) {
             first_timing_warning_recorded = true;
             placement.record(PlacementEventReason::FirstTimingWarning,
@@ -3105,7 +3121,14 @@ int run(const Options& o) {
         state = State::Fault; outcome = "control_loop_overrun"; break;
       }
       if (schedule_realign) {
-        deadline = cycle_start;
+        // A late start re-arms from the actual start. A late completion must
+        // re-arm from completion instead: using cycle_start here can place the
+        // next deadline in the past and emit two ServoJ commands back-to-back.
+        // Reset the start-period reference with the same completion timestamp
+        // so the deliberately skipped historical tick is not misclassified as
+        // a new start miss.
+        deadline = completion_schedule_realign ? cycle_end : cycle_start;
+        if (completion_schedule_realign) previous = cycle_end;
         ++samples.schedule_realignments;
       }
       if ((i % 13) == 0 || output_acceleration_hold_status_pending ||

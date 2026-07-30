@@ -395,6 +395,38 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
+def test_completion_realign_waits_a_full_period_before_next_command(tmp_path) -> None:
+    metrics = tmp_path / "completion-realign.json"
+    cycles = tmp_path / "completion-realign-cycles.jsonl"
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-zero-motion-dry-run",
+            "--duration-s", "0.12",
+            "--fake-pre-command-delay-once-us", "9000",
+            "--target-socket", str(tmp_path / "completion-realign.sock"),
+            "--metrics-file", str(metrics),
+            "--cycle-telemetry-file", str(cycles),
+        ],
+        check=False,
+    )
+    payload = json.loads(metrics.read_text())
+    rows = [json.loads(line) for line in cycles.read_text().splitlines()]
+    late_index = next(
+        index
+        for index, row in enumerate(rows[:-1])
+        if row["completion_lateness_ns"] > 8_000_000
+    )
+    assert result.returncode == 0
+    assert payload["hard_timing_misses"] == 0
+    assert payload["schedule_realignments"] >= 1
+    assert (
+        rows[late_index + 1]["command_start_ns"]
+        - rows[late_index]["command_end_ns"]
+        >= 7_500_000
+    )
+
+
 def test_full_period_start_delay_is_a_nonzero_hard_fault(tmp_path) -> None:
     metrics = tmp_path / "hard-start-delay.json"
     target = tmp_path / "hard-start-delay.sock"
