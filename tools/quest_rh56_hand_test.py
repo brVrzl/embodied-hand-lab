@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import copy
+from dataclasses import replace
 import json
 import math
 import time
@@ -64,10 +66,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the RH56 command/feedback scheduler profile.",
     )
     parser.add_argument("--quest-config", default="configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    parser.add_argument(
+        "--hand-calibration",
+        default="configs/hand/quest_rh56_real_retarget.yaml",
+        help=(
+            "Quest feature calibration loaded only by this hand-only physical entry. "
+            "The simulation config is not modified."
+        ),
+    )
     parser.add_argument("--approval", default="")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--read-only", action="store_true", help="Stage 1 feedback-only probe (default).")
     modes.add_argument("--bounded-command", action="store_true", help="Stage 2 measured-relative one-channel test.")
+    modes.add_argument(
+        "--bounded-channel-target",
+        action="store_true",
+        help="Stage 2 measured-relative ramp of one canonical channel to an explicit normalized target.",
+    )
+    modes.add_argument(
+        "--bounded-pose",
+        action="store_true",
+        help="Stage 2 measured-activated ramp to one explicit six-channel canonical normalized pose.",
+    )
     modes.add_argument("--quest-teleop", action="store_true", help="Stage 3 Quest grip hand-only teleoperation.")
     modes.add_argument("--write-runtime-config", action="store_true", help="Separately authorized SPEED/FORCE write.")
     parser.add_argument("--duration-sec", type=float, default=5.0)
@@ -75,6 +95,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--feedback-period-sec", type=float, default=0.2)
     parser.add_argument("--channel", choices=CANONICAL_HAND_ORDER)
     parser.add_argument("--delta", type=float)
+    parser.add_argument("--target-normalized", type=float, nargs="+")
+    parser.add_argument("--pose-label", default="")
     parser.add_argument("--speed", type=int, nargs=6)
     parser.add_argument("--force", type=int, nargs=6)
     parser.add_argument("--bind", default="0.0.0.0")
@@ -94,6 +116,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _mode(args: argparse.Namespace) -> str:
+    if args.bounded_channel_target:
+        return "bounded-channel-target"
+    if args.bounded_pose:
+        return "bounded-pose"
     if args.bounded_command:
         return "bounded-command"
     if args.quest_teleop:
@@ -116,6 +142,8 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
     expected = {
         "read-only": HandAuthorization.READ_ONLY,
         "bounded-command": HandAuthorization.HAND_ONLY_COMMAND,
+        "bounded-channel-target": HandAuthorization.HAND_ONLY_COMMAND,
+        "bounded-pose": HandAuthorization.HAND_ONLY_COMMAND,
         "quest-teleop": HandAuthorization.HAND_ONLY_COMMAND,
         "write-runtime-config": HandAuthorization.RUNTIME_CONFIG,
     }[mode]
@@ -125,16 +153,47 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
         raise ValueError("--duration-sec must be positive.")
     if mode == "read-only" and args.duration_sec > MAX_READ_ONLY_DURATION_SEC:
         raise ValueError(f"Read-only duration is limited to {MAX_READ_ONLY_DURATION_SEC:g} seconds.")
-    if mode == "bounded-command":
+    if mode in {"bounded-command", "bounded-channel-target", "bounded-pose"}:
         if args.duration_sec > MAX_BOUNDED_COMMAND_DURATION_SEC:
-            raise ValueError(f"Bounded-command duration is limited to {MAX_BOUNDED_COMMAND_DURATION_SEC:g} seconds.")
+            raise ValueError(f"Bounded command duration is limited to {MAX_BOUNDED_COMMAND_DURATION_SEC:g} seconds.")
+    if mode == "bounded-command":
         if args.channel is None or args.delta is None:
             raise ValueError("--bounded-command requires explicit --channel and --delta.")
         if not math.isfinite(args.delta) or args.delta == 0.0:
             raise ValueError("--delta must be finite and nonzero.")
         if args.hold_sec < 0.0:
             raise ValueError("--hold-sec must be nonnegative.")
-    if mode in {"bounded-command", "quest-teleop"} and not (
+    if mode == "bounded-channel-target":
+        if args.channel is None or args.target_normalized is None:
+            raise ValueError(
+                "--bounded-channel-target requires --channel and one --target-normalized value."
+            )
+        if len(args.target_normalized) != 1:
+            raise ValueError(
+                "--bounded-channel-target requires exactly one --target-normalized value."
+            )
+    if mode == "bounded-pose":
+        if args.target_normalized is None or len(args.target_normalized) != 6:
+            raise ValueError(
+                "--bounded-pose requires six canonical --target-normalized values."
+            )
+        if not args.pose_label.strip():
+            raise ValueError("--bounded-pose requires a nonempty --pose-label.")
+    if mode in {"bounded-channel-target", "bounded-pose"}:
+        assert args.target_normalized is not None
+        if not all(
+            math.isfinite(value) and 0.0 <= value <= 0.8
+            for value in args.target_normalized
+        ):
+            raise ValueError("Bounded normalized targets must remain within [0, 0.8].")
+        if args.hold_sec < 0.0:
+            raise ValueError("--hold-sec must be nonnegative.")
+    if mode in {
+        "bounded-command",
+        "bounded-channel-target",
+        "bounded-pose",
+        "quest-teleop",
+    } and not (
         args.manual_stop_accessible and args.workspace_clear and args.no_auto_retry
     ):
         raise PermissionError(
@@ -286,6 +345,71 @@ def _run_bounded(
     }
 
 
+def _run_worker_bounded_target(
+    args: argparse.Namespace,
+    control: RH56PcDirectControl,
+    recorder: BoundedJsonlRecorder,
+) -> dict[str, Any]:
+    """Use the production worker to ramp from measured activation to a target."""
+
+    worker = RH56PcDirectWorker(control, record=recorder)
+    first = worker.start(args.approval)
+    activation = worker.activate_from_measured(time.monotonic_ns())
+    activation_deadline = time.monotonic() + min(
+        1.0, control.feedback_stale_timeout_ns / 1e9
+    )
+    while time.monotonic() < activation_deadline:
+        worker.raise_if_failed()
+        diagnostics = worker.diagnostics_snapshot(include_windows=False)
+        if int(diagnostics["successful_serial_write_count"]) >= 1:
+            break
+        time.sleep(0.001)
+    else:
+        raise RuntimeError("Measured activation write did not complete before target submission.")
+
+    target = list(activation)
+    if args.bounded_channel_target:
+        assert args.channel is not None
+        assert args.target_normalized is not None
+        target[CANONICAL_HAND_ORDER.index(args.channel)] = float(
+            args.target_normalized[0]
+        )
+    else:
+        assert args.target_normalized is not None
+        target = [float(value) for value in args.target_normalized]
+    worker.submit_target(target, time.monotonic_ns())
+    started = time.monotonic()
+    try:
+        while time.monotonic() - started < args.duration_sec:
+            worker.raise_if_failed()
+            time.sleep(0.005)
+        worker.hold("bounded_target_reached")
+        hold_deadline = time.monotonic() + args.hold_sec
+        while time.monotonic() < hold_deadline:
+            worker.raise_if_failed()
+            time.sleep(0.005)
+    finally:
+        worker.hold("bounded_target_end")
+        worker.cleanup()
+    feedback = worker.latest_feedback or first
+    return {
+        "pose_label": args.pose_label or args.channel,
+        "channel": args.channel,
+        "initial_angle_act": list(first.position_raw),
+        "initial_measured_normalized": list(first.position_normalized),
+        "measured_activation_target_normalized": list(activation),
+        "bounded_target_normalized": target,
+        "final_angle_act": list(feedback.position_raw),
+        "final_measured_normalized": list(feedback.position_normalized),
+        "final_current": list(feedback.current_raw_count),
+        "final_force_act": list(feedback.load_or_force_raw_count),
+        "final_status": list(feedback.status),
+        "final_error": list(feedback.error),
+        "rh56_worker_failure": worker.failure_record,
+        "rh56_diagnostics": worker.diagnostics_snapshot(),
+    }
+
+
 def _run_quest(
     args: argparse.Namespace,
     control: RH56PcDirectControl,
@@ -293,7 +417,10 @@ def _run_quest(
 ) -> dict[str, Any]:
     worker = RH56PcDirectWorker(control, record=recorder)
     worker.start(args.approval)
-    quest_config = ReplayConfig.load(args.quest_config)
+    quest_config = _load_hand_only_quest_config(
+        args.quest_config,
+        args.hand_calibration,
+    )
     generator = SharedJakaTargetGenerator(quest_config, mjcf_path=quest_config.mjcf_path)
     arm_record = RecordingArmTargetAdapter()
     session = SmoothQuestJakaSession(
@@ -374,7 +501,32 @@ def _run_quest(
         "hand_retarget_rate_hz": _timestamp_rate_hz(
             session.hand_timestamps_ns
         ),
+        "hand_calibration_path": args.hand_calibration,
+        "hand_calibration_id": (
+            None
+            if session.hand_retargeter is None
+            else session.hand_retargeter.calibration.calibration_id
+        ),
     }
+
+
+def _load_hand_only_quest_config(
+    quest_config_path: str,
+    hand_calibration_path: str,
+) -> ReplayConfig:
+    """Override only the hand calibration for the physical hand-only entry."""
+
+    calibration_path = Path(hand_calibration_path)
+    if not calibration_path.is_file():
+        raise FileNotFoundError(
+            f"hand-only calibration does not exist: {calibration_path}"
+        )
+    config = ReplayConfig.load(quest_config_path)
+    raw = copy.deepcopy(config.raw)
+    hand_values = raw.setdefault("hand_retargeting", {})
+    hand_values["enabled"] = True
+    hand_values["calibration_path"] = str(calibration_path)
+    return replace(config, raw=raw)
 
 
 def main() -> None:
@@ -460,6 +612,9 @@ def main() -> None:
         assert authorization is not None
         if _mode(args) == "quest-teleop":
             result.update(_run_quest(args, control, recorder))
+        elif args.bounded_channel_target or args.bounded_pose:
+            result["authorization"] = authorization.value
+            result.update(_run_worker_bounded_target(args, control, recorder))
         else:
             control.open(args.approval)
             result["authorization"] = authorization.value

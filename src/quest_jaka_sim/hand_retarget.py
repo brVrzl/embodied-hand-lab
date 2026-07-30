@@ -145,6 +145,9 @@ class HandRetargetCalibration:
     global_scale: float
     palm_scale: float
     finger_scale: tuple[float, float, float, float]
+    finger_feature_open: tuple[float, float, float, float]
+    finger_feature_closed: tuple[float, float, float, float]
+    finger_curve_exponent: tuple[float, float, float, float]
     thumb_scale: float
     key_vector_scale: float
     thumb_close_bend_gain: float
@@ -170,6 +173,24 @@ class HandRetargetCalibration:
             global_scale=float(calibration["global_scale"]),
             palm_scale=float(calibration["palm_scale"]),
             finger_scale=tuple(float(value) for value in calibration["finger_scale"]),
+            finger_feature_open=tuple(
+                float(value)
+                for value in calibration.get("finger_feature", {}).get(
+                    "open", (0.0, 0.0, 0.0, 0.0)
+                )
+            ),
+            finger_feature_closed=tuple(
+                float(value)
+                for value in calibration.get("finger_feature", {}).get(
+                    "closed", (1.0, 1.0, 1.0, 1.0)
+                )
+            ),
+            finger_curve_exponent=tuple(
+                float(value)
+                for value in calibration.get("finger_feature", {}).get(
+                    "curve_exponent", (1.0, 1.0, 1.0, 1.0)
+                )
+            ),
             thumb_scale=float(calibration["thumb_scale"]),
             key_vector_scale=float(calibration["key_vector_scale"]),
             thumb_close_bend_gain=float(thumb_close.get("bend_gain", 1.0)),
@@ -198,13 +219,27 @@ class HandRetargetCalibration:
         )
         if (
             len(result.finger_scale) != 4
+            or len(result.finger_feature_open) != 4
+            or len(result.finger_feature_closed) != 4
+            or len(result.finger_curve_exponent) != 4
             or not all(math.isfinite(value) and value > 0 for value in (
                 result.global_scale,
                 result.palm_scale,
                 *result.finger_scale,
                 result.thumb_scale,
                 result.key_vector_scale,
+                *result.finger_curve_exponent,
             ))
+            or not all(
+                math.isfinite(open_value)
+                and math.isfinite(closed_value)
+                and closed_value > open_value
+                for open_value, closed_value in zip(
+                    result.finger_feature_open,
+                    result.finger_feature_closed,
+                    strict=True,
+                )
+            )
             or not math.isfinite(result.thumb_close_bend_gain)
             or result.thumb_close_bend_gain < 0.0
             or not math.isfinite(result.thumb_close_pinch_assist_gain)
@@ -230,6 +265,32 @@ class HandRetargeter(Protocol):
     def retarget(self, skeleton: QuestHandSkeleton) -> InspireRetargetResult: ...
 
 
+def calibrate_finger_feature(
+    raw_feature: float,
+    *,
+    open_feature: float,
+    closed_feature: float,
+    curve_exponent: float,
+) -> float:
+    """Map one measured human curl feature onto a monotonic normalized span."""
+
+    values = (raw_feature, open_feature, closed_feature, curve_exponent)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("finger calibration inputs must be finite")
+    if closed_feature <= open_feature:
+        raise ValueError("finger calibration closed feature must exceed open feature")
+    if curve_exponent <= 0.0:
+        raise ValueError("finger calibration exponent must be positive")
+    normalized = float(
+        np.clip(
+            (raw_feature - open_feature) / (closed_feature - open_feature),
+            0.0,
+            1.0,
+        )
+    )
+    return normalized**curve_exponent
+
+
 class ProjectRh56Retargeter:
     """Selectable angle-adaptive or AnyDex-style key-vector feature backend."""
 
@@ -239,9 +300,13 @@ class ProjectRh56Retargeter:
         self.calibration = calibration
         self.backend = backend
         self._previous: np.ndarray | None = None
+        self._last_finger_raw = np.zeros(4, dtype=np.float64)
+        self._last_finger_calibrated = np.zeros(4, dtype=np.float64)
 
     def reset(self) -> None:
         self._previous = None
+        self._last_finger_raw.fill(0.0)
+        self._last_finger_calibrated.fill(0.0)
 
     def retarget(self, skeleton: QuestHandSkeleton) -> InspireRetargetResult:
         if not skeleton.valid or len(skeleton.positions_m) != 21:
@@ -363,6 +428,49 @@ class ProjectRh56Retargeter:
         }
         joints = _expand_mimic_targets(actuators)
         cost = float(np.mean((unbounded - normalized) ** 2))
+        diagnostics: dict[str, float | bool] = {
+            "thumb_index_distance_palm": float(thumb_tip_distances[0]),
+            "thumb_middle_distance_palm": float(thumb_tip_distances[1]),
+            "thumb_ring_distance_palm": float(thumb_tip_distances[2]),
+            "thumb_pinky_distance_palm": float(thumb_tip_distances[3]),
+            "thumb_index_pinch_strength": float(pinch_strengths[0]),
+            "thumb_closest_fingertip_pinch_strength": pinch,
+            "thumb_any_fingertip_pinching": pinch > 0.7,
+            "thumb_raw_bend_rad": raw_thumb_bend_rad,
+            "thumb_normalized_bend": normalized_thumb_bend,
+            "thumb_closest_fingertip_index": fingertip_indices[closest_index],
+            "thumb_raw_pinch_distance_m": float(
+                thumb_tip_distances_m[closest_index]
+            ),
+            "thumb_raw_pinch_distance_palm": float(
+                thumb_tip_distances[closest_index]
+            ),
+            "thumb_normalized_pinch": pinch,
+            "thumb_base_bend_contribution": bend_contribution,
+            "thumb_pinch_assist_contribution": pinch_assist_contribution,
+            "thumb_close_feature": thumb_close,
+            "thumb_effective_feature": float(normalized[4]),
+            "thumb_lateral_raw_across_palm": raw_thumb_lateral,
+            "thumb_lateral_feature": thumb_lateral,
+            "thumb_lateral_effective_feature": float(normalized[5]),
+            "palm_width_m": palm_frame.palm_width_m,
+            "palm_across_x": palm_frame.across_axis[0],
+            "palm_across_y": palm_frame.across_axis[1],
+            "palm_across_z": palm_frame.across_axis[2],
+            "palm_forward_x": palm_frame.forward_axis[0],
+            "palm_forward_y": palm_frame.forward_axis[1],
+            "palm_forward_z": palm_frame.forward_axis[2],
+            "palm_normal_x": palm_frame.normal_axis[0],
+            "palm_normal_y": palm_frame.normal_axis[1],
+            "palm_normal_z": palm_frame.normal_axis[2],
+        }
+        for index, name in enumerate(RH56_CANONICAL_ORDER[:4]):
+            diagnostics[f"{name}_raw_curl_feature"] = float(
+                self._last_finger_raw[index]
+            )
+            diagnostics[f"{name}_calibrated_curl_feature"] = float(
+                self._last_finger_calibrated[index]
+            )
         return InspireRetargetResult(
             skeleton.timestamp_monotonic_ns,
             True,
@@ -372,42 +480,7 @@ class ProjectRh56Retargeter:
             canonical,
             cost,
             skeleton.tracking_confidence,
-            {
-                "thumb_index_distance_palm": float(thumb_tip_distances[0]),
-                "thumb_middle_distance_palm": float(thumb_tip_distances[1]),
-                "thumb_ring_distance_palm": float(thumb_tip_distances[2]),
-                "thumb_pinky_distance_palm": float(thumb_tip_distances[3]),
-                "thumb_index_pinch_strength": float(pinch_strengths[0]),
-                "thumb_closest_fingertip_pinch_strength": pinch,
-                "thumb_any_fingertip_pinching": pinch > 0.7,
-                "thumb_raw_bend_rad": raw_thumb_bend_rad,
-                "thumb_normalized_bend": normalized_thumb_bend,
-                "thumb_closest_fingertip_index": fingertip_indices[closest_index],
-                "thumb_raw_pinch_distance_m": float(
-                    thumb_tip_distances_m[closest_index]
-                ),
-                "thumb_raw_pinch_distance_palm": float(
-                    thumb_tip_distances[closest_index]
-                ),
-                "thumb_normalized_pinch": pinch,
-                "thumb_base_bend_contribution": bend_contribution,
-                "thumb_pinch_assist_contribution": pinch_assist_contribution,
-                "thumb_close_feature": thumb_close,
-                "thumb_effective_feature": float(normalized[4]),
-                "thumb_lateral_raw_across_palm": raw_thumb_lateral,
-                "thumb_lateral_feature": thumb_lateral,
-                "thumb_lateral_effective_feature": float(normalized[5]),
-                "palm_width_m": palm_frame.palm_width_m,
-                "palm_across_x": palm_frame.across_axis[0],
-                "palm_across_y": palm_frame.across_axis[1],
-                "palm_across_z": palm_frame.across_axis[2],
-                "palm_forward_x": palm_frame.forward_axis[0],
-                "palm_forward_y": palm_frame.forward_axis[1],
-                "palm_forward_z": palm_frame.forward_axis[2],
-                "palm_normal_x": palm_frame.normal_axis[0],
-                "palm_normal_y": palm_frame.normal_axis[1],
-                "palm_normal_z": palm_frame.normal_axis[2],
-            },
+            diagnostics,
             violations,
             None,
         )
@@ -419,7 +492,7 @@ class ProjectRh56Retargeter:
         thumb_lateral: float,
     ) -> np.ndarray:
         palm_forward = p[9] - p[0]
-        curls = np.asarray(
+        raw_curls = np.asarray(
             [
                 _finger_full_hand_curl(
                     p, (5, 6, 7, 8), palm_forward,
@@ -442,7 +515,8 @@ class ProjectRh56Retargeter:
                     deadband=self.calibration.mcp_flexion_deadband,
                 ),
             ]
-        ) * np.asarray(self.calibration.finger_scale)
+        )
+        curls = self._calibrate_finger_features(raw_curls)
         return np.asarray([*curls, thumb_close, thumb_lateral])
 
     def _vector(
@@ -452,11 +526,35 @@ class ProjectRh56Retargeter:
         thumb_lateral: float,
     ) -> np.ndarray:
         palm_forward = p[9] - p[0]
-        curls = []
-        for base, tip, scale in zip((5, 9, 13, 17), (8, 12, 16, 20), self.calibration.finger_scale, strict=True):
+        raw_curls = []
+        for base, tip in zip((5, 9, 13, 17), (8, 12, 16, 20), strict=True):
             projection = _cos(p[tip] - p[base], palm_forward)
-            curls.append(float(np.clip((1.0 - projection) * self.calibration.key_vector_scale, 0.0, 1.0)) * scale)
+            raw_curls.append(float(np.clip((1.0 - projection) * self.calibration.key_vector_scale, 0.0, 1.0)))
+        curls = self._calibrate_finger_features(np.asarray(raw_curls))
         return np.asarray([*curls, thumb_close, thumb_lateral])
+
+    def _calibrate_finger_features(self, raw: np.ndarray) -> np.ndarray:
+        curved = np.asarray(
+            [
+                calibrate_finger_feature(
+                    float(value),
+                    open_feature=open_feature,
+                    closed_feature=closed_feature,
+                    curve_exponent=exponent,
+                )
+                for value, open_feature, closed_feature, exponent in zip(
+                    raw,
+                    self.calibration.finger_feature_open,
+                    self.calibration.finger_feature_closed,
+                    self.calibration.finger_curve_exponent,
+                    strict=True,
+                )
+            ],
+            dtype=np.float64,
+        )
+        self._last_finger_raw = raw.copy()
+        self._last_finger_calibrated = curved.copy()
+        return curved * np.asarray(self.calibration.finger_scale)
 
 
 def right_hand_palm_local_frame(

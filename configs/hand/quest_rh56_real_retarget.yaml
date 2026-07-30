@@ -1,0 +1,42 @@
+schema_version: quest_rh56_retarget.v1
+selected_backend: adaptive
+
+# Real Quest feature endpoints captured on 2026-07-30. This file calibrates
+# human tracking features only; RH56 protocol travel and the 0.8 software
+# ceiling remain owned by configs/hand/rh56_pc_direct_teleop.yaml.
+calibration:
+  calibration_id: quest_rh56dfx_real_20260730_v1
+  global_scale: 1.0
+  palm_scale: 1.0
+  finger_scale: [1.0, 1.0, 1.0, 1.0]
+  finger_feature:
+    # Medians of independently labelled stable-tail captures. The production
+    # feature combines PIP/DIP curl with the configured MCP contribution.
+    open: [0.051979, 0.055232, 0.035240, 0.089340]
+    closed: [0.920303, 0.883532, 0.876213, 0.898434]
+    curve_exponent: [1.0, 1.0, 1.0, 1.0]
+  thumb_scale: 1.0
+  key_vector_scale: 1.0
+  thumb_close:
+    bend_gain: 1.0
+    pinch_assist_gain: 0.4
+  thumb_pinch_closed_distance_palm: 0.20
+  thumb_pinch_open_distance_palm: 0.55
+  thumb_lateral:
+    # Across-palm is dot(thumb_tip-thumb_base, index-MCP->pinky-MCP) divided
+    # by index-MCP/pinky-MCP span. Positive is increasing opposition.
+    open_across_palm: -1.137268
+    neutral_across_palm: -0.817716
+    opposed_across_palm: 0.060326
+    frame_epsilon_m: 0.00001
+  mcp_flexion_weight: 0.15
+  mcp_flexion_deadband: 0.15
+  maximum_normalized_step: 0.08
+  loss_behavior: hold
+
+model_contract:
+  canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  mujoco_actuator_order: [thumb_lateral, thumb_close, index, middle, ring, pinky]
+  full_joint_count: 12
+  independent_actuator_count: 6
+  mimic_semantics: project_mujoco_equality_constraints

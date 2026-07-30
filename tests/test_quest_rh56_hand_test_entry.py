@@ -12,7 +12,12 @@ from rh56_driver.pc_direct_control import (
     require_serial_by_id_path as real_require_serial_by_id_path,
 )
 import tools.quest_rh56_hand_test as hand_entry
-from tools.quest_rh56_hand_test import _build_parser, _write_summary, validate_gate
+from tools.quest_rh56_hand_test import (
+    _build_parser,
+    _load_hand_only_quest_config,
+    _write_summary,
+    validate_gate,
+)
 
 
 DEVICE = "/dev/serial/by-id/usb-Inspire_RH56DFX-test"
@@ -102,6 +107,68 @@ def test_bounded_command_requires_short_duration_target_and_operator_checks() ->
     ) is HandAuthorization.HAND_ONLY_COMMAND
 
 
+def test_bounded_pose_and_channel_target_require_explicit_safe_normalized_targets() -> None:
+    checks = (
+        "--approval",
+        RH56_HAND_ONLY_COMMAND_APPROVAL,
+        "--manual-stop-accessible",
+        "--workspace-clear",
+        "--no-auto-retry",
+    )
+    with pytest.raises(ValueError, match="six canonical"):
+        validate_gate(
+            _parse(
+                "--bounded-pose",
+                "--pose-label",
+                "incomplete",
+                "--target-normalized",
+                "0.1",
+                *checks,
+            )
+        )
+    with pytest.raises(ValueError, match=r"\[0, 0.8\]"):
+        validate_gate(
+            _parse(
+                "--bounded-pose",
+                "--pose-label",
+                "unsafe",
+                "--target-normalized",
+                "0.1",
+                "0.2",
+                "0.3",
+                "0.4",
+                "0.5",
+                "0.81",
+                *checks,
+            )
+        )
+    assert validate_gate(
+        _parse(
+            "--bounded-pose",
+            "--pose-label",
+            "log_max",
+            "--target-normalized",
+            "0.437",
+            "0.443",
+            "0.468",
+            "0.569",
+            "0.750",
+            "0.800",
+            *checks,
+        )
+    ) is HandAuthorization.HAND_ONLY_COMMAND
+    assert validate_gate(
+        _parse(
+            "--bounded-channel-target",
+            "--channel",
+            "thumb_lateral",
+            "--target-normalized",
+            "0.4",
+            *checks,
+        )
+    ) is HandAuthorization.HAND_ONLY_COMMAND
+
+
 def test_quest_hand_only_uses_command_approval_and_production_mode() -> None:
     args = _parse(
         "--quest-teleop",
@@ -114,7 +181,24 @@ def test_quest_hand_only_uses_command_approval_and_production_mode() -> None:
     assert validate_gate(args) is HandAuthorization.HAND_ONLY_COMMAND
     assert args.channel is None
     assert args.delta is None
+    assert args.hand_calibration == "configs/hand/quest_rh56_real_retarget.yaml"
     assert _parse("--preflight-only", "--scheduler-profile", "fast30").scheduler_profile == "fast30"
+
+
+def test_hand_only_path_overrides_sim_calibration_without_mutating_sim_default() -> None:
+    config = _load_hand_only_quest_config(
+        "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
+        "configs/hand/quest_rh56_real_retarget.yaml",
+    )
+    assert config.raw["hand_retargeting"]["calibration_path"] == (
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    assert (
+        hand_entry.ReplayConfig.load(
+            "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
+        ).raw["hand_retargeting"]["calibration_path"]
+        == "configs/sim/quest_rh56_retarget.yaml"
+    )
 
 
 def test_custom_ch341_fallback_requires_explicit_flag(monkeypatch: pytest.MonkeyPatch) -> None:

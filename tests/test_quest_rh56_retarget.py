@@ -14,6 +14,7 @@ from quest_jaka_sim.hand_retarget import (
     RH56_FULL_JOINT_ORDER,
     RH56_MUJOCO_ACTUATOR_ORDER,
     RH56_THUMB_CLOSE_RANGE_RAD,
+    calibrate_finger_feature,
     right_hand_palm_local_frame,
     thumb_close_coupled_joint_positions,
     thumb_close_bend_primary_feature,
@@ -100,6 +101,48 @@ def test_adaptive_backend_observes_mcp_only_flexion() -> None:
         flexed.actuator_targets[name] > opened.actuator_targets[name]
         for name in ("index", "middle", "ring", "pinky")
     )
+
+
+def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() -> None:
+    _, calibration = HandRetargetCalibration.load(
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    assert calibration.calibration_id == "quest_rh56dfx_real_20260730_v1"
+    for open_feature, closed_feature, exponent in zip(
+        calibration.finger_feature_open,
+        calibration.finger_feature_closed,
+        calibration.finger_curve_exponent,
+        strict=True,
+    ):
+        samples = [
+            calibrate_finger_feature(
+                value,
+                open_feature=open_feature,
+                closed_feature=closed_feature,
+                curve_exponent=exponent,
+            )
+            for value in np.linspace(open_feature - 0.1, closed_feature + 0.1, 101)
+        ]
+        assert samples == sorted(samples)
+        assert samples[0] == pytest.approx(0.0)
+        assert samples[-1] == pytest.approx(1.0)
+
+
+def test_finger_calibration_rejects_zero_span_and_nonfinite_features() -> None:
+    with pytest.raises(ValueError, match="exceed"):
+        calibrate_finger_feature(
+            0.2,
+            open_feature=0.2,
+            closed_feature=0.2,
+            curve_exponent=1.0,
+        )
+    with pytest.raises(ValueError, match="finite"):
+        calibrate_finger_feature(
+            float("nan"),
+            open_feature=0.0,
+            closed_feature=1.0,
+            curve_exponent=1.0,
+        )
 
 
 def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
