@@ -10,6 +10,36 @@ from .hand_schema import RH56_PROTOCOL_ORDER, canonical_to_raw, raw_to_canonical
 from .interfaces import HandBackend, HandCommand
 
 
+class RH56SerialError(RuntimeError):
+    """Typed serial/protocol failure with register context."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        operation: str,
+        address: int | None = None,
+        register: str | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.operation = operation
+        self.address = address
+        self.register = register
+        self.context = dict(context or {})
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "operation": self.operation,
+            "address": self.address,
+            "register": self.register,
+            "context": self.context,
+        }
+
+
 class RH56SerialBackend(HandBackend):
     """RS485 backend grounded in the local RH56 protocol reference code."""
 
@@ -47,6 +77,7 @@ class RH56SerialBackend(HandBackend):
         self.timeout_count = 0
         self.checksum_failure_count = 0
         self.protocol_error_count = 0
+        self.last_failure_context: dict[str, Any] | None = None
 
     def connect(self) -> bool:
         """Open the serial transport without writing any RH56 register."""
@@ -149,15 +180,28 @@ class RH56SerialBackend(HandBackend):
         return raw_to_canonical(self.get_currents(), raw_order=self.protocol_order)
 
     def read_register(self, address: int, length: int) -> list[int]:
+        self.last_failure_context = None
         payload = [self.hand_id, 0x04, 0x11, address & 0xFF, (address >> 8) & 0xFF, length]
         frames = self._exchange(payload, expected_frames=1)
         if not frames:
             self.timeout_count += 1
-            raise RuntimeError(f"RH56 read_register timeout at address {address}.")
+            raise self._error(
+                f"RH56 read_register timeout at address {address}.",
+                code="timeout",
+                operation="read_register",
+                address=address,
+                context={"requested_length": length},
+            )
         frame = frames[0]
         if not self._validate_checksum(frame):
             self.checksum_failure_count += 1
-            raise RuntimeError("RH56 read_register checksum failure.")
+            raise self._error(
+                "RH56 read_register checksum failure.",
+                code="checksum_failure",
+                operation="read_register",
+                address=address,
+                context={"requested_length": length, "response_length": len(frame)},
+            )
         if (
             len(frame) < 8
             or frame[0] != 0x90
@@ -168,26 +212,61 @@ class RH56SerialBackend(HandBackend):
             or frame[6] != ((address >> 8) & 0xFF)
         ):
             self.protocol_error_count += 1
-            raise RuntimeError("RH56 read_register response validation failure.")
+            raise self._error(
+                "RH56 read_register response validation failure.",
+                code="response_validation_failure",
+                operation="read_register",
+                address=address,
+                context={"requested_length": length, "response_length": len(frame)},
+            )
         if frame[3] < 3:
             self.protocol_error_count += 1
-            raise RuntimeError("RH56 read_register response length failure.")
+            raise self._error(
+                "RH56 read_register response length failure.",
+                code="response_length_failure",
+                operation="read_register",
+                address=address,
+                context={"requested_length": length, "response_length": len(frame)},
+            )
         reg_len = frame[3] - 3
         if reg_len != length or len(frame) != 8 + reg_len:
             self.protocol_error_count += 1
-            raise RuntimeError("RH56 read_register response length mismatch.")
+            raise self._error(
+                "RH56 read_register response length mismatch.",
+                code="response_length_mismatch",
+                operation="read_register",
+                address=address,
+                context={
+                    "requested_length": length,
+                    "register_length": reg_len,
+                    "response_length": len(frame),
+                },
+            )
         return list(frame[7 : 7 + reg_len])
 
     def write_register(self, address: int, data_bytes: list[int]) -> bool:
+        self.last_failure_context = None
         self.register_write_count += 1
         payload = [self.hand_id, len(data_bytes) + 3, 0x12, address & 0xFF, (address >> 8) & 0xFF] + data_bytes
         frames = self._exchange(payload, expected_frames=1)
         if not frames:
             self.timeout_count += 1
-            raise RuntimeError(f"RH56 write_register timeout at address {address}.")
+            raise self._error(
+                f"RH56 write_register timeout at address {address}.",
+                code="timeout",
+                operation="write_register",
+                address=address,
+                context={"data_length": len(data_bytes)},
+            )
         frame = frames[0]
         if not self._validate_checksum(frame):
             self.checksum_failure_count += 1
+            self._remember_failure(
+                code="checksum_failure",
+                operation="write_register",
+                address=address,
+                context={"data_length": len(data_bytes), "response_length": len(frame)},
+            )
             return False
         valid = bool(
             len(frame) == 9
@@ -202,6 +281,12 @@ class RH56SerialBackend(HandBackend):
         )
         if not valid:
             self.protocol_error_count += 1
+            self._remember_failure(
+                code="acknowledgement_validation_failure",
+                operation="write_register",
+                address=address,
+                context={"data_length": len(data_bytes), "response_length": len(frame)},
+            )
         return valid
 
     def _exchange(self, payload: list[int], expected_frames: int) -> list[bytes]:
@@ -285,6 +370,51 @@ class RH56SerialBackend(HandBackend):
         for value in values:
             if not (min_value <= value <= max_value):
                 raise ValueError(f"RH56 value {value} outside [{min_value}, {max_value}].")
+
+    def _register_name(self, address: int) -> str | None:
+        return next((name for name, value in self.REG.items() if value == address), None)
+
+    def _remember_failure(
+        self,
+        *,
+        code: str,
+        operation: str,
+        address: int | None,
+        context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "code": code,
+            "operation": operation,
+            "address": address,
+            "register": None if address is None else self._register_name(address),
+            "context": dict(context or {}),
+        }
+        self.last_failure_context = record
+        return record
+
+    def _error(
+        self,
+        message: str,
+        *,
+        code: str,
+        operation: str,
+        address: int | None,
+        context: dict[str, Any] | None = None,
+    ) -> RH56SerialError:
+        record = self._remember_failure(
+            code=code,
+            operation=operation,
+            address=address,
+            context=context,
+        )
+        return RH56SerialError(
+            message,
+            code=code,
+            operation=operation,
+            address=address,
+            register=record["register"],
+            context=record["context"],
+        )
 
 
 class RH56Ros2ServiceBackend(HandBackend):
