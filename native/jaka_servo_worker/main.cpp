@@ -2390,18 +2390,12 @@ int run(const Options& o) {
   auto backend = uses_fake_backend(o.mode) ? std::unique_ptr<Backend>(new FakeBackend(o)) : std::unique_ptr<Backend>(new RealBackend(o));
   TargetSocket target_socket(o.target_socket); StatusSender status_sender(o.status_socket);
   // The observer inherits the parent/non-real-time affinity. Pin only this
-  // calling control thread after the observer exists so /proc collection can
-  // never contend on the explicitly isolated control CPU.
+  // calling control thread after backend setup so both the observer and any
+  // SDK threads created by connect/EDG setup inherit the non-real-time mask.
+  // Pinning before backend setup would also pin those future SDK threads to
+  // the reserved CPU and make them contend with the 8 ms control loop.
   BoundarySystemObserver system_observer(!o.metrics_file.empty());
-  configure_control_cpu_affinity(o.control_cpu);
   PlacementEvidence placement;
-  const auto placement_start_ns = now_ns();
-  const int placement_start_cpu = sched_getcpu();
-  placement.observe_cpu(placement_start_ns, placement_start_cpu);
-  placement.record(PlacementEventReason::WorkerStart, placement_start_ns,
-                   placement_start_cpu, -1, true, true);
-  system_observer.request(SystemSnapshotTrigger::WorkerStart,
-                          placement_start_ns, placement_start_cpu);
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
   JerkBoundedJointTracker tracker(o);
@@ -2502,6 +2496,17 @@ int run(const Options& o) {
       if (delta > 1e-4) throw std::runtime_error("near-zero initial command delta check failed");
     }
     if (!is_joint_zero_motion_mode(o.mode)) state = State::Holding;
+    // Backend setup may create SDK transport/status threads.  It must finish
+    // while this thread still has the inherited non-real-time affinity; only
+    // the command-loop thread is then moved to the reserved CPU.
+    configure_control_cpu_affinity(o.control_cpu);
+    const auto placement_start_ns = now_ns();
+    const int placement_start_cpu = sched_getcpu();
+    placement.observe_cpu(placement_start_ns, placement_start_cpu);
+    placement.record(PlacementEventReason::WorkerStart, placement_start_ns,
+                     placement_start_cpu, -1, true, true);
+    system_observer.request(SystemSnapshotTrigger::WorkerStart,
+                            placement_start_ns, placement_start_cpu);
     // Connection, verification, and initial state reads are setup work, not an
     // 8 ms command-stream cycle. Start deadline monitoring only after setup so
     // normal SDK/network startup latency cannot cause a false first-cycle abort.

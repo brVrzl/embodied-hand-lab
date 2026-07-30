@@ -52,6 +52,46 @@ def test_native_control_cpu_affinity_is_applied_and_reported(tmp_path) -> None:
     )
 
 
+def test_native_control_cpu_is_reserved_only_after_backend_setup(tmp_path) -> None:
+    allowed = sorted(os.sched_getaffinity(0))
+    if len(allowed) < 2:
+        pytest.skip("backend/control affinity separation requires two CPUs")
+    setup_cpu, control_cpu = allowed[:2]
+    metrics = tmp_path / "deferred-cpu-affinity.json"
+    target = tmp_path / "deferred-cpu-affinity.sock"
+    process = subprocess.Popen(
+        [
+            "taskset", "-c", str(setup_cpu),
+            str(WORKER),
+            "--mode", "dry-run",
+            "--duration-s", "0.15",
+            "--fake-connect-delay-us", "300000",
+            "--control-cpu", str(control_cpu),
+            "--target-socket", str(target),
+            "--metrics-file", str(metrics),
+        ]
+    )
+    deadline = time.monotonic() + 2
+    while not target.exists() and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert target.exists()
+    assert os.sched_getaffinity(process.pid) == {setup_cpu}
+
+    while time.monotonic() < deadline:
+        if os.sched_getaffinity(process.pid) == {control_cpu}:
+            break
+        time.sleep(0.005)
+    else:
+        pytest.fail("native control thread was not pinned after backend setup")
+
+    assert process.wait(timeout=3) == 0
+    payload = json.loads(metrics.read_text())
+    assert payload["configured_control_cpu"] == control_cpu
+    assert payload["worker_placement"]["events"][0]["affinity_mask"] == str(
+        control_cpu
+    )
+
+
 def packet(sequence: int) -> TargetPacket:
     now = time.monotonic_ns()
     return TargetPacket(TargetKind.CARTESIAN_POSE, TargetFlags.NONE, FrameId.ROBOT_BASE,
