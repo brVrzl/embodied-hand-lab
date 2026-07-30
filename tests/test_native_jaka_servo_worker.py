@@ -326,7 +326,7 @@ def test_single_subperiod_start_delay_realigns_without_fault(tmp_path) -> None:
     assert [
         snapshot["trigger"]
         for snapshot in payload["system_boundary_observer"]["snapshots"]
-    ] == ["first_timing_warning"]
+    ] == ["worker_start", "first_timing_warning", "worker_shutdown"]
     assert 12_000_000 < payload["statistics"]["actual_cycle_period"]["max_ns"] < 16_000_000
 
 
@@ -375,7 +375,9 @@ def test_full_period_start_delay_is_a_nonzero_hard_fault(tmp_path) -> None:
     assert observer["runtime_error"] == ""
     assert observer["dropped_requests"] == 0
     assert [snapshot["trigger"] for snapshot in observer["snapshots"]] == [
-        "terminal_timing_fault"
+        "worker_start",
+        "terminal_timing_fault",
+        "worker_shutdown",
     ]
 
 

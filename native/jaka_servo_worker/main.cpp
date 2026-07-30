@@ -1149,14 +1149,18 @@ class PlacementEvidence {
 };
 
 enum class SystemSnapshotTrigger : std::uint8_t {
-  FirstTimingWarning = 1,
-  TerminalTimingFault = 2,
+  WorkerStart = 1,
+  FirstTimingWarning = 2,
+  TerminalTimingFault = 3,
+  WorkerShutdown = 4,
 };
 
 const char* system_snapshot_trigger_name(SystemSnapshotTrigger trigger) {
   switch (trigger) {
+    case SystemSnapshotTrigger::WorkerStart: return "worker_start";
     case SystemSnapshotTrigger::FirstTimingWarning: return "first_timing_warning";
     case SystemSnapshotTrigger::TerminalTimingFault: return "terminal_timing_fault";
+    case SystemSnapshotTrigger::WorkerShutdown: return "worker_shutdown";
   }
   return "unknown";
 }
@@ -2368,6 +2372,8 @@ int run(const Options& o) {
   placement.record(PlacementEventReason::WorkerStart, placement_start_ns,
                    placement_start_cpu, -1, true, true);
   BoundarySystemObserver system_observer(!o.metrics_file.empty());
+  system_observer.request(SystemSnapshotTrigger::WorkerStart,
+                          placement_start_ns, placement_start_cpu);
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
   JerkBoundedJointTracker tracker(o);
@@ -3124,6 +3130,8 @@ int run(const Options& o) {
                             now_ns(), 0, now_ns(), {}, error_code, 0};
   std::copy(observed.begin(), observed.end(), final_status.joint_position_rad);
   status_sender.send_status(final_status);
+  system_observer.request(SystemSnapshotTrigger::WorkerShutdown,
+                          now_ns(), sched_getcpu());
   system_observer.stop();
   const auto placement_shutdown_ns = now_ns();
   placement.record(PlacementEventReason::WorkerShutdown,
