@@ -293,7 +293,7 @@ Development diff before the final-report-only integration commit:
 Integration diff including this report:
 
 ```text
-13 files changed, 2200 insertions(+), 82 deletions(-)
+13 files changed, 2227 insertions(+), 82 deletions(-)
 ```
 
 The development and integration code content are identical at merge commit
@@ -354,6 +354,33 @@ without a separate user decision.
 |/
 * 45895c0 (local/rh56-prework-baseline) chore(local): snapshot pre-RH56 working tree
 * 156d50d (origin/main, origin/HEAD, main) chore: prune obsolete tests and research scaffolding
+*   ea88e4d merge: teleop rearchitecture research
+|\
+| * b73af5b feat: integrate recoverable thin JAKA research gate
+| * 4e6cca5 feat: add thin recoverable JAKA transport adapter
+| * 4f60842 feat: define recoverable JAKA clutch transport contract
+| * a53ece3 feat: add recoverable clutch lifecycle and SDK-free fake adapter
+| * afb54b3 feat: add versioned command ABI and C++ shaping core
+| * d7661cc feat: add unified evaluator and controlled-stop analysis
+| * 6f08b09 fix: correct teleop replay metric semantics
+| * 3e911f8 (origin/feature/quest-jaka-teleop-rearchitecture) docs: record teleop rearchitecture research audit
+| * 893abf6 feat: add offline teleop rearchitecture prototypes
+* | 62ac7aa docs: record legacy worktree removal and documentation review
+* | 96e5000 docs: update third-party attribution
+* | 6c424c7 docs: mark historical research snapshots
+* | 274cd08 docs: refresh project status and entry points
+* | ce77351 (backup/pre-docs-refresh-20260728-ce77351) docs: audit legacy Quest worktrees
+* |   8ea39c9 merge: Quest RH56 hand teleoperation simulation
+|\ \
+| * | b2a4cec feat(sim): restore and calibrate Quest RH56 hand teleoperation
+* | | 93cec76 docs: record local workspace cleanup
+* | | 54026d3 docs: add projects workspace consolidation audit
+|/ /
+* / 0c30c2d (backup/pre-consolidation-2026-07-28-0c30c2d) fix(sim): finalize single-arm Quest simulation policy
+|/
+* 7a02aa6 Preserve native stop classification at producer boundary
+* e619aed Recover bounded PWL velocity transitions before hard check
+* 5401f3c Add bounded startup timing grace for joint teleop
 ```
 
 `git status --short --branch` after merge and validation:
