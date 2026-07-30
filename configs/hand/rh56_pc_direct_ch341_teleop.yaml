@@ -10,6 +10,15 @@ serial:
   hand_id: 1
 finger_count: 6
 control_frequency_hz: 15
+diagnostics:
+  enabled: false
+  window_size: 256
+  exact_duplicate_suppression: true
+  stale_command_drop_enabled: false
+  stale_command_max_age_sec: 0.25
+  telemetry_buffer_capacity: 64
+  telemetry_flush_every_records: 16
+  telemetry_flush_interval_sec: 1.0
 close_strength: 0.35
 pinch_strength: 0.25
 speed_default: [800, 800, 800, 800, 800, 800]
