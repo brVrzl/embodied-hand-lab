@@ -575,8 +575,14 @@ def main() -> int:
                 "acceleration transitions"
             )
     if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}:
-        if args.duration_sec > 60.0:
-            raise SystemExit("bounded normal teleoperation is limited to 60 seconds")
+        maximum_duration_sec = (
+            300.0 if args.stage == "combined-normal-teleop" else 60.0
+        )
+        if args.duration_sec > maximum_duration_sec:
+            raise SystemExit(
+                f"{args.stage} is limited to "
+                f"{maximum_duration_sec:g} seconds"
+            )
         if args.native_telemetry is None or args.event_extract is None:
             raise SystemExit(
                 "bounded normal teleoperation requires native telemetry "

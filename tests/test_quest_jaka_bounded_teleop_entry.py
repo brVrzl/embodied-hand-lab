@@ -307,10 +307,11 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     tmp_path: Path,
 ) -> None:
     control_cpu = min(os.sched_getaffinity(0))
-    result = _run([
+    command = [
         str(COMBINED_SCRIPT),
         "--robot-ip", "192.0.2.1",
         "--rh56-device", "/dev/serial/by-id/offline-test",
+        "--duration-sec", "300",
         "--arm-approval", APPROVAL,
         "--hand-approval", "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN",
         "--hand-prerequisites-complete",
@@ -322,7 +323,8 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         "--native-control-cpu", str(control_cpu),
         "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
-    ])
+    ]
+    result = _run(command)
     assert result.returncode == 0, result.stderr
     report = json.loads(next(line for line in reversed(result.stdout.splitlines()) if line.startswith("{")))
     assert report["stage"] == "combined-normal-teleop"
@@ -333,6 +335,12 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["cpu_isolation"]["enabled"] is True
     assert report["cpu_isolation"]["native_control_cpu"] == control_cpu
     assert control_cpu not in report["cpu_isolation"]["python_affinity_mask"]
+    assert not (tmp_path / "logs").exists()
+
+    command[command.index("300")] = "300.001"
+    rejected = _run(command)
+    assert rejected.returncode == 2
+    assert "<=300" in rejected.stderr
     assert not (tmp_path / "logs").exists()
 
 

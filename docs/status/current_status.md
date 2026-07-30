@@ -162,6 +162,19 @@ requires physical instrumentation. Future native metrics retain the terminal
 timing phase, monotonic timestamp, period, lateness, consecutive count, and CPU
 even when the ordinary cycle row was not allocated.
 
+Subsequent physical instrumentation found that pinning the native main thread
+before JAKA SDK setup also made SDK-created threads inherit the reserved CPU.
+Deferring the pin until setup completed reduced ServoJ write p99 from 6.54 ms
+to about 0.13 ms. Completion-miss recovery now re-arms from `cycle_end`, so it
+cannot issue a catch-up command immediately after a late cycle. A measured
+RH56 activation target outside the configured command envelope is clamped to
+that envelope while the actual measurement remains the delta reference. With
+these changes, `quest_jaka_rh56_combined_20260730_194001_3792423` completed a
+60.105 s `fast40` combined physical run with zero hard timing miss, controller
+alarm, arm/RH56 worker fault, serial/protocol fault, or transport symptom. This
+is a bounded 60 second physical PASS; five-minute operation remains physically
+unvalidated.
+
 ## Repository and research state
 
 PWL/root-cause-fix and the RH56 simulation hand implementation are merged into
@@ -180,7 +193,9 @@ combined gate. It uses normal arm limits (1.5 rad/s for J1-J3 and 1.2 rad/s for
 J4-J6) and normal hand range/rate/delta rather than diagnostic restrictions.
 All production safety boundaries remain active. Each run still requires both
 exact approvals, E-stop access, a clear workspace, completed RH56 prerequisites,
-a duration no greater than 60 seconds, and no automatic retry. Releasing left
+a combined-only duration no greater than 300 seconds, and no automatic retry.
+The default remains 60 seconds; arm-only and diagnostic gates retain their
+shorter bounds. Releasing left
 index pauses only the arm; releasing grip holds only the hand; either may resume
 without ending the process. `run_quest_jaka_bounded_teleop.sh` remains the
 arm-only isolation gate, while the post-payload wrapper remains diagnostic.
@@ -310,6 +325,15 @@ durable native metrics 就绪后回填权威分类，并单独保留早期 trans
 timing 或 safety threshold；连续 OS wake delay 的系统级原因仍需真机 instrumentation。
 后续 native metrics 会在普通 cycle row 尚未分配时仍保存 terminal timing phase、monotonic
 timestamp、period、lateness、连续计数与 CPU。
+
+后续真机插桩发现：若在 JAKA SDK setup 前固定 native main thread，SDK 新建线程也会继承
+保留 CPU。将 pin 延后到 setup 完成后，ServoJ write p99 从 6.54 ms 降至约 0.13 ms。
+completion miss 现在从 `cycle_end` 重新布置 deadline，不再在慢周期后立即补发 command。
+若 RH56 grip 接合时实测位置超出当前 command envelope，activation target 会夹到 envelope，
+但实际测量仍保留为 delta reference。应用这些修复后，
+`quest_jaka_rh56_combined_20260730_194001_3792423` 完成 60.105 秒 `fast40` combined
+真机运行，hard timing miss、controller alarm、arm/RH56 worker fault、serial/protocol fault
+与 transport symptom 均为 0。这是有界 60 秒真机 PASS；5 分钟运行仍未完成真机验证。
 
 ## 仓库与研究状态
 

@@ -456,8 +456,8 @@ Options parse_options(int argc, char** argv) {
       throw std::runtime_error("joint adapter fault-containment settings are invalid");
     if (!o.emitted_points_file.empty() && !uses_fake_backend(o.mode))
       throw std::runtime_error("emitted point recording is fake-backend/offline only");
-    if (!o.cycle_telemetry_file.empty() && o.duration_s > 65.0)
-      throw std::runtime_error("cycle telemetry is bounded to sessions of at most 65 seconds");
+    if (!o.cycle_telemetry_file.empty() && o.duration_s > 305.0)
+      throw std::runtime_error("cycle telemetry is bounded to sessions of at most 305 seconds");
   }
   if (o.mode == Mode::MinimalMotion) {
     if (o.probe_joint < 0 || o.probe_joint >= 6 || std::abs(o.probe_delta_rad) > 0.002 || std::abs(o.probe_delta_rad) < 1e-9)

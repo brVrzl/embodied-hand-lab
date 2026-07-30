@@ -3,8 +3,10 @@
 This is the current normal physical teleoperation entry. The arm and hand use
 their production operating envelopes rather than the temporary post-payload or
 single-channel diagnostic restrictions. All production safety limits remain
-active. RH56 Quest hand-only completed a 60 second physical run on 2026-07-29;
-no successful combined physical run has yet been completed.
+active. RH56 Quest hand-only completed a 60 second physical run on 2026-07-29.
+After the timing fixes described below, a 60 second `fast40` combined run
+completed on 2026-07-30 with no arm, hand, heartbeat, controller, or transport
+fault. Five-minute combined operation remains physically unvalidated.
 
 The first combined attempt on 2026-07-29 ran for 27.34 seconds and then exposed
 a recoverable-clutch protocol defect: `HOLD_CURRENT` was misclassified as a
@@ -71,7 +73,7 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --edg-state-ip 192.168.71.19 \
   --rh56-device "$RH56_DEVICE" \
   --allow-direct-ch341-device \
-  --duration-sec 60 \
+  --duration-sec 300 \
   --arm-approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
   --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
   --hand-prerequisites-complete \
@@ -85,6 +87,9 @@ IP addresses, payload/TCP/installation status, controller safety state, E-stop,
 workspace, and the completed RH56 hand evidence before executing it. The wrapper
 creates HTS capture, shared events, native metrics/cycle telemetry, event
 extract, RH56 telemetry, and combined summary files under `logs/`.
+The default remains 60 seconds. The explicit combined-only upper bound is 300
+seconds; arm-only and post-payload entries retain their existing shorter
+bounds. Every run remains single-shot and requires `--no-auto-retry`.
 
 ---
 
@@ -92,7 +97,9 @@ extract, RH56 telemetry, and combined summary files under `logs/`.
 
 这是当前正常真机遥操作入口。arm 与 hand 使用 production 正常工作范围，不继承
 post-payload 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。2026-07-29
-RH56 Quest hand-only 已完成一次 60 秒真机运行；联合真机运行尚未成功验证。
+RH56 Quest hand-only 已完成一次 60 秒真机运行。完成下述 timing 修复后，2026-07-30
+一次 60 秒 `fast40` combined 运行无 arm、hand、heartbeat、controller 或 transport fault
+并正常结束；5 分钟 combined 仍未完成真机验证。
 
 2026-07-29 首次联合运行持续 27.34 秒后暴露 recoverable clutch 协议缺陷：
 `HOLD_CURRENT` 被误当成不带 `ALLOW_MOTION` 的运动 target。worker 现已将其处理为有界减速，
@@ -127,3 +134,5 @@ feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
 payload/TCP/安装、控制器安全状态、急停、工作区和已完成的 RH56 hand 证据。日志会写入
 `logs/` 下的 HTS、shared events、native metrics/cycles、
 event extract、RH56 telemetry 和 combined summary。
+默认时长仍为 60 秒，combined-only 显式上限为 300 秒；arm-only 与 post-payload 入口保持
+原有较短上限。每段仍为 single-shot，且必须使用 `--no-auto-retry`。

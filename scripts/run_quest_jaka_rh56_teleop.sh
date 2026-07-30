@@ -58,7 +58,7 @@ Options:
   --bind HOST               Quest bind, default 0.0.0.0
   --port PORT               Quest/CTRL port, default 9000
   --allowed-sender IPV4
-  --duration-sec SEC        >0 and <=60, default 60
+  --duration-sec SEC        >0 and <=300, default 60
   --config PATH
   --rh56-config PATH
   --rh56-scheduler-profile baseline|fast30|fast40|fast50
@@ -117,7 +117,7 @@ fi
 [[ "${ESTOP_ACCESSIBLE}" == true && "${WORKSPACE_CLEAR}" == true && "${NO_AUTO_RETRY}" == true && "${HAND_PREREQUISITES_COMPLETE}" == true ]] || {
   echo "E-stop, workspace, no-retry, and completed hand prerequisites are required" >&2; exit 2;
 }
-awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 60) }' || { echo "duration must be >0 and <=60" >&2; exit 2; }
+awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 300) }' || { echo "duration must be >0 and <=300" >&2; exit 2; }
 [[ -x "${PYTHON_BIN}" ]] || { echo "Python is not executable: ${PYTHON_BIN}" >&2; exit 2; }
 [[ -x "${WORKER}" ]] || { echo "Native worker is not executable: ${WORKER}" >&2; exit 2; }
 

@@ -52,6 +52,44 @@ def test_native_control_cpu_affinity_is_applied_and_reported(tmp_path) -> None:
     )
 
 
+def test_five_minute_cycle_telemetry_configuration_is_bounded(tmp_path) -> None:
+    metrics = tmp_path / "five-minute-metrics.json"
+    cycles = tmp_path / "five-minute-cycles.jsonl"
+    accepted = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-zero-motion-dry-run",
+            "--duration-s", "302",
+            "--fake-fail-after", "1",
+            "--target-socket", str(tmp_path / "five-minute.sock"),
+            "--metrics-file", str(metrics),
+            "--cycle-telemetry-file", str(cycles),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert accepted.returncode == 2
+    assert metrics.exists()
+    assert "cycle telemetry is bounded" not in accepted.stderr
+
+    rejected = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "joint-zero-motion-dry-run",
+            "--duration-s", "305.001",
+            "--target-socket", str(tmp_path / "too-long.sock"),
+            "--metrics-file", str(tmp_path / "too-long.json"),
+            "--cycle-telemetry-file", str(tmp_path / "too-long.jsonl"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert rejected.returncode == 64
+    assert "at most 305 seconds" in rejected.stderr
+
+
 def test_native_control_cpu_is_reserved_only_after_backend_setup(tmp_path) -> None:
     allowed = sorted(os.sched_getaffinity(0))
     if len(allowed) < 2:
