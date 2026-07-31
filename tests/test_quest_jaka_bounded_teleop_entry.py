@@ -354,6 +354,13 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert "DURATION_SEC=300" in result.stdout
     assert not (tmp_path / "logs").exists()
 
+    cpu_index = command.index("--native-control-cpu")
+    without_cpu = command[:cpu_index] + command[cpu_index + 2 :]
+    rejected_unisolated = _run(without_cpu)
+    assert rejected_unisolated.returncode == 2
+    assert "--native-control-cpu is required" in rejected_unisolated.stderr
+    assert not (tmp_path / "logs").exists()
+
     rejected = _run([*command, "--duration-sec", "300.001"])
     assert rejected.returncode == 2
     assert "<=300" in rejected.stderr

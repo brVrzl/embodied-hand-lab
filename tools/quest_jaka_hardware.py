@@ -651,6 +651,11 @@ def main() -> int:
     hand_identity: dict[str, object] | None = None
     hand_config: dict[str, object] | None = None
     if args.stage == "combined-normal-teleop":
+        if args.native_control_cpu is None:
+            raise SystemExit(
+                "combined teleoperation requires --native-control-cpu; "
+                "unisolated SCHED_OTHER operation is not an authorized gate"
+            )
         if args.rh56_device is None or args.rh56_log is None:
             raise SystemExit("combined teleoperation requires --rh56-device and --rh56-log")
         try:

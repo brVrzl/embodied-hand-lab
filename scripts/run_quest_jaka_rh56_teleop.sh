@@ -62,7 +62,7 @@ Options:
   --config PATH
   --rh56-config PATH
   --rh56-scheduler-profile baseline|fast30|fast40|fast50
-  --native-control-cpu CPU  reserve one CPU for native control; disabled by default
+  --native-control-cpu CPU  required; reserve one verified CPU for native control
   --allow-direct-ch341-device
                             allow only an identity-checked /dev/ttyCH341USB<N>
                             when the host's custom driver creates no by-id link
@@ -117,6 +117,9 @@ fi
 [[ "${ESTOP_ACCESSIBLE}" == true && "${WORKSPACE_CLEAR}" == true && "${NO_AUTO_RETRY}" == true && "${HAND_PREREQUISITES_COMPLETE}" == true ]] || {
   echo "E-stop, workspace, no-retry, and completed hand prerequisites are required" >&2; exit 2;
 }
+[[ "${NATIVE_CONTROL_CPU}" =~ ^[0-9]+$ ]] || {
+  echo "--native-control-cpu is required and must be a nonnegative integer" >&2; exit 2;
+}
 awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 300) }' || { echo "duration must be >0 and <=300" >&2; exit 2; }
 [[ -x "${PYTHON_BIN}" ]] || { echo "Python is not executable: ${PYTHON_BIN}" >&2; exit 2; }
 [[ -x "${WORKER}" ]] || { echo "Native worker is not executable: ${WORKER}" >&2; exit 2; }
@@ -149,7 +152,7 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --event-extract "${prefix}.event_extract.jsonl"
   --rh56-log "${prefix}.rh56.jsonl")
 if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"); fi
-if [[ -n "${NATIVE_CONTROL_CPU}" ]]; then cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}"); fi
+cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}")
 if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == true ]]; then cmd+=(--plant-free-no-network-check); fi
 exec "${cmd[@]}"

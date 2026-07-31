@@ -9,6 +9,45 @@ A later live-Quest episode exposed observer-induced timing load and failed at
 native hard timing faults but correctly stopped on Quest controller liveness
 loss. No episode has completed the full 300 s gate.
 
+## 2026-07-31 recurrence and trigger correlation
+
+Eight combined native captures were recorded on 2026-07-31. Four ended in a
+native cycle-start hard timing fault:
+
+| Start | Elapsed | Native outcome | Period | Wake late | Terminal CPU |
+|---|---:|---|---:|---:|---:|
+| 14:04:45 | 14.165 s | consecutive start warnings | 11.520 ms | 3.520 ms | 8 |
+| 14:07:28 | 158.796 s | consecutive start warnings | 10.024 ms | 2.024 ms | 8 |
+| 14:10:13 | 6.884 s | consecutive start warnings | 11.568 ms | 3.568 ms | 3 |
+| 17:18:45 | 14.221 s | single full-period wake miss | 15.982 ms | 8.042 ms | 6 |
+
+All eight runs, including all four failures, recorded
+`configured_control_cpu=-1`: the formal wrapper had not been given
+`--native-control-cpu`. The native control thread therefore remained
+`SCHED_OTHER`, priority 0, with affinity to all 14 allowed CPUs. Two terminal
+cycles migrated CPUs exactly at the fault, one run migrated 28 ms before the
+fault, and one had not migrated for more than 10 seconds. Migration is thus a
+load/jitter amplifier but not a necessary cause; the direct terminating event
+is an OS scheduler wake delay.
+
+The trigger hypothesis is not supported as a direct cause. In the final
+250 ms of all four failures, index was continuously `1.0` and grip
+continuously `0.0`. Three runs had no clutch transition in the preceding
+second. The remaining run captured its arm reference about 0.5 s before the
+fault, far earlier than the terminal two-cycle warning pair. Three of the four
+fault runs had zero hand-retarget events. The earlier Quest-absent unpinned
+fault and an offline fake-worker test that transiently produced
+`hard_start_period_miss` under test-suite load also require no trigger input.
+Holding index engages the arm producer and can add host load, but pressing or
+switching a trigger is neither necessary nor temporally sufficient.
+
+The recurring operational defect was that CPU isolation remained optional in
+the maintained wrapper and was absent from the combined-operation command
+template, despite the previous physical evidence selecting CPU6. The gate now
+requires an explicit verified `--native-control-cpu` before opening either
+hardware path. No timing threshold, heartbeat timeout, fault classification,
+or cleanup behavior was weakened.
+
 ## Fault chain and direct finding
 
 The previously established primary/secondary ordering remains authoritative:

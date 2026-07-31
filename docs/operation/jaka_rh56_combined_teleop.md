@@ -52,8 +52,9 @@ The entry uses the same normal production arm limits as
 plus all shared/native position, workspace, velocity, acceleration, jerk,
 tracking, controller, collision, stale, timing, and cleanup boundaries. It
 does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
-0--1000 position range, physically selected `fast40` command profile, 0.05 delta limit, configured 0.8
-closure boundary, feedback/protocol/fault gates, and measured-first startup.
+0--1000 position range, physically selected `fast40` command profile, 0.05
+delta limit, full normalized command domain, contact hold,
+feedback/protocol/fault gates, and measured-first startup.
 There is no unlimited or safety-disable option.
 
 After completing Steps 1--8 in [RH56 operation](rh56_operation.md), inspect the
@@ -78,6 +79,7 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
   --hand-prerequisites-complete \
   --no-auto-retry --estop-accessible --workspace-clear \
+  --native-control-cpu 6 \
   --rh56-scheduler-profile fast40 \
   --log-dir logs
 ```
@@ -85,7 +87,13 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
 This command is a template, not authorization. The operator must verify current
 IP addresses, payload/TCP/installation status, controller safety state, E-stop,
 workspace, and the completed RH56 hand evidence before executing it. The wrapper
-creates HTS capture, shared events, native metrics/cycle telemetry, event
+also requires an explicitly verified native control CPU. CPU 6 is the measured
+low-load choice for the recorded 14-CPU host; it is not a portable robot
+default and must be re-verified if the host or affinity set changes. The native
+worker pins only its control thread there and moves Python, Quest, RH56, and
+observer work to the remaining allowed CPUs. An unisolated combined invocation
+is rejected before either hardware path opens. The wrapper creates HTS capture,
+shared events, native metrics/cycle telemetry, event
 extract, RH56 telemetry, and combined summary files under `logs/`.
 The combined wrapper default and explicit upper bound are both 300 seconds;
 arm-only and post-payload entries retain their existing shorter bounds. Every
@@ -127,10 +135,14 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 入口复用 arm normal production 的 J1--J3 1.5 rad/s、J4--J6 1.2 rad/s，以及所有关节/
 workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/cleanup 安全边界；不使用
 post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
-0.05 delta、0.8 closure 和全部
+0.05 delta、完整归一化 command domain、接触保持和全部
 feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
 
-正常联合真机运行使用上文命令模板。该模板不是某次运行的授权；操作者仍需核实 IP、
+正常联合真机运行使用上文命令模板。CPU6 是当前 14 核主机实测的低负载选择，并非可移植的
+机器人默认值；主机或 affinity 变化后必须重新核实。入口会把 native control thread 固定到
+该 CPU，并把 Python、Quest、RH56 和 observer 任务移到其余允许 CPU；未显式指定
+`--native-control-cpu` 的 combined 调用会在打开任一硬件前拒绝。
+该模板不是某次运行的授权；操作者仍需核实 IP、
 payload/TCP/安装、控制器安全状态、急停、工作区和已完成的 RH56 hand 证据。日志会写入
 `logs/` 下的 HTS、shared events、native metrics/cycles、
 event extract、RH56 telemetry 和 combined summary。

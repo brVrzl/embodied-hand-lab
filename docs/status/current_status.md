@@ -70,6 +70,16 @@ faults. Fresh CTRL packets then reported `active=0`, and the retained liveness
 policy correctly stopped with `producer_liveness_loss`. That is correct safety
 behavior, not a completed duration gate. No 300-second combined run has a PASS.
 
+Four unisolated combined runs on 2026-07-31 stopped on native cycle-start hard
+timing faults. All recorded `configured_control_cpu=-1`; trigger correlation
+showed no clutch transition near three faults, and grip was released at all
+four terminal events. The direct cause was OS scheduler wake delay of the
+unisolated `SCHED_OTHER` native thread, not an RH56 fault or a demonstrated
+trigger-transition defect. The maintained combined gate now requires an
+explicit verified `--native-control-cpu`; on the recorded 14-CPU host, CPU6 is
+the previously measured low-load choice. This correction is offline tested but
+does not add a new physical PASS.
+
 The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
 physical PASS from accepted-target replay or fake-worker results.
@@ -123,7 +133,9 @@ The maintained combined wrapper is:
 It requires exact arm and hand approvals, completed hand prerequisites,
 accessible E-stop, a clear workspace, bounded duration, stable/verified device
 identity, and `--no-auto-retry`. The wrapper permits at most 300 seconds, but
-that upper bound is not a validated operating duration.
+that upper bound is not a validated operating duration. It also requires an
+explicit verified `--native-control-cpu`; unisolated combined operation is
+rejected before hardware I/O.
 
 The arm-only isolation and RH56 staged inspection entries are:
 
