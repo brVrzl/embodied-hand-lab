@@ -23,13 +23,14 @@ def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
 
 builtins.__import__ = guarded_import
 import teleoperation
-from jaka_driver_adapter.adapter import JakaDriverAdapter
-from rh56_driver.node import RH56Driver
+from teleoperation.jaka.fake_backend import FakeJakaBackend
+from rh56_driver.serial_backend import RH56SerialBackend
 
-arm = JakaDriverAdapter.from_yaml("configs/robot/jaka_mini2.yaml")
-hand = RH56Driver.from_yaml("configs/hand/rh56.yaml")
-assert arm.connect()
-assert hand.connect()
+arm = FakeJakaBackend()
+hand = RH56SerialBackend({{"serial": {{"port": "/dev/serial/by-id/not-opened"}}}})
+with arm:
+    assert arm.read_state().powered
+assert hand.ser is None
 """
     completed = subprocess.run(
         [sys.executable, "-I", "-c", script],

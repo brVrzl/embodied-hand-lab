@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import socket
+from pathlib import Path
+import tempfile
 import time
 
 import pytest
@@ -25,6 +27,14 @@ def packet(sequence: int) -> TargetPacket:
     now = time.monotonic_ns()
     return TargetPacket(TargetKind.CARTESIAN_POSE, TargetFlags.NONE, FrameId.ROBOT_BASE,
                         sequence, now, now, now, now, (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0))
+
+
+@pytest.fixture
+def short_socket_dir() -> Path:
+    # AF_UNIX path limits are as small as 104 bytes on macOS; pytest's
+    # descriptive per-test directory may exceed that limit.
+    with tempfile.TemporaryDirectory(prefix="wire-") as directory:
+        yield Path(directory)
 
 
 def test_wire_round_trip_is_fixed_size_and_crc_protected() -> None:
@@ -70,17 +80,22 @@ def test_hold_rejected_heartbeat_has_no_joint_target_payload() -> None:
     assert decoded.payload[3:] == (0.0,) * 5
 
 
-def test_publisher_has_no_application_queue_and_drops_absent_consumer(tmp_path) -> None:
-    publisher = LatestTargetPublisher(tmp_path / "absent.sock")
+def test_publisher_has_no_application_queue_and_drops_absent_consumer(
+    short_socket_dir: Path,
+) -> None:
+    publisher = LatestTargetPublisher(short_socket_dir / "absent.sock")
     assert not publisher.publish(packet(1))
     assert publisher.dropped == 1
     assert not hasattr(publisher, "queue")
     publisher.close()
 
 
-def test_latest_datagram_can_be_drained_without_retaining_fifo(tmp_path) -> None:
-    path = tmp_path / "target.sock"
-    receiver = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK)
+def test_latest_datagram_can_be_drained_without_retaining_fifo(
+    short_socket_dir: Path,
+) -> None:
+    path = short_socket_dir / "target.sock"
+    receiver = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    receiver.setblocking(False)
     receiver.bind(str(path))
     with LatestTargetPublisher(path) as publisher:
         for sequence in range(5):

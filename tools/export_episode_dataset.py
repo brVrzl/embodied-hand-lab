@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from episode_dataset.exporters import export_act_hdf5, export_lerobot_v3
+from episode_dataset_cli import main as dataset_cli_main
 
 
 def parse_args() -> argparse.Namespace:
@@ -20,12 +20,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.format == "act-hdf5":
-        result = export_act_hdf5(args.episode, args.output)
-    else:
-        result = export_lerobot_v3(args.episode, args.output, repo_id=args.repo_id)
-    print(result)
-    return 0
+    forwarded = ["export", str(args.episode), args.format, str(args.output)]
+    if args.format == "lerobot-v3":
+        forwarded.extend(["--repo-id", args.repo_id])
+    return dataset_cli_main(forwarded)
 
 
 if __name__ == "__main__":

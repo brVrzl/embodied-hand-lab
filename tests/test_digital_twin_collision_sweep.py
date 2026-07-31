@@ -149,7 +149,9 @@ def test_contact_classification_detects_arm_table(model: mujoco.MjModel, config:
 def test_pose_source_loading_and_report_aggregation(model: mujoco.MjModel) -> None:
     from tools.digital_twin.run_joint_space_collision_sweep import _aggregate_events, _load_repository_poses
 
-    poses = _load_repository_poses(model, ROOT / "configs/robot/jaka_mini2_real.yaml")
+    poses = _load_repository_poses(
+        model, ROOT / "configs/sim/jaka_collision_sweep_poses.yaml"
+    )
     names = {pose.name for pose in poses}
     assert {"upright", "teleop_ready"} <= names
     rows = [

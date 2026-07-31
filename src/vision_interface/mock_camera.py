@@ -56,6 +56,3 @@ class MockRGBDCamera(CameraInterface):
         )
         self._last_frame = frame
         return frame
-
-
-MockRGDBCamera = MockRGBDCamera

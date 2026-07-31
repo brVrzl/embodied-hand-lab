@@ -1,156 +1,114 @@
-# Documentation
+# Documentation index
 
-This index separates current instructions from dated evidence. Start with the
-status page, then use the topic-specific page. Historical reports retain the
-claims and paths that were true when written; they do not override current code
-or this index.
+This index separates current authority from dated evidence. Read
+[current status](status/current_status.md) before interpreting an old report
+or planning physical work. Files under `history/` record what happened at a
+particular time; they do not override current code, safety contracts, or
+operator pages.
 
-Important current reading pages place a corresponding Chinese version after
-the English text. Historical evidence remains in its original language so that
-the recorded result is not rewritten after the fact.
+## First use
 
-## Current project documentation
+- [Installation](setup/INSTALLATION.md)
+- [Configuration](configuration/CONFIGURATION.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Command reference](reference/command_reference.md)
+- [Current validation matrix](status/validation_matrix.md)
+- [Final repository review](maintenance/FINAL_REPOSITORY_REVIEW.md)
 
-### Architecture
+The final review is created by the 2026-07-31 overhaul and records the exact
+environment and commands used. A missing page during an in-progress source
+transfer is not a substitute for its eventual evidence.
 
-- [Overview](architecture/overview.md)
-- [Shared target pipeline](architecture/shared_target_pipeline.md)
-- [Simulation/hardware parity](architecture/simulation_hardware_parity.md)
-- [Coordinate frames](architecture/coordinate_frames.md)
+## Architecture and safety
 
-### Operation
+- [System architecture](architecture/SYSTEM_ARCHITECTURE.md) — components,
+  control/data flow, adapter boundary, RH56 semantics, and missing integration
+- [Shared accepted-target pipeline](architecture/shared_target_pipeline.md)
+- [Simulation/hardware parity contract](architecture/simulation_hardware_parity.md)
+- [Quest/JAKA coordinate frames](architecture/coordinate_frames.md)
+- [Generic UMIP coordinate frames](motion_input/COORDINATE_FRAMES.md)
+- [Real-hardware safety](safety/REAL_HARDWARE_SAFETY.md)
+- [Safety model](safety/safety_model.md)
+- [Physical test gates](safety/physical_test_gates.md)
+- [Controller-configuration boundary](safety/controller_configuration.md)
+- [Incident response](safety/incident_response.md)
+- [Known limitations](status/known_limitations.md)
 
-- [Quest/JAKA MuJoCo recording, replay, and 125 Hz simulation](operation/simulation_demo.md)
+The current arm authority ends at immutable `AcceptedArmTarget`. MuJoCo and
+physical JAKA receive the same accepted J1--J6 radians; the physical adapter
+must not follow MuJoCo state, remap, filter, or solve IK.
+
+## Simulation and operation
+
+- [Quest/JAKA MuJoCo recording, replay, and live simulation](operation/simulation_demo.md)
 - [RH56 H0 simulation self-test](operation/rh56_h0_self_test.md)
 - [Quest host setup](operation/quest_setup.md)
 - [Hardware prerequisites](operation/hardware_prerequisites.md)
 - [JAKA arm teleoperation](operation/jaka_arm_teleoperation.md)
-- [RH56 operation](operation/rh56_operation.md)
-- [Current normal JAKA + RH56 teleoperation](operation/jaka_rh56_combined_teleop.md)
-- [Troubleshooting](operation/troubleshooting.md)
+- [RH56 PC-direct operation](operation/rh56_operation.md)
+- [Combined JAKA and RH56 teleoperation](operation/jaka_rh56_combined_teleop.md)
 
-### Safety and status
+Physical pages retain exact acknowledgements and bounded procedures. Reading
+them or running `--help` does not authorize a device connection.
 
-- [Safety model](safety/safety_model.md)
-- [Physical test gates](safety/physical_test_gates.md)
-- [Controller configuration boundary](safety/controller_configuration.md)
-- [Incident response](safety/incident_response.md)
-- [Current status](status/current_status.md)
-- [Known limitations](status/known_limitations.md)
-- [Validation matrix](status/validation_matrix.md)
+## Data and learning
 
-### Development and reference
+- [Canonical dataset schema](data/DATASET_SCHEMA.md)
+- [Collection and quality guide](data/COLLECTION_GUIDE.md)
+- [Policy-training integration](training/TRAINING_INTEGRATION.md)
+- [Distributed-training readiness](training/DISTRIBUTED_TRAINING.md)
+- [Offline benchmark harness](benchmark/BENCHMARKS.md)
+- [Experiment and result discipline](experiments/EXPERIMENTS.md)
+- [Execution roadmap](roadmap/NEXT_STEPS.md)
 
-- [Repository layout](development/repository_layout.md)
-- [Setup](development/setup.md)
+The repository provides data validation/export boundaries and a distributed
+communication smoke test. It does not currently ship a maintained ACT,
+Diffusion Policy, or OpenPI trainer.
+
+## Development and reference
+
 - [Build](development/build.md)
 - [Testing](development/testing.md)
-- [Configuration](development/configuration.md)
 - [Logging and replay](development/logging_and_replay.md)
-- [Single-episode RGB-D dataset pipeline](development/single_episode_dataset.md)
 - [Contribution workflow](development/contribution_workflow.md)
-- [Quest/JAKA teleoperation rearchitecture research (offline)](research/teleop_rearchitecture.md)
-- [Teleoperation command-health ABI v1 (offline research)](research/teleop_command_abi.md)
-- [JAKA clutch-recovery transport contract (offline research)](research/jaka_clutch_recovery_transport_contract.md)
-- [Command reference](reference/command_reference.md)
 - [Configuration reference](reference/config_reference.md)
 - [Log schemas](reference/log_schemas.md)
 - [Glossary](reference/glossary.md)
 - [Third-party notices](../THIRD_PARTY_NOTICES.md)
 
-## Other current project areas
+## Parallel research areas
 
-- [Digital twin workspace](digital_twin/README.md)
-- [Motion-input platform](motion_input/README.md)
+- [Digital-twin workspace](digital_twin/README.md)
 - [RGB-D readiness](d435_depth_pointcloud_readiness.md)
+- [Motion-input platform](motion_input/README.md)
+- [Quest Unity integration](../integrations/quest_unity/README.md)
+- [Offline teleoperation rearchitecture](research/teleop_rearchitecture.md)
+- [Command-health ABI research](research/teleop_command_abi.md)
+- [Clutch-recovery transport research](research/jaka_clutch_recovery_transport_contract.md)
+
+These areas do not silently replace the primary Quest/JAKA control authority.
+`learned_policy/` is preserved inference research and remains outside the
+maintained physical command path.
 
 ## History and evidence
 
-[The history index](history/README.md) classifies preserved physical gates,
-incidents, raw measurements, handoffs, and superseded designs. Historical
-evidence is intentionally not mixed into normal operator instructions.
+[The history index](history/README.md) groups physical gates, incidents,
+measurements, and superseded designs. Raw outcomes retain their original
+claims and validation level. Current synthesis belongs in the status,
+architecture, safety, and maintenance pages above.
 
 ## Documentation rules
 
-- Keep one authoritative current page per topic.
-- Use repository-relative paths and commands verified against current `--help`.
-- State whether a result is offline, simulation, physical, failed, or
-  unverified.
-- Never rewrite raw evidence or a failed historical outcome.
-- Move superseded material to history and update its index; delete only when
-  complete duplication and absence of active references are proven.
+- Keep one current authority per topic and link to it instead of copying it.
+- Use repository-relative paths and commands checked against current help.
+- Label offline, simulation, replay, physical PASS, physical FAIL, and
+  unverified evidence literally.
+- Do not rewrite historical failure evidence to match later behavior.
+- Do not describe implementation, fake workers, replay, or simulation as a
+  physical PASS.
 
----
+## 中文导读
 
-# 中文版：文档索引
-
-本索引把当前操作说明与历史证据分开。建议先阅读“当前状态”，再进入具体主题。历史报告只
-保留其生成时真实的结论和路径，不覆盖当前代码和本索引。
-
-## 当前项目文档
-
-### 架构
-
-- [架构概览](architecture/overview.md)
-- [共享目标管线](architecture/shared_target_pipeline.md)
-- [仿真/真机一致性](architecture/simulation_hardware_parity.md)
-- [坐标系](architecture/coordinate_frames.md)
-
-### 操作
-
-- [Quest/JAKA MuJoCo 录制、回放与 125 Hz 仿真](operation/simulation_demo.md)
-- [RH56 H0 仿真自检](operation/rh56_h0_self_test.md)
-- [Quest 主机设置](operation/quest_setup.md)
-- [真机前置条件](operation/hardware_prerequisites.md)
-- [JAKA 机械臂遥操作](operation/jaka_arm_teleoperation.md)
-- [RH56 操作](operation/rh56_operation.md)
-- [当前正常 JAKA + RH56 联合遥操作](operation/jaka_rh56_combined_teleop.md)
-- [故障排查](operation/troubleshooting.md)
-
-### 安全与状态
-
-- [安全模型](safety/safety_model.md)
-- [真机测试 gate](safety/physical_test_gates.md)
-- [控制器配置边界](safety/controller_configuration.md)
-- [事故响应](safety/incident_response.md)
-- [当前状态](status/current_status.md)
-- [已知限制](status/known_limitations.md)
-- [验证矩阵](status/validation_matrix.md)
-
-### 开发与参考
-
-- [仓库布局](development/repository_layout.md)
-- [环境设置](development/setup.md)
-- [构建](development/build.md)
-- [测试](development/testing.md)
-- [配置](development/configuration.md)
-- [日志与回放](development/logging_and_replay.md)
-- [单 episode RGB-D 数据管线](development/single_episode_dataset.md)
-- [贡献流程](development/contribution_workflow.md)
-- [Quest/JAKA 遥操作重构调研（仅离线）](research/teleop_rearchitecture.md)
-- [遥操作 command-health ABI v1（仅离线调研）](research/teleop_command_abi.md)
-- [JAKA clutch 恢复 transport contract（仅离线调研）](research/jaka_clutch_recovery_transport_contract.md)
-- [命令参考](reference/command_reference.md)
-- [配置参考](reference/config_reference.md)
-- [日志结构](reference/log_schemas.md)
-- [术语表](reference/glossary.md)
-- [第三方声明](../THIRD_PARTY_NOTICES.md)
-
-## 其他当前区域
-
-- [数字孪生工作区](digital_twin/README.md)
-- [运动输入平台](motion_input/README.md)
-- [RGB-D 准备状态](d435_depth_pointcloud_readiness.md)
-
-## 历史证据
-
-[历史索引](history/README.md)对真机 gate、事故、原始测量和已取代设计进行分类。历史证据
-不会混入普通操作说明。
-
-## 文档规则
-
-- 每个主题只保留一个当前权威页面。
-- 使用仓库相对路径，并用当前 `--help` 核实命令。
-- 明确区分离线、仿真、真机、失败和未验证状态。
-- 不重写原始证据或历史失败结果。
-- 被取代材料进入历史区；只有证明完全重复且无活动引用时才删除。
+请先阅读[当前状态](status/current_status.md)、[安装](setup/INSTALLATION.md)和
+[真机安全](safety/REAL_HARDWARE_SAFETY.md)。`history/` 中的文件只保存当时证据，
+不覆盖当前代码和操作说明。测试、回放、仿真、`doctor` 与 `--help` 均不构成真机授权。

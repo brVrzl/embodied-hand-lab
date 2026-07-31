@@ -1,0 +1,6 @@
+schema_version: jaka_collision_sweep_poses.v1
+safety:
+  joint_limit_margin_deg: 5.0
+joint_presets:
+  upright: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  teleop_ready: [-1.57079632679, -0.75, 1.10, 0.0, -0.35, 0.0]

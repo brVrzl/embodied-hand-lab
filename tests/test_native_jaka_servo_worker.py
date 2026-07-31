@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -26,6 +27,10 @@ from teleoperation.wire import (
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="the real-time JAKA worker requires Linux scheduling and procfs",
+)
 
 
 def test_native_control_cpu_affinity_is_applied_and_reported(tmp_path) -> None:

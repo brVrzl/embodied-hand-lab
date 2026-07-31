@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from tools.serve_realsense_viewer import _make_preview_panel, _viewer_filter_config
+from tools.check_realsense_stream import _make_preview_panel, _viewer_filter_config
 
 
 def test_viewer_filter_profiles_keep_global_hole_filling_disabled() -> None:

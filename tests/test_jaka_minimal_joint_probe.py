@@ -1,6 +1,7 @@
 from __future__ import annotations
 import re, subprocess
 from pathlib import Path
+import sys
 import numpy as np
 import pytest
 
@@ -10,6 +11,10 @@ BUILD=ROOT/'build/jaka_minimal_joint_probe'
 BINARY=BUILD/'jaka_gate3c_plan_probe'
 MOTION=BUILD/'jaka_gate3c_motion_probe'
 FIVE_PLAN=BUILD/'jaka_gate3c_5deg_plan_probe'
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="the JAKA vendor SDK probe is Linux-only",
+)
 
 def setup_module() -> None:
     subprocess.run(['cmake','-S',str(SOURCE),'-B',str(BUILD),'-DCMAKE_BUILD_TYPE=Release'],check=True)
@@ -18,6 +23,16 @@ def setup_module() -> None:
 def test_default_is_nonconnecting():
     r=subprocess.run([str(BINARY)],text=True,capture_output=True,check=True)
     assert '"connection_opened":false' in r.stdout and '"commands_issued":0' in r.stdout
+
+def test_motion_help_is_nonconnecting_even_with_vendor_selected():
+    r=subprocess.run(
+        [str(MOTION),'--backend','vendor','--help'],
+        text=True,capture_output=True,check=True,
+    )
+    assert 'Usage: jaka_gate3c_motion_probe' in r.stdout
+    assert '--physical-hardware' in r.stdout
+    assert '--fake-deterministic-clock' in r.stdout
+    assert r.stderr == ''
 
 def test_plan_binary_has_no_write_capability():
     symbols=subprocess.run(['nm','-D','--undefined-only',str(BINARY)],text=True,capture_output=True,check=True).stdout
@@ -46,7 +61,7 @@ def test_source_is_arm_only_and_plan_main_has_no_write_calls():
 
 def run_motion(tmp_path: Path, *args: str):
     result=tmp_path/'result.json'; csv=tmp_path/'trajectory.csv'
-    p=subprocess.run([str(MOTION),'--backend','fake','--result-file',str(result),'--trajectory-csv',str(csv),*args],text=True,capture_output=True)
+    p=subprocess.run([str(MOTION),'--backend','fake','--fake-deterministic-clock','--result-file',str(result),'--trajectory-csv',str(csv),*args],text=True,capture_output=True)
     import json
     return p,json.loads(result.read_text()),csv
 
@@ -98,6 +113,7 @@ def test_five_degree_dynamic_threshold_math():
 def test_five_degree_fake_outward_hold_return_and_instrumentation(tmp_path):
     p,r,csv=run_motion(tmp_path,'--five-degree-profile')
     assert p.returncode==0 and r['outcome']=='completed'
+    assert r['timing_clock']=='deterministic_fake'
     assert r['profile']=='joint6_plus_5deg'
     assert r['commands']==r['planned_commands']==1439
     assert r['outward_target'][5]-r['start'][5]==pytest.approx(np.deg2rad(5))
@@ -134,4 +150,14 @@ def test_five_degree_vendor_execution_requires_all_physical_flags(tmp_path):
     ],text=True,capture_output=True)
     assert p.returncode==64
     assert 'all physical confirmations required' in p.stderr
+    assert not result.exists() and not csv.exists()
+
+def test_vendor_backend_rejects_fake_deterministic_clock(tmp_path):
+    result=tmp_path/'result.json'; csv=tmp_path/'trajectory.csv'
+    p=subprocess.run([
+        str(MOTION),'--backend','vendor','--fake-deterministic-clock',
+        '--result-file',str(result),'--trajectory-csv',str(csv),
+    ],text=True,capture_output=True)
+    assert p.returncode==64
+    assert '--fake-deterministic-clock is forbidden' in p.stderr
     assert not result.exists() and not csv.exists()

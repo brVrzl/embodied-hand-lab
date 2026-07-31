@@ -851,81 +851,116 @@ def _start_episode_data_runtime(
             worker.stop()
         raise SystemExit("dual RealSense startup timed out before fresh frames arrived")
 
-    dataset_config = data_config.get("dataset", {})
-    root = args.episode_root or Path(dataset_config.get("root", "data/episodes"))
-    camera_profiles = {role: workers[role].profile_metadata() for role in workers}
-    calibration = data_config.get("calibration", {})
-    calibration_files = calibration.get("snapshot_files", []) if isinstance(calibration, dict) else []
-    hardware_config = config.raw.get("hardware_adapter", {})
-    start_tolerance = float(hardware_config.get("startup_alignment_tolerance_rad", 0.001))
-    staging_writer = CanonicalEpisodeWriter(
-        root,
-        task_name=args.task_name,
-        operator=args.operator,
-        dataset_fps=int(dataset_config.get("fps", 30)),
-        metadata={
-            "camera_serials": serials,
-            "camera_profiles": camera_profiles,
-            "calibration_files": calibration_files,
-            "calibration_snapshot": {"files": [], "version": calibration.get("version")},
-            "control_config": {
-                "path": str(args.config.resolve()),
-                "sha256": file_sha256(args.config),
-            },
-            "raw_streams": {
-                "quest_raw_datagram": "measured",
-                "quest_decoded_input": "measured",
-                "accepted_arm_target_60hz": "commanded",
-                "emitted_arm_command_125hz": (
-                    "commanded"
-                    if args.arm_output_mode == ArmOutputMode.JAKA_EQUIVALENT_125HZ.value
-                    else "unavailable"
-                ),
-                "jaka_arm_q": "unavailable_simulated_arm_q_available",
-                "jaka_arm_dq": "unavailable_simulated_arm_dq_available",
-                "native_telemetry": "unavailable",
-                "rh56_target": "commanded_simulation",
-                "rh56_feedback": "measured_simulation",
-                "workspace_rgbd": "measured",
-                "wrist_rgbd": "measured",
-                "fault_events": "measured_simulation",
-            },
-            "simulation_only": True,
-            "physically_validated": False,
-        },
-    )
-    writer = AsyncEpisodeWriter(staging_writer)
-    collector = SingleEpisodeCollector(
-        writer,
-        camera_max_age_ns=round(float(dataset_config.get("camera_max_age_ms", 33.333334)) * 1e6),
-        control_max_age_ns=round(float(dataset_config.get("control_max_age_ms", 20.0)) * 1e6),
-        maximum_start_delta_rad=start_tolerance,
-        maximum_hand_start_delta_rad=float(
-            dataset_config.get("hand_start_tolerance_rad", 0.05)
-        ),
-    )
-    writer.set_final_metadata_provider(
-        lambda: {
-            "camera_profiles": {role: workers[role].profile_metadata() for role in workers}
+    writer: AsyncEpisodeWriter | None = None
+    preview: AsyncDualCameraPreview | None = None
+    preview_started = False
+    try:
+        dataset_config = data_config.get("dataset", {})
+        if not isinstance(dataset_config, dict):
+            raise SystemExit("episode data config dataset must be a mapping")
+        root = args.episode_root or Path(
+            dataset_config.get("root", "data/episodes")
+        )
+        camera_profiles = {
+            role: workers[role].profile_metadata() for role in workers
         }
-    )
-    preview = None
-    if args.episode_preview:
-        preview = AsyncDualCameraPreview(
-            workers["workspace"],
-            workers["wrist"],
-            PreviewStatus(
-                state=collector.state,
-                temporary_id=writer.temporary_id,
-                episode_start_ns=None,
-                arm_trigger=False,
-                hand_grip=False,
-                recording_frame_count=0,
+        calibration = data_config.get("calibration", {})
+        if not isinstance(calibration, dict):
+            raise SystemExit("episode data config calibration must be a mapping")
+        calibration_files = calibration.get("snapshot_files", [])
+        hardware_config = config.raw.get("hardware_adapter", {})
+        start_tolerance = float(
+            hardware_config.get("startup_alignment_tolerance_rad", 0.001)
+        )
+        staging_writer = CanonicalEpisodeWriter(
+            root,
+            task_name=args.task_name,
+            operator=args.operator,
+            dataset_fps=int(dataset_config.get("fps", 30)),
+            metadata={
+                "camera_serials": serials,
+                "camera_profiles": camera_profiles,
+                "calibration_files": calibration_files,
+                "calibration_snapshot": {
+                    "files": [],
+                    "version": calibration.get("version"),
+                },
+                "control_config": {
+                    "path": str(args.config.resolve()),
+                    "sha256": file_sha256(args.config),
+                },
+                "raw_streams": {
+                    "quest_raw_datagram": "measured",
+                    "quest_decoded_input": "measured",
+                    "accepted_arm_target_60hz": "commanded",
+                    "emitted_arm_command_125hz": (
+                        "commanded"
+                        if args.arm_output_mode
+                        == ArmOutputMode.JAKA_EQUIVALENT_125HZ.value
+                        else "unavailable"
+                    ),
+                    "jaka_arm_q": "unavailable_simulated_arm_q_available",
+                    "jaka_arm_dq": "unavailable_simulated_arm_dq_available",
+                    "native_telemetry": "unavailable",
+                    "rh56_target": "commanded_simulation",
+                    "rh56_feedback": "measured_simulation",
+                    "workspace_rgbd": "measured",
+                    "wrist_rgbd": "measured",
+                    "fault_events": "measured_simulation",
+                },
+                "simulation_only": True,
+                "physically_validated": False,
+            },
+        )
+        writer = AsyncEpisodeWriter(staging_writer)
+        collector = SingleEpisodeCollector(
+            writer,
+            camera_max_age_ns=round(
+                float(
+                    dataset_config.get("camera_max_age_ms", 33.333334)
+                )
+                * 1e6
+            ),
+            control_max_age_ns=round(
+                float(dataset_config.get("control_max_age_ms", 20.0)) * 1e6
+            ),
+            maximum_start_delta_rad=start_tolerance,
+            maximum_hand_start_delta_rad=float(
+                dataset_config.get("hand_start_tolerance_rad", 0.05)
             ),
         )
-        preview.start()
-        collector.set_state_listener(preview.set_capture_state)
-    return collector, workers["workspace"], workers["wrist"], preview
+        writer.set_final_metadata_provider(
+            lambda: {
+                "camera_profiles": {
+                    role: workers[role].profile_metadata() for role in workers
+                }
+            }
+        )
+        if args.episode_preview:
+            preview = AsyncDualCameraPreview(
+                workers["workspace"],
+                workers["wrist"],
+                PreviewStatus(
+                    state=collector.state,
+                    temporary_id=writer.temporary_id,
+                    episode_start_ns=None,
+                    arm_trigger=False,
+                    hand_grip=False,
+                    recording_frame_count=0,
+                ),
+            )
+            preview.start()
+            preview_started = True
+            collector.set_state_listener(preview.set_capture_state)
+        return collector, workers["workspace"], workers["wrist"], preview
+    except BaseException:
+        if preview_started and preview is not None:
+            preview.stop()
+        if writer is not None:
+            writer.close()
+        for worker in workers.values():
+            worker.stop()
+        raise
 
 
 def _simulation_control_sample(
@@ -1256,13 +1291,12 @@ def _live_6dof(args: argparse.Namespace) -> int:
                             ),
                         )
                         if episode_preview.closed:
-                            if episode_collector.state is CaptureState.REC:
-                                reason = (
-                                    "preview_error"
-                                    if episode_preview.error is not None
-                                    else "preview_closed"
-                                )
-                                episode_collector.abort(reason)
+                            reason = (
+                                "preview_error"
+                                if episode_preview.error is not None
+                                else "preview_closed"
+                            )
+                            episode_collector.shutdown(reason)
                             break
                     next_viewer += (skipped + 1) * viewer_period
                 if episode_collector is not None and episode_collector.state is CaptureState.DONE:
@@ -1342,11 +1376,11 @@ def _live_6dof(args: argparse.Namespace) -> int:
                 deadline = min(next_sim, next_target, next_viewer)
                 time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
         except KeyboardInterrupt:
-            if episode_collector is not None and episode_collector.state is CaptureState.REC:
-                episode_collector.abort("operator_interrupt")
+            if episode_collector is not None:
+                episode_collector.shutdown("operator_interrupt")
         finally:
-            if episode_collector is not None and episode_collector.state is CaptureState.REC:
-                episode_collector.abort("capture_loop_ended")
+            if episode_collector is not None:
+                episode_collector.shutdown("capture_loop_ended")
             worker.close()
             if handle is not None:
                 handle.close()

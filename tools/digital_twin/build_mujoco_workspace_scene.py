@@ -44,7 +44,6 @@ def main() -> None:
     parser.add_argument("--show-sparse-debug", action="store_true", help="Include the non-colliding sparse reconstruction debug mesh. Disabled by default.")
     parser.add_argument("--hide-camera-placeholders", action="store_true", help="Omit nonphysical camera placeholder sites.")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--alias-output", type=Path)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -128,9 +127,6 @@ def main() -> None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         ET.indent(tree, space="  ")
         tree.write(args.output, encoding="utf-8", xml_declaration=False)
-        if args.alias_output:
-            args.alias_output.parent.mkdir(parents=True, exist_ok=True)
-            args.alias_output.write_bytes(args.output.read_bytes())
         source_hash = hashlib.sha256(args.robot_model.read_bytes()).hexdigest()
         manifest = {
             "schema_version": 2, "scene": str(args.output), "world_frame": "P",

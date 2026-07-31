@@ -194,7 +194,7 @@ def test_near_wrist_singularity_roll_uses_jacobian_not_fixed_j5_guard() -> None:
 def test_j6_near_safe_limit_rejects_without_wrap_or_branch_flip() -> None:
     simulation = _simulation()
     joints = np.asarray(simulation.config.initial_arm_joints_rad, dtype=float)
-    joints[5] = math.radians(354.0)
+    joints[5] = math.radians(353.8)
     reference = _set_configuration(simulation, joints)
 
     first = simulation.evaluate(

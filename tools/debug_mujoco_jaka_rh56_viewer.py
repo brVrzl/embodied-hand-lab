@@ -1,16 +1,22 @@
+"""Build and inspect the maintained JAKA/RH56 MuJoCo debug scene.
+
+This module is also a compatibility dependency of the protected interactive
+``teleop_mujoco_jaka_rh56.py`` entry and the digital-twin sweep provenance.
+It is simulation-only and never imports a hardware backend.
+"""
+
 from __future__ import annotations
 
 import argparse
 import importlib
 import json
 import os
+from pathlib import Path
 import sys
 import time
 import xml.etree.ElementTree as ET
-from pathlib import Path
 from typing import Any
 
-import imageio.v3 as iio
 import mujoco
 import numpy as np
 
@@ -24,7 +30,10 @@ PREGRASP_QPOS = np.asarray(
     [0.123, 0.429, 1.496, -1.447, -0.019, -2.164] + [0.0] * 12,
     dtype=np.float64,
 )
-HAND_CLOSE_CTRL = np.asarray([0.75, 0.45, 1.25, 1.25, 1.25, 1.25], dtype=np.float64)
+HAND_CLOSE_CTRL = np.asarray(
+    [0.75, 0.45, 1.25, 1.25, 1.25, 1.25],
+    dtype=np.float64,
+)
 HAND_OPEN_CTRL = np.zeros(6, dtype=np.float64)
 HAND_ACTUATOR_NAMES = [
     "rh56_R_thumb_MCP_joint1_act",
@@ -49,15 +58,19 @@ def _configure_collision_model(
     collision_mode: str,
     include_calibration_markers: bool = False,
 ) -> None:
-    """Select the sole retained RH56 runtime collision representation."""
-
     del include_calibration_markers
     if collision_mode != "visual_coacd":
-        raise ValueError("only the committed visual_coacd collision model is retained")
+        raise ValueError(
+            "only the committed visual_coacd collision model is retained"
+        )
     patch_rh56_visual_coacd_collision_model(root)
 
 
-def _body_pos(model: mujoco.MjModel, data: mujoco.MjData, name: str) -> np.ndarray:
+def _body_pos(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    name: str,
+) -> np.ndarray:
     body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
     if body_id < 0:
         raise KeyError(f"Missing body {name}")
@@ -71,20 +84,32 @@ def _pregrasp_positions(base_xml: Path) -> dict[str, Any]:
     data.ctrl[:6] = PREGRASP_QPOS[:6]
     data.ctrl[6:12] = HAND_OPEN_CTRL
     mujoco.mj_forward(model, data)
-    tip_positions = {name: _body_pos(model, data, name).tolist() for name in TIP_BODY_NAMES}
+
+    tip_positions = {
+        name: _body_pos(model, data, name).tolist()
+        for name in TIP_BODY_NAMES
+    }
     tip_array = np.asarray(list(tip_positions.values()), dtype=np.float64)
     palm = _body_pos(model, data, "rh56_R_hand_base_link")
-    cube_pos = np.mean([tip_array[0], tip_array[1], tip_array[2]], axis=0)
+    cube_pos = np.mean(
+        [tip_array[0], tip_array[1], tip_array[2]],
+        axis=0,
+    )
     cube_pos = 0.65 * cube_pos + 0.35 * palm
     return {
         "tips": tip_positions,
         "palm": palm.tolist(),
         "cube_in_hand_pos": cube_pos.tolist(),
-        "table_cube_pos": [-0.10, 0.0, 0.025],
+        "table_cube_pos": [-0.1, 0.0, 0.025],
     }
 
 
-def _add_debug_world(root: ET.Element, scenario: str, cube_pos: list[float]) -> None:
+def _add_debug_world(
+    root: ET.Element,
+    *,
+    scenario: str,
+    cube_pos: list[float],
+) -> None:
     worldbody = root.find("worldbody")
     if worldbody is None:
         raise RuntimeError("Base MJCF does not contain <worldbody>.")
@@ -106,10 +131,14 @@ def _add_debug_world(root: ET.Element, scenario: str, cube_pos: list[float]) -> 
         "body",
         {
             "name": "debug_cube_body",
-            "pos": f"{cube_pos[0]:.6f} {cube_pos[1]:.6f} {cube_pos[2]:.6f}",
+            "pos": " ".join(f"{value:.6f}" for value in cube_pos),
         },
     )
-    ET.SubElement(cube_body, "freejoint", {"name": "debug_cube_freejoint"})
+    ET.SubElement(
+        cube_body,
+        "freejoint",
+        {"name": "debug_cube_freejoint"},
+    )
     ET.SubElement(
         cube_body,
         "geom",
@@ -148,62 +177,121 @@ def _add_debug_world(root: ET.Element, scenario: str, cube_pos: list[float]) -> 
     root.set("model", f"jaka_rh56_mujoco_debug_{scenario}")
 
 
-def build_debug_xml(base_xml: str | Path, out_xml: str | Path, *, scenario: str, collision_mode: str) -> dict[str, Any]:
-    base_xml = Path(base_xml).resolve()
-    out_xml = Path(out_xml)
-    out_xml.parent.mkdir(parents=True, exist_ok=True)
-    positions = _pregrasp_positions(base_xml)
-    cube_pos = positions["cube_in_hand_pos"] if scenario == "cube_in_hand" else positions["table_cube_pos"]
-    tree = ET.parse(base_xml)
+def build_debug_xml(
+    base_xml: str | Path,
+    out_xml: str | Path,
+    *,
+    scenario: str,
+    collision_mode: str,
+) -> dict[str, Any]:
+    base_path = Path(base_xml).resolve()
+    output_path = Path(out_xml)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    positions = _pregrasp_positions(base_path)
+    cube_pos = (
+        positions["cube_in_hand_pos"]
+        if scenario == "cube_in_hand"
+        else positions["table_cube_pos"]
+    )
+
+    tree = ET.parse(base_path)
     root = tree.getroot()
     compiler = root.find("compiler")
     if compiler is None:
         compiler = ET.SubElement(root, "compiler")
-    compiler.set("meshdir", str(base_xml.parent))
-    _configure_collision_model(root, collision_mode=collision_mode, include_calibration_markers=False)
+    compiler.set("meshdir", str(base_path.parent))
+    _configure_collision_model(
+        root,
+        collision_mode=collision_mode,
+        include_calibration_markers=False,
+    )
     _add_debug_world(root, scenario=scenario, cube_pos=cube_pos)
-    tree.write(out_xml, encoding="utf-8", xml_declaration=False)
+    tree.write(output_path, encoding="utf-8", xml_declaration=False)
+
     summary = {
-        "base_xml": str(base_xml.resolve()),
-        "debug_xml": str(out_xml.resolve()),
+        "base_xml": str(base_path),
+        "debug_xml": str(output_path.resolve()),
         "scenario": scenario,
         "collision_mode": collision_mode,
         "cube_pos": cube_pos,
         **positions,
     }
-    (out_xml.parent / "debug_scene_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_path.parent / "debug_scene_summary.json").write_text(
+        json.dumps(summary, indent=2),
+        encoding="utf-8",
+    )
     return summary
 
 
 def _actuator_ids(model: mujoco.MjModel, names: list[str]) -> list[int]:
     ids: list[int] = []
     for name in names:
-        actuator_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+        actuator_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_ACTUATOR,
+            name,
+        )
         if actuator_id < 0:
             raise KeyError(f"Missing actuator {name}")
         ids.append(actuator_id)
     return ids
 
 
-def _set_initial_state(model: mujoco.MjModel, data: mujoco.MjData, *, scenario: str) -> None:
+def _set_initial_state(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    *,
+    scenario: str,
+) -> None:
     data.qpos[: PREGRASP_QPOS.size] = PREGRASP_QPOS
     data.ctrl[:6] = PREGRASP_QPOS[:6]
     data.ctrl[6:12] = HAND_OPEN_CTRL
     if scenario == "hand_close":
-        cube_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "debug_cube_freejoint")
+        cube_joint = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_JOINT,
+            "debug_cube_freejoint",
+        )
         if cube_joint >= 0:
-            qpos_addr = model.jnt_qposadr[cube_joint]
-            data.qpos[qpos_addr : qpos_addr + 7] = [0.0, 0.0, -0.5, 1.0, 0.0, 0.0, 0.0]
+            qpos_address = model.jnt_qposadr[cube_joint]
+            data.qpos[qpos_address : qpos_address + 7] = [
+                0.0,
+                0.0,
+                -0.5,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+            ]
     mujoco.mj_forward(model, data)
 
 
-def _contact_summary(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, int]:
-    counts = {"cube_hand": 0, "cube_table": 0, "hand_table": 0, "hand_self": 0, "total": int(data.ncon)}
-    for idx in range(data.ncon):
-        contact = data.contact[idx]
+def _contact_summary(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+) -> dict[str, int]:
+    counts = {
+        "cube_hand": 0,
+        "cube_table": 0,
+        "hand_table": 0,
+        "hand_self": 0,
+        "total": int(data.ncon),
+    }
+    for index in range(data.ncon):
+        contact = data.contact[index]
         names = [
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom1)) or "",
-            mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, int(contact.geom2)) or "",
+            mujoco.mj_id2name(
+                model,
+                mujoco.mjtObj.mjOBJ_GEOM,
+                int(contact.geom1),
+            )
+            or "",
+            mujoco.mj_id2name(
+                model,
+                mujoco.mjtObj.mjOBJ_GEOM,
+                int(contact.geom2),
+            )
+            or "",
         ]
         joined = " ".join(names)
         if "debug_cube" in joined and "rh56" in joined:
@@ -217,22 +305,46 @@ def _contact_summary(model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, in
     return counts
 
 
-def _step_control(model: mujoco.MjModel, data: mujoco.MjData, *, elapsed: float, cycle_period: float) -> None:
-    hand_alpha = 0.5 - 0.5 * np.cos(2.0 * np.pi * min(1.0, (elapsed % cycle_period) / cycle_period))
+def _step_control(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    *,
+    elapsed: float,
+    cycle_period: float,
+) -> None:
+    hand_alpha = 0.5 - 0.5 * np.cos(
+        2.0 * np.pi * min(1.0, (elapsed % cycle_period) / cycle_period)
+    )
     if elapsed > cycle_period:
         hand_alpha = 1.0
     data.ctrl[:6] = PREGRASP_QPOS[:6]
-    data.ctrl[6:12] = (1.0 - hand_alpha) * HAND_OPEN_CTRL + hand_alpha * HAND_CLOSE_CTRL
+    data.ctrl[6:12] = (
+        (1.0 - hand_alpha) * HAND_OPEN_CTRL + hand_alpha * HAND_CLOSE_CTRL
+    )
 
 
-def _print_status(model: mujoco.MjModel, data: mujoco.MjData, sim_time: float) -> None:
-    cube_body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "debug_cube_body")
-    cube_pos = data.xpos[cube_body].copy() if cube_body >= 0 else np.zeros(3)
+def _print_status(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    sim_time: float,
+) -> None:
+    cube_body = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        "debug_cube_body",
+    )
+    cube_pos = (
+        data.xpos[cube_body].copy()
+        if cube_body >= 0
+        else np.zeros(3)
+    )
     contacts = _contact_summary(model, data)
     hand_qpos = data.qpos[6:18].copy()
     print(
-        f"t={sim_time:6.3f} cube=({cube_pos[0]:+.3f},{cube_pos[1]:+.3f},{cube_pos[2]:+.3f}) "
-        f"hand_mcp={np.round(hand_qpos[[0,1,4,6,8,10]], 3).tolist()} contacts={contacts}",
+        f"t={sim_time:6.3f} "
+        f"cube=({cube_pos[0]:+.3f},{cube_pos[1]:+.3f},{cube_pos[2]:+.3f}) "
+        f"hand_mcp={np.round(hand_qpos[[0, 1, 4, 6, 8, 10]], 3).tolist()} "
+        f"contacts={contacts}",
         flush=True,
     )
 
@@ -253,11 +365,16 @@ def run_debug(
     data = mujoco.MjData(model)
     _set_initial_state(model, data, scenario=scenario)
 
-    renderer = None
+    renderer: mujoco.Renderer | None = None
     frames: list[np.ndarray] = []
+    camera_id = -1
     if record_mp4:
         renderer = mujoco.Renderer(model, height=height, width=width)
-        camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, "debug_close")
+        camera_id = mujoco.mj_name2id(
+            model,
+            mujoco.mjtObj.mjOBJ_CAMERA,
+            "debug_close",
+        )
 
     last_print = -1.0
     step_count = 0
@@ -270,57 +387,105 @@ def run_debug(
         handle.cam.lookat[:] = [-0.52, -0.08, 0.18]
         wall_start = time.time()
         duration_limited = duration > 0.0
-        while handle.is_running() and (not duration_limited or data.time < duration):
-            _step_control(model, data, elapsed=data.time, cycle_period=cycle_period)
+        while handle.is_running() and (
+            not duration_limited or data.time < duration
+        ):
+            _step_control(
+                model,
+                data,
+                elapsed=data.time,
+                cycle_period=cycle_period,
+            )
             mujoco.mj_step(model, data)
             if data.time - last_print >= 0.5:
                 _print_status(model, data, data.time)
                 last_print = data.time
             handle.sync()
-            time.sleep(max(0.0, model.opt.timestep - (time.time() - wall_start - data.time)))
+            time.sleep(
+                max(
+                    0.0,
+                    model.opt.timestep
+                    - (time.time() - wall_start - data.time),
+                )
+            )
 
-        # On Thor's VNC llvmpipe stack, MuJoCo/GLFW can crash during native viewer teardown.
-        # The interactive viewer has no Python cleanup to preserve, so exit before finalizers run.
+        # Some VNC/llvmpipe stacks crash in GLFW teardown. The interactive
+        # process owns no physical resource or pending data at this point.
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(0)
-    else:
-        while data.time < duration:
-            _step_control(model, data, elapsed=data.time, cycle_period=cycle_period)
-            mujoco.mj_step(model, data)
-            if data.time - last_print >= 0.5:
-                _print_status(model, data, data.time)
-                last_print = data.time
-            if renderer is not None and step_count % max(1, int(round(1.0 / (fps * model.opt.timestep)))) == 0:
-                renderer.update_scene(data, camera=camera_id)
-                frames.append(renderer.render().copy())
-            step_count += 1
+
+    while data.time < duration:
+        _step_control(
+            model,
+            data,
+            elapsed=data.time,
+            cycle_period=cycle_period,
+        )
+        mujoco.mj_step(model, data)
+        if data.time - last_print >= 0.5:
+            _print_status(model, data, data.time)
+            last_print = data.time
+        if renderer is not None and step_count % max(
+            1,
+            int(round(1.0 / (fps * model.opt.timestep))),
+        ) == 0:
+            renderer.update_scene(data, camera=camera_id)
+            frames.append(renderer.render().copy())
+        step_count += 1
 
     if renderer is not None:
-        out_path = Path(record_mp4)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        iio.imwrite(out_path, frames, fps=fps)
-        print(f"Wrote {len(frames)} frames to {out_path}")
+        from imageio import v3 as imageio_v3
+
+        output_path = Path(record_mp4 or "")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        imageio_v3.imwrite(output_path, frames, fps=fps)
+        print(f"Wrote {len(frames)} frames to {output_path}")
         renderer.close()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Debug JAKA mini2 + RH56 grasp geometry in MuJoCo.")
+    parser = argparse.ArgumentParser(
+        description="Debug JAKA mini2 + RH56 grasp geometry in MuJoCo."
+    )
     parser.add_argument("--base-xml", default=str(BASE_XML))
-    parser.add_argument("--out-xml", default=str(DEBUG_DIR / "jaka_rh56_debug.xml"))
-    parser.add_argument("--scenario", choices=["hand_close", "cube_in_hand", "table_cube"], default="cube_in_hand")
-    parser.add_argument("--collision-mode", choices=COLLISION_MODES, default="visual_coacd")
+    parser.add_argument(
+        "--out-xml",
+        default=str(DEBUG_DIR / "jaka_rh56_debug.xml"),
+    )
+    parser.add_argument(
+        "--scenario",
+        choices=["hand_close", "cube_in_hand", "table_cube"],
+        default="cube_in_hand",
+    )
+    parser.add_argument(
+        "--collision-mode",
+        choices=COLLISION_MODES,
+        default="visual_coacd",
+    )
     parser.add_argument("--duration", type=float, default=6.0)
     parser.add_argument("--cycle-period", type=float, default=3.0)
     parser.add_argument("--viewer", action="store_true")
-    parser.add_argument("--record-mp4", default=None)
+    parser.add_argument("--record-mp4")
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
 
-    summary = build_debug_xml(args.base_xml, args.out_xml, scenario=args.scenario, collision_mode=args.collision_mode)
-    print(json.dumps(summary, indent=2))
+    if args.duration <= 0.0 and not args.viewer:
+        parser.error("--duration must be positive without --viewer")
+    if args.cycle_period <= 0.0:
+        parser.error("--cycle-period must be positive")
+    if args.width <= 0 or args.height <= 0 or args.fps <= 0:
+        parser.error("--width, --height, and --fps must be positive")
+
+    summary = build_debug_xml(
+        args.base_xml,
+        args.out_xml,
+        scenario=args.scenario,
+        collision_mode=args.collision_mode,
+    )
+    print(json.dumps(summary, indent=2), flush=True)
     run_debug(
         args.out_xml,
         scenario=args.scenario,

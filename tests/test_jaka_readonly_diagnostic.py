@@ -4,6 +4,7 @@ import json
 import re
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -15,6 +16,10 @@ SOURCE = ROOT / "native/jaka_readonly_diagnostic"
 BUILD = ROOT / "build/jaka_readonly_diagnostic"
 BINARY = BUILD / "jaka_readonly_diagnostic"
 ACK = "I_ACKNOWLEDGE_JAKA_READ_ONLY_CONNECTION"
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="the JAKA vendor SDK diagnostic is Linux-only",
+)
 
 
 @pytest.fixture(scope="module", autouse=True)

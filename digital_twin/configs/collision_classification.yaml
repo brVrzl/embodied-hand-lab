@@ -69,6 +69,6 @@ dynamic:
   screenshot_limit: 24
 
 named_pose_sources:
-  robot_presets: configs/robot/jaka_mini2_real.yaml
+  robot_presets: configs/sim/jaka_collision_sweep_poses.yaml
   hand_open_close: tools/debug_mujoco_jaka_rh56_viewer.py
   directional_poses: deterministic_sample_set_FK_extrema

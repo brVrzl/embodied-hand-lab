@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from teleop_rearchitecture.cpp_shaping import CppReferenceShaper, OutputMode, default_cpp_library
+from teleop_rearchitecture.cpp_shaping import CppReferenceShaper, OutputMode
 from teleop_rearchitecture.engagement import (
     EngagementCoordinator,
     EngagementMode,
@@ -15,8 +15,6 @@ from teleop_rearchitecture.engagement import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
-LIBRARY = default_cpp_library(ROOT)
 PERIOD_NS = 8_000_000
 
 
@@ -142,7 +140,9 @@ def test_stopped_ready_can_wait_without_emitting_a_motion_target() -> None:
     assert coordinator.snapshot().mode is EngagementMode.STOPPED_READY
 
 
-def test_first_reengaged_cpp_output_is_continuous_with_measured_state() -> None:
+def test_first_reengaged_cpp_output_is_continuous_with_measured_state(
+    teleop_shaping_library: Path,
+) -> None:
     q = (0.1, -0.2, 0.3, -0.1, 0.2, -0.3)
     state = measured(sequence=8, q=q)
     coordinator = engaged()
@@ -153,7 +153,7 @@ def test_first_reengaged_cpp_output_is_continuous_with_measured_state() -> None:
     assert result is EngagementResult.OK and capture is not None
     assert coordinator.complete_engagement() is EngagementResult.OK
 
-    with CppReferenceShaper(LIBRARY) as shaper:
+    with CppReferenceShaper(teleop_shaping_library) as shaper:
         shaper.initialize(
             position_rad=q,
             velocity_rad_s=(0.0,) * 6,

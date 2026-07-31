@@ -50,6 +50,11 @@ VISUAL_COACD_THUMB_INDEX_BODIES = {
 }
 
 REVIEWED_INTERNAL_EXCLUDED_BODY_PAIRS: tuple[tuple[str, str], ...] = (
+    # The adjacent Mini2 base/link-1 meshes overlap by 3 mm in the vendor
+    # visual model at every arm configuration.  Treat this model artifact as
+    # an explicit exclusion instead of silently accepting arbitrary contacts
+    # present at startup.
+    ("jaka_Link_0", "jaka_Link_1"),
     ("rh56_R_thumb_proximal_base", "rh56_R_thumb_proximal"),
     ("rh56_R_thumb_proximal", "rh56_R_thumb_intermediate"),
     ("rh56_R_thumb_intermediate", "rh56_R_thumb_distal"),

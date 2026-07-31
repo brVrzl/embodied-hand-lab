@@ -548,7 +548,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scene", type=Path, default=ROOT / "models/digital_twin/workspace_scene.xml")
     parser.add_argument("--classification", type=Path, default=ROOT / "digital_twin/configs/collision_classification.yaml")
     parser.add_argument("--operational-config", type=Path, default=ROOT / "digital_twin/configs/robot_operational_placement.yaml")
-    parser.add_argument("--robot-config", type=Path, default=ROOT / "configs/robot/jaka_mini2_real.yaml")
+    parser.add_argument(
+        "--robot-config",
+        type=Path,
+        default=ROOT / "configs/sim/jaka_collision_sweep_poses.yaml",
+    )
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/digital_twin/collision_sweep")
     parser.add_argument("--halton-samples", type=int, help="Override deterministic Halton sample count.")
     parser.add_argument("--quick", action="store_true", help="Run only two dynamic trajectories; intended for integration testing.")

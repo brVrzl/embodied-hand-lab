@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+from pathlib import Path
+import re
 
 import numpy as np
 import pytest
 
+from jaka_driver_adapter.palm_target_ik import JAKA_MINI2_JOINT_LIMITS_RAD
 from quest_jaka_sim import ReplayConfig, SharedJakaTargetGenerator
 from quest_jaka_sim.se3 import bounded_pose_step, quaternion_angle_rad
 from quest_jaka_sim.simulation import FeasibilityReason
@@ -41,6 +44,35 @@ Q214 = (
 T212 = 666_185_828_171_068
 T213 = 666_185_844_837_051
 T214 = 666_185_861_504_127
+
+
+def test_python_joint_limits_match_shared_mjcf_contract() -> None:
+    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+    model_limits = [
+        tuple(float(value) for value in generator.model.jnt_range[joint_id])
+        for joint_id in generator.arm_joint_ids
+    ]
+    assert JAKA_MINI2_JOINT_LIMITS_RAD == tuple(model_limits)
+    assert generator._contact_pairs(generator.ik.data) == set()
+
+
+def test_native_final_joint_limits_match_python_contract() -> None:
+    header = (
+        Path(__file__).resolve().parents[1]
+        / "native/jaka_servo_worker/joint_servo_resampler.hpp"
+    ).read_text(encoding="utf-8")
+
+    def values(name: str) -> tuple[float, ...]:
+        match = re.search(rf"{name}\{{([^}}]+)\}}", header)
+        assert match is not None
+        return tuple(float(value.strip()) for value in match.group(1).split(","))
+
+    assert values("kJointLower") == tuple(
+        limit[0] for limit in JAKA_MINI2_JOINT_LIMITS_RAD
+    )
+    assert values("kJointUpper") == tuple(
+        limit[1] for limit in JAKA_MINI2_JOINT_LIMITS_RAD
+    )
 
 
 def _tracker() -> JointOutputFeasibilityTracker:

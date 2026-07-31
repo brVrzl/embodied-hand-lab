@@ -6,27 +6,22 @@ import time
 import mujoco
 import numpy as np
 
+from embodiment_core.robot_limits import (
+    DEFAULT_JOINT_LIMIT_MARGIN_RAD,
+    JAKA_MINI2_JOINT_LIMITS_RAD,
+    safe_jaka_mini2_joint_limits_rad,
+)
 
 DEFAULT_MJCF = Path("data/sim_assets/jaka_rh56_visual_coacd.xml")
 MJCF_ARM_JOINT_NAMES = [f"jaka_joint_{index}" for index in range(1, 7)]
 PALM_BODY_NAME = "rh56_R_hand_base_link"
-JAKA_MINI2_JOINT_LIMITS_RAD = [
-    (-2.0 * np.pi, 2.0 * np.pi),
-    (np.deg2rad(-125.0), np.deg2rad(125.0)),
-    (np.deg2rad(-130.0), np.deg2rad(130.0)),
-    (-2.0 * np.pi, 2.0 * np.pi),
-    (np.deg2rad(-120.0), np.deg2rad(120.0)),
-    (-2.0 * np.pi, 2.0 * np.pi),
-]
-DEFAULT_JOINT_LIMIT_MARGIN_RAD = float(np.deg2rad(5.0))
 IDENTITY_QUAT_WXYZ = np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 
 
 def safe_joint_limits_rad(
     margin_rad: float = DEFAULT_JOINT_LIMIT_MARGIN_RAD,
 ) -> list[tuple[float, float]]:
-    margin = max(0.0, float(margin_rad))
-    return [(low + margin, high - margin) for low, high in JAKA_MINI2_JOINT_LIMITS_RAD]
+    return list(safe_jaka_mini2_joint_limits_rad(margin_rad))
 
 
 def clip_joints_to_safe_limits(

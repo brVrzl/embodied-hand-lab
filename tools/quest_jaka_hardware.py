@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -108,6 +109,19 @@ def _task_placement(
         "thread_id": thread_id,
         "thread_name": thread_name,
     }
+    if not (
+        sys.platform.startswith("linux")
+        and hasattr(os, "sched_getaffinity")
+        and hasattr(os, "sched_getscheduler")
+        and hasattr(os, "sched_getparam")
+    ):
+        result.update(
+            {
+                "supported": False,
+                "reason": "Linux procfs scheduling telemetry is unavailable",
+            }
+        )
+        return result
     try:
         stat = Path(f"/proc/{process_id}/task/{thread_id}/stat").read_text(
             encoding="utf-8"
@@ -123,6 +137,7 @@ def _task_placement(
         )
         result["nice_value"] = int(os.getpriority(os.PRIO_PROCESS, thread_id))
         result["affinity_mask"] = sorted(os.sched_getaffinity(thread_id))
+        result["supported"] = True
     except (IndexError, OSError, ValueError) as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
     return result
@@ -188,7 +203,10 @@ def _component_placement_snapshot(
 
 
 def _validate_control_cpu(control_cpu: int | None) -> tuple[set[int], set[int]]:
-    allowed = set(os.sched_getaffinity(0))
+    if hasattr(os, "sched_getaffinity"):
+        allowed = set(os.sched_getaffinity(0))
+    else:
+        allowed = set(range(os.cpu_count() or 1))
     if control_cpu is None:
         return allowed, allowed
     if control_cpu not in allowed:
@@ -212,6 +230,14 @@ def _configure_cpu_isolation(control_cpu: int | None) -> dict[str, object]:
             "native_control_cpu": None,
             "python_affinity_mask": sorted(allowed),
         }
+    if not (
+        sys.platform.startswith("linux")
+        and hasattr(os, "sched_setaffinity")
+        and hasattr(os, "sched_getaffinity")
+    ):
+        raise SystemExit(
+            "native control CPU isolation requires Linux scheduling APIs"
+        )
     process_id = os.getpid()
     try:
         task_ids = sorted(
@@ -497,6 +523,21 @@ def _resolve_output_jerk_limit(args: argparse.Namespace, config: ReplayConfig) -
     return value
 
 
+def _native_velocity_limit_args(config: ReplayConfig) -> tuple[str, str]:
+    """Serialize the exact shared output boundary for the native final gate."""
+
+    contract = config.output_contract
+    if contract.maximum_velocity_rad_s_per_joint is None:
+        return (
+            "--maximum-output-joint-velocity-rad-s",
+            str(contract.maximum_velocity_rad_s),
+        )
+    return (
+        "--maximum-output-joint-velocity-rad-s-per-joint",
+        ",".join(str(value) for value in contract.velocity_boundaries_rad_s),
+    )
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.duration_sec <= 0.0:
@@ -738,6 +779,9 @@ def main() -> int:
                     "run_output_joint_velocity_limits_rad_s": list(
                         config.output_contract.velocity_boundaries_rad_s
                     ),
+                    "native_worker_velocity_limit_args": list(
+                        _native_velocity_limit_args(config)
+                    ),
                     "shared_hard_output_joint_velocity_limit_rad_s": (
                         config.output_contract.maximum_velocity_rad_s
                     ),
@@ -922,19 +966,8 @@ def main() -> int:
             "--startup-timing-grace-cycles",
             str(config.startup_timing_grace_cycles),
             ]
-        if args.stage != "research-thin-bounded" and config.output_contract.maximum_velocity_rad_s_per_joint is None:
-            worker_args.extend((
-                "--maximum-output-joint-velocity-rad-s",
-                str(config.output_contract.maximum_velocity_rad_s),
-            ))
-        elif args.stage != "research-thin-bounded":
-            worker_args.extend((
-                "--maximum-output-joint-velocity-rad-s-per-joint",
-                ",".join(
-                    str(config.output_contract.maximum_velocity_rad_s)
-                    for _ in config.output_contract.velocity_boundaries_rad_s
-                ),
-            ))
+        if args.stage != "research-thin-bounded":
+            worker_args.extend(_native_velocity_limit_args(config))
         if live and args.stage != "research-thin-bounded":
             worker_args.append("--monitor-controller-health-each-cycle")
         if args.native_telemetry is not None and args.stage != "research-thin-bounded":

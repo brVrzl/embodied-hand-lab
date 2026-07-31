@@ -162,8 +162,4 @@ def test_h0_entry_has_no_hardware_or_network_imports() -> None:
 def test_h0_initial_hand_has_no_penetrating_contact(tmp_path: Path) -> None:
     runner = _runner(tmp_path)
 
-    assert runner.initial_penetrating_contacts
-    assert all(
-        not left.startswith("rh56_") and not right.startswith("rh56_")
-        for left, right, _distance in runner.initial_penetrating_contacts
-    )
+    assert runner.initial_penetrating_contacts == ()

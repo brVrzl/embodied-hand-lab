@@ -10,37 +10,58 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
   "numpy>=1.24",
-  "mujoco>=3.8.0",
-  "pyserial>=3.5",
   "PyYAML>=6.0",
 ]
 
+[project.scripts]
+embodied-lab = "embodiment_core.cli:main"
+
 [project.optional-dependencies]
 dev = [
+  "cmake>=3.25",
+  "h5py>=3.10",
+  "imageio>=2.34",
+  "matplotlib>=3.8",
+  "mujoco>=3.8.0",
+  "ninja>=1.11",
+  "opencv-contrib-python>=4.10",
+  "pyserial>=3.5",
   "pytest>=8.0",
+  "scipy>=1.10",
+  "trimesh>=4.0",
+]
+simulation = [
+  "mujoco>=3.8.0",
+]
+hardware = [
+  "pyserial>=3.5",
 ]
 vision-teleop = [
   "mediapipe>=0.10.35",
-  "opencv-contrib-python>=4.13",
+  "opencv-contrib-python>=4.10",
 ]
 realsense = [
   "pyrealsense2>=2.55",
 ]
 dataset-export = [
   "h5py>=3.10",
-  "lerobot==0.6.1",
-  "opencv-contrib-python>=4.13",
-]
-phone-teleop = [
-  "hebi-py>=2.13",
+  "lerobot[dataset]>=0.6,<0.7",
+  "opencv-contrib-python>=4.10",
 ]
 motion-input-viz = [
   "matplotlib>=3.8",
 ]
 asset-tools = [
-  "trimesh>=4.0",
   "coacd>=1.0",
+  "imageio>=2.34",
+  "opencv-contrib-python>=4.10",
+  "pycolmap>=3.10",
   "scipy>=1.10",
+  "trimesh>=4.0",
+]
+training = [
+  "h5py>=3.10",
+  "torch>=2.4",
 ]
 
 [tool.pytest.ini_options]

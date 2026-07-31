@@ -4,6 +4,7 @@ import json
 import re
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -15,6 +16,10 @@ SOURCE = ROOT / "native/jaka_zero_motion_probe"
 BUILD = ROOT / "build/jaka_zero_motion_probe"
 BINARY = BUILD / "jaka_zero_motion_probe"
 ENTRY_BINARY = BUILD / "jaka_edg_entry_exit_probe"
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="the JAKA vendor SDK probe is Linux-only",
+)
 
 
 @pytest.fixture(scope="module", autouse=True)

@@ -1,0 +1,94 @@
+# Proposed configuration contract for a future training entry point.
+# No current trainer reads this file; it is documentation and review input.
+schema_version: 1
+
+status:
+  purpose: distributed_training_example
+  consumed_by_current_trainer: false
+  default_future_strategy: ddp
+
+framework:
+  # Set only after selecting and installing an ACT or Diffusion Policy
+  # integration. OpenPI/pi0 should normally use its upstream-native launcher.
+  name: null
+  trainer_module: null
+
+distributed:
+  enabled: false
+  strategy: ddp
+  backend: nccl
+  node_count: 1
+  gpu_count_per_node: 1
+  find_unused_parameters: false
+  static_graph: false
+  timeout_seconds: 600
+
+precision:
+  # Start correctness work in fp32. Select fp16 or bf16 only after checking the
+  # target GPU and trainer's numerical behavior.
+  mode: fp32
+  allow_tf32: false
+  finite_loss_check_interval_steps: 100
+
+training:
+  per_device_batch_size: 8
+  gradient_accumulation_steps: 1
+  # Must equal per_device_batch_size * gpu_count_per_node * node_count *
+  # gradient_accumulation_steps. A future trainer must recompute and verify it.
+  expected_global_batch_size: 8
+  epochs: 100
+  max_steps: null
+  base_seed: 42
+  deterministic_algorithms: false
+  cudnn_benchmark: false
+  learning_rate: null
+  learning_rate_reference_batch_size: null
+  learning_rate_scaling: none
+
+data:
+  dataset_root: data/episodes
+  # This is the sole source of train/validation/test episode membership. It
+  # must come from the default deep-validation manifest path, not --fast.
+  manifest: null
+  dataset_version: null
+  normalization_statistics: null
+  split_unit: episode
+  num_workers_per_rank: 8
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  drop_last_train_batch: true
+  local_cache_dir: null
+
+checkpoint:
+  output_root: artifacts/training
+  resume: null
+  weights_only: false
+  save_every_steps: 1000
+  keep_last: 3
+  keep_best: true
+  save_optimizer: true
+  save_scheduler: true
+  save_scaler: true
+  atomic_replace: true
+
+logging:
+  offline: true
+  rank_zero_only: true
+  format: jsonl
+  log_every_steps: 20
+  tensorboard: false
+  online_tracker: null
+
+profiling:
+  enabled: false
+  warmup_steps: 5
+  active_steps: 10
+  record_shapes: false
+  profile_memory: true
+
+deployment:
+  target: jetson_thor
+  export_format: native_framework
+  include_normalization_statistics: true
+  include_observation_action_schema: true

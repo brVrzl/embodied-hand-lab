@@ -12,6 +12,10 @@
   },
   "reviewed_exclusions": [
     [
+      "jaka_Link_0",
+      "jaka_Link_1"
+    ],
+    [
       "rh56_R_thumb_proximal_base",
       "rh56_R_thumb_proximal"
     ],
@@ -43,7 +47,7 @@
   "runtime_xml": "data/sim_assets/jaka_rh56_visual_coacd.xml",
   "sha256": {
     "data/sim_assets/jaka_rh56.xml": "520bfff0f5e92ef70284d0d765c9b6d383b05d39ac13d450b4e600516778af4d",
-    "data/sim_assets/jaka_rh56_visual_coacd.xml": "0e44ae063de343b49ec6cab483faec2f02ab890ba0fe4592141464a926aeaa3f",
+    "data/sim_assets/jaka_rh56_visual_coacd.xml": "5c82d1fad9c92ea96cf8743cf351afba17fae37f0f987975d9c553c5218b3346",
     "data/sim_assets/meshes/rh56/R_hand_base_link.STL": "6a8fafef58049663865cee098a3c9b0c618e41bb9860a32fb11432907f927070",
     "data/sim_assets/meshes/rh56/R_index_distal.STL": "d1a6c5054bdec62990b9c8f2b2877238257cd0e13707787f50acefe2997a05bd",
     "data/sim_assets/meshes/rh56/R_index_proximal.STL": "20850b0947414508e69b65c2e387e2de1551ce4c848fd559709303070f91bbd4",

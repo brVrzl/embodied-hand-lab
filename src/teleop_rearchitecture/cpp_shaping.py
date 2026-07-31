@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 import math
 from pathlib import Path
+import sys
 from typing import Iterable
 
 
@@ -470,4 +471,11 @@ class CppReferenceShaper:
 
 
 def default_cpp_library(repository_root: Path) -> Path:
-    return repository_root / "build/teleop_shaping/libteleop_shaping_c_api.so"
+    suffix = (
+        ".dylib"
+        if sys.platform == "darwin"
+        else ".dll"
+        if sys.platform == "win32"
+        else ".so"
+    )
+    return repository_root / f"build/teleop_shaping/libteleop_shaping_c_api{suffix}"

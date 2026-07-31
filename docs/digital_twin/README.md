@@ -1,16 +1,68 @@
-# Real-to-Sim digital twin
+# Integrated MuJoCo digital twin
 
-## Current state
+## Status and scope
 
-Maturity remains **Integrated Workspace** after the first deterministic offline collision sweep. The default MuJoCo scene is a clean P-frame engineering view: existing JAKA Mini + Inspire RH56, parameterized table and aluminium frame, floor, lights, optional camera placeholders, coordinate/debug axes, and an empty future-object layer. Sparse COLMAP markers are disabled by default.
+The digital-twin subsystem is at **Integrated Workspace** maturity. It combines
+the JAKA Mini2 and Inspire RH56 model with a parameterized table, aluminium
+frame, floor, lighting, debug axes, camera placeholders, and an empty future
+object layer. It is an offline engineering scene, not a calibrated replica of
+the physical cell and not a robot-safety authority.
 
-This subsystem does not command the physical robot and does not implement grasping, planning, learning, or final camera/robot calibration.
+This subsystem does not connect to hardware. It also does not currently provide
+grasp planning, policy training, final robot/world registration, or calibrated
+external and wrist-camera extrinsics.
 
-## Frames and operational placement
+## Model authority and contact state
 
-World = P. P is the centre of the fixed 110 mm mounting PCD on the lowest fixed mounting plane; +z points upward and +x follows the two longitudinal rails toward the front transverse member/operator side. The user-supplied `annotated_P_frame.jpg` confirms that the fixed communication-cable side is P -x.
+There are two related MuJoCo assets with different roles and current evidence:
 
-B remains the internal `jaka_Link_0` frame. A separate scene transform is used:
+| Asset | Role | Initial contact evidence | Current boundary |
+|---|---|---|---|
+| `data/sim_assets/jaka_rh56_visual_coacd.xml` | Canonical shared robot runtime used by simulation, teleoperation, H0, and benchmark code | Direct load/forward at model `qpos0`: zero contacts. The configured H0 arm start also has zero penetrating contacts. | Current shared robot authority |
+| `models/digital_twin/workspace_scene.xml` | Committed derivative that adds the P-frame workspace | Direct load/forward at model `qpos0`: four duplicate contact records for `jaka_Link_0_geom_0` against `jaka_Link_1_geom_0`, each at about -3 mm; no environment contact at that state | Provisional and currently stale relative to the canonical runtime |
+| `models/digital_twin/jaka_inspire_workspace.xml` | Compatibility include for `workspace_scene.xml` | Same result as the included scene | Not a separate scene authority |
+
+The current scene generator, when run from the canonical shared runtime asset,
+retains its adjacent-link exclusion and produces an integrated scene with zero
+initial contacts. That generated result differs from the committed
+`workspace_scene.xml`. Therefore, the committed integrated scene must be
+regenerated and revalidated before a new collision sweep is treated as current
+evidence. Do not use the committed scene's initial Link 0/Link 1 contacts to
+describe the shared runtime model.
+
+The shared pre-acceptance target pipeline does not include table or frame
+collision from this workspace derivative. Digital-twin collision results are
+simulation characterization only; they do not extend the physical control
+safety envelope.
+
+## Robot and hand model boundary
+
+The shared model has six JAKA position actuators and six RH56 position
+actuators. The RH56 contains 12 modeled joints and six equality couplings:
+
+- thumb PIP and DIP follow the directly actuated thumb-close joint through
+  cubic polynomials fitted to the local command/angle table;
+- index, middle, ring, and pinky distal joints follow their corresponding
+  directly actuated MCP joints.
+
+This is a six-input approximation of an underactuated hand. The equalities
+encode deterministic kinematic coupling only. They do not model tendon
+compliance, backlash, load-dependent coupling, current or force control,
+calibrated force limits, contact sensing, or all passive physical joint
+behavior. A finite, collision-free MuJoCo command is not proof of equivalent
+physical motion.
+
+## Frames, placement, and calibration status
+
+The scene world is frame `P`:
+
+- origin: center of the fixed 110 mm mounting PCD on the lowest fixed mounting
+  plane;
+- `+z`: upward;
+- `+x`: along the two longitudinal rails toward the front transverse member /
+  operator side.
+
+The internal robot base remains frame `B` at `jaka_Link_0`. The scene applies:
 
 ```text
 T_P_B_operational
@@ -20,175 +72,111 @@ quaternion xyzw: [0, 0, 1, 0]
 status: physically_constrained_provisional
 ```
 
-This is not calibrated `T_B_P`; `T_B_P` remains null. The distinction is recorded in `digital_twin/configs/transforms.yaml` and `robot_operational_placement.yaml`.
+This placement is not a calibrated `T_B_P`. The calibrated transform remains
+unresolved in `digital_twin/configs/transforms.yaml`. Table and rail geometry
+are provisional, and the external and wrist-camera extrinsics are uncalibrated.
+The camera objects in the scene are placeholders, not sensor calibration
+results.
 
-At all-zero JAKA and RH56 state, RH56 local +y is the outward palm normal. The repository `T_F_H` maps it to B +x. The 180° operational root yaw maps it to P -x with 0.000211° numerical error. The body-fixed cable-side reference also maps to P -x. `T_F_H`, joint zeros, robot meshes, collisions, and actuators are unchanged.
+The operational placement and transform distinction are defined in:
+
+- `digital_twin/configs/robot_operational_placement.yaml`
+- `digital_twin/configs/transforms.yaml`
+- `digital_twin/configs/static_environment.yaml`
+- `digital_twin/configs/camera_placeholders.yaml`
 
 ## Visual-layer policy
 
-Default:
+The normal engineering view includes the robot, table, aluminium frame, floor,
+lighting, axes, and optional camera placeholders. Reconstruction points,
+cables, boards, clutter, and an unqualified permanent background are not part
+of the default scene.
 
-- robot, table, aluminium frame, floor and lighting: enabled;
-- coordinate axes and camera placeholders: enabled in engineering view;
-- sparse reconstruction, cables, boards and clutter: disabled;
-- unqualified permanent background: disabled because no clean dense/texture representation exists.
+The builder can optionally include a compact sparse-reconstruction debug mesh.
+That layer must remain visual-only with collision disabled; sparse points are
+not a physical surface. The reconstruction, registration, segmentation
+manifest, and derived visual artifacts used by that workflow are not present
+in this source bundle, so the sparse-debug and full integrated validator paths
+cannot currently be reproduced from repository files alone.
 
-The optional `colmap_sparse_debug` layer uses cropped, track-filtered, statistically/radius-filtered, component-filtered and downsampled compact markers. It is stored separately and always has `contype=0`, `conaffinity=0`. It is not a surface and must not become collision geometry.
+## Offline checks and regeneration
 
-## Reproduce
-
-These commands reuse accepted reconstruction outputs; they do not rerun COLMAP, ChArUco, or metric scale estimation.
+All commands below are offline and run from the repository root. First verify
+that the canonical runtime asset matches its maintained source:
 
 ```bash
-.venv/bin/python tools/digital_twin/build_workspace_visual.py \
-  --points3d artifacts/digital_twin/reconstruction/02/colmap/sparse_text/1/points3D.txt \
-  --registration artifacts/digital_twin/calibration/T_P_R.json \
-  --config digital_twin/configs/static_environment.yaml \
-  --output-dir artifacts/digital_twin/static_scene \
-  --max-reprojection-error-px 2.0
+.venv/bin/python tools/build_rh56_visual_coacd_runtime_asset.py --check
+```
 
+Validate the current workspace inputs without writing a scene:
+
+```bash
 .venv/bin/python tools/digital_twin/build_mujoco_workspace_scene.py \
   --robot-model data/sim_assets/jaka_rh56_visual_coacd.xml \
   --static-config digital_twin/configs/static_environment.yaml \
   --camera-config digital_twin/configs/camera_placeholders.yaml \
   --operational-config digital_twin/configs/robot_operational_placement.yaml \
-  --output models/digital_twin/workspace_scene.xml \
-  --alias-output models/digital_twin/scene.xml \
-  --manifest artifacts/digital_twin/static_scene/scene_manifest.yaml
+  --output artifacts/digital_twin/rebuild/workspace_scene.xml \
+  --manifest artifacts/digital_twin/rebuild/scene_manifest.yaml \
+  --dry-run
+```
 
-.venv/bin/python tools/digital_twin/build_mujoco_workspace_scene.py \
-  --robot-model data/sim_assets/jaka_rh56_visual_coacd.xml \
-  --static-config digital_twin/configs/static_environment.yaml \
-  --camera-config digital_twin/configs/camera_placeholders.yaml \
-  --operational-config digital_twin/configs/robot_operational_placement.yaml \
-  --visual-mesh artifacts/digital_twin/static_scene/sparse_debug.obj \
-  --show-sparse-debug \
-  --output models/digital_twin/workspace_scene_sparse_debug.xml \
-  --manifest artifacts/digital_twin/static_scene/scene_manifest_sparse_debug.yaml
+To inspect a regenerated scene without overwriting the committed model, omit
+`--dry-run` and keep the shown artifact output paths. Then load, inspect, and
+compare that artifact before replacing any maintained model.
 
-MUJOCO_GL=egl .venv/bin/python tools/digital_twin/render_workspace_scene.py \
+The committed scene can be checked by the renderer and collision-sweep
+frontends without executing their expensive stages:
+
+```bash
+.venv/bin/python tools/digital_twin/render_workspace_scene.py \
   --scene models/digital_twin/workspace_scene.xml \
-  --sparse-debug-scene models/digital_twin/workspace_scene_sparse_debug.xml \
-  --show-sparse-debug \
-  --output-dir artifacts/digital_twin/static_scene
+  --output-dir artifacts/digital_twin/render \
+  --dry-run
 
-.venv/bin/python tools/digital_twin/validate_integrated_workspace.py \
-  --scene models/digital_twin/workspace_scene.xml \
-  --sparse-debug-scene models/digital_twin/workspace_scene_sparse_debug.xml \
-  --static-config digital_twin/configs/static_environment.yaml \
-  --operational-config digital_twin/configs/robot_operational_placement.yaml \
-  --transforms digital_twin/configs/transforms.yaml \
-  --segmentation-manifest artifacts/digital_twin/static_scene/segmentation_manifest.yaml \
-  --scene-manifest artifacts/digital_twin/static_scene/scene_manifest.yaml \
-  --visual-mesh artifacts/digital_twin/static_scene/workspace_scene.obj \
-  --object-layer digital_twin/configs/object_layer.yaml \
-  --collision-sweep-summary artifacts/digital_twin/collision_sweep/summary.json \
-  --json-output artifacts/digital_twin/validation_report.json \
-  --markdown-output artifacts/digital_twin/validation_report.md
-
-MUJOCO_GL=egl .venv/bin/python tools/digital_twin/run_joint_space_collision_sweep.py \
+.venv/bin/python tools/digital_twin/run_joint_space_collision_sweep.py \
   --scene models/digital_twin/workspace_scene.xml \
   --classification digital_twin/configs/collision_classification.yaml \
   --operational-config digital_twin/configs/robot_operational_placement.yaml \
-  --output artifacts/digital_twin/collision_sweep
+  --robot-config configs/sim/jaka_collision_sweep_poses.yaml \
+  --output artifacts/digital_twin/collision_sweep \
+  --dry-run
 ```
 
-Renderer options include `--hide-camera-placeholders`, `--clean-preview`, and explicit `--show-sparse-debug`. The default scene builder never includes sparse markers unless `--show-sparse-debug` is passed.
+After regenerating the scene and reviewing initial contacts, a short offline
+sweep can be run with `--quick --skip-render`; the full sweep should be retained
+for a deliberate validation run. The integrated validator additionally needs
+the absent reconstruction-derived segmentation manifest, scene manifest, and
+visual mesh, so it is blocked until those inputs are restored or regenerated.
 
-## Important outputs
+## Prior sweep evidence
 
-- default scene: `models/digital_twin/workspace_scene.xml`;
-- optional debug scene: `models/digital_twin/workspace_scene_sparse_debug.xml`;
-- clean engineering/presentation views: `workspace_clean_engineering.png`, `workspace_clean_presentation.png`;
-- root comparison: `orientation_before.png`, `orientation_after.png`;
-- verified top view: `zero_pose_top_verified.png`;
-- debug-only sparse view: `sparse_debug_optional.png`;
-- validation: `artifacts/digital_twin/validation_report.{json,md}`.
-- collision sweep: `artifacts/digital_twin/collision_sweep/summary.{json,md}`, compact WARN/FAIL event JSON, exact sampled qpos, per-step contact timeline and event renders.
+An earlier repository report described 130 static configurations and nine
+actuator trajectories (31,995 MuJoCo steps). It reported no zero-pose
+environment or floor contact, but reported policy failures for a low-table
+approach and both RH56 open/close directions, plus a shallow Link 5/table
+warning. It also reported deep contacts and large simulated constraint forces
+at intentionally infeasible sampled states.
 
-## Current boundary and next task
+The raw sweep summary, sampled states, event renders, and validation artifacts
+are absent from this source bundle, and the committed scene has since drifted
+from the canonical runtime source. Those numbers are historical claims, not
+reproduced current validation and not physical force predictions.
 
-The sweep evaluated 130 static configurations and nine actuator-driven trajectories (31,995 MuJoCo steps). Zero pose remains free of environment contact, no floor contact occurred, the operational yaw stayed 180°, and the simulation remained finite without solver warnings. Three trajectories failed the configured policy: low-table approach (persistent hand/table contact), RH56 open-to-close and close-to-open (non-adjacent thumb/index CoACD self-contact). Forward P -x reach warned on persistent shallow Link5/table contact. Static diagnostic samples reached 81.894 mm environment penetration and 63.370 kN simulated normal constraint force; these are deliberately infeasible sampled states, not hardware-force predictions. Symmetric rail contacts also require rail-spacing/primitive review.
+## Readiness blockers
 
-The scene therefore does **not** qualify as Simulation Ready. The next task is to review the rail/table primitive placement and the failing event renders, then decide whether each finding is a scene-geometry error, an overly conservative collision primitive, or a pose that must be excluded. Eye-to-hand calibration, wrist-camera calibration and final robot/world registration remain Manipulation Ready blockers. This sweep is simulation-only characterization, not safety certification.
+The integrated workspace is not **Simulation Ready**. Before promoting it:
 
----
+1. regenerate the workspace scene from the current canonical runtime asset;
+2. confirm zero-pose and configured-start contact state on the regenerated
+   scene;
+3. review table/rail primitives and rerun the deterministic collision sweep;
+4. preserve the scene, manifest, configuration snapshot, and sweep outputs
+   together;
+5. restore or repeat robot/world, external-camera, and wrist-camera
+   calibration;
+6. classify every retained collision finding as geometry error, conservative
+   proxy, or excluded infeasible pose.
 
-# 中文版：Real-to-Sim 数字孪生
-
-## 当前状态
-
-第一次确定性离线碰撞 sweep 后，成熟度仍为 **Integrated Workspace**。默认 MuJoCo 场景
-是干净的 P-frame 工程视图：JAKA Mini2 + Inspire RH56、参数化桌面和铝型材框架、地面、
-灯光、可选相机占位、坐标/debug axis 以及空的未来物体层。稀疏 COLMAP marker 默认关闭。
-
-此子系统不命令真机，也不实现抓取、规划、学习或最终相机/机器人标定。
-
-## 坐标系与运行放置
-
-World = P。P 是最低固定安装面上 110 mm 安装孔 PCD 的中心；+z 向上，+x 沿两条纵向
-铝轨指向前横梁/操作者侧。`annotated_P_frame.jpg` 确认固定通信线缆位于 P -x 侧。
-
-B 仍是内部 `jaka_Link_0`。场景使用独立变换：
-
-```text
-T_P_B_operational
-translation: [0, 0, 0] m
-yaw: 180 deg
-quaternion xyzw: [0, 0, 1, 0]
-status: physically_constrained_provisional
-```
-
-这不是已标定的 `T_B_P`；`T_B_P` 仍为空。区别记录在
-`digital_twin/configs/transforms.yaml` 和 `robot_operational_placement.yaml`。
-
-JAKA/RH56 全零时，RH56 local +y 是掌心外法向。仓库 `T_F_H` 将其映射到 B +x；
-180° operational root yaw 再映射到 P -x，数值误差 0.000211°。`T_F_H`、关节零位、
-mesh、collision 和 actuator 未改变。
-
-## 可视层策略
-
-默认启用机器人、桌面、铝框、地面、灯光、工程坐标轴和相机占位；默认禁用 sparse
-reconstruction、线缆、标定板、杂物和未经验证的永久背景。
-
-可选 `colmap_sparse_debug` 层经过裁剪、track/filter、component filter 和降采样，单独
-保存且始终 `contype=0`、`conaffinity=0`。它不是表面，不能成为碰撞几何。
-
-## 复现
-
-英文部分的命令直接复用已接受的 reconstruction 输出，不会重新运行 COLMAP、ChArUco 或
-metric scale estimation。主要步骤是：
-
-1. `build_workspace_visual.py` 生成稀疏 debug visual；
-2. `build_mujoco_workspace_scene.py` 生成默认/稀疏 debug scene；
-3. `render_workspace_scene.py` 生成工程视图；
-4. `validate_integrated_workspace.py` 验证 scene 和变换；
-5. `run_joint_space_collision_sweep.py` 执行离线碰撞 sweep。
-
-默认 scene builder 只有显式传入 `--show-sparse-debug` 才会加入稀疏 marker。
-
-## 重要输出
-
-- 默认场景：`models/digital_twin/workspace_scene.xml`
-- 可选 debug 场景：`models/digital_twin/workspace_scene_sparse_debug.xml`
-- 验证：`artifacts/digital_twin/validation_report.{json,md}`
-- 碰撞 sweep：`artifacts/digital_twin/collision_sweep/summary.{json,md}`
-
-## 当前边界与下一步
-
-sweep 检查了 130 个静态配置和 9 条 actuator trajectory，共 31,995 个 MuJoCo step。
-zero pose 没有环境接触或地面接触，operational yaw 保持 180°，仿真无非有限值或 solver
-warning。三条 trajectory 不符合策略：
-
-- low-table approach：持续 hand/table 接触；
-- RH56 open-to-close；
-- RH56 close-to-open：非相邻 thumb/index CoACD 自接触。
-
-P -x reach 还出现持续浅 Link5/table warning。静态诊断中的 81.894 mm penetration 和
-63.370 kN 模拟 constraint force 来自故意采样的不可行状态，不是真机力预测。对称 rail
-接触也需要检查 rail spacing/primitive。
-
-因此场景尚不满足 **Simulation Ready**。下一步是审阅 rail/table primitive 和失败事件
-render，区分场景几何错误、过度保守 collision primitive 或必须排除的位姿。eye-to-hand、
-wrist camera 和最终 robot/world registration 仍是 Manipulation Ready blocker。本 sweep
-只是仿真表征，不是安全认证。
+These steps remain offline validation work. A digital-twin result must never be
+reported as physical validation or safety certification.
