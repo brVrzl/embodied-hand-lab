@@ -29,6 +29,7 @@ HAND_PREREQUISITES_COMPLETE="false"
 PLANT_FREE_NO_NETWORK_CHECK="false"
 ALLOW_DIRECT_CH341_DEVICE="false"
 NATIVE_CONTROL_CPU=""
+NATIVE_CONTROL_REALTIME_PRIORITY="10"
 
 EXPECTED_ARM_APPROVAL="I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 EXPECTED_HAND_APPROVAL="I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
@@ -63,6 +64,8 @@ Options:
   --rh56-config PATH
   --rh56-scheduler-profile baseline|fast30|fast40|fast50
   --native-control-cpu CPU  required; reserve one verified CPU for native control
+                            control thread uses fixed SCHED_FIFO priority 10;
+                            inherited RLIMIT_RTPRIO >=10 is required before I/O
   --allow-direct-ch341-device
                             allow only an identity-checked /dev/ttyCH341USB<N>
                             when the host's custom driver creates no by-id link
@@ -153,6 +156,7 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --rh56-log "${prefix}.rh56.jsonl")
 if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"); fi
 cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}")
+cmd+=(--native-control-realtime-priority "${NATIVE_CONTROL_REALTIME_PRIORITY}")
 if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == true ]]; then cmd+=(--plant-free-no-network-check); fi
 exec "${cmd[@]}"

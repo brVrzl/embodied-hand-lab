@@ -19,6 +19,7 @@ import json
 import math
 import os
 from pathlib import Path
+import resource
 import signal
 import subprocess
 import sys
@@ -70,6 +71,7 @@ RESEARCH_THIN_APPROVAL = (
 )
 PWL_OUTPUT_GENERATOR = "pwl-8ms"
 CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
+COMBINED_CONTROL_REALTIME_PRIORITY = 10
 RECOVERABLE_CLUTCH_STAGES = frozenset((
     "bounded-normal-teleop",
     "combined-normal-teleop",
@@ -220,6 +222,27 @@ def _validate_control_cpu(control_cpu: int | None) -> tuple[set[int], set[int]]:
     return allowed, non_realtime
 
 
+def _require_realtime_priority_limit(priority: int) -> dict[str, int]:
+    """Fail before hardware I/O unless the native child can enter SCHED_FIFO."""
+
+    if not hasattr(resource, "RLIMIT_RTPRIO"):
+        raise SystemExit(
+            "combined teleoperation requires Linux RLIMIT_RTPRIO support"
+        )
+    soft, hard = resource.getrlimit(resource.RLIMIT_RTPRIO)
+    unlimited = resource.RLIM_INFINITY
+    if soft != unlimited and soft < priority:
+        raise SystemExit(
+            "combined teleoperation requires inherited RLIMIT_RTPRIO >= "
+            f"{priority} before any hardware I/O; current soft limit is {soft}"
+        )
+    return {
+        "required_priority": priority,
+        "soft_limit": soft,
+        "hard_limit": hard,
+    }
+
+
 def _configure_cpu_isolation(control_cpu: int | None) -> dict[str, object]:
     """Reserve one CPU for native control and move current Python tasks away."""
 
@@ -297,6 +320,14 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "reserve this CPU for the native control thread and move current "
             "Python/non-real-time tasks to the remaining allowed CPUs"
+        ),
+    )
+    parser.add_argument(
+        "--native-control-realtime-priority",
+        type=int,
+        help=(
+            "SCHED_FIFO priority for only the native control thread; the "
+            "formal combined gate requires the fixed project value 10"
         ),
     )
     parser.add_argument("--approval", required=True)
@@ -650,11 +681,25 @@ def main() -> int:
             )
     hand_identity: dict[str, object] | None = None
     hand_config: dict[str, object] | None = None
+    realtime_preflight: dict[str, int] | None = None
     if args.stage == "combined-normal-teleop":
         if args.native_control_cpu is None:
             raise SystemExit(
                 "combined teleoperation requires --native-control-cpu; "
                 "unisolated SCHED_OTHER operation is not an authorized gate"
+            )
+        if (
+            args.native_control_realtime_priority
+            != COMBINED_CONTROL_REALTIME_PRIORITY
+        ):
+            raise SystemExit(
+                "combined teleoperation requires "
+                "--native-control-realtime-priority "
+                f"{COMBINED_CONTROL_REALTIME_PRIORITY}"
+            )
+        if not args.plant_free_no_network_check:
+            realtime_preflight = _require_realtime_priority_limit(
+                args.native_control_realtime_priority
             )
         if args.rh56_device is None or args.rh56_log is None:
             raise SystemExit("combined teleoperation requires --rh56-device and --rh56-log")
@@ -821,6 +866,13 @@ def main() -> int:
                         "python_affinity_mask": sorted(non_realtime_cpus),
                         "allowed_affinity_mask": sorted(allowed_cpus),
                     },
+                    "native_control_realtime": {
+                        "required_priority": (
+                            args.native_control_realtime_priority
+                        ),
+                        "permission_checked": False,
+                        "reason": "plant-free validation performs no host mutation",
+                    },
                 },
                 sort_keys=True,
             )
@@ -983,6 +1035,13 @@ def main() -> int:
             worker_args.append("--recover-output-acceleration-transition")
         if args.native_control_cpu is not None:
             worker_args.extend(("--control-cpu", str(args.native_control_cpu)))
+        if args.native_control_realtime_priority is not None:
+            worker_args.extend(
+                (
+                    "--control-realtime-priority",
+                    str(args.native_control_realtime_priority),
+                )
+            )
         native = NativeWorkerProcess(args.worker, worker_args)
         accepted = 0
         stop_reason = "duration_complete"
@@ -1595,6 +1654,7 @@ def main() -> int:
             "system_boundary_observer"
         ),
         "cpu_isolation": cpu_isolation,
+        "native_control_realtime": realtime_preflight,
         "measured_joint_fk_tcp_motion": measured_tcp,
         "e2_maximum_requested_tcp_displacement_m": (
             None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m

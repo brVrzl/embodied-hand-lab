@@ -80,6 +80,23 @@ explicit verified `--native-control-cpu`; on the recorded 14-CPU host, CPU6 is
 the previously measured low-load choice. This correction is offline tested but
 does not add a new physical PASS.
 
+A later requested 300-second episode used verified CPU6 affinity but stopped
+fail-closed at 42.281 seconds. The native thread did not migrate, yet two
+consecutive starts were delayed by 3.998 and 4.025 ms. The kernel tick is 4 ms
+(`CONFIG_HZ=250`), CPU6 is not kernel-isolated, and the control thread was
+still `SCHED_OTHER` priority 0. Grip had been stable-released for 0.972 s and
+index stable-pressed for 0.853 s, so no trigger transition coincided with the
+fault. Process affinity is necessary but not sufficient.
+
+The maintained combined gate now also requires the fixed native
+`SCHED_FIFO` priority 10. Only the 8 ms native control thread is promoted,
+after SDK helper-thread setup, and it returns to `SCHED_OTHER` before cleanup.
+The entry checks inherited `RLIMIT_RTPRIO >= 10` before hardware I/O and the
+native worker verifies actual policy/priority. The current shell limit is zero,
+so another physical combined run is blocked pending an explicitly authorized
+host RT-limit configuration and a fresh-session check. Timing and all other
+safety thresholds remain unchanged.
+
 The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
 physical PASS from accepted-target replay or fake-worker results.
@@ -135,7 +152,9 @@ accessible E-stop, a clear workspace, bounded duration, stable/verified device
 identity, and `--no-auto-retry`. The wrapper permits at most 300 seconds, but
 that upper bound is not a validated operating duration. It also requires an
 explicit verified `--native-control-cpu`; unisolated combined operation is
-rejected before hardware I/O.
+rejected before hardware I/O. The fixed native control priority is
+`SCHED_FIFO` 10, and inherited `RLIMIT_RTPRIO >= 10` is also required before
+hardware I/O.
 
 The arm-only isolation and RH56 staged inspection entries are:
 

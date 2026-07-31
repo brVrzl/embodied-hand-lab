@@ -15,12 +15,14 @@ import pytest
 from quest_jaka_sim import ReplayConfig
 from teleoperation.wire import StatusFlags
 from tools.quest_jaka_hardware import (
+    COMBINED_CONTROL_REALTIME_PRIORITY,
     RECOVERABLE_CLUTCH_STAGES,
     _control_compute_budget_summary,
     _task_placement,
     _parser,
     _native_terminal_reason_if_ready,
     _reconcile_terminal_transport_symptom,
+    _require_realtime_priority_limit,
     _resolve_output_jerk_limit,
     _synchronize_paused_stopped_reference,
 )
@@ -50,6 +52,29 @@ def test_task_placement_reports_current_python_thread() -> None:
         assert placement["reason"] == (
             "Linux procfs scheduling telemetry is unavailable"
         )
+
+
+def test_combined_realtime_limit_is_checked_before_hardware(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tools.quest_jaka_hardware.resource.getrlimit",
+        lambda _kind: (0, 0),
+    )
+    with pytest.raises(SystemExit, match="RLIMIT_RTPRIO >= 10"):
+        _require_realtime_priority_limit(COMBINED_CONTROL_REALTIME_PRIORITY)
+
+    monkeypatch.setattr(
+        "tools.quest_jaka_hardware.resource.getrlimit",
+        lambda _kind: (10, 10),
+    )
+    assert _require_realtime_priority_limit(
+        COMBINED_CONTROL_REALTIME_PRIORITY
+    ) == {
+        "required_priority": 10,
+        "soft_limit": 10,
+        "hard_limit": 10,
+    }
 
 
 def test_physical_summary_uses_production_budget_counters() -> None:
@@ -351,6 +376,11 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["cpu_isolation"]["enabled"] is True
     assert report["cpu_isolation"]["native_control_cpu"] == control_cpu
     assert control_cpu not in report["cpu_isolation"]["python_affinity_mask"]
+    assert report["native_control_realtime"] == {
+        "required_priority": 10,
+        "permission_checked": False,
+        "reason": "plant-free validation performs no host mutation",
+    }
     assert "DURATION_SEC=300" in result.stdout
     assert not (tmp_path / "logs").exists()
 

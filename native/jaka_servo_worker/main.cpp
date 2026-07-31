@@ -44,6 +44,7 @@ constexpr std::uint32_t kStatusMagic = 0x4A535441;
 constexpr std::uint16_t kWireVersion = 1;
 constexpr std::uint64_t kPeriodNs = 8'000'000;
 constexpr std::size_t kMaximumSamples = 250'000;
+constexpr int kMaximumControlRealtimePriority = 10;
 constexpr const char* kHardwareAck = "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK";
 constexpr const char* kShadowAck = "I_ACKNOWLEDGE_JAKA_COMMAND_SHADOW_NO_EDG";
 constexpr const char* kBoundedTeleopAck = "I_ACKNOWLEDGE_BOUNDED_TELEDEX_JAKA_MOTION";
@@ -207,6 +208,7 @@ struct Options {
   std::uint32_t startup_timing_grace_cycles = 25;
   bool monitor_controller_health_each_cycle = false;
   int control_cpu = -1;
+  int control_realtime_priority = -1;
 };
 
 bool is_shadow_mode(Mode mode) {
@@ -364,6 +366,8 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--startup-timing-grace-cycles") o.startup_timing_grace_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--monitor-controller-health-each-cycle") o.monitor_controller_health_each_cycle = true;
     else if (a == "--control-cpu") o.control_cpu = std::stoi(value_after(i, argc, argv));
+    else if (a == "--control-realtime-priority")
+      o.control_realtime_priority = std::stoi(value_after(i, argc, argv));
     else if (a == "--help") {
       std::cout << "jaka_servo_worker --mode dry-run|state-read|zero-motion|minimal-motion|command-shadow-dry-run|command-shadow|bounded-teleop-dry-run|bounded-teleop|joint-shadow-dry-run|joint-shadow|joint-teleop-dry-run|joint-teleop|joint-zero-motion-dry-run|joint-zero-motion [options]\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
@@ -373,12 +377,18 @@ Options parse_options(int argc, char** argv) {
       std::cout << "  --diagnostic-joint-acceleration-boundary-rad-s2 VALUE (shared recoverable boundary)\n";
       std::cout << "  --maximum-output-joint-acceleration-rad-s2 VALUE (native final hard boundary)\n";
       std::cout << "  --control-cpu CPU (pin only the native control thread; default disabled)\n";
+      std::cout << "  --control-realtime-priority PRIORITY (SCHED_FIFO 1..10 for only the native control thread; default disabled)\n";
       std::exit(0);
     } else throw std::runtime_error("unknown option: " + a);
   }
   if (!(o.duration_s > 0.0 && o.duration_s <= 2000.0)) throw std::runtime_error("duration must be in (0, 2000] s");
   if (o.control_cpu < -1 || o.control_cpu >= CPU_SETSIZE)
     throw std::runtime_error("control CPU must be -1 (disabled) or a valid CPU index");
+  if (o.control_realtime_priority != -1 &&
+      (o.control_realtime_priority < 1 ||
+       o.control_realtime_priority > kMaximumControlRealtimePriority))
+    throw std::runtime_error(
+        "control realtime priority must be -1 (disabled) or in [1, 10]");
   if (!(o.warning_ns < o.hold_ns && o.hold_ns < o.stop_ns && o.stop_ns < o.fatal_ns))
     throw std::runtime_error("stale thresholds must be strictly increasing");
   if (is_connected_mode(o.mode)) {
@@ -2126,6 +2136,8 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << stop_classification(outcome, error_code) << "\",\n"
       << "  \"requested_period_ns\":" << kPeriodNs << ",\n"
       << "  \"configured_control_cpu\":" << o.control_cpu << ",\n"
+      << "  \"configured_control_realtime_priority\":"
+      << o.control_realtime_priority << ",\n"
       << "  \"elapsed_s\":" << elapsed_s << ",\n  \"worker_cpu_s\":" << cpu_s << ",\n  \"worker_cpu_percent\":" << (elapsed_s > 0 ? cpu_s / elapsed_s * 100.0 : 0.0) << ",\n"
       << "  \"loop_rate_hz\":" << (elapsed_s > 0 ? s.count / elapsed_s : 0.0) << ",\n"
       << "  \"accepted_target_rate_hz\":" << (elapsed_s > 0 ? accepted / elapsed_s : 0.0) << ",\n"
@@ -2387,6 +2399,28 @@ void configure_control_cpu_affinity(int control_cpu) {
         std::to_string(control_cpu));
 }
 
+void configure_control_realtime_scheduler(int priority) {
+  if (priority < 0) return;
+  sched_param requested{};
+  requested.sched_priority = priority;
+  if (sched_setscheduler(0, SCHED_FIFO, &requested) != 0)
+    throw std::runtime_error(
+        "failed to apply native control SCHED_FIFO priority=" +
+        std::to_string(priority) + " errno=" + std::to_string(errno));
+  sched_param actual{};
+  const int policy = sched_getscheduler(0);
+  if (policy != SCHED_FIFO || sched_getparam(0, &actual) != 0 ||
+      actual.sched_priority != priority)
+    throw std::runtime_error(
+        "native control SCHED_FIFO verification failed for priority=" +
+        std::to_string(priority));
+}
+
+void restore_control_scheduler() noexcept {
+  sched_param normal{};
+  sched_setscheduler(0, SCHED_OTHER, &normal);
+}
+
 int run(const Options& o) {
   std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler); std::signal(SIGHUP, signal_handler);
   auto backend = uses_fake_backend(o.mode) ? std::unique_ptr<Backend>(new FakeBackend(o)) : std::unique_ptr<Backend>(new RealBackend(o));
@@ -2500,8 +2534,11 @@ int run(const Options& o) {
     if (!is_joint_zero_motion_mode(o.mode)) state = State::Holding;
     // Backend setup may create SDK transport/status threads.  It must finish
     // while this thread still has the inherited non-real-time affinity; only
-    // the command-loop thread is then moved to the reserved CPU.
+    // the command-loop thread is then moved to the reserved CPU and promoted
+    // to the bounded low realtime priority.  The permitted priority remains
+    // below the observed host IRQ threads while preempting SCHED_OTHER work.
     configure_control_cpu_affinity(o.control_cpu);
+    configure_control_realtime_scheduler(o.control_realtime_priority);
     const auto placement_start_ns = now_ns();
     const int placement_start_cpu = sched_getcpu();
     placement.observe_cpu(placement_start_ns, placement_start_cpu);
@@ -3168,6 +3205,9 @@ int run(const Options& o) {
     fault_outcome = std::string("fault: ") + e.what();
     outcome = fault_outcome.c_str();
   }
+  // Realtime priority is scoped strictly to the 8 ms command loop. Cleanup
+  // and JSON serialization return to the inherited normal scheduling class.
+  restore_control_scheduler();
   // Make terminal state visible to the non-blocking producer before SDK
   // cleanup and non-critical telemetry serialization.  This prevents a bound
   // but undrained datagram endpoint from turning the authoritative native

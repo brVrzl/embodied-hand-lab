@@ -142,6 +142,18 @@ feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
 机器人默认值；主机或 affinity 变化后必须重新核实。入口会把 native control thread 固定到
 该 CPU，并把 Python、Quest、RH56 和 observer 任务移到其余允许 CPU；未显式指定
 `--native-control-cpu` 的 combined 调用会在打开任一硬件前拒绝。
+仅进程级绑核不能排除普通调度任务造成的 4 ms tick 延迟。正式入口还会为 native 8 ms
+control thread 使用固定 `SCHED_FIFO` priority 10；SDK helper、Python、Quest、RH56 和
+observer 仍为普通调度，control thread 在 cleanup/日志序列化前恢复为 `SCHED_OTHER`。
+运行前必须在同一会话确认：
+
+```bash
+ulimit -r
+```
+
+结果至少为 `10`；否则入口会在任何 JAKA/RH56 I/O 前拒绝。RT limit 必须由管理员单独授权，
+并在新登录会话中继承；不要用 root 身份运行整套 combined 程序，也不要通过提高 priority
+或修改 timing threshold 来绕过预检。
 该模板不是某次运行的授权；操作者仍需核实 IP、
 payload/TCP/安装、控制器安全状态、急停、工作区和已完成的 RH56 hand 证据。日志会写入
 `logs/` 下的 HTS、shared events、native metrics/cycles、

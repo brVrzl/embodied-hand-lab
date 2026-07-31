@@ -51,10 +51,28 @@ def test_native_control_cpu_affinity_is_applied_and_reported(tmp_path) -> None:
     payload = json.loads(metrics.read_text())
     assert result.returncode == 0
     assert payload["configured_control_cpu"] == control_cpu
+    assert payload["configured_control_realtime_priority"] == -1
     assert payload["worker_placement"]["migration_count"] == 0
     assert payload["worker_placement"]["events"][0]["affinity_mask"] == str(
         control_cpu
     )
+
+
+def test_native_rejects_unbounded_control_realtime_priority(tmp_path) -> None:
+    result = subprocess.run(
+        [
+            str(WORKER),
+            "--mode", "dry-run",
+            "--duration-s", "0.05",
+            "--control-realtime-priority", "11",
+            "--target-socket", str(tmp_path / "invalid-rt.sock"),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 64
+    assert "control realtime priority must be" in result.stderr
 
 
 def test_five_minute_cycle_telemetry_configuration_is_bounded(tmp_path) -> None:

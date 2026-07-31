@@ -220,6 +220,45 @@ Log prefix:
 This is a physical FAIL due to actual controller liveness loss. Weakening that
 gate is not an acceptable repair.
 
+### 17:33:17, 300 s requested, live Quest, CPU6 pinned
+
+Log prefix:
+`logs/quest_jaka_rh56_combined_20260731_173317_4108137`
+
+- the requested 300 s episode stopped fail-closed at native elapsed 42.281 s;
+- primary outcome was `consecutive_start_timing_misses` /
+  `hard_timing_fault`; no automatic retry occurred;
+- actual native affinity remained exactly `{6}`, migration count was zero,
+  and the control thread remained `SCHED_OTHER`, priority 0;
+- the warning immediately before the terminal cycle had an 11.935 ms period
+  and 3.998 ms wake lateness; the terminal cycle had a 12.025 ms period and
+  4.025 ms wake lateness;
+- the terminal JAKA SDK command took 0.070 ms. Controller collision, emergency
+  stop, error, alarm, cleanup, and RH56 worker fault counts were all zero;
+- grip was fully released 0.972 s before the fault; index was fully pressed
+  0.853 s before it and then stayed constant. No trigger or clutch transition
+  occurred during the final 0.839 s;
+- the host kernel is `CONFIG_HZ=250`, so one scheduler tick is 4 ms. CPU6 was
+  not present in a kernel isolated-CPU set, used `schedutil`, and was sampled
+  at 1.134 GHz at the terminal boundary.
+
+This disproves the narrower claim that process-level affinity alone is
+sufficient. It also provides no support for the operator's trigger-transition
+hypothesis: the direct fault is two consecutive one-tick wake delays of the
+normal-priority control thread. Affinity remains necessary because it removes
+migration and known Python/RH56 contention, but it does not make
+`SCHED_OTHER` deterministic.
+
+The next correction promotes only the native 8 ms command-loop thread to the
+fixed low `SCHED_FIFO` priority 10 after SDK helper threads have been created.
+Priority is restored to `SCHED_OTHER` before cleanup and serialization.
+Combined preflight requires inherited `RLIMIT_RTPRIO >= 10` before any
+hardware I/O, and the native worker verifies the actual policy and priority.
+The limit of 10 keeps the control loop below the host's IRQ threads while
+allowing it to preempt ordinary tasks. No timing threshold, controller safety
+setting, heartbeat, latest-only, feasibility, collision, tracking, or cleanup
+policy is relaxed.
+
 ## Offline validation
 
 The CPU-isolation and evidence batch passed:
@@ -234,14 +273,34 @@ RH56 serial backend, and RH56 PC-direct scheduler. The native affinity test
 verifies the requested CPU is the sole actual affinity and migration count is
 zero. Compileall, shell syntax, build, and `git diff --check` also passed.
 
+The realtime-scheduler correction passed the complete offline suite:
+
+```text
+701 passed, 2 skipped in 65.86s
+```
+
+The critical Quest/JAKA, feasibility, liveness, EDG, native-worker, and
+combined-entry subset passed 135 tests. A plant-free native probe on the
+current `RLIMIT_RTPRIO=0` shell failed explicitly at the scheduler transition,
+recorded requested priority 10, and did not fall back silently. This is
+offline failure-path evidence, not physical validation of `SCHED_FIFO`.
+
 ## Remaining physical validation
 
-Run the fast40 combined wrapper's 300 s default with Quest HTS and CTRL active
-for the complete segment and explicit CPU6 isolation. Confirm non-zero hand
-frames, arm targets, RH56 targets, and command writes before counting it. Stop
-at the first hard fault or actual input liveness loss. Required evidence is:
+The current shell has `RLIMIT_RTPRIO=0`, so the corrected combined entry must
+reject before hardware I/O. An administrator must grant this operator an
+inherited limit of exactly or at least 10 and a fresh session must verify
+`ulimit -r` before another physical gate. Do not run the complete Python/RH56
+stack as root.
 
-- native actual affinity `{6}`, migration count 0, and observer off CPU6;
+Then run the fast40 combined wrapper's 300 s default with Quest HTS and CTRL
+active for the complete segment, explicit CPU6 affinity, and verified native
+priority 10. Confirm non-zero hand frames, arm targets, RH56 targets, and
+command writes before counting it. Stop at the first hard fault or actual
+input liveness loss. Required evidence is:
+
+- native actual affinity `{6}`, `SCHED_FIFO` priority 10, migration count 0,
+  and observer off CPU6;
 - zero native hard timing/controller/cleanup faults;
 - zero RH56 serial/protocol/worker faults and bounded STATUS/ERROR age;
 - bounded producer heartbeat and queue/drop counts;
