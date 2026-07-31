@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
-from dataclasses import replace
 import json
 import math
 import time
@@ -11,7 +9,12 @@ from typing import Any, TextIO
 
 from embodiment_core.config import load_yaml
 from motion_input.hts_transport import HtsRawRecordingWriter
-from quest_jaka_sim import ReplayConfig, SharedJakaTargetGenerator, SmoothQuestJakaSession
+from quest_jaka_sim import (
+    ReplayConfig,
+    SharedJakaTargetGenerator,
+    SmoothQuestJakaSession,
+    with_physical_rh56_retarget,
+)
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
 from quest_jaka_sim.output import RecordingArmTargetAdapter
@@ -643,25 +646,12 @@ def _load_hand_only_quest_config(
     quest_config_path: str,
     hand_calibration_path: str,
 ) -> ReplayConfig:
-    """Override only the hand calibration for the physical hand-only entry."""
+    """Load the shared maintained physical Quest-to-RH56 mapping."""
 
-    calibration_path = Path(hand_calibration_path)
-    if not calibration_path.is_file():
-        raise FileNotFoundError(
-            f"hand-only calibration does not exist: {calibration_path}"
-        )
-    config = ReplayConfig.load(quest_config_path)
-    raw = copy.deepcopy(config.raw)
-    hand_values = raw.setdefault("hand_retargeting", {})
-    hand_values["enabled"] = True
-    hand_values["calibration_path"] = str(calibration_path)
-    # A physical grip press is a deliberate re-alignment event: begin with
-    # measured RH56 ANGLE_ACT, then approach the current Quest pose through
-    # the worker's normal delta/contact gates. Simulation keeps its historical
-    # relative-only behavior unless a caller opts in explicitly.
-    hand_values["align_on_grip"] = True
-    hand_values["align_index_pinch_to_validated_pose"] = True
-    return replace(config, raw=raw)
+    return with_physical_rh56_retarget(
+        ReplayConfig.load(quest_config_path),
+        hand_calibration_path,
+    )
 
 
 def main() -> None:

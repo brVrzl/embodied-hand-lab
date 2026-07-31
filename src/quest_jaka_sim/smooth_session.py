@@ -64,6 +64,11 @@ from .simulation import (
 from .smooth_operator import Se3FilterProfile
 
 
+INPUT_RECOVERY_HOLD_REASON = "QUEST_INPUT_RECOVERY_HOLD"
+INPUT_RECOVERY_RECLUTCH_REASON = "QUEST_INPUT_RECOVERED_RECLUTCH_REQUIRED"
+INPUT_RECOVERY_TIMEOUT_REASON = "QUEST_INPUT_RECOVERY_TIMEOUT"
+
+
 @dataclass(frozen=True, slots=True)
 class ArmControlTickResult:
     input_sequence: int | None
@@ -129,6 +134,14 @@ class SmoothQuestJakaSession:
         self.arm_output = arm_output
         self.normalized_hand_output = normalized_hand_output
         self.arm_input_enabled = bool(arm_input_enabled)
+        self.input_recovery_timeout_ns = int(
+            config.input_recovery_timeout_s * 1e9
+        )
+        self._input_recovery_started_ns: int | None = None
+        self._input_recovery_hard_stop_reason: str | None = None
+        self.input_recovery_count = 0
+        self.input_recovery_success_count = 0
+        self.input_recovery_timeout_count = 0
         shared_policy = config.raw.get("shared_target_generation", {})
         self.continuation_enabled = bool(shared_policy.get("continuation_enabled", True))
         self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 5))
@@ -195,6 +208,7 @@ class SmoothQuestJakaSession:
         self.arm_mapper = LatchedHeadYawArmMapper(config.mapping, self.profile)
         self.latest_state: CanonicalQuestState | None = None
         self.last_input_sequence: int | None = None
+        self.last_input_receive_ns: int | None = None
         self.last_desired = target_generator.current_tcp_pose
         self.last_reason = FeasibilityReason.DISENGAGED.value
         self.rejections: Counter[str] = Counter()
@@ -436,6 +450,7 @@ class SmoothQuestJakaSession:
         ):
             self.last_input_sequence = hand.host_sequence_number
             receive_ns = int(hand.host_receive_monotonic_ns or datagram.receive_monotonic_ns)
+            self.last_input_receive_ns = receive_ns
             self.input_timestamps_ns.append(receive_ns)
             self.buffer.add(TimedPoseSample(receive_ns, hand.host_sequence_number, hand.wrist_pose, state))
             return True
@@ -456,6 +471,7 @@ class SmoothQuestJakaSession:
         ):
             self.last_input_sequence = hand.host_sequence_number
             receive_ns = int(hand.host_receive_monotonic_ns or state.host_monotonic_ns)
+            self.last_input_receive_ns = receive_ns
             self.input_timestamps_ns.append(receive_ns)
             self.buffer.add(
                 TimedPoseSample(receive_ns, hand.host_sequence_number, hand.wrist_pose, state)
@@ -510,6 +526,19 @@ class SmoothQuestJakaSession:
         wrist_valid = bool(right.tracking_valid and right.wrist_pose is not None)
         skeleton_valid = bool(right.tracking_valid and len(right.joints) == 21)
         head_valid = bool(state.head is not None and state.head.tracking_valid)
+        arm_stream_valid = bool(self.left_controller_valid and wrist_valid)
+        if (
+            self.arm_input_enabled
+            and self.reference_generation > 0
+            and self._input_recovery_hard_stop_reason is None
+        ):
+            if not arm_stream_valid:
+                if self._input_recovery_started_ns is None:
+                    self._input_recovery_started_ns = now_ns
+                    self.input_recovery_count += 1
+            elif self._input_recovery_started_ns is not None:
+                self._input_recovery_started_ns = None
+                self.input_recovery_success_count += 1
 
         if not self.left_controller_valid:
             if self.arm_clutch.state is not ArmClutchState.TRACKING_FAULT:
@@ -534,7 +563,10 @@ class SmoothQuestJakaSession:
                 continuous_inputs_valid=wrist_valid,
                 capture_inputs_valid=wrist_valid and head_valid,
             )
-            if self.arm_input_enabled
+            if (
+                self.arm_input_enabled
+                and self._input_recovery_hard_stop_reason is None
+            )
             else ClutchAction.FREEZE
         )
         # The hand state machine receives grip only. Skeleton validity is
@@ -578,7 +610,58 @@ class SmoothQuestJakaSession:
         if desired is None:
             self._hold_rejected_started_ns = None
             heartbeat_applied = False
+            recovery_elapsed_ns = (
+                None
+                if self._input_recovery_started_ns is None
+                else max(0, now_ns - self._input_recovery_started_ns)
+            )
+            recovery_timed_out = bool(
+                recovery_elapsed_ns is not None
+                and self.input_recovery_timeout_ns > 0
+                and recovery_elapsed_ns > self.input_recovery_timeout_ns
+            )
             if (
+                recovery_timed_out
+                and self._input_recovery_hard_stop_reason is None
+            ):
+                self._input_recovery_hard_stop_reason = (
+                    INPUT_RECOVERY_TIMEOUT_REASON
+                )
+                self.input_recovery_timeout_count += 1
+                self.arm_clutch.fault(now_ns, INPUT_RECOVERY_TIMEOUT_REASON)
+                self.arm_mapper.clear()
+            recovery_hold = bool(
+                self.arm_input_enabled
+                and self.arm_clutch.state is ArmClutchState.TRACKING_FAULT
+                and self.reference_generation > 0
+                and self.arm_clutch.cycle_count > 0
+                and self.last_input_sequence is not None
+                and self.last_input_receive_ns is not None
+                and self.input_recovery_timeout_ns > 0
+                and self._input_recovery_hard_stop_reason is None
+            )
+            recovery_reason = (
+                INPUT_RECOVERY_HOLD_REASON
+                if self._input_recovery_started_ns is not None
+                else INPUT_RECOVERY_RECLUTCH_REASON
+            )
+            if recovery_hold:
+                assert self.last_input_sequence is not None
+                assert self.last_input_receive_ns is not None
+                heartbeat = ArmControlHeartbeat(
+                    input_sequence_number=self.last_input_sequence,
+                    input_receive_monotonic_ns=min(
+                        self.last_input_receive_ns, now_ns
+                    ),
+                    generated_monotonic_ns=now_ns,
+                    reference_generation=self.reference_generation,
+                    clutch_generation=self.arm_clutch.cycle_count,
+                    state=ArmControlState.DISENGAGED,
+                    reason=recovery_reason,
+                    last_accepted_target_sequence=self._accepted_sequence,
+                )
+                heartbeat_applied = self.arm_output.heartbeat(heartbeat)
+            elif (
                 self.arm_input_enabled
                 and self.arm_clutch.state is ArmClutchState.DISENGAGED
                 and self.left_controller_valid
@@ -601,10 +684,22 @@ class SmoothQuestJakaSession:
                     last_accepted_target_sequence=self._accepted_sequence,
                 )
                 heartbeat_applied = self.arm_output.heartbeat(heartbeat)
+            hard_stop = self._input_recovery_hard_stop_reason is not None
+            reason = (
+                self._input_recovery_hard_stop_reason
+                if hard_stop
+                else recovery_reason
+                if recovery_hold
+                else FeasibilityReason.DISENGAGED.value
+            )
             record.update(
                 accepted=False,
-                reason=FeasibilityReason.DISENGAGED.value,
-                control_state=ArmControlState.DISENGAGED.value,
+                reason=reason,
+                control_state=(
+                    ArmControlState.HARD_STOP.value
+                    if hard_stop
+                    else ArmControlState.DISENGAGED.value
+                ),
                 heartbeat_applied=heartbeat_applied,
                 heartbeat_generated_monotonic_ns=(
                     now_ns if heartbeat_applied else None
@@ -622,7 +717,7 @@ class SmoothQuestJakaSession:
                 None,
                 None,
                 heartbeat_applied,
-                FeasibilityReason.DISENGAGED.value,
+                reason,
             )
         self.ik_timestamps_ns.append(now_ns)
         started = time.perf_counter_ns()
@@ -1454,6 +1549,16 @@ class SmoothQuestJakaSession:
             ),
             "active_arm_fault": None if self.arm_clutch.active_fault is None else self.arm_clutch.active_fault.reason,
             "active_hand_fault": None if self.hand_clutch.active_fault is None else self.hand_clutch.active_fault.reason,
+            "input_recovery_active": self._input_recovery_started_ns is not None,
+            "input_recovery_elapsed_s": (
+                None
+                if self._input_recovery_started_ns is None
+                else max(0.0, (now_ns - self._input_recovery_started_ns) / 1e9)
+            ),
+            "input_recovery_timeout_s": self.config.input_recovery_timeout_s,
+            "input_recovery_hard_stop_reason": (
+                self._input_recovery_hard_stop_reason
+            ),
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
             "reference_generation": self.reference_generation,
             "hand_clutch_cycle_count": self.hand_clutch.cycle_count,
@@ -1657,6 +1762,10 @@ class SmoothQuestJakaSession:
             "control_compute_budget_exhausted_count": (
                 self.control_compute_budget_exhausted_count
             ),
+            "input_recovery_timeout_s": self.config.input_recovery_timeout_s,
+            "input_recovery_count": self.input_recovery_count,
+            "input_recovery_success_count": self.input_recovery_success_count,
+            "input_recovery_timeout_count": self.input_recovery_timeout_count,
             "singularity_warning_count": self.singularity_warning_count,
             "maximum_requested_backlog_m": self.maximum_requested_backlog_m,
             "maximum_requested_backlog_deg": math.degrees(

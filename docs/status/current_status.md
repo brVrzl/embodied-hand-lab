@@ -92,10 +92,21 @@ The maintained combined gate now also requires the fixed native
 `SCHED_FIFO` priority 10. Only the 8 ms native control thread is promoted,
 after SDK helper-thread setup, and it returns to `SCHED_OTHER` before cleanup.
 The entry checks inherited `RLIMIT_RTPRIO >= 10` before hardware I/O and the
-native worker verifies actual policy/priority. The current shell limit is zero,
-so another physical combined run is blocked pending an explicitly authorized
-host RT-limit configuration and a fresh-session check. Timing and all other
-safety thresholds remain unchanged.
+native worker verifies actual policy/priority. A one-shot, explicitly
+authorized `prlimit` scope was used without running the control stack as root.
+The latest episode ran 174.915 seconds on CPU6/SCHED_FIFO 10 with zero hard
+timing miss, controller alarm, collision, E-stop, RH56 worker fault, or cleanup
+error. The operator then removed Quest, so the retained native watchdog stopped
+with `producer_liveness_loss`; this is useful partial evidence but not a
+300-second PASS. Timing and all other safety thresholds remained unchanged.
+
+The shared session now has an offline-tested distinction between a transient
+Quest CTRL/wrist outage and actual producer death. The transient path
+immediately pauses/holds, emits no-motion heartbeats for at most 10 seconds,
+and requires release-before-press reference recapture after data returns.
+Timeout is terminal. The native producer watchdog remains 100 ms, so Python or
+IPC death is not masked. This new recovery behavior is not yet physically
+validated.
 
 The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
@@ -124,6 +135,13 @@ Quest hand-only PC-direct operation and short combined sessions have physical
 evidence, including the 60.105-second combined PASS above. Complete
 Quest-driven physical hand teleoperation, target/feedback characterization,
 and a long-duration all-gates validation remain incomplete.
+
+The maintained live configuration and both physical RH56 entry assemblers now
+load `configs/hand/quest_rh56_real_retarget.yaml`, align from measured
+`ANGLE_ACT` toward the current Quest pose on each grip press, and enable the
+physically derived index-pinch three-channel relationship. The previous
+combined path accidentally inherited the simulation-uncalibrated calibration;
+the correction is offline tested but has not yet been revalidated on hardware.
 
 ## Simulation limits
 
@@ -173,8 +191,9 @@ Inspecting help or running plant-free tests does not authorize hardware.
    output-acceleration correction.
 3. Complete and verify TCP calibration at the controller; current recorded
    TCP1--TCP10 values are zero.
-4. Establish reliable Quest controller validity for a complete duration gate;
-   the 200.943-second stop must not be relabelled as a 300-second PASS.
+4. Physically validate the new bounded Quest input-recovery/re-clutch behavior
+   and complete a full duration gate; operator-ended runs must not be
+   relabelled as a 300-second PASS.
 5. Complete physical RH56 target/feedback characterization and the staged
    Quest-driven hand validation.
 6. Calibrate camera/robot time and geometry before physical dual-D435 dataset

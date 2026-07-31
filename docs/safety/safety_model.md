@@ -4,7 +4,8 @@
 
 | Class | Examples | Required behavior |
 |---|---|---|
-| Input/producer liveness | stale Quest, producer or IPC timeout | stop physical output and clean up |
+| Transient Quest input invalidity | stale/invalid CTRL or wrist data for at most 10 seconds | immediate no-motion hold, fresh producer heartbeat, release-before-press recapture |
+| Input/producer liveness | Quest invalidity beyond 10 seconds, producer or IPC timeout | stop physical output and clean up |
 | Recoverable candidate infeasibility | IK, collision, singularity direction, output velocity/acceleration | `HOLD_REJECTED`, fresh heartbeat, hold last safe target |
 | Native/controller hard fault | tracking error, servo alarm, collision, estop, power/enable loss, SDK error, hard timing fault | stop before another point and clean up |
 | Operator action | clutch release, bounded gate end, explicit stop | stop/hold per stage and clean up |
@@ -41,7 +42,8 @@ previous operator report, not a guarantee of present controller state.
 
 | 类别 | 示例 | 必须采取的行为 |
 |---|---|---|
-| 输入/producer 活性 | Quest 陈旧、producer 或 IPC 超时 | 停止真机输出并清理 |
+| Quest 输入短时失效 | CTRL/wrist 陈旧或无效且不超过 10 秒 | 立即无运动保持、fresh producer heartbeat、release-before-press 重采参考 |
+| 输入/producer 活性 | Quest 失效超过 10 秒、producer 或 IPC 超时 | 停止真机输出并清理 |
 | 可恢复候选不可行 | IK、碰撞、奇异方向、输出速度/加速度 | `HOLD_REJECTED`、新鲜 heartbeat、保持最后安全目标 |
 | Native/控制器硬故障 | tracking error、servo alarm、collision、estop、power/enable 丢失、SDK、硬时序故障 | 在发送下一点前停止并清理 |
 | 操作者动作 | clutch release、gate 到时、显式停止 | 按 stage 停止/保持并清理 |

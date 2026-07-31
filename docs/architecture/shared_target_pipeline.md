@@ -43,6 +43,15 @@ The next feasible input can recover without restarting the control session.
 This behavior is protected by shared-pipeline, singularity, output-feasibility,
 and native-worker tests.
 
+The live profile distinguishes a bounded Quest transport interruption from a
+dead command producer. Invalid/stale CTRL or wrist data immediately disengages
+the clutches and requests `HOLD_CURRENT`; for at most 10 seconds the still-live
+Python producer may send only no-motion heartbeats. Returning input must observe
+both controls released and then capture a fresh reference before motion can
+resume. Exceeding the window is `QUEST_INPUT_RECOVERY_TIMEOUT` and is terminal.
+If the Python producer or IPC path itself dies, no heartbeat exists and the
+unchanged native 100 ms watchdog still stops.
+
 ## Singularity policy
 
 Actual full Jacobian quality is authoritative. Slowdown and hard-rejection use
@@ -90,6 +99,12 @@ continuation，并让 `SharedJakaTargetGenerator` 计算候选。候选只有通
 
 新的可行输入可以在不重启控制进程的情况下恢复。共享管线、奇异性、输出可行性和 native
 worker 测试覆盖了这一行为。
+
+live profile 会区分“Quest 数据短时失效”和“命令 producer 真正死亡”。CTRL 或 wrist
+失效时立即 disengage 并请求 `HOLD_CURRENT`；仍存活的 Python producer 最多 10 秒只发送
+无运动 heartbeat。数据恢复后必须先观察到两个 trigger 均释放，再重新按下采集新参考，
+不会沿用旧参考跳回。超过窗口以 `QUEST_INPUT_RECOVERY_TIMEOUT` 终止。Python/IPC 真正
+死亡时无法发送 heartbeat，native 原有 100 ms watchdog 保持不变。
 
 ## 奇异性策略
 

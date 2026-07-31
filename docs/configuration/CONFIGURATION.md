@@ -80,7 +80,8 @@ parse is not permission to open a device.
 The live Quest YAML is shared policy before the output adapter. It contains
 input freshness, clutch semantics, frames, provisional calibration, filters,
 continuation, IK, singularity checks, output feasibility, MuJoCo settings, and
-the thin native adapter contract. It is not controller state and must not be
+the thin native adapter contract. Its input-recovery window is capped at
+10 seconds and does not alter the native 100 ms producer watchdog. It is not controller state and must not be
 used to write payload, TCP, installation, or safety settings.
 
 The offline and live Quest configurations are deliberately different.
@@ -93,7 +94,7 @@ marked and is not a claim of full physical calibration.
 | File | Owner and status |
 | --- | --- |
 | `configs/hand/rh56_pc_direct_teleop.yaml` | Maintained PC-direct protocol, scheduler, feedback, bounds, channel order, and safety policy |
-| `configs/hand/quest_rh56_real_retarget.yaml` | Physical hand-only Quest feature calibration; does not own protocol travel |
+| `configs/hand/quest_rh56_real_retarget.yaml` | Maintained live Quest feature calibration for hand-only and combined physical RH56, and the live simulation default; does not own protocol travel |
 
 The canonical six-channel order is:
 

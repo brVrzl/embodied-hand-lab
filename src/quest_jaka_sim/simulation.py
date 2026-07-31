@@ -504,6 +504,7 @@ class ReplayConfig:
     zero_gravity: bool
     axis_analysis: Mapping[str, Any]
     startup_timing_grace_cycles: int
+    input_recovery_timeout_s: float
 
     @classmethod
     def load(cls, path: str | Path, *, speed_profile: str | None = None) -> "ReplayConfig":
@@ -632,6 +633,17 @@ class ReplayConfig:
         )
         if not 1 <= startup_timing_grace_cycles <= 1_000:
             raise ValueError("startup_timing_grace_cycles must be between 1 and 1000")
+        input_recovery_timeout_ms = float(
+            raw.get("clutches", {}).get("input_recovery_timeout_ms", 0.0)
+        )
+        if (
+            not math.isfinite(input_recovery_timeout_ms)
+            or input_recovery_timeout_ms < 0.0
+            or input_recovery_timeout_ms > 10_000.0
+        ):
+            raise ValueError(
+                "input_recovery_timeout_ms must be finite and between 0 and 10000"
+            )
         return cls(
             raw=raw,
             mapping=provisional,
@@ -669,6 +681,7 @@ class ReplayConfig:
             zero_gravity=bool(simulation.get("zero_gravity", True)),
             axis_analysis=raw.get("axis_analysis", {}),
             startup_timing_grace_cycles=startup_timing_grace_cycles,
+            input_recovery_timeout_s=input_recovery_timeout_ms / 1000.0,
         )
 
 

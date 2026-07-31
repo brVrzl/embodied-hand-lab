@@ -247,6 +247,23 @@ def test_invalid_config_jerk_is_rejected_before_network(tmp_path: Path) -> None:
         ReplayConfig.load(invalid)
 
 
+def test_quest_input_recovery_window_cannot_exceed_ten_seconds(
+    tmp_path: Path,
+) -> None:
+    source = (
+        ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
+    ).read_text()
+    invalid = tmp_path / "invalid-recovery-window.yaml"
+    invalid.write_text(
+        source.replace(
+            "  input_recovery_timeout_ms: 10000",
+            "  input_recovery_timeout_ms: 10001",
+        )
+    )
+    with pytest.raises(ValueError, match="between 0 and 10000"):
+        ReplayConfig.load(invalid)
+
+
 def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
     parser = _parser()
     common = [
@@ -372,6 +389,12 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["network_attempted"] is False
     assert report["rh56_gate_validated"] is True
     assert report["rh56_scheduler_profile"] == "fast40"
+    assert report["rh56_hand_calibration_path"] == (
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    assert report["rh56_align_on_grip"] is True
+    assert report["rh56_align_index_pinch_to_validated_pose"] is True
+    assert report["quest_input_recovery_timeout_s"] == 10.0
     assert report["hardware_commands_sent"] == 0
     assert report["cpu_isolation"]["enabled"] is True
     assert report["cpu_isolation"]["native_control_cpu"] == control_cpu

@@ -29,10 +29,17 @@ motion data and should follow the local data-retention policy.
 The arm uses left index trigger. The operator must release before the first
 press. A rising press captures wrist, head yaw, and robot TCP references. Hold
 to run; release disengages. After stale/lost input or a completed hardware
-session, release and press again to capture a fresh reference.
+session, release and press again to capture a fresh reference. In the live
+profile, stale/invalid CTRL or wrist input immediately holds both outputs while
+the process remains recoverable for at most 10 seconds. Recovery never resumes
+the stale reference: after valid data returns, release both triggers and then
+press the desired clutch again. A longer loss terminates the physical session.
+Actual producer/IPC death still trips the unchanged 100 ms native watchdog.
 
-The left grip controls RH56 only in the current simulation integration. Current
-Quest-driven physical RH56 teleoperation is not validated.
+The left grip controls RH56 in live simulation, hand-only physical operation,
+and combined physical operation. Physical entries use
+`configs/hand/quest_rh56_real_retarget.yaml`, measured `ANGLE_ACT` activation,
+and the maintained bounded command/contact gates.
 
 The audited Unity source/build history is retained in
 `docs/motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md`; it is integration
@@ -66,9 +73,14 @@ evidence, not a promise about whichever APK is currently installed.
 
 机械臂使用左手食指 trigger。首次按下前必须先释放；上升沿捕获手腕、head yaw 和机器人
 TCP 参考。按住运行，释放 disengage。输入陈旧/丢失或真机会话结束后，必须再次释放并
-重新按下，捕获新的参考。
+重新按下，捕获新的参考。live profile 中 CTRL 或 wrist 失效会立即保持两路输出，进程
+最多保留 10 秒可恢复窗口；数据回来后仍须先释放两个 trigger，再按需要重新按下对应
+clutch，绝不会继续使用旧参考。超过 10 秒会终止真机会话；producer/IPC 真正死亡仍由
+未改变的 native 100 ms watchdog 停止。
 
-左 grip 当前只控制仿真 RH56。Quest 驱动真机 RH56 尚未验证。
+左 grip 同时用于 live 仿真、hand-only 真机和 combined 真机 RH56。真机入口统一加载
+`configs/hand/quest_rh56_real_retarget.yaml`，从实测 `ANGLE_ACT` 激活，并保留命令与
+接触安全门。
 
 Unity 源码和构建审计保存在
 `docs/motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md`；它是集成证据，不保证当前头显

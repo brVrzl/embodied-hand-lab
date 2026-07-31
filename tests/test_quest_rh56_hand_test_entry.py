@@ -210,7 +210,7 @@ def test_quest_hand_only_uses_command_approval_and_production_mode() -> None:
     assert _parse("--preflight-only", "--scheduler-profile", "fast30").scheduler_profile == "fast30"
 
 
-def test_hand_only_path_overrides_sim_calibration_without_mutating_sim_default() -> None:
+def test_hand_only_and_live_defaults_share_real_physical_calibration() -> None:
     config = _load_hand_only_quest_config(
         "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
         "configs/hand/quest_rh56_real_retarget.yaml",
@@ -224,8 +224,16 @@ def test_hand_only_path_overrides_sim_calibration_without_mutating_sim_default()
         hand_entry.ReplayConfig.load(
             "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
         ).raw["hand_retargeting"]["calibration_path"]
-        == "configs/sim/quest_rh56_retarget.yaml"
+        == "configs/hand/quest_rh56_real_retarget.yaml"
     )
+
+
+def test_physical_hand_path_rejects_sim_uncalibrated_mapping() -> None:
+    with pytest.raises(ValueError, match="quest_rh56dfx_real"):
+        _load_hand_only_quest_config(
+            "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
+            "configs/sim/quest_rh56_retarget.yaml",
+        )
 
 
 def test_custom_ch341_fallback_requires_explicit_flag(monkeypatch: pytest.MonkeyPatch) -> None:

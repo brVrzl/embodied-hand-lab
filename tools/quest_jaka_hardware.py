@@ -32,6 +32,7 @@ from quest_jaka_sim import (
     ReplayConfig,
     SharedJakaTargetGenerator,
     SmoothQuestJakaSession,
+    with_physical_rh56_retarget,
 )
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
@@ -575,8 +576,12 @@ def main() -> int:
         raise SystemExit("duration must be positive")
     try:
         config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+        if args.stage == "combined-normal-teleop":
+            config = with_physical_rh56_retarget(config)
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"invalid Quest/JAKA configuration before I/O: {exc}") from exc
+    except FileNotFoundError as exc:
+        raise SystemExit(f"missing physical RH56 calibration before I/O: {exc}") from exc
     jerk_limit = _resolve_output_jerk_limit(args, config)
     if args.run_output_joint_velocity_limit_rad_s is not None:
         if not 0.0 < args.run_output_joint_velocity_limit_rad_s <= config.output_contract.maximum_velocity_rad_s:
@@ -820,6 +825,30 @@ def main() -> int:
                         None
                         if hand_config is None
                         else hand_config.get("scheduler_profile", "baseline")
+                    ),
+                    "rh56_hand_calibration_path": (
+                        None
+                        if args.stage != "combined-normal-teleop"
+                        else config.raw["hand_retargeting"]["calibration_path"]
+                    ),
+                    "rh56_align_on_grip": (
+                        False
+                        if args.stage != "combined-normal-teleop"
+                        else bool(
+                            config.raw["hand_retargeting"]["align_on_grip"]
+                        )
+                    ),
+                    "rh56_align_index_pinch_to_validated_pose": (
+                        False
+                        if args.stage != "combined-normal-teleop"
+                        else bool(
+                            config.raw["hand_retargeting"][
+                                "align_index_pinch_to_validated_pose"
+                            ]
+                        )
+                    ),
+                    "quest_input_recovery_timeout_s": (
+                        config.input_recovery_timeout_s
                     ),
                     "output_generator": args.output_generator,
                     "native_mode": "joint-teleop",
@@ -1256,7 +1285,7 @@ def main() -> int:
                         disengaged = prior_engaged and not engaged
                         clutch_edge_reason: str | None = None
                         pause_failed = False
-                        if disengaged:
+                        if disengaged and not dispatch_failed:
                             if args.stage in RECOVERABLE_CLUTCH_STAGES:
                                 if not jaka_adapter.pause():
                                     abort_reason = "recoverable_pause_transport_failure"
@@ -1610,6 +1639,24 @@ def main() -> int:
         "rh56_hand_initial_target_source": (
             None if rh56_control is None else "measured_ANGLE_ACT"
         ),
+        "rh56_hand_calibration_path": (
+            None
+            if rh56_control is None or session.hand_retargeter is None
+            else str(config.raw["hand_retargeting"]["calibration_path"])
+        ),
+        "rh56_hand_calibration_id": (
+            None
+            if rh56_control is None or session.hand_retargeter is None
+            else session.hand_retargeter.calibration.calibration_id
+        ),
+        "rh56_align_on_grip": (
+            None if rh56_control is None else session.hand_align_on_grip
+        ),
+        "rh56_align_index_pinch_to_validated_pose": (
+            None
+            if rh56_control is None
+            else session.hand_align_index_pinch_to_validated_pose
+        ),
         "rh56_feedback_records": (
             0 if rh56_recorder is None else rh56_recorder.telemetry_record_count
         ),
@@ -1645,6 +1692,14 @@ def main() -> int:
         "maximum_quest_displacement_m": maximum_quest_displacement_m,
         "minimum_continuation_fraction": minimum_continuation_fraction,
         "continuation_backtrack_count": session.continuation_backtrack_count,
+        "quest_input_recovery_timeout_s": config.input_recovery_timeout_s,
+        "quest_input_recovery_count": session.input_recovery_count,
+        "quest_input_recovery_success_count": (
+            session.input_recovery_success_count
+        ),
+        "quest_input_recovery_timeout_count": (
+            session.input_recovery_timeout_count
+        ),
         "ik_rejections": dict(sorted(session.rejections.items())),
         **_control_compute_budget_summary(session),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),

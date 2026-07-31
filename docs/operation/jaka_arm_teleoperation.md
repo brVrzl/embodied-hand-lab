@@ -27,16 +27,20 @@ Never copy an old historical invocation without reconciling it with current
   smoothing value, not a claimed Mini2 hardware limit.
 - Post-EDG `q_hold` is authoritative and first engagement must be continuous.
 - `HOLD_REJECTED` holds the last safe target with a fresh heartbeat.
-- Actual liveness loss, tracking fault, controller alarm, collision, SDK error,
-  or hard timing failure stops and cleans up.
+- A transient Quest CTRL/wrist fault immediately holds output and permits at
+  most 10 seconds for data recovery plus release-before-press re-reference.
+  Recovery sends no motion target. A longer loss, actual producer/IPC liveness
+  loss, controller alarm, collision, SDK error, or hard timing failure stops
+  and cleans up.
 - The sole SDK session performs lightweight health polling every two command
   cycles; extended collision/estop queries occur only after unhealthy status.
 - During joint-teleop startup, the worker sends only the captured `q_hold`.
   A bounded grace window (25 cycles by default) records isolated sub-period
   wake/completion lateness and re-aligns the absolute schedule without catch-up
   or backlog. Lateness beyond the 12 ms completion hard boundary, persistent
-  misses after grace, controller/SDK faults, stale input, and tracking faults
-  remain hard stops.
+  misses after grace and controller/SDK faults remain hard stops. Quest input
+  loss becomes terminal only after the bounded recovery window; producer/IPC
+  loss remains governed by the unchanged 100 ms native watchdog.
 
 See [current status](../status/current_status.md) before proposing a physical
 stage. The next recommended gate is not yet authorized and must occur in a new
@@ -86,7 +90,9 @@ stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live`、
 - 分段线性重采样靠近 latest destination，不重放旧队列。
 - 进入 EDG 后的 `q_hold` 是启动权威，首次 engage 必须连续。
 - `HOLD_REJECTED` 使用新鲜 heartbeat 保持最后安全目标。
-- 真正的活性丢失、tracking fault、控制器报警、碰撞、SDK 或硬时序错误会停止并清理。
+- Quest CTRL/wrist 短时失效会立即保持输出，最多等待 10 秒；恢复后必须 release-before-
+  press 重采参考，期间不发送运动 target。超过窗口、producer/IPC 真正失活、控制器报警、
+  碰撞、SDK 或硬时序错误会停止并清理。native 100 ms producer watchdog 保持不变。
 - 唯一 SDK 会话每两个命令周期执行一次轻量健康轮询。
 
 在提出真机 gate 前先阅读[当前状态](../status/current_status.md)。当前推荐 gate 仍需新的

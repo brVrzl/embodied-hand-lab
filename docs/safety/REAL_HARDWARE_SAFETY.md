@@ -77,8 +77,11 @@ remain active.
 
 Left-index release requests a bounded arm pause. The native worker brakes to a
 hold, reports `STOPPED_READY`, and permits a fresh release-before-press
-reference capture. Invalid or stale clutch/input state is not treated as an
-ordinary pause.
+reference capture. Invalid or stale Quest clutch/wrist input also pauses
+immediately, but the live profile permits only a bounded 10-second no-motion
+recovery hold. During that window the producer emits heartbeat packets without
+new joint targets. Returning input still requires release-before-press and a
+fresh reference; the stale reference is never resumed.
 
 The following are terminal hard-stop conditions:
 
@@ -88,12 +91,18 @@ The following are terminal hard-stop conditions:
 - SDK or command transport error;
 - final command illegality or tracking hard crossing;
 - hard command-loop timing failure;
-- actual Quest input, producer heartbeat, IPC, or worker liveness loss;
+- Quest input loss beyond the configured 10-second recovery window;
+- actual producer heartbeat, IPC, or worker liveness loss;
 - operator stop or process interruption.
 
 A hard stop terminates new output and runs cleanup. It must never be converted
 to `HOLD_REJECTED`, retried automatically, or hidden by a later secondary
 transport symptom.
+
+The 10-second window does not change the native command-stream watchdog.
+Python/IPC death still removes producer heartbeats and stops in 100 ms. The
+window is capped by configuration validation and cannot be extended above
+10 seconds.
 
 ## Native worker rules
 

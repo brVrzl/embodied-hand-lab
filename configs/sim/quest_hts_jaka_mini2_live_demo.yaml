@@ -23,6 +23,11 @@ clutches:
   pressed_at: 0.75
   released_at: 0.55
   stale_after_ms: 150
+  # A short Quest/CTRL outage immediately pauses both physical outputs. The
+  # producer may keep no-motion heartbeats alive for at most ten seconds so a
+  # returning stream can be release/re-pressed without restarting the session.
+  # The native producer-death watchdog remains 100 ms.
+  input_recovery_timeout_ms: 10000
   hand_reacquisition_ms: 200
   require_release_before_first_press: true
 
@@ -112,8 +117,12 @@ shared_target_generation:
 
 hand_retargeting:
   enabled: true
-  calibration_path: configs/sim/quest_rh56_retarget.yaml
+  # The live Quest path uses the physically captured feature endpoints. The
+  # simulation-only uncalibrated file remains available for isolated tests.
+  calibration_path: configs/hand/quest_rh56_real_retarget.yaml
   engagement: independent_left_grip_relative_entire_hand
+  align_on_grip: true
+  align_index_pinch_to_validated_pose: true
   # The existing Quest retargeter supplies the four per-finger features in
   # simulated radians.  H1 captures them on grip press and applies only their
   # relative change to the captured RH56 target.

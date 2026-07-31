@@ -105,11 +105,20 @@ def _head(sequence: int, timestamp_ns: int) -> ReceivedHtsDatagram:
     return ReceivedHtsDatagram(payload, "10.24.1.99", 50000, timestamp_ns, timestamp_ns)
 
 
-def _session(tmp_path: Path) -> SmoothQuestJakaSession:
+def _session(
+    tmp_path: Path,
+    *,
+    input_recovery_timeout_s: float | None = None,
+) -> SmoothQuestJakaSession:
     config = replace(
         ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
         engagement_schedule_s=(),
     )
+    if input_recovery_timeout_s is not None:
+        config = replace(
+            config,
+            input_recovery_timeout_s=input_recovery_timeout_s,
+        )
     model = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")
     return SmoothQuestJakaSession(config, JakaMujocoSimulation(config, mjcf_path=model))
 
@@ -192,6 +201,70 @@ def test_live_ctrl_engages_real_sim_session_and_stale_faults_arm(tmp_path: Path)
     session.control_tick(250_000_001)
     assert session.arm_clutch.state.value == "tracking_fault"
     assert session.hand_clutch.state.value == "tracking_fault"
+    assert session.event_records[-1]["reason"] == "QUEST_INPUT_RECOVERY_HOLD"
+    assert session.event_records[-1]["heartbeat_applied"] is True
+    assert session.event_records[-1]["control_state"] == "DISENGAGED"
+
+    # Returning data never resumes from a stale reference. Both controls must
+    # be released, then a fresh press captures a new reference without restart.
+    timestamp_ns = 270_000_000
+    router.ingest(_hand(4, timestamp_ns), session)
+    router.ingest(_head(2, timestamp_ns), session)
+    router.ingest(_ctrl(4, timestamp_ns), session)
+    router.poll(timestamp_ns, session)
+    session.control_tick(timestamp_ns)
+    assert session.arm_clutch.state.value == "disengaged"
+    assert session.hand_clutch.state.value == "disengaged"
+    assert session.input_recovery_success_count == 1
+
+    timestamp_ns = 300_000_000
+    router.ingest(_hand(5, timestamp_ns), session)
+    router.ingest(_head(3, timestamp_ns), session)
+    router.ingest(_ctrl(5, timestamp_ns, index=1.0), session)
+    router.poll(timestamp_ns, session)
+    session.control_tick(timestamp_ns)
+    assert session.arm_clutch.state.value == "engaged"
+    assert session.reference_generation == 2
+    assert session._input_recovery_hard_stop_reason is None
+
+
+def test_input_recovery_timeout_latches_hard_stop(tmp_path: Path) -> None:
+    session = _session(tmp_path, input_recovery_timeout_s=0.05)
+    router = LiveQuestControllerRouter(stale_after_s=0.15)
+    router.ingest(_hand(1, 1), session)
+    router.ingest(_head(1, 1), session)
+    router.ingest(_ctrl(1, 1), session)
+    router.poll(1, session)
+    session.control_tick(1)
+
+    timestamp_ns = 20_000_000
+    router.ingest(_hand(2, timestamp_ns), session)
+    router.ingest(_ctrl(2, timestamp_ns, index=1.0), session)
+    router.poll(timestamp_ns, session)
+    session.control_tick(timestamp_ns)
+    assert session.reference_generation == 1
+
+    router.poll(200_000_000, session)
+    session.control_tick(200_000_000)
+    assert session.event_records[-1]["reason"] == "QUEST_INPUT_RECOVERY_HOLD"
+    assert session.event_records[-1]["heartbeat_applied"] is True
+
+    router.poll(250_000_001, session)
+    tick = session.control_tick(250_000_001)
+    assert tick.reason == "QUEST_INPUT_RECOVERY_TIMEOUT"
+    assert tick.output_applied is False
+    assert session.event_records[-1]["control_state"] == "HARD_STOP"
+    assert session.input_recovery_timeout_count == 1
+
+    # Fresh input after a terminal timeout cannot clear the hard-stop latch.
+    timestamp_ns = 270_000_000
+    router.ingest(_hand(3, timestamp_ns), session)
+    router.ingest(_head(2, timestamp_ns), session)
+    router.ingest(_ctrl(3, timestamp_ns), session)
+    router.poll(timestamp_ns, session)
+    tick = session.control_tick(timestamp_ns)
+    assert tick.reason == "QUEST_INPUT_RECOVERY_TIMEOUT"
+    assert tick.output_applied is False
 
 
 def test_hand_tracking_without_controller_cannot_authorize_motion(tmp_path: Path) -> None:

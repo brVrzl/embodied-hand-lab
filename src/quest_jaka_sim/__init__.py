@@ -42,6 +42,10 @@ from .clutch import (
     HandClutchState,
 )
 from .precision_mapping import LatchedHeadYawArmMapper, gravity_aligned_head_yaw
+from .physical_hand_config import (
+    DEFAULT_PHYSICAL_RH56_CALIBRATION,
+    with_physical_rh56_retarget,
+)
 
 __all__ = [
     "FeasibilityLimits",
@@ -79,4 +83,6 @@ __all__ = [
     "HandClutchState",
     "LatchedHeadYawArmMapper",
     "gravity_aligned_head_yaw",
+    "DEFAULT_PHYSICAL_RH56_CALIBRATION",
+    "with_physical_rh56_retarget",
 ]

@@ -44,6 +44,11 @@ Control semantics:
   open. Grip press captures fresh measured `ANGLE_ACT` and resumes continuously.
 - Index and grip are independent and may be active simultaneously. Arm pause
   does not reset or open the hand.
+- Invalid/stale Quest CTRL or wrist input immediately pauses the arm and holds
+  the hand. The live producer sends no-motion heartbeat for at most 10 seconds.
+  If data returns, release both triggers and press again to capture fresh arm
+  and hand references; if it does not, the session terminates. The native
+  producer-death watchdog remains 100 ms.
 - Hand transport/feedback/device fault makes the combined episode invalid and
   stops/holds the arm. An arm terminal hard fault stops new hand commands.
 
@@ -55,6 +60,11 @@ does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
 0--1000 position range, physically selected `fast40` command profile, 0.05
 delta limit, full normalized command domain, contact hold,
 feedback/protocol/fault gates, and measured-first startup.
+Both hand-only and combined physical entries load
+`configs/hand/quest_rh56_real_retarget.yaml`, align the target to the current
+Quest pose on grip press from measured activation, and enable the physically
+validated index-pinch three-channel relationship. The simulation-only
+uncalibrated mapping is rejected by physical entry assembly.
 There is no unlimited or safety-disable option.
 
 After completing Steps 1--8 in [RH56 operation](rh56_operation.md), inspect the
@@ -129,6 +139,9 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 - grip 未按/释放：hand 保持最后 target、不发新 target、不自动张开；新 grip press 从 fresh
   measured `ANGLE_ACT` 连续恢复。
 - index 与 grip 完全独立，可以同时 ACTIVE；arm pause 不重置或张开 hand。
+- Quest CTRL/wrist 失效时立即 pause arm 并 hold hand；仍存活的 producer 最多 10 秒只发
+  无运动 heartbeat。数据恢复后先释放两个 trigger，再按下所需 clutch 重采 arm/hand
+  参考；超过窗口则终止。native producer-death watchdog 仍为 100 ms。
 - hand transport/feedback/device fault 会使 episode invalid 并让 arm 安全 hold/stop；arm
   terminal hard fault 会停止 hand 新命令。
 
@@ -137,6 +150,10 @@ workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/clean
 post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
 0.05 delta、完整归一化 command domain、接触保持和全部
 feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
+hand-only 与 combined 真机入口统一加载
+`configs/hand/quest_rh56_real_retarget.yaml`，每次 grip press 从实测激活值向当前 Quest
+姿态对齐，并启用已完成真机验证的 index-pinch 三通道关系；真机配置装配会拒绝
+simulation uncalibrated calibration。
 
 正常联合真机运行使用上文命令模板。CPU6 是当前 14 核主机实测的低负载选择，并非可移植的
 机器人默认值；主机或 affinity 变化后必须重新核实。入口会把 native control thread 固定到

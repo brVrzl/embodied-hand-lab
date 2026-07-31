@@ -587,7 +587,8 @@ required second step and produces no motion.
 These run boundaries are project-selected, not vendor maximums. Start with
 index released and RH56 disconnected. Verify coordinate directions one axis at
 a time, reference continuity, 60 Hz producer/125 Hz worker timing, hold on
-index release, stale-input hard stop, and cleanup.
+index release, immediate stale-input hold, 10-second recovery timeout hard
+stop, release-before-press recovery, and cleanup.
 
 ### RH56 only
 

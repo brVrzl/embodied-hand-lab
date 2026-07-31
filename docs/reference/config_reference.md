@@ -19,14 +19,14 @@ owning loader and current `--help`.
 
 | Configuration | Current role and boundary |
 | --- | --- |
-| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter; also owns the maintained MuJoCo live-scene settings |
+| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter, including the capped 10-second no-motion Quest input recovery window; also owns the maintained MuJoCo live-scene settings |
 | `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Recorded-input and headless/offline simulation policy; deliberately smaller and different from live policy |
 | `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
 | `configs/sim/jaka_collision_sweep_poses.yaml` | Offline digital-twin collision-sweep pose samples |
 | `configs/motion_input/quest_hts_right_hand.yaml` | HTS receiver and canonical-operator preparation values; not physical robot bounds |
 | `configs/benchmark/smoke.yaml` | Deterministic offline JAKA joint-reach/RH56 actuator pre-shape smoke benchmark |
 | `configs/hand/rh56_pc_direct_teleop.yaml` | Maintained PC-direct transport, scheduler, channel order, feedback, command bounds, and safety policy; actual stable serial device remains a CLI choice |
-| `configs/hand/quest_rh56_real_retarget.yaml` | Dated physical Quest hand-feature calibration; does not own RH56 protocol travel or authorize writes |
+| `configs/hand/quest_rh56_real_retarget.yaml` | Maintained live Quest hand-feature calibration used by hand-only and combined physical RH56 entries and the live simulation default; does not own RH56 protocol travel or authorize writes |
 | `configs/camera/default_rgbd.yaml` | Small mock RGB-D fixture, not a physical-camera default |
 | `configs/camera/realsense_thor.yaml` | Site-specific dual-D435 snapshot with recorded serials; not portable and not end-to-end validated |
 | `configs/perception/d435_tabletop.yaml` | Offline tabletop processing parameters; camera-to-JAKA transform and workspace remain explicitly uncalibrated |
