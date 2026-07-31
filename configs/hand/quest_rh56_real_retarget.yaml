@@ -2,8 +2,8 @@ schema_version: quest_rh56_retarget.v1
 selected_backend: adaptive
 
 # Real Quest feature endpoints captured on 2026-07-30. This file calibrates
-# human tracking features only; RH56 protocol travel and the 0.8 software
-# ceiling remain owned by configs/hand/rh56_pc_direct_teleop.yaml.
+# human tracking features only; RH56 protocol travel is owned by
+# configs/hand/rh56_pc_direct_teleop.yaml.
 calibration:
   calibration_id: quest_rh56dfx_real_20260730_v1
   global_scale: 1.0
@@ -39,6 +39,30 @@ calibration:
     tripod_exit_distance_palm: 0.30
     minimum_finger_curl: 0.12
     power_grasp_curl: 0.70
+  pinch_pose_blending:
+    # The staged thumb-first probe confirmed index/thumb fingertip contact at
+    # approximately index .55, thumb-close .40, lateral .90. Keep the
+    # simultaneous blend disabled: live output must enter through the staged
+    # gate below so index cannot block opposition.
+    enabled: false
+    maximum_weight_step: 0.05
+    validated_poses:
+      index: [0.55, 0.0, 0.0, 0.0, 0.40, 0.90]
+  thumb_first_pinch:
+    # Canonical order is index, middle, ring, pinky, thumb_close,
+    # thumb_lateral. The gate below is intentionally narrow: ordinary index
+    # pinch approach passes through; guards apply only when the verified
+    # contact neighborhood is requested but measured lateral opposition is
+    # still blocked.
+    enabled: true
+    lateral_target: 0.90
+    lateral_tolerance: 0.04
+    # Diagnostic activation is limited to the verified [index=.55,
+    # thumb_close=.40, lateral=.90] contact neighborhood. All targets are
+    # passed through unchanged; no preposition/guard pose is used.
+    index_activation: 0.50
+    thumb_close_activation: 0.35
+    lateral_activation: 0.86
   mcp_flexion_weight: 0.15
   mcp_flexion_deadband: 0.15
   maximum_normalized_step: 0.08

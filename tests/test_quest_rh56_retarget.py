@@ -10,6 +10,8 @@ from motion_input.hts_protocol import HTS_JOINT_NAMES
 from quest_jaka_sim.hand_retarget import (
     HandRetargetCalibration,
     PinchIntentDetector,
+    PinchPoseBlender,
+    ThumbFirstPinchSequencer,
     ProjectRh56Retargeter,
     QuestHandSkeleton,
     RH56_FULL_JOINT_ORDER,
@@ -206,6 +208,78 @@ def test_pinch_hysteresis_rejects_power_grasp_and_tracking_loss() -> None:
         tracking_valid=False,
         **common,
     ) == ("none", 0.0)
+
+
+def test_validated_index_pose_blending_is_continuous_and_reversible() -> None:
+    pose = (0.575, 0.0, 0.0, 0.0, 0.375, 0.90)
+    blender = PinchPoseBlender({"index": pose}, maximum_weight_step=0.05)
+    continuous = np.asarray((0.2, 0.1, 0.1, 0.1, 0.2, 0.3))
+    previous = continuous
+    for _ in range(20):
+        blended, mode, weight = blender.update(
+            continuous,
+            detected_mode="index",
+            confidence=1.0,
+        )
+        assert mode == "index"
+        assert np.max(np.abs(blended - previous)) <= 0.031
+        previous = blended
+    assert weight == pytest.approx(1.0)
+    assert blended == pytest.approx(pose)
+
+    for _ in range(20):
+        blended, mode, weight = blender.update(
+            continuous,
+            detected_mode="none",
+            confidence=0.0,
+        )
+    assert mode == "none"
+    assert weight == pytest.approx(0.0)
+    assert blended == pytest.approx(continuous)
+
+
+def test_pose_blend_fades_before_switching_modes_and_tracking_loss_exits() -> None:
+    poses = {
+        "index": (0.575, 0.0, 0.0, 0.0, 0.375, 0.90),
+        "middle": (0.0, 0.6, 0.0, 0.0, 0.4, 0.8),
+    }
+    blender = PinchPoseBlender(poses, maximum_weight_step=0.25)
+    continuous = np.zeros(6)
+    blender.update(continuous, detected_mode="index", confidence=1.0)
+    blender.update(continuous, detected_mode="index", confidence=1.0)
+    _, mode, weight = blender.update(
+        continuous, detected_mode="middle", confidence=1.0
+    )
+    assert mode == "index"
+    assert weight == pytest.approx(0.25)
+    _, mode, weight = blender.update(
+        continuous, detected_mode="middle", confidence=1.0
+    )
+    assert mode == "middle"
+    assert weight == pytest.approx(0.0)
+    _, mode, weight = blender.update(
+        continuous,
+        detected_mode="middle",
+        confidence=1.0,
+        tracking_valid=False,
+    )
+    assert mode == "none"
+    assert weight == pytest.approx(0.0)
+
+
+def test_real_calibration_disables_unverified_pose_and_uses_thumb_first_gate() -> None:
+    _, calibration = HandRetargetCalibration.load(
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    assert not calibration.pinch_pose_blending_enabled
+    assert calibration.thumb_first_pinch_enabled
+    assert calibration.thumb_first_lateral_target == pytest.approx(0.90)
+    assert calibration.thumb_first_index_activation == pytest.approx(0.50)
+    assert calibration.thumb_first_thumb_close_activation == pytest.approx(0.35)
+    assert calibration.thumb_first_lateral_activation == pytest.approx(0.86)
+    assert calibration.validated_pinch_poses == {
+        "index": pytest.approx((0.55, 0.0, 0.0, 0.0, 0.40, 0.90))
+    }
 
 
 def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
@@ -430,3 +504,109 @@ def test_malformed_calibration_is_rejected(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="malformed"):
         HandRetargetCalibration.load(path)
+
+
+def test_thumb_first_pinch_passes_early_index_approach_without_intervention() -> None:
+    sequencer = ThumbFirstPinchSequencer(
+        enabled=True,
+        lateral_target=0.90,
+        lateral_tolerance=0.04,
+        index_guard=0.12,
+        thumb_close_guard=0.22,
+    )
+    continuous = np.array([0.48, 0.0, 0.0, 0.0, 0.38, 0.65])
+    passed, stage = sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.40]),
+    )
+    assert stage == "idle"
+    np.testing.assert_allclose(passed, continuous)
+
+
+def test_thumb_first_pinch_approaches_verified_pose_without_guard_retreat() -> None:
+    sequencer = ThumbFirstPinchSequencer(
+        enabled=True,
+        lateral_target=0.90,
+        lateral_tolerance=0.04,
+        index_guard=0.12,
+        thumb_close_guard=0.22,
+    )
+    continuous = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
+    held, stage = sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.45, 0.0, 0.0, 0.0, 0.35, 0.80]),
+    )
+    assert stage == "index_approach"
+    np.testing.assert_allclose(held, continuous)
+
+    advanced, stage = sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.12, 0.0, 0.0, 0.0, 0.22, 0.90]),
+    )
+    assert stage == "index_approach"
+    np.testing.assert_allclose(advanced, continuous)
+
+
+def test_thumb_first_pinch_releases_intervention_when_target_leaves_verified_pose() -> None:
+    sequencer = ThumbFirstPinchSequencer(
+        enabled=True,
+        lateral_target=0.90,
+        lateral_tolerance=0.04,
+        index_guard=0.12,
+        thumb_close_guard=0.22,
+    )
+    verified = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
+    _, stage = sequencer.update(
+        verified,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.12, 0.0, 0.0, 0.0, 0.22, 0.90]),
+    )
+    assert stage == "index_approach"
+    continuous = np.array([0.48, 0.0, 0.0, 0.0, 0.38, 0.65])
+    held, stage = sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.12, 0.0, 0.0, 0.0, 0.22, 0.88]),
+    )
+    assert stage == "idle"
+    np.testing.assert_allclose(held, continuous)
+
+
+def test_thumb_first_pinch_keeps_direct_target_when_lateral_is_pushed_back() -> None:
+    sequencer = ThumbFirstPinchSequencer(
+        enabled=True,
+        lateral_target=0.90,
+        lateral_tolerance=0.04,
+        index_guard=0.12,
+        thumb_close_guard=0.22,
+    )
+    continuous = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
+    sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.90]),
+    )
+    recovered, stage = sequencer.update(
+        continuous,
+        detected_mode="index",
+        confidence=1.0,
+        tracking_valid=True,
+        measured_canonical=np.array([0.12, 0.0, 0.0, 0.0, 0.22, 0.80]),
+    )
+    assert stage == "index_approach"
+    np.testing.assert_allclose(recovered, continuous)

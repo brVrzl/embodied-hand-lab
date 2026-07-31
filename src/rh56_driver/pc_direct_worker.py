@@ -17,6 +17,7 @@ class PendingTarget:
     values: tuple[float, ...]
     sequence: int
     submitted_monotonic_ns: int
+    measured_activation: bool = False
 
 
 class RH56PcDirectWorker:
@@ -173,23 +174,23 @@ class RH56PcDirectWorker:
             self._active_requested = True
             measured_target = tuple(float(value) for value in feedback.position_normalized)
             activation_target = tuple(
-                min(self.max_target_normalized, max(0.0, value))
-                for value in measured_target
+                min(1.0, max(0.0, value)) for value in measured_target
             )
             if activation_target != measured_target:
                 self._clamped_activation_target_count += 1
             # A measured activation target is safety-significant and must not
             # be dropped as stale or suppressed as an ordinary duplicate.
-            # ANGLE_ACT may be outside the configured command envelope (for
-            # example after a previous session used a wider range).  Keep the
-            # actual measurement as the controller's delta reference, but the
-            # forced command itself must remain inside the current envelope.
+            # ANGLE_ACT may be outside the configured command envelope after a
+            # previous bounded endpoint test. Preserve that legal mechanical
+            # pose exactly for activation continuity; only later requested
+            # motion is constrained by the configured command envelope.
             self._submitted_sequence += 1
             self._activation_target_count += 1
             self._pending_target = PendingTarget(
                 activation_target,
                 self._submitted_sequence,
                 int(monotonic_ns),
+                True,
             )
             self._force_write_pending = True
             self._command_due_ns = int(monotonic_ns)
@@ -367,12 +368,29 @@ class RH56PcDirectWorker:
                 self._evaluated_sequence = target.sequence
                 actual_end_ns = self._monotonic_ns()
             else:
+                command_values = target.values
+                if target.measured_activation:
+                    # Activation is intentionally a forced write, but the
+                    # hand can move a small amount between the producer's
+                    # feedback snapshot and this worker cycle. Refresh the
+                    # activation payload from the worker-owned latest
+                    # ANGLE_ACT immediately before the write so continuity is
+                    # exact at the serial boundary rather than faulting on a
+                    # stale-but-safe activation sample.
+                    with self._lock:
+                        feedback = self._feedback
+                    if feedback is not None:
+                        command_values = tuple(
+                            min(1.0, max(0.0, float(value)))
+                            for value in feedback.position_normalized
+                        )
                 written = self.control.command(
-                    target.values,
+                    command_values,
                     actual_start_ns,
                     submitted_monotonic_ns=target.submitted_monotonic_ns,
                     target_sequence=target.sequence,
                     force_write=force_write,
+                    measured_activation_write=target.measured_activation,
                 )
                 actual_end_ns = self._monotonic_ns()
                 self._note_io(actual_start_ns, actual_end_ns)
@@ -713,10 +731,14 @@ class RH56PcDirectWorker:
             return False
         if target.sequence > self._evaluated_sequence:
             return True
+        effective = self.control.contact_limited_target(
+            target.values, allow_release=False
+        )
         return bool(
             target.sequence == self._written_sequence
             and self.control.last_command_normalized is not None
-            and target.values != self.control.last_command_normalized
+            and tuple(float(value) for value in effective)
+            != self.control.last_command_normalized
         )
 
     def _note_io(self, started_ns: int, ended_ns: int) -> None:

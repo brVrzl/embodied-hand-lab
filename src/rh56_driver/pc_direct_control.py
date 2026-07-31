@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import grp
+import math
 import os
 import subprocess
 import time
@@ -26,6 +27,10 @@ RH56_READ_ONLY_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_READ_ONLY_PROBE"
 RH56_HAND_ONLY_COMMAND_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_BOUNDED_HAND_TEST"
 RH56_COMBINED_RUN_APPROVAL = "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
 RH56_RUNTIME_CONFIG_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_RUNTIME_CONFIG_WRITE"
+RH56_FAULT_RESET_APPROVAL = "I_AUTHORIZE_ONE_RH56_FAULT_RESET"
+RH56_FORCE_SENSOR_CALIBRATION_APPROVAL = (
+    "I_AUTHORIZE_ONE_RH56_FORCE_SENSOR_CALIBRATION"
+)
 
 RH56_PC_DIRECT_SCHEMA_VERSION = "rh56_pc_direct_episode.v1"
 RH56_SPEED_MIN = 0
@@ -46,6 +51,183 @@ class HandAuthorization(str, Enum):
     HAND_ONLY_COMMAND = "hand_only_command_test"
     COMBINED_RUN = "arm_hand_combined_run"
     RUNTIME_CONFIG = "runtime_config_write"
+    FAULT_RESET = "fault_reset"
+    FORCE_SENSOR_CALIBRATION = "force_sensor_calibration"
+
+
+class RH56CommandShaper:
+    """Bound normalized position commands by velocity and acceleration.
+
+    This is deliberately a position shaper at the RH56 command boundary, not
+    a feedback controller.  The latest target remains authoritative; the
+    shaper only limits how quickly the hand command approaches it.  Hardware
+    safety gates and the outer normalized delta limit remain in
+    :class:`RH56PcDirectControl`.
+    """
+
+    def __init__(
+        self,
+        policy: Mapping[str, Any] | None,
+        *,
+        channel_count: int,
+        command_period_ns: int,
+    ) -> None:
+        values = {} if policy is None else policy
+        if not isinstance(values, Mapping):
+            raise ValueError("RH56 command_shaping must be a mapping.")
+        self.enabled = bool(values.get("enabled", False))
+        self.channel_count = int(channel_count)
+        self.command_period_ns = int(command_period_ns)
+
+        def vector(name: str, default: float) -> np.ndarray:
+            raw = values.get(name, default)
+            items = [raw] * self.channel_count if np.isscalar(raw) else raw
+            result = np.asarray(items, dtype=np.float64).reshape(-1)
+            if (
+                result.size != self.channel_count
+                or not np.all(np.isfinite(result))
+                or np.any(result <= 0.0)
+            ):
+                raise ValueError(
+                    f"RH56 command_shaping {name} must be six positive finite values."
+                )
+            return result
+
+        self.maximum_closing_velocity = vector(
+            "maximum_closing_velocity", 0.35
+        )
+        self.maximum_opening_velocity = vector(
+            "maximum_opening_velocity", 0.60
+        )
+        self.maximum_acceleration = vector("maximum_acceleration", 1.40)
+        self.position: np.ndarray | None = None
+        self.velocity = np.zeros(self.channel_count, dtype=np.float64)
+        self.last_update_ns: int | None = None
+        self.last_dt_sec: float | None = None
+        self.step_count = 0
+        self.reset_count = 0
+
+    def reset(
+        self,
+        position: Sequence[float] | None = None,
+        monotonic_ns: int | None = None,
+    ) -> None:
+        self.position = (
+            None
+            if position is None
+            else np.asarray(position, dtype=np.float64).reshape(-1).copy()
+        )
+        if self.position is not None and self.position.size != self.channel_count:
+            raise ValueError("RH56 command shaper position must have six values.")
+        self.velocity.fill(0.0)
+        self.last_update_ns = None if monotonic_ns is None else int(monotonic_ns)
+        self.last_dt_sec = None
+        self.reset_count += 1
+
+    def reconcile(
+        self,
+        position: Sequence[float],
+        monotonic_ns: int,
+    ) -> None:
+        """Synchronize state after an outer safety clamp or successful write."""
+
+        value = np.asarray(position, dtype=np.float64).reshape(-1)
+        if value.size != self.channel_count:
+            raise ValueError("RH56 command shaper position must have six values.")
+        if self.position is None or not np.allclose(value, self.position, atol=1e-12, rtol=0.0):
+            self.position = value.copy()
+            self.velocity.fill(0.0)
+        self.last_update_ns = int(monotonic_ns)
+
+    def step(
+        self,
+        previous: Sequence[float],
+        target: Sequence[float],
+        monotonic_ns: int,
+        *,
+        contact_closing_mask: Sequence[bool] | None = None,
+    ) -> np.ndarray:
+        previous_value = np.asarray(previous, dtype=np.float64).reshape(-1)
+        target_value = np.asarray(target, dtype=np.float64).reshape(-1)
+        if (
+            previous_value.size != self.channel_count
+            or target_value.size != self.channel_count
+        ):
+            raise ValueError("RH56 command shaper positions must have six values.")
+        if not self.enabled:
+            self.reconcile(previous_value, monotonic_ns)
+            return target_value.copy()
+        if self.position is None or self.last_update_ns is None:
+            self.position = previous_value.copy()
+            self.velocity.fill(0.0)
+            dt_sec = self.command_period_ns / 1e9
+        else:
+            if not np.allclose(
+                previous_value, self.position, atol=1e-12, rtol=0.0
+            ):
+                # A contact hold, measured activation, or other safety gate
+                # changed the actual command.  Do not carry stale momentum
+                # across that discontinuity.
+                self.position = previous_value.copy()
+                self.velocity.fill(0.0)
+            elapsed_ns = int(monotonic_ns) - int(self.last_update_ns)
+            dt_sec = (
+                min(elapsed_ns / 1e9, 0.25)
+                if elapsed_ns > 0
+                else self.command_period_ns / 1e9
+            )
+        dt_sec = max(dt_sec, 1e-6)
+        self.last_dt_sec = dt_sec
+        contact_mask = np.zeros(self.channel_count, dtype=bool)
+        if contact_closing_mask is not None:
+            contact_mask = np.asarray(contact_closing_mask, dtype=bool).reshape(-1)
+            if contact_mask.size != self.channel_count:
+                raise ValueError("RH56 contact closing mask must have six values.")
+
+        error = target_value - self.position
+        closing = error > 0.0
+        if np.any(contact_mask & closing):
+            self.velocity[contact_mask & closing] = 0.0
+        speed_limit = np.where(
+            closing,
+            self.maximum_closing_velocity,
+            self.maximum_opening_velocity,
+        )
+        stopping_speed = np.sqrt(
+            2.0 * self.maximum_acceleration * np.abs(error)
+        )
+        desired_velocity = np.sign(error) * np.minimum(speed_limit, stopping_speed)
+        acceleration_step = self.maximum_acceleration * dt_sec
+        self.velocity = self.velocity + np.clip(
+            desired_velocity - self.velocity,
+            -acceleration_step,
+            acceleration_step,
+        )
+        self.velocity[contact_mask & closing] = 0.0
+        step = self.velocity * dt_sec
+        step = np.where(closing, np.minimum(step, error), np.maximum(step, error))
+        output = self.position + step
+        reached = np.abs(error) <= np.abs(step) + 1e-12
+        output = np.where(reached, target_value, output)
+        self.velocity[reached] = 0.0
+        self.position = np.clip(output, 0.0, 1.0)
+        self.last_update_ns = int(monotonic_ns)
+        self.step_count += 1
+        return self.position.copy()
+
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "maximum_closing_velocity": self.maximum_closing_velocity.tolist(),
+            "maximum_opening_velocity": self.maximum_opening_velocity.tolist(),
+            "maximum_acceleration": self.maximum_acceleration.tolist(),
+            "position": None if self.position is None else self.position.tolist(),
+            "velocity": self.velocity.tolist(),
+            "last_update_ns": self.last_update_ns,
+            "last_dt_sec": self.last_dt_sec,
+            "step_count": self.step_count,
+            "reset_count": self.reset_count,
+        }
 
 
 _APPROVALS = {
@@ -53,6 +235,10 @@ _APPROVALS = {
     RH56_HAND_ONLY_COMMAND_APPROVAL: HandAuthorization.HAND_ONLY_COMMAND,
     RH56_COMBINED_RUN_APPROVAL: HandAuthorization.COMBINED_RUN,
     RH56_RUNTIME_CONFIG_APPROVAL: HandAuthorization.RUNTIME_CONFIG,
+    RH56_FAULT_RESET_APPROVAL: HandAuthorization.FAULT_RESET,
+    RH56_FORCE_SENSOR_CALIBRATION_APPROVAL: (
+        HandAuthorization.FORCE_SENSOR_CALIBRATION
+    ),
 }
 
 
@@ -174,6 +360,10 @@ class PcDirectBackend(Protocol):
 
     def set_canonical_forces(self, values: list[int]) -> bool: ...
 
+    def clear_error(self) -> bool: ...
+
+    def calibrate_force_sensors(self) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class PcDirectFeedback:
@@ -244,6 +434,11 @@ class RH56PcDirectControl:
         # independently scheduled by RH56PcDirectWorker.
         self.control_frequency_hz = self.command_rate_hz
         self.command_period_ns = int(round(1e9 / self.command_rate_hz))
+        self.command_shaper = RH56CommandShaper(
+            config.get("command_shaping"),
+            channel_count=len(CANONICAL_HAND_ORDER),
+            command_period_ns=self.command_period_ns,
+        )
         self.feedback_rate_hz = {
             name: float(
                 scheduler_value(
@@ -282,6 +477,83 @@ class RH56PcDirectControl:
             config.get("hand_schema", {}).get("hand_delta_limit", DEFAULT_HAND_DELTA_LIMIT)
         )
         self.max_close = float(config.get("safety", {}).get("max_close_strength", 1.0))
+        if not math.isfinite(self.max_close) or not 0.0 < self.max_close <= 1.0:
+            raise ValueError("RH56 max_close_strength must be in (0, 1].")
+        contact_values = config.get("safety", {}).get("contact_stop", {})
+        self.contact_stop_enabled = bool(contact_values.get("enabled", False))
+        self.contact_require_fresh_force_before_closure = bool(
+            contact_values.get("require_fresh_force_before_closure_step", False)
+        )
+
+        def contact_vector(name: str, default: float) -> np.ndarray:
+            raw = contact_values.get(name, default)
+            values = [raw] * len(CANONICAL_HAND_ORDER) if np.isscalar(raw) else raw
+            result = np.asarray(values, dtype=np.float64).reshape(-1)
+            if (
+                result.size != len(CANONICAL_HAND_ORDER)
+                or not np.all(np.isfinite(result))
+                or np.any(result < 0.0)
+            ):
+                raise ValueError(f"RH56 contact_stop {name} must be six nonnegative values.")
+            return result
+
+        self.contact_force_delta_onset = contact_vector(
+            "force_delta_onset", 250.0
+        )
+        self.contact_force_delta_release = contact_vector(
+            "force_delta_release", 100.0
+        )
+        self.contact_closure_budget_per_force_sample = contact_vector(
+            "closure_budget_per_force_sample", self.delta_limit
+        )
+        self.contact_maximum_closure_step = contact_vector(
+            "maximum_closure_step", self.delta_limit
+        )
+        self.contact_minimum_closing_gap = float(
+            contact_values.get("minimum_closing_gap", 0.008)
+        )
+        self.contact_maximum_stall_progress = float(
+            contact_values.get("maximum_stall_progress", 0.005)
+        )
+        self.contact_relief_margin = float(
+            contact_values.get("relief_margin", 0.01)
+        )
+        self.contact_release_open_delta = float(
+            contact_values.get("release_open_delta", 0.02)
+        )
+        self.contact_consecutive_samples = int(
+            contact_values.get("consecutive_samples", 2)
+        )
+        self.contact_baseline_alpha = float(
+            contact_values.get("baseline_alpha", 0.10)
+        )
+        if (
+            not math.isfinite(self.contact_minimum_closing_gap)
+            or self.contact_minimum_closing_gap <= 0.0
+            or not math.isfinite(self.contact_maximum_stall_progress)
+            or self.contact_maximum_stall_progress < 0.0
+            or np.any(
+                self.contact_force_delta_release
+                >= self.contact_force_delta_onset
+            )
+            or np.any(self.contact_closure_budget_per_force_sample <= 0.0)
+            or np.any(
+                self.contact_closure_budget_per_force_sample > self.delta_limit
+            )
+            or np.any(self.contact_maximum_closure_step <= 0.0)
+            or np.any(
+                self.contact_maximum_closure_step
+                > self.contact_closure_budget_per_force_sample
+            )
+            or not math.isfinite(self.contact_relief_margin)
+            or not 0.0 <= self.contact_relief_margin <= self.delta_limit
+            or not math.isfinite(self.contact_release_open_delta)
+            or self.contact_release_open_delta <= 0.0
+            or self.contact_consecutive_samples < 2
+            or not math.isfinite(self.contact_baseline_alpha)
+            or not 0.0 < self.contact_baseline_alpha <= 1.0
+        ):
+            raise ValueError("Malformed RH56 contact_stop policy.")
         self.calibration = _calibration_from_config(config)
         diagnostics = config.get("diagnostics", {})
         self.diagnostics_enabled = bool(diagnostics.get("enabled", False))
@@ -327,6 +599,21 @@ class RH56PcDirectControl:
             name: None for name in self._feedback_values
         }
         self._feedback_latest_latency_ms: dict[str, float] = {}
+        self.last_requested_target_normalized: tuple[float, ...] | None = None
+        self._contact_force_baseline: np.ndarray | None = None
+        self._contact_force_delta = np.zeros(6, dtype=np.float64)
+        self._contact_last_angle: np.ndarray | None = None
+        self._contact_angle_progress = np.zeros(6, dtype=np.float64)
+        self._contact_angle_generation = 0
+        self._contact_force_angle_generation = 0
+        self._contact_candidate_count = np.zeros(6, dtype=np.int64)
+        self._contact_hold_target = np.full(6, np.nan, dtype=np.float64)
+        self._contact_latched = np.zeros(6, dtype=bool)
+        self._contact_last_closing_request_ns = np.full(6, -1, dtype=np.int64)
+        self._contact_force_generation = 0
+        self._contact_last_closure_force_generation = -1
+        self._contact_closure_since_force = np.zeros(6, dtype=np.float64)
+        self.contact_detection_count = 0
 
     def open(self, approval_token: str) -> None:
         authorization = parse_rh56_approval(approval_token)
@@ -425,6 +712,8 @@ class RH56PcDirectControl:
             self._feedback_success_ns[name] = int(monotonic_ns)
         self._feedback_latest_latency_ms.update(register_latency_ms)
         self.feedback_record_count += 1
+        self._observe_contact_angle(normalized)
+        self._observe_contact_force(loads, monotonic_ns)
         if self.diagnostics_enabled:
             self._feedback_latency_ms.append(read_latency_ms)
         if any(errors):
@@ -452,6 +741,7 @@ class RH56PcDirectControl:
         if self.last_command_normalized is None:
             self.last_command_normalized = normalized
             self.last_command_raw = tuple(int(round(value)) for value in position)
+            self.command_shaper.reset(normalized, monotonic_ns)
         return feedback
 
     def poll_feedback_register(
@@ -528,11 +818,18 @@ class RH56PcDirectControl:
             raise exc
         feedback = self._feedback_from_cache(latency_ms)
         self.last_feedback = feedback
+        if name == "ANGLE":
+            self._observe_contact_angle(feedback.position_normalized)
+        elif name == "FORCE":
+            self._observe_contact_force(
+                feedback.load_or_force_raw_count, monotonic_ns
+            )
         if name == "ANGLE" and self.last_command_normalized is None:
             self.last_command_normalized = feedback.position_normalized
             self.last_command_raw = tuple(
                 int(round(value)) for value in feedback.position_raw
             )
+            self.command_shaper.reset(feedback.position_normalized, monotonic_ns)
         return feedback
 
     def _feedback_from_cache(self, read_latency_ms: float) -> PcDirectFeedback:
@@ -585,6 +882,9 @@ class RH56PcDirectControl:
         self.last_command_raw = tuple(
             int(round(value)) for value in self.last_feedback.position_raw
         )
+        self.last_requested_target_normalized = self.last_command_normalized
+        self.command_shaper.reset(self.last_command_normalized, monotonic_ns)
+        self._reset_contact_stop(self.last_feedback)
         self.state = HandControlState.ACTIVE
         self.transport_state = "CONNECTED_COMMAND_AUTHORIZED"
         self.next_command_monotonic_ns = int(monotonic_ns)
@@ -600,6 +900,7 @@ class RH56PcDirectControl:
         submitted_monotonic_ns: int | None = None,
         target_sequence: int | None = None,
         force_write: bool = False,
+        measured_activation_write: bool = False,
     ) -> bool:
         self.command_evaluation_count += 1
         self.last_submitted_sequence = target_sequence
@@ -623,9 +924,70 @@ class RH56PcDirectControl:
         requested = np.asarray(target_normalized, dtype=np.float64).reshape(-1)
         if requested.size != len(CANONICAL_HAND_ORDER):
             raise ValueError("RH56 normalized target must have six canonical channels.")
-        if not np.all(np.isfinite(requested)) or np.any(requested < 0.0) or np.any(requested > self.max_close):
-            raise ValueError(f"RH56 normalized target must remain within [0, {self.max_close}].")
+        target_ceiling = 1.0 if measured_activation_write else self.max_close
+        if (
+            not np.all(np.isfinite(requested))
+            or np.any(requested < 0.0)
+            or np.any(requested > target_ceiling)
+        ):
+            raise ValueError(
+                f"RH56 normalized target must remain within [0, {target_ceiling}]."
+            )
+        if measured_activation_write:
+            if not force_write or self.last_feedback is None:
+                raise ValueError(
+                    "Measured activation requires a forced write with fresh feedback."
+                )
+            measured = np.clip(
+                np.asarray(self.last_feedback.position_normalized, dtype=np.float64),
+                0.0,
+                1.0,
+            )
+            if not np.allclose(requested, measured, atol=1e-12, rtol=0.0):
+                raise ValueError(
+                    "Measured activation target must equal current ANGLE_ACT."
+                )
         assert self.last_command_normalized is not None
+        previous_command = np.asarray(
+            self.last_command_normalized, dtype=np.float64
+        )
+        self.last_requested_target_normalized = tuple(float(value) for value in requested)
+        if not measured_activation_write:
+            requested = self.contact_limited_target(requested, allow_release=True)
+            closing_requested = requested > previous_command + 1e-12
+            if (
+                self.contact_stop_enabled
+                and self.contact_require_fresh_force_before_closure
+                and np.any(closing_requested)
+            ):
+                remaining_closure = np.maximum(
+                    0.0,
+                    self.contact_closure_budget_per_force_sample
+                    - self._contact_closure_since_force,
+                )
+                requested = np.where(
+                    closing_requested,
+                    np.minimum(requested, previous_command + remaining_closure),
+                    requested,
+                )
+                closure_blocked = requested <= previous_command + 1e-12
+                opening_requested = requested < previous_command - 1e-12
+                if np.all(closure_blocked[closing_requested]) and not np.any(
+                    opening_requested
+                ):
+                    self.last_command_disposition = "contact_feedback_wait"
+                    return False
+            contact_closing_mask = (
+                self._contact_latched | (self._contact_candidate_count > 0)
+            ) & (requested > previous_command + 1e-12)
+            requested = self.command_shaper.step(
+                previous_command,
+                requested,
+                monotonic_ns,
+                contact_closing_mask=contact_closing_mask,
+            )
+        else:
+            self.command_shaper.reconcile(requested, monotonic_ns)
         requested_tuple = tuple(float(value) for value in requested)
         if (
             self.exact_duplicate_suppression
@@ -642,7 +1004,23 @@ class RH56PcDirectControl:
                 )
             return False
         previous = np.asarray(self.last_command_normalized, dtype=np.float64)
-        selected = previous + np.clip(requested - previous, -self.delta_limit, self.delta_limit)
+        command_delta = requested - previous
+        if (
+            not measured_activation_write
+            and self.contact_stop_enabled
+            and self.contact_require_fresh_force_before_closure
+        ):
+            selected_delta = np.where(
+                command_delta >= 0.0,
+                np.minimum(command_delta, self.contact_maximum_closure_step),
+                np.maximum(command_delta, -self.delta_limit),
+            )
+        else:
+            selected_delta = np.clip(
+                command_delta, -self.delta_limit, self.delta_limit
+            )
+        selected = previous + selected_delta
+        self.command_shaper.reconcile(selected, monotonic_ns)
         raw = denormalize_canonical(
             selected,
             raw_order=CANONICAL_HAND_ORDER,
@@ -700,6 +1078,17 @@ class RH56PcDirectControl:
         self.last_written_sequence = target_sequence
         self.last_command_age_ms = command_age_ms
         self.last_command_disposition = "serial_write_success"
+        closure_written = selected > previous + 1e-12
+        if np.any(closure_written):
+            self._contact_closure_since_force += np.maximum(
+                selected - previous, 0.0
+            )
+            self._contact_last_closing_request_ns[closure_written] = int(
+                monotonic_ns
+            )
+            self._contact_last_closure_force_generation = (
+                self._contact_force_generation
+            )
         self.successful_command_write_count += 1
         if self.diagnostics_enabled:
             self._write_latency_ms.append(self.last_write_latency_ms)
@@ -725,12 +1114,39 @@ class RH56PcDirectControl:
             self._fault("runtime_config_write_failure")
             raise
 
+    def clear_device_error(self) -> None:
+        if self.authorization is not HandAuthorization.FAULT_RESET:
+            raise PermissionError(
+                "Independent RH56 fault-reset authorization is required."
+            )
+        try:
+            if not self.backend.clear_error():
+                raise RuntimeError("RH56 rejected the fault-reset command.")
+        except Exception:
+            self._fault("fault_reset_write_failure")
+            raise
+
+    def start_force_sensor_calibration(self) -> None:
+        if self.authorization is not HandAuthorization.FORCE_SENSOR_CALIBRATION:
+            raise PermissionError(
+                "Independent RH56 force-sensor-calibration authorization is required."
+            )
+        try:
+            if not self.backend.calibrate_force_sensors():
+                raise RuntimeError(
+                    "RH56 rejected the force-sensor-calibration command."
+                )
+        except Exception:
+            self._fault("force_sensor_calibration_write_failure")
+            raise
+
     def hold(self, reason: str) -> None:
         if self.state is HandControlState.FAULT:
             return
         self.state = HandControlState.HOLD
         self.transport_state = f"CONNECTED_HOLD:{reason}"
         self.next_command_monotonic_ns = None
+        self.command_shaper.reset(self.last_command_normalized)
 
     def arm_terminal_stop(self, reason: str) -> None:
         self._fault(f"arm_terminal_hard_stop:{reason}")
@@ -765,6 +1181,7 @@ class RH56PcDirectControl:
             self.state = HandControlState.DISABLED
             self.transport_state = "CLOSED"
             self.next_command_monotonic_ns = None
+            self.command_shaper.reset(self.last_command_normalized)
 
     def episode_record(
         self,
@@ -789,6 +1206,7 @@ class RH56PcDirectControl:
                 "selected_hand_position_raw": None
                 if self.last_command_monotonic_ns is None
                 else list(self.last_command_raw),
+                "contact_stop": self.contact_stop_snapshot(),
             },
             "observation": {
                 "hand_position": None if feedback is None else list(feedback.position_raw),
@@ -849,6 +1267,7 @@ class RH56PcDirectControl:
         if self.fault_reason is None:
             self.fault_reason = reason
         self.next_command_monotonic_ns = None
+        self.command_shaper.reset(self.last_command_normalized)
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
         return {
@@ -889,6 +1308,177 @@ class RH56PcDirectControl:
                 name: _distribution(values)
                 for name, values in self._register_latency_ms.items()
             },
+            "command_shaping": self.command_shaper.snapshot(),
+            "contact_stop": self.contact_stop_snapshot(),
+        }
+
+    def contact_limited_target(
+        self,
+        target_normalized: Sequence[float],
+        *,
+        allow_release: bool,
+    ) -> np.ndarray:
+        """Apply provisional/latched contact holds without changing open commands."""
+
+        requested = np.asarray(target_normalized, dtype=np.float64).reshape(-1).copy()
+        if not self.contact_stop_enabled:
+            return requested
+        for index in range(len(CANONICAL_HAND_ORDER)):
+            active = bool(
+                self._contact_latched[index]
+                or self._contact_candidate_count[index] > 0
+            )
+            if not active:
+                continue
+            hold = float(self._contact_hold_target[index])
+            if allow_release and requested[index] <= hold - self.contact_release_open_delta:
+                self._contact_latched[index] = False
+                self._contact_candidate_count[index] = 0
+                self._contact_hold_target[index] = math.nan
+                self._contact_last_closing_request_ns[index] = -1
+                continue
+            requested[index] = min(requested[index], hold)
+        return requested
+
+    def _reset_contact_stop(self, feedback: PcDirectFeedback) -> None:
+        self._contact_force_baseline = np.asarray(
+            feedback.load_or_force_raw_count, dtype=np.float64
+        )
+        self._contact_force_delta.fill(0.0)
+        self._contact_last_angle = np.asarray(
+            feedback.position_normalized, dtype=np.float64
+        )
+        self._contact_angle_progress.fill(0.0)
+        self._contact_angle_generation += 1
+        self._contact_force_angle_generation = self._contact_angle_generation
+        self._contact_candidate_count.fill(0)
+        self._contact_hold_target.fill(math.nan)
+        self._contact_latched.fill(False)
+        self._contact_last_closing_request_ns.fill(-1)
+        self._contact_last_closure_force_generation = (
+            self._contact_force_generation - 1
+        )
+        self._contact_closure_since_force.fill(0.0)
+
+    def _observe_contact_angle(self, values: Sequence[float]) -> None:
+        current = np.asarray(values, dtype=np.float64)
+        if self._contact_last_angle is not None:
+            self._contact_angle_progress = current - self._contact_last_angle
+        self._contact_last_angle = current
+        self._contact_angle_generation += 1
+
+    def _observe_contact_force(
+        self, values: Sequence[float], monotonic_ns: int
+    ) -> None:
+        self._contact_force_generation += 1
+        self._contact_closure_since_force.fill(0.0)
+        current_force = np.asarray(values, dtype=np.float64)
+        if self._contact_force_baseline is None:
+            self._contact_force_baseline = current_force.copy()
+            return
+        self._contact_force_delta = np.abs(
+            current_force - self._contact_force_baseline
+        )
+        if (
+            not self.contact_stop_enabled
+            or self.state is not HandControlState.ACTIVE
+            or self.last_requested_target_normalized is None
+            or self._contact_last_angle is None
+            or self._contact_angle_generation
+            <= self._contact_force_angle_generation
+        ):
+            return
+        requested = np.asarray(
+            self.last_requested_target_normalized, dtype=np.float64
+        )
+        measured = self._contact_last_angle
+        assert measured is not None
+        for index in range(len(CANONICAL_HAND_ORDER)):
+            if self._contact_latched[index]:
+                continue
+            closing_gap = requested[index] - measured[index]
+            closure_seen = self._contact_last_closing_request_ns[index] >= 0
+            stalled = (
+                self._contact_angle_progress[index]
+                <= self.contact_maximum_stall_progress
+            )
+            onset_force_seen = (
+                self._contact_force_delta[index]
+                >= self.contact_force_delta_onset[index]
+            )
+            release_force_seen = (
+                self._contact_force_delta[index]
+                >= self.contact_force_delta_release[index]
+            )
+            first_candidate = (
+                self._contact_candidate_count[index] == 0
+                and closure_seen
+                and onset_force_seen
+                and (
+                    closing_gap >= self.contact_minimum_closing_gap
+                    or requested[index] + self.contact_minimum_closing_gap
+                    >= measured[index]
+                )
+            )
+            confirmed_candidate = (
+                self._contact_candidate_count[index] > 0
+                and release_force_seen
+                and stalled
+            )
+            if first_candidate or confirmed_candidate:
+                if first_candidate:
+                    last_command = (
+                        measured[index]
+                        if self.last_command_normalized is None
+                        else self.last_command_normalized[index]
+                    )
+                    self._contact_hold_target[index] = max(
+                        0.0,
+                        min(last_command, measured[index])
+                        - self.contact_relief_margin,
+                    )
+                self._contact_candidate_count[index] += 1
+                if (
+                    self._contact_candidate_count[index]
+                    >= self.contact_consecutive_samples
+                ):
+                    self._contact_latched[index] = True
+                    self.contact_detection_count += 1
+            else:
+                self._contact_candidate_count[index] = 0
+                self._contact_hold_target[index] = math.nan
+                if not closure_seen:
+                    alpha = self.contact_baseline_alpha
+                    self._contact_force_baseline[index] = (
+                        (1.0 - alpha) * self._contact_force_baseline[index]
+                        + alpha * current_force[index]
+                    )
+        self._contact_force_angle_generation = self._contact_angle_generation
+
+    def contact_stop_snapshot(self) -> dict[str, Any]:
+        return {
+            "enabled": self.contact_stop_enabled,
+            "detection_count": self.contact_detection_count,
+            "latched": self._contact_latched.tolist(),
+            "candidate_count": self._contact_candidate_count.tolist(),
+            "hold_target_normalized": [
+                None if not math.isfinite(value) else float(value)
+                for value in self._contact_hold_target
+            ],
+            "force_baseline": None
+            if self._contact_force_baseline is None
+            else self._contact_force_baseline.tolist(),
+            "force_delta": self._contact_force_delta.tolist(),
+            "angle_progress": self._contact_angle_progress.tolist(),
+            "force_generation": self._contact_force_generation,
+            "fresh_force_before_closure_step": (
+                self.contact_require_fresh_force_before_closure
+            ),
+            "closure_budget_per_force_sample": (
+                self.contact_closure_budget_per_force_sample.tolist()
+            ),
+            "maximum_closure_step": self.contact_maximum_closure_step.tolist(),
+            "closure_since_force": self._contact_closure_since_force.tolist(),
         }
 
     def _capture_failure(
@@ -969,13 +1559,21 @@ class FakeRH56PcDirectBackend:
         self.position_writes: list[list[int]] = []
         self.speed_writes: list[list[int]] = []
         self.force_writes: list[list[int]] = []
+        self.clear_error_write_count = 0
+        self.force_calibration_write_count = 0
         self.timeout_count = 0
         self.checksum_failure_count = 0
         self.protocol_error_count = 0
 
     @property
     def write_count(self) -> int:
-        return len(self.position_writes) + len(self.speed_writes) + len(self.force_writes)
+        return (
+            len(self.position_writes)
+            + len(self.speed_writes)
+            + len(self.force_writes)
+            + self.clear_error_write_count
+            + self.force_calibration_write_count
+        )
 
     @property
     def register_write_count(self) -> int:
@@ -1030,4 +1628,16 @@ class FakeRH56PcDirectBackend:
     def set_canonical_forces(self, values: list[int]) -> bool:
         self._check()
         self.force_writes.append(values.copy())
+        return True
+
+    def clear_error(self) -> bool:
+        self._check()
+        self.clear_error_write_count += 1
+        self.error = [0] * 6
+        self.status = [0] * 6
+        return True
+
+    def calibrate_force_sensors(self) -> bool:
+        self._check()
+        self.force_calibration_write_count += 1
         return True

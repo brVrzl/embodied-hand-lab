@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from motion_input import (
     AnalogClutchSample,
@@ -52,7 +55,14 @@ def _ctrl(
     return ReceivedHtsDatagram(payload, "10.24.1.99", 50000, timestamp_ns, timestamp_ns)
 
 
-def _hand(sequence: int, timestamp_ns: int, *, x: float = 0.0) -> ReceivedHtsDatagram:
+def _hand(
+    sequence: int,
+    timestamp_ns: int,
+    *,
+    x: float = 0.0,
+    index_pinch: bool = False,
+    middle_closed: bool = False,
+) -> ReceivedHtsDatagram:
     points = [(0.0, 0.0, 0.0)] * 21
     points[1:5] = [
         (-0.02, 0.01, 0.0),
@@ -67,6 +77,21 @@ def _hand(sequence: int, timestamp_ns: int, *, x: float = 0.0) -> ReceivedHtsDat
     ):
         for depth, index in enumerate(indices, start=1):
             points[index] = (finger_x, depth * 0.025, 0.0)
+    if index_pinch:
+        points[5:9] = [
+            (-0.025, 0.025, 0.0),
+            (-0.025, 0.050, 0.0),
+            (-0.005, 0.050, 0.0),
+            (-0.005, 0.025, 0.0),
+        ]
+        points[4] = points[8]
+    if middle_closed:
+        points[9:13] = [
+            (-0.008, 0.025, 0.0),
+            (-0.008, 0.050, 0.0),
+            (0.012, 0.050, 0.0),
+            (0.012, 0.025, 0.0),
+        ]
     landmarks = ",".join(str(value) for point in points for value in point)
     payload = (
         f"Right wrist | f = {sequence}:,{x},0,0,0,0,0,1\n"
@@ -236,6 +261,119 @@ def test_physical_hand_only_mode_uses_same_router_and_never_generates_arm_target
     router.ingest(_ctrl(4, now_ns, index=1.0, grip=0.0), session)
     session.control_tick(now_ns)
     assert hand.holds[-1] == "grip_not_active"
+
+
+def test_physical_hand_grip_realigns_to_current_quest_pose_from_measured_activation() -> None:
+    class HandOutput:
+        max_target_normalized = 1.0
+
+        def __init__(self) -> None:
+            self.activations = 0
+            self.targets: list[tuple[float, ...]] = []
+
+        def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]:
+            self.activations += 1
+            return (0.08, 0.12, 0.16, 0.20, 0.24, 0.28)
+
+        def submit_target(self, target, monotonic_ns: int) -> None:
+            self.targets.append(tuple(target))
+
+        def hold(self, reason: str) -> None:
+            pass
+
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    raw = copy.deepcopy(config.raw)
+    raw["hand_retargeting"]["align_on_grip"] = True
+    config = replace(config, raw=raw, engagement_schedule_s=())
+    hand = HandOutput()
+    session = SmoothQuestJakaSession(
+        config,
+        SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path),
+        arm_output=RecordingArmTargetAdapter(),
+        normalized_hand_output=hand,
+        arm_input_enabled=False,
+    )
+    router = LiveQuestControllerRouter(stale_after_s=1.0)
+    router.ingest(_hand(1, 0), session)
+    router.ingest(_ctrl(1, 0), session)
+    session.control_tick(0)
+    router.ingest(_hand(2, 20_000_000), session)
+    router.ingest(_ctrl(2, 20_000_000, grip=1.0), session)
+    session.control_tick(20_000_000)
+    assert hand.activations == 1
+    assert session.hand_clutch.state.value == "reacquire"
+    measured_session = (0.28, 0.24, 0.08, 0.12, 0.16, 0.20)
+    expected = (
+        session.last_hand_result.normalized_targets["thumb_lateral"],
+        session.last_hand_result.normalized_targets["thumb_close"],
+        session.last_hand_result.normalized_targets["index"],
+        session.last_hand_result.normalized_targets["middle"],
+        session.last_hand_result.normalized_targets["ring"],
+        session.last_hand_result.normalized_targets["pinky"],
+    )
+    assert session._hand_target_reference == pytest.approx(expected)
+    assert session._hand_target_reference != pytest.approx(measured_session)
+
+    router.ingest(_hand(3, 250_000_000), session)
+    router.ingest(_ctrl(3, 250_000_000, grip=1.0), session)
+    session.control_tick(250_000_000)
+    assert hand.targets
+    assert hand.targets[-1] != pytest.approx(measured_session)
+
+
+def test_physical_index_pinch_uses_validated_contact_pose() -> None:
+    class HandOutput:
+        max_target_normalized = 1.0
+
+        def __init__(self) -> None:
+            self.targets: list[tuple[float, ...]] = []
+
+        def activate_from_measured(self, monotonic_ns: int) -> tuple[float, ...]:
+            return (0.05, 0.05, 0.05, 0.05, 0.05, 0.05)
+
+        def submit_target(self, target, monotonic_ns: int) -> None:
+            self.targets.append(tuple(target))
+
+        def hold(self, reason: str) -> None:
+            pass
+
+    config = ReplayConfig.load("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
+    raw = copy.deepcopy(config.raw)
+    raw["hand_retargeting"]["align_on_grip"] = True
+    raw["hand_retargeting"]["align_index_pinch_to_validated_pose"] = True
+    raw["hand_retargeting"]["calibration_path"] = (
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    config = replace(config, raw=raw, engagement_schedule_s=())
+    hand = HandOutput()
+    session = SmoothQuestJakaSession(
+        config,
+        SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path),
+        arm_output=RecordingArmTargetAdapter(),
+        normalized_hand_output=hand,
+        arm_input_enabled=False,
+    )
+    router = LiveQuestControllerRouter(stale_after_s=1.0)
+    router.ingest(_hand(1, 0), session)
+    router.ingest(_ctrl(1, 0), session)
+    session.control_tick(0)
+    router.ingest(_hand(2, 20_000_000, index_pinch=True, middle_closed=True), session)
+    router.ingest(_ctrl(2, 20_000_000, grip=1.0), session)
+    session.control_tick(20_000_000)
+    expected_session_triplet = (0.90, 0.40, 0.55)
+    expected_canonical_triplet = (0.55, 0.40, 0.90)
+    assert session.last_hand_result.pinch_diagnostics["pinch_mode"] == "index"
+    assert session._hand_target_reference[:3] == pytest.approx(expected_session_triplet)
+    router.ingest(_hand(3, 250_000_000, index_pinch=True, middle_closed=True), session)
+    router.ingest(_ctrl(3, 250_000_000, grip=1.0), session)
+    session.control_tick(250_000_000)
+    assert hand.targets
+    assert (
+        hand.targets[-1][0],
+        hand.targets[-1][4],
+        hand.targets[-1][5],
+    ) == pytest.approx(expected_canonical_triplet)
+    assert hand.targets[-1][1:4] != pytest.approx((0.0, 0.0, 0.0))
 
 
 def test_combined_session_allows_arm_and_hand_active_from_one_router() -> None:

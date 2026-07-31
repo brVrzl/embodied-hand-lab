@@ -30,9 +30,11 @@ from .clutch import (
 from .hand_retarget import (
     HandRetargetCalibration,
     InspireRetargetResult,
+    PinchPoseBlender,
     ProjectRh56Retargeter,
     QuestHandSkeleton,
     RH56_MUJOCO_ACTUATOR_MAX_RAD,
+    ThumbFirstPinchSequencer,
 )
 from .precision_mapping import LatchedHeadYawArmMapper
 from .output import (
@@ -225,6 +227,14 @@ class SmoothQuestJakaSession:
             config.raw.get("simulation", {}).get("isolated_rejection_hold_count", 2)
         )
         hand_values = config.raw.get("hand_retargeting", {})
+        # Physical hand-only teleoperation may opt into an absolute pose
+        # re-alignment on each grip press.  The command still starts with the
+        # measured RH56 activation target; the worker's normal delta/contact
+        # gates perform the bounded transition to the current Quest pose.
+        self.hand_align_on_grip = bool(hand_values.get("align_on_grip", False))
+        self.hand_align_index_pinch_to_validated_pose = bool(
+            hand_values.get("align_index_pinch_to_validated_pose", False)
+        )
         self.hand_enabled = (
             bool(hand_values.get("enabled", False))
             and (
@@ -241,6 +251,43 @@ class SmoothQuestJakaSession:
         if self.hand_enabled:
             backend, calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
             self.hand_retargeter = ProjectRh56Retargeter(calibration, backend=backend)
+            validated_poses = (
+                calibration.validated_pinch_poses
+                if calibration.pinch_pose_blending_enabled
+                else {}
+            )
+            self._pinch_pose_blender = PinchPoseBlender(
+                validated_poses,
+                maximum_weight_step=calibration.pinch_pose_maximum_weight_step,
+            )
+        else:
+            self._pinch_pose_blender = PinchPoseBlender(
+                {}, maximum_weight_step=0.05
+            )
+        if self.hand_retargeter is not None:
+            calibration = self.hand_retargeter.calibration
+            self._thumb_first_pinch = ThumbFirstPinchSequencer(
+                enabled=calibration.thumb_first_pinch_enabled,
+                lateral_target=calibration.thumb_first_lateral_target,
+                lateral_tolerance=calibration.thumb_first_lateral_tolerance,
+                index_guard=calibration.thumb_first_index_guard,
+                thumb_close_guard=calibration.thumb_first_thumb_close_guard,
+                index_activation=calibration.thumb_first_index_activation,
+                thumb_close_activation=calibration.thumb_first_thumb_close_activation,
+                lateral_activation=calibration.thumb_first_lateral_activation,
+            )
+        else:
+            self._thumb_first_pinch = ThumbFirstPinchSequencer(
+                enabled=False,
+                lateral_target=0.0,
+                lateral_tolerance=0.03,
+                index_guard=0.15,
+                thumb_close_guard=0.25,
+            )
+        self._thumb_first_pinch_stage = "idle"
+        self._pinch_blend_mode = "none"
+        self._pinch_blend_weight = 0.0
+        self._pinch_continuous_target: np.ndarray | None = None
         relative_values = hand_values.get("four_finger_relative", {})
         self.four_finger_gain = float(relative_values.get("gain", 1.0))
         self.four_finger_dead_zone_rad = float(relative_values.get("dead_zone_rad", 0.015))
@@ -290,6 +337,8 @@ class SmoothQuestJakaSession:
             else np.zeros(6, dtype=np.float64)
         )
         self._hand_target_reference: np.ndarray | None = None
+        self._hand_activation_reference: np.ndarray | None = None
+        self._hand_alignment_target: np.ndarray | None = None
         self._four_finger_feature_reference: np.ndarray | None = None
         self._four_finger_features: np.ndarray | None = None
         self._four_finger_feature_delta: np.ndarray | None = None
@@ -922,6 +971,13 @@ class SmoothQuestJakaSession:
         # A new clutch cycle must reference the current pose, not a feature
         # slew state carried from the previous engagement.
         self.hand_retargeter.reset()
+        self._pinch_pose_blender.reset()
+        self._thumb_first_pinch.reset()
+        self._thumb_first_pinch_stage = "idle"
+        self._pinch_blend_mode = "none"
+        self._pinch_blend_weight = 0.0
+        self._pinch_continuous_target = None
+        self._hand_alignment_target = None
         features = self._hand_features(state, now_ns)
         if features is None:
             return False
@@ -933,13 +989,51 @@ class SmoothQuestJakaSession:
         if self.normalized_hand_output is not None:
             measured = self.normalized_hand_output.activate_from_measured(now_ns)
             # Session-internal order is lateral, close, index, middle, ring, pinky.
-            self._hand_target_reference = np.asarray(
+            measured_reference = np.asarray(
                 [measured[5], measured[4], *measured[:4]], dtype=np.float64
             )
+            self._hand_activation_reference = measured_reference.copy()
+            if self.hand_align_on_grip:
+                # ``features`` is canonical Quest order: index, middle, ring,
+                # pinky, thumb-close, thumb-lateral.  Use this absolute pose
+                # as the new target reference while retaining measured
+                # activation in ``_held_hand_command`` so no command jumps.
+                self._hand_target_reference = np.asarray(
+                    [features[5], features[4], *features[:4]], dtype=np.float64
+                )
+                self._hand_alignment_target = self._hand_target_reference.copy()
+                pinch_diagnostics = self.last_hand_result.pinch_diagnostics
+                pinch_confidence = pinch_diagnostics.get("pinch_confidence", 0.0)
+                validated_index = (
+                    self.hand_retargeter.calibration.validated_pinch_poses.get(
+                        "index"
+                    )
+                    if self.hand_align_index_pinch_to_validated_pose
+                    and str(pinch_diagnostics.get("pinch_mode", "none")) == "index"
+                    and isinstance(pinch_confidence, (int, float))
+                    and math.isfinite(float(pinch_confidence))
+                    and float(pinch_confidence) > 0.0
+                    else None
+                )
+                if validated_index is not None:
+                    # Keep middle/ring/pinky at the current Quest absolute
+                    # target.  Only the three coupled index-pinch channels
+                    # are replaced by the validated contact relationship.
+                    aligned = self._hand_target_reference.copy()
+                    aligned[0] = validated_index[5]
+                    aligned[1] = validated_index[4]
+                    aligned[2] = validated_index[0]
+                    self._hand_target_reference = aligned
+                    self._hand_alignment_target = self._hand_target_reference.copy()
+            else:
+                self._hand_target_reference = measured_reference
+                self._hand_alignment_target = None
         else:
             assert self.mujoco_plant is not None
             self._hand_target_reference = self.mujoco_plant.commanded_hand_target.copy()
-        self._held_hand_command = self._hand_target_reference.copy()
+            self._hand_activation_reference = self._hand_target_reference.copy()
+            self._hand_alignment_target = None
+        self._held_hand_command = self._hand_activation_reference.copy()
         self._four_finger_requested_target = self._hand_target_reference[2:].copy()
         self._four_finger_clipped_target = self._hand_target_reference[2:].copy()
         self._four_finger_saturated = np.zeros(4, dtype=bool)
@@ -1039,6 +1133,71 @@ class SmoothQuestJakaSession:
         target[0] = clipped_thumb_lateral
         target[1] = clipped_thumb_close
         target[2:] = requested_fingers
+        if self.normalized_hand_output is not None:
+            continuous_canonical = np.asarray(
+                [*target[2:].tolist(), float(target[1]), float(target[0])],
+                dtype=np.float64,
+            )
+            self._pinch_continuous_target = continuous_canonical.copy()
+            diagnostics = (
+                {}
+                if self.last_hand_result is None
+                else self.last_hand_result.pinch_diagnostics
+            )
+            pinch_mode = str(diagnostics.get("pinch_mode", "none"))
+            pinch_confidence = float(diagnostics.get("pinch_confidence", 0.0))
+            validated_index = (
+                self.hand_retargeter.calibration.validated_pinch_poses.get("index")
+                if self.hand_align_index_pinch_to_validated_pose
+                and pinch_mode == "index"
+                and math.isfinite(pinch_confidence)
+                and pinch_confidence > 0.0
+                else None
+            )
+            if validated_index is not None:
+                # The physical calibration established a real index/thumb
+                # contact relationship. A detected index pinch may otherwise
+                # map to insufficient lateral opposition (observed around
+                # .75). Replace only index, thumb-close, and thumb-lateral;
+                # middle/ring/pinky remain the continuous Quest mapping.
+                blended_canonical = continuous_canonical.copy()
+                blended_canonical[0] = validated_index[0]
+                blended_canonical[4] = validated_index[4]
+                blended_canonical[5] = validated_index[5]
+                self._pinch_blend_mode = "validated_index"
+                self._pinch_blend_weight = 1.0
+            else:
+                blended_canonical, self._pinch_blend_mode, self._pinch_blend_weight = (
+                    self._pinch_pose_blender.update(
+                        continuous_canonical,
+                        detected_mode=pinch_mode,
+                        confidence=pinch_confidence,
+                        tracking_valid=skeleton_valid,
+                    )
+                )
+            target = np.asarray(
+                [
+                    blended_canonical[5],
+                    blended_canonical[4],
+                    *blended_canonical[:4],
+                ],
+                dtype=np.float64,
+            )
+            measured_canonical = self._latest_hand_measured_canonical(now_ns)
+            target, self._thumb_first_pinch_stage = self._thumb_first_pinch.update(
+                np.asarray(
+                    [*target[2:].tolist(), float(target[1]), float(target[0])],
+                    dtype=np.float64,
+                ),
+                detected_mode=str(diagnostics.get("pinch_mode", "none")),
+                confidence=float(diagnostics.get("pinch_confidence", 0.0)),
+                tracking_valid=skeleton_valid,
+                measured_canonical=measured_canonical,
+            )
+            target = np.asarray(
+                [target[5], target[4], *target[:4]],
+                dtype=np.float64,
+            )
         channel_ranges = np.asarray(
             [self._hand_channel_model_ranges(index)[2] for index in range(6)],
             dtype=float,
@@ -1114,6 +1273,12 @@ class SmoothQuestJakaSession:
         return features
 
     def _clear_hand_reference(self) -> None:
+        self._pinch_pose_blender.reset()
+        self._thumb_first_pinch.reset()
+        self._thumb_first_pinch_stage = "idle"
+        self._pinch_blend_mode = "none"
+        self._pinch_blend_weight = 0.0
+        self._pinch_continuous_target = None
         self._four_finger_feature_reference = None
         self._four_finger_features = None
         self._four_finger_feature_delta = None
@@ -1123,6 +1288,8 @@ class SmoothQuestJakaSession:
         self._thumb_close_feature_reference = None
         self._thumb_lateral_feature_reference = None
         self._hand_target_reference = None
+        self._hand_activation_reference = None
+        self._hand_alignment_target = None
         self._requested_hand_target = None
         self._clipped_hand_target = None
         self._thumb_close_feature_delta = None
@@ -1134,6 +1301,28 @@ class SmoothQuestJakaSession:
         self._thumb_lateral_clipped_target = None
         self._thumb_lateral_saturated = False
         self._hand_press_receive_ns = None
+
+    def _latest_hand_measured_canonical(self, now_ns: int) -> np.ndarray | None:
+        """Read worker feedback without coupling the session to RH56 classes."""
+
+        output = self.normalized_hand_output
+        feedback = None if output is None else getattr(output, "latest_feedback", None)
+        if feedback is None:
+            return None
+        feedback_ns = getattr(feedback, "monotonic_ns", None)
+        if feedback_ns is not None and (
+            not isinstance(feedback_ns, int)
+            or now_ns < feedback_ns
+            or now_ns - feedback_ns > 250_000_000
+        ):
+            return None
+        values = getattr(feedback, "position_normalized", None)
+        if values is None:
+            return None
+        measured = np.asarray(values, dtype=np.float64)
+        if measured.shape != (6,) or not np.all(np.isfinite(measured)):
+            return None
+        return measured
 
     def _hand_channel_model_ranges(
         self,
@@ -1194,13 +1383,13 @@ class SmoothQuestJakaSession:
             ) = self._hand_channel_model_ranges(0)
         thumb_captured_target = (
             None
-            if self._hand_target_reference is None
-            else float(self._hand_target_reference[1])
+            if self._hand_activation_reference is None
+            else float(self._hand_activation_reference[1])
         )
         lateral_captured_target = (
             None
-            if self._hand_target_reference is None
-            else float(self._hand_target_reference[0])
+            if self._hand_activation_reference is None
+            else float(self._hand_activation_reference[0])
         )
         actual_joint_position = None if plant is None else plant.arm_joints_rad
         actual_tcp = None if plant is None else plant.current_tcp_pose
@@ -1257,6 +1446,12 @@ class SmoothQuestJakaSession:
             "hand_command_updated": self._hand_updated_this_tick,
             "hand_reacquisition_fraction": self.hand_clutch.reacquisition_fraction(now_ns),
             "hand_reference_captured": self._four_finger_feature_reference is not None,
+            "hand_align_on_grip": self.hand_align_on_grip,
+            "hand_alignment_target_rad": (
+                None
+                if self._hand_alignment_target is None
+                else self._hand_alignment_target.tolist()
+            ),
             "active_arm_fault": None if self.arm_clutch.active_fault is None else self.arm_clutch.active_fault.reason,
             "active_hand_fault": None if self.hand_clutch.active_fault is None else self.hand_clutch.active_fault.reason,
             "arm_clutch_cycle_count": self.arm_clutch.cycle_count,
@@ -1275,6 +1470,11 @@ class SmoothQuestJakaSession:
             "actual_hand_actuator_position_rad": hand_positions,
             "contact_summary": contact_summary,
             "hand_target_reference_rad": None if self._hand_target_reference is None else self._hand_target_reference.tolist(),
+            "hand_activation_reference_rad": (
+                None
+                if self._hand_activation_reference is None
+                else self._hand_activation_reference.tolist()
+            ),
             "hand_requested_target_rad": None if self._requested_hand_target is None else self._requested_hand_target.tolist(),
             "hand_clipped_target_rad": None if self._clipped_hand_target is None else self._clipped_hand_target.tolist(),
             "hand_target_valid": bool(self.last_hand_result is not None and self.last_hand_result.valid),
@@ -1297,6 +1497,14 @@ class SmoothQuestJakaSession:
                 ),
                 "index_middle_distance_palm": thumb_diagnostics.get(
                     "index_middle_distance_palm"
+                ),
+                "blend_mode": self._pinch_blend_mode,
+                "blend_weight": self._pinch_blend_weight,
+                "thumb_first_stage": self._thumb_first_pinch_stage,
+                "continuous_target_canonical": (
+                    None
+                    if self._pinch_continuous_target is None
+                    else self._pinch_continuous_target.tolist()
                 ),
             },
             "four_finger_debug": {

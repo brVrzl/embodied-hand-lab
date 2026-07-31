@@ -5,6 +5,8 @@ import sys
 import pytest
 
 from rh56_driver.pc_direct_control import (
+    RH56_FAULT_RESET_APPROVAL,
+    RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
     RH56_HAND_ONLY_COMMAND_APPROVAL,
     RH56_READ_ONLY_APPROVAL,
     RH56_RUNTIME_CONFIG_APPROVAL,
@@ -107,7 +109,7 @@ def test_bounded_command_requires_short_duration_target_and_operator_checks() ->
     ) is HandAuthorization.HAND_ONLY_COMMAND
 
 
-def test_bounded_pose_and_channel_target_require_explicit_safe_normalized_targets() -> None:
+def test_bounded_pose_and_channel_target_accept_full_normalized_domain() -> None:
     checks = (
         "--approval",
         RH56_HAND_ONLY_COMMAND_APPROVAL,
@@ -126,22 +128,6 @@ def test_bounded_pose_and_channel_target_require_explicit_safe_normalized_target
                 *checks,
             )
         )
-    with pytest.raises(ValueError, match=r"\[0, 0.8\]"):
-        validate_gate(
-            _parse(
-                "--bounded-pose",
-                "--pose-label",
-                "unsafe",
-                "--target-normalized",
-                "0.1",
-                "0.2",
-                "0.3",
-                "0.4",
-                "0.5",
-                "0.81",
-                *checks,
-            )
-        )
     assert validate_gate(
         _parse(
             "--bounded-pose",
@@ -153,7 +139,46 @@ def test_bounded_pose_and_channel_target_require_explicit_safe_normalized_target
             "0.468",
             "0.569",
             "0.750",
-            "0.800",
+            "1.000",
+            *checks,
+        )
+    ) is HandAuthorization.HAND_ONLY_COMMAND
+
+
+def test_full_normalized_endpoint_is_available_to_bounded_tests_and_teleop_has_no_override() -> None:
+    checks = (
+        "--approval",
+        RH56_HAND_ONLY_COMMAND_APPROVAL,
+        "--manual-stop-accessible",
+        "--workspace-clear",
+        "--no-auto-retry",
+    )
+    assert validate_gate(
+        _parse(
+            "--bounded-pose",
+            "--pose-label",
+            "endpoint_probe",
+            "--target-normalized",
+            "0.55",
+            "0",
+            "0",
+            "0",
+            "0.35",
+            "0.90",
+            "--duration-sec",
+            "3",
+            "--hold-sec",
+            "1",
+            *checks,
+        )
+    ) is HandAuthorization.HAND_ONLY_COMMAND
+    assert validate_gate(
+        _parse(
+            "--bounded-channel-target",
+            "--channel",
+            "thumb_lateral",
+            "--target-normalized",
+            "1.0",
             *checks,
         )
     ) is HandAuthorization.HAND_ONLY_COMMAND
@@ -193,6 +218,8 @@ def test_hand_only_path_overrides_sim_calibration_without_mutating_sim_default()
     assert config.raw["hand_retargeting"]["calibration_path"] == (
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
+    assert config.raw["hand_retargeting"]["align_on_grip"] is True
+    assert config.raw["hand_retargeting"]["align_index_pinch_to_validated_pose"] is True
     assert (
         hand_entry.ReplayConfig.load(
             "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
@@ -241,6 +268,54 @@ def test_runtime_configuration_has_distinct_mode_approval_and_acknowledgement() 
     assert validate_gate(
         _parse(*base, "--configuration-write-understood")
     ) is HandAuthorization.RUNTIME_CONFIG
+
+
+def test_fault_reset_requires_obstruction_clear_and_dedicated_approval() -> None:
+    base = (
+        "--clear-error",
+        "--approval",
+        RH56_FAULT_RESET_APPROVAL,
+        "--manual-stop-accessible",
+        "--workspace-clear",
+        "--no-auto-retry",
+    )
+    with pytest.raises(PermissionError, match="mechanical-obstruction-cleared"):
+        validate_gate(_parse(*base))
+    assert validate_gate(
+        _parse(*base, "--mechanical-obstruction-cleared")
+    ) is HandAuthorization.FAULT_RESET
+
+
+def test_force_calibration_requires_no_load_confirmation_and_observation_window() -> None:
+    base = (
+        "--force-sensor-calibration",
+        "--approval",
+        RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
+        "--manual-stop-accessible",
+        "--workspace-clear",
+        "--no-auto-retry",
+        "--duration-sec",
+        "8",
+    )
+    with pytest.raises(PermissionError, match="calibration-no-load-confirmed"):
+        validate_gate(_parse(*base))
+    assert validate_gate(
+        _parse(*base, "--calibration-no-load-confirmed")
+    ) is HandAuthorization.FORCE_SENSOR_CALIBRATION
+    with pytest.raises(ValueError, match=r"\[8, 15\]"):
+        validate_gate(
+            _parse(
+                "--force-sensor-calibration",
+                "--approval",
+                RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
+                "--manual-stop-accessible",
+                "--workspace-clear",
+                "--no-auto-retry",
+                "--calibration-no-load-confirmed",
+                "--duration-sec",
+                "7",
+            )
+        )
 
 
 def test_summary_uses_exclusive_create(tmp_path) -> None:

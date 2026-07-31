@@ -1,6 +1,6 @@
 # RH56DFX real Quest calibration and bounded travel validation
 
-Validation state: real Quest features calibrated; RH56 six-channel bounded free-space travel physically validated at the existing 0.8 ceiling. Normal Quest-driven operation with this calibration is not yet physically validated because the first post-change run received zero right-hand landmark frames.
+Validation state: real Quest features calibrated; RH56 six-channel bounded free-space travel is physically validated through the configured normalized 1.0 command range. The staged thumb-first index probe and the 2026-07-31 anchor runs are physically recorded. Normal Quest-driven operation with this calibration is not yet physically validated because the live clutch did not engage in the latest captures.
 
 ## Calibration identity and source
 
@@ -26,7 +26,14 @@ The finger feature is the existing PIP+DIP curl plus the 0.15 deadbanded MCP con
 
 All spans have the correct direction and exceed 0.8. The configured curve exponents are currently 1.0 because the capture establishes endpoints but does not justify a nonlinear mid-range distortion. The schema permits four independent positive exponents and validates finite, nonzero spans.
 
-The new full-fist feature reaches 1.0 for all four fingers offline. The physical PC-direct worker still clips requested closure to 0.8, so a correctly referenced full fist can use the complete current software range without testing or enabling raw 0.
+The new full-fist feature reaches 1.0 for all four fingers offline. The
+PC-direct worker and bounded hand-test entry now both permit normalized 0..1;
+there is no retained 0.8 software endpoint.
+
+The bounded full-fist anchor reached measured index/middle/ring/pinky
+`0.968/0.999/1.000/1.000` with thumb-close `0.844` and lateral `0.431`.
+Index contact-stop latched at approximately `0.97`; this is a physical
+contact/self-collision observation, not a software ceiling.
 
 ## Thumb opposition feature
 
@@ -67,11 +74,15 @@ Every target below was generated in canonical order and encoded by the productio
 
 The first index-ceiling run produced index `FORCE_ACT` about 1093 peak / 1054 final and `CURRENT` peak 2244 while the measured index stopped near 0.518. The operator identified this as acceptable, predictable index/thumb self-collision with no external object. Moving thumb lateral to minimum reduced index `FORCE_ACT` to about -1; repeating the same index target then reached 0.798 with low final force. No hardware force/current/speed register was modified, and no new software threshold was retained from this observation.
 
-All bounded runs completed with ERROR `[0,0,0,0,0,0]`, normal observed STATUS `[2,2,2,2,2,2]`, no serial timeout/checksum/protocol fault, and no worker failure. The 0.8 ceiling is therefore sufficient for free-space four-finger closure when thumb opposition does not create self-collision.
+All bounded runs completed with ERROR `[0,0,0,0,0,0]`, normal observed STATUS `[2,2,2,2,2,2]`, no serial timeout/checksum/protocol fault, and no worker failure. The measured 0.8 endpoint was sufficient for free-space single-channel closure; the bounded full-fist anchor also reached the normalized 1.0 four-finger range.
 
 ## Raw 0 and current limitation
 
-Raw 0 / normalized 1.0 was not tested. These results do not authorize removing the 0.8 ceiling. They show that raw 200 is a usable software endpoint and that the earlier incomplete fist was primarily feature/reference utilization, not the mechanical endpoint.
+The normalized 1.0 bounded probes generated the protocol raw-0 endpoint for
+the affected channels; no separate blind raw-array test was performed. The
+persistent software configuration now allows 0..1 as explicitly requested and
+does not modify hardware registers. Full Quest-driven closure and tissue
+behavior remain unverified.
 
 The first 45 s post-change Quest hand-only run loaded `quest_rh56dfx_real_20260730_v1` but received zero right-hand frames. It performed zero RH56 writes, generated zero arm targets, and closed cleanly. Consequently command-range improvement under live Quest control remains physically pending even though the captured frames replay to full calibrated finger features offline.
 
@@ -81,3 +92,19 @@ The first 45 s post-change Quest hand-only run loaded `quest_rh56dfx_real_202607
 - Index and middle human pinch intent are separable in the labelled data: normalized contact distances were about 0.051 and 0.102 respectively.
 - The first tripod file was middle-only (`thumb-index` about 0.703), and the retry was a completely frozen stale skeleton. Neither is accepted as tripod calibration evidence.
 - No RH56 fingertip contact pose, tissue hold, extraction, or release has yet been validated by these endpoint tests.
+- A lateral endpoint of normalized `1.0` was reached during the middle-pinch
+  probe without fingertip contact; the current hand therefore has no remaining
+  software lateral travel to expose for middle pinch.
+
+## 2026-07-31 fault-reset/calibration attempt
+
+After the Quest hand-only revalidation stopped on canonical `thumb_lateral`
+with `ERROR=4`, a single official `CLEAR_ERROR` write (`1004=1`) was issued
+under the dedicated fault-reset gate. The write count was exactly one and the
+serial transport closed normally. During five seconds of verification,
+`ERROR` remained all zero and `CURRENT` remained zero, but canonical `STATUS`
+persisted as `[2,2,2,2,2,7]`; `ANGLE_ACT` stayed around
+`[788,835,880,926,683,65]`. The official no-load force-sensor calibration was
+therefore not started, and no Quest teleoperation followed. The hand remains
+physically faulted/unverified until the sixth actuator fault is cleared by a
+safe mechanical/official-controller procedure.

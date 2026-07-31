@@ -58,6 +58,23 @@ def test_serial_backend_converts_canonical_commands_to_official_protocol_order()
     assert writes == [(backend.REG["ANGLE_SET"], _u16_bytes([40, 30, 20, 10, 50, 60]))]
 
 
+def test_service_writes_use_only_official_fault_reset_and_force_calibration_registers() -> None:
+    backend = RH56SerialBackend(
+        {"serial": {"port": "/dev/serial/by-id/not-opened"}}
+    )
+    writes: list[tuple[int, list[int]]] = []
+    backend.write_register = (  # type: ignore[method-assign]
+        lambda address, values: writes.append((address, values.copy())) or True
+    )
+
+    assert backend.clear_error()
+    assert backend.calibrate_force_sensors()
+    assert writes == [
+        (1004, [1]),
+        (1009, [1]),
+    ]
+
+
 def test_serial_backend_returns_canonical_state_from_official_protocol_order() -> None:
     backend = RH56SerialBackend(
         {

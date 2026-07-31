@@ -90,6 +90,16 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     modes.add_argument("--quest-teleop", action="store_true", help="Stage 3 Quest grip hand-only teleoperation.")
     modes.add_argument("--write-runtime-config", action="store_true", help="Separately authorized SPEED/FORCE write.")
+    modes.add_argument(
+        "--clear-error",
+        action="store_true",
+        help="Separately authorized single CLEAR_ERROR write followed by feedback verification.",
+    )
+    modes.add_argument(
+        "--force-sensor-calibration",
+        action="store_true",
+        help="Separately authorized official no-load force-sensor calibration.",
+    )
     parser.add_argument("--duration-sec", type=float, default=5.0)
     parser.add_argument("--hold-sec", type=float, default=1.0)
     parser.add_argument("--feedback-period-sec", type=float, default=0.2)
@@ -106,6 +116,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--no-auto-retry", action="store_true")
     parser.add_argument("--configuration-write-understood", action="store_true")
+    parser.add_argument("--mechanical-obstruction-cleared", action="store_true")
+    parser.add_argument("--calibration-no-load-confirmed", action="store_true")
     parser.add_argument("--preflight-only", action="store_true", help="Inspect by-id binding; do not open serial.")
     parser.add_argument("--jsonl", default="", help="Per-feedback/telemetry JSONL path.")
     parser.add_argument("--summary", default="", help="Summary JSON path.")
@@ -126,6 +138,10 @@ def _mode(args: argparse.Namespace) -> str:
         return "quest-teleop"
     if args.write_runtime_config:
         return "write-runtime-config"
+    if args.clear_error:
+        return "clear-error"
+    if args.force_sensor_calibration:
+        return "force-sensor-calibration"
     return "read-only"
 
 
@@ -146,6 +162,8 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
         "bounded-pose": HandAuthorization.HAND_ONLY_COMMAND,
         "quest-teleop": HandAuthorization.HAND_ONLY_COMMAND,
         "write-runtime-config": HandAuthorization.RUNTIME_CONFIG,
+        "clear-error": HandAuthorization.FAULT_RESET,
+        "force-sensor-calibration": HandAuthorization.FORCE_SENSOR_CALIBRATION,
     }[mode]
     if authorization is not expected:
         raise PermissionError(f"{mode} requires its dedicated RH56 approval token.")
@@ -182,10 +200,10 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
     if mode in {"bounded-channel-target", "bounded-pose"}:
         assert args.target_normalized is not None
         if not all(
-            math.isfinite(value) and 0.0 <= value <= 0.8
+            math.isfinite(value) and 0.0 <= value <= 1.0
             for value in args.target_normalized
         ):
-            raise ValueError("Bounded normalized targets must remain within [0, 0.8].")
+            raise ValueError("Bounded normalized targets must remain within [0, 1].")
         if args.hold_sec < 0.0:
             raise ValueError("--hold-sec must be nonnegative.")
     if mode in {
@@ -193,6 +211,8 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
         "bounded-channel-target",
         "bounded-pose",
         "quest-teleop",
+        "clear-error",
+        "force-sensor-calibration",
     } and not (
         args.manual_stop_accessible and args.workspace_clear and args.no_auto_retry
     ):
@@ -204,6 +224,24 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
             raise ValueError("--write-runtime-config requires explicit six-channel --speed and --force values.")
         if not args.configuration_write_understood:
             raise PermissionError("--write-runtime-config requires --configuration-write-understood.")
+    if mode == "clear-error":
+        if not args.mechanical_obstruction_cleared:
+            raise PermissionError(
+                "--clear-error requires --mechanical-obstruction-cleared."
+            )
+        if args.duration_sec > MAX_BOUNDED_COMMAND_DURATION_SEC:
+            raise ValueError(
+                f"Fault-reset verification is limited to {MAX_BOUNDED_COMMAND_DURATION_SEC:g} seconds."
+            )
+    if mode == "force-sensor-calibration":
+        if not args.calibration_no_load_confirmed:
+            raise PermissionError(
+                "--force-sensor-calibration requires --calibration-no-load-confirmed."
+            )
+        if not 8.0 <= args.duration_sec <= 15.0:
+            raise ValueError(
+                "Force-sensor calibration observation duration must be within [8, 15] seconds."
+            )
     if args.feedback_period_sec <= 0.0:
         raise ValueError("--feedback-period-sec must be positive.")
     return authorization
@@ -299,6 +337,97 @@ def _run_read_only(
         "status_values_seen": [list(value) for value in sorted(status_seen)],
     }
     result.update(_backend_counts(backend))
+    return result
+
+
+def _observe_service_motion(
+    args: argparse.Namespace,
+    control: RH56PcDirectControl,
+    recorder: BoundedJsonlRecorder,
+) -> dict[str, Any]:
+    samples: list[dict[str, Any]] = []
+    started = time.monotonic()
+    next_feedback = started
+    while time.monotonic() - started < args.duration_sec:
+        now = time.monotonic()
+        if now < next_feedback:
+            time.sleep(min(0.002, next_feedback - now))
+            continue
+        feedback = control.poll_feedback(time.monotonic_ns())
+        row = _feedback_row(control)
+        recorder(row)
+        samples.append(row)
+        print(
+            f"RH56 SERVICE angle={list(map(int, feedback.position_raw))} "
+            f"current={list(map(int, feedback.current_raw_count))} "
+            f"force={list(map(int, feedback.load_or_force_raw_count))} "
+            f"error={list(feedback.error)} status={list(feedback.status)}"
+        )
+        next_feedback += args.feedback_period_sec
+    if not samples:
+        raise RuntimeError("RH56 service operation produced no verification feedback.")
+    final = samples[-1]
+    final_status = [int(value) for value in final["status"]]
+    final_error = [int(value) for value in final["error"]]
+    return {
+        "verification_samples": len(samples),
+        "final_angle_act": list(final["angle_act"]),
+        "final_force_act": list(final["force_act"]),
+        "final_current": list(final["current"]),
+        "final_error": final_error,
+        "final_status": final_status,
+        "status_values_seen": sorted(
+            {tuple(int(value) for value in row["status"]) for row in samples}
+        ),
+        "error_values_seen": sorted(
+            {tuple(int(value) for value in row["error"]) for row in samples}
+        ),
+    }
+
+
+def _run_fault_reset(
+    args: argparse.Namespace,
+    control: RH56PcDirectControl,
+    recorder: BoundedJsonlRecorder,
+) -> dict[str, Any]:
+    control.clear_device_error()
+    result = _observe_service_motion(args, control, recorder)
+    if any(result["final_error"]) or any(
+        value == 7 for value in result["final_status"]
+    ):
+        raise RuntimeError(
+            "RH56 fault reset did not clear final ERROR/actuator-fault STATUS."
+        )
+    result["fault_reset_write_count"] = 1
+    return result
+
+
+def _run_force_sensor_calibration(
+    args: argparse.Namespace,
+    control: RH56PcDirectControl,
+    recorder: BoundedJsonlRecorder,
+) -> dict[str, Any]:
+    initial = control.poll_feedback(time.monotonic_ns())
+    recorder(_feedback_row(control))
+    if any(initial.error) or any(value == 7 for value in initial.status):
+        raise RuntimeError(
+            "RH56 must have clear ERROR and no actuator-fault STATUS before force calibration."
+        )
+    control.start_force_sensor_calibration()
+    result = _observe_service_motion(args, control, recorder)
+    if any(result["final_error"]) or any(
+        value == 7 for value in result["final_status"]
+    ):
+        raise RuntimeError(
+            "RH56 force-sensor calibration ended with ERROR/actuator-fault STATUS."
+        )
+    result.update(
+        {
+            "force_sensor_calibration_write_count": 1,
+            "initial_angle_act": list(initial.position_raw),
+            "initial_force_act": list(initial.load_or_force_raw_count),
+        }
+    )
     return result
 
 
@@ -526,6 +655,12 @@ def _load_hand_only_quest_config(
     hand_values = raw.setdefault("hand_retargeting", {})
     hand_values["enabled"] = True
     hand_values["calibration_path"] = str(calibration_path)
+    # A physical grip press is a deliberate re-alignment event: begin with
+    # measured RH56 ANGLE_ACT, then approach the current Quest pose through
+    # the worker's normal delta/contact gates. Simulation keeps its historical
+    # relative-only behavior unless a caller opts in explicitly.
+    hand_values["align_on_grip"] = True
+    hand_values["align_index_pinch_to_validated_pose"] = True
     return replace(config, raw=raw)
 
 
@@ -621,6 +756,12 @@ def main() -> None:
             if args.write_runtime_config:
                 control.write_runtime_config(args.speed, args.force)
                 result["runtime_config_write"] = {"speed": args.speed, "force": args.force}
+            elif args.clear_error:
+                result.update(_run_fault_reset(args, control, recorder))
+            elif args.force_sensor_calibration:
+                result.update(
+                    _run_force_sensor_calibration(args, control, recorder)
+                )
             elif args.bounded_command:
                 result.update(_run_bounded(args, control, backend, recorder))
             else:

@@ -9,6 +9,8 @@ import pytest
 
 from rh56_driver.pc_direct_control import (
     RH56_COMBINED_RUN_APPROVAL,
+    RH56_FAULT_RESET_APPROVAL,
+    RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
     RH56_HAND_ONLY_COMMAND_APPROVAL,
     RH56_READ_ONLY_APPROVAL,
     RH56_RUNTIME_CONFIG_APPROVAL,
@@ -36,6 +38,26 @@ def _config() -> dict:
     }
 
 
+def _contact_stop_config() -> dict:
+    config = _config()
+    config["safety"] = {
+        "max_close_strength": 1.0,
+        "contact_stop": {
+            "enabled": True,
+            "require_fresh_force_before_closure_step": True,
+            "force_delta_onset": [250] * 6,
+            "force_delta_release": [100] * 6,
+            "minimum_closing_gap": 0.015,
+            "maximum_stall_progress": 0.005,
+            "consecutive_samples": 2,
+            "relief_margin": 0.01,
+            "release_open_delta": 0.02,
+            "baseline_alpha": 0.10,
+        },
+    }
+    return config
+
+
 def _opened_control(approval: str = RH56_HAND_ONLY_COMMAND_APPROVAL) -> tuple[RH56PcDirectControl, FakeRH56PcDirectBackend]:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _config())
@@ -49,6 +71,11 @@ def test_approval_contracts_are_distinct_and_missing_approval_opens_nothing() ->
     assert parse_rh56_approval(RH56_HAND_ONLY_COMMAND_APPROVAL) is HandAuthorization.HAND_ONLY_COMMAND
     assert parse_rh56_approval(RH56_COMBINED_RUN_APPROVAL) is HandAuthorization.COMBINED_RUN
     assert parse_rh56_approval(RH56_RUNTIME_CONFIG_APPROVAL) is HandAuthorization.RUNTIME_CONFIG
+    assert parse_rh56_approval(RH56_FAULT_RESET_APPROVAL) is HandAuthorization.FAULT_RESET
+    assert (
+        parse_rh56_approval(RH56_FORCE_SENSOR_CALIBRATION_APPROVAL)
+        is HandAuthorization.FORCE_SENSOR_CALIBRATION
+    )
 
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _config())
@@ -102,6 +129,170 @@ def test_active_commands_are_rate_and_delta_limited_in_canonical_order() -> None
     assert backend.position_writes[-1] == [900] * 6
 
 
+def test_enabled_command_shaper_has_bounded_acceleration_and_no_overshoot() -> None:
+    backend = FakeRH56PcDirectBackend()
+    config = _config()
+    config["safety"] = {"max_close_strength": 1.0}
+    config["command_shaping"] = {
+        "enabled": True,
+        "maximum_closing_velocity": [0.35] * 6,
+        "maximum_opening_velocity": [0.60] * 6,
+        "maximum_acceleration": [1.40] * 6,
+    }
+    control = RH56PcDirectControl(backend, config)
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+
+    period = control.command_period_ns
+    closing_positions: list[float] = []
+    for step in range(24):
+        timestamp = 1_000_000_000 + step * period
+        control.poll_feedback(timestamp)
+        assert control.command([0.8] * 6, timestamp)
+        closing_positions.append(control.last_command_normalized[0])
+    closing_steps = [b - a for a, b in zip(closing_positions, closing_positions[1:])]
+    assert closing_positions == sorted(closing_positions)
+    assert closing_positions[-1] < 0.8
+    assert max(closing_steps) <= 0.05
+    assert closing_steps[1] > closing_steps[0]
+
+    opening_positions: list[float] = []
+    for step in range(80):
+        timestamp = 1_000_000_000 + (24 + step) * period
+        control.poll_feedback(timestamp)
+        control.command([0.0] * 6, timestamp)
+        opening_positions.append(control.last_command_normalized[0])
+    assert all(0.0 <= value <= 0.8 for value in opening_positions)
+    assert opening_positions[-1] == pytest.approx(0.0)
+    opening_steps = [a - b for a, b in zip(opening_positions, opening_positions[1:])]
+    assert max(opening_steps) <= 0.05
+
+
+def test_command_shaper_rejects_malformed_channel_vectors() -> None:
+    config = _config()
+    config["command_shaping"] = {
+        "enabled": True,
+        "maximum_acceleration": [1.4] * 5,
+    }
+    with pytest.raises(ValueError, match="command_shaping maximum_acceleration"):
+        RH56PcDirectControl(FakeRH56PcDirectBackend(), config)
+
+
+def test_contact_stop_only_pauses_once_while_measured_closure_is_progressing() -> None:
+    backend = FakeRH56PcDirectBackend()
+    control = RH56PcDirectControl(backend, _contact_stop_config())
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+    assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
+
+    backend.position[0] = 930.0
+    backend.load[0] = 350.0
+    control.poll_feedback_register("ANGLE", 1_070_000_000)
+    control.poll_feedback_register("FORCE", 1_100_000_000)
+
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["candidate_count"][0] == 1
+    assert snapshot["latched"][0] is False
+    assert snapshot["detection_count"] == 0
+
+
+def test_contact_stop_splits_one_force_sample_budget_into_40hz_steps() -> None:
+    backend = FakeRH56PcDirectBackend()
+    config = _contact_stop_config()
+    config["safety"]["contact_stop"].update(
+        {
+            "closure_budget_per_force_sample": 0.05,
+            "maximum_closure_step": 0.0125,
+        }
+    )
+    control = RH56PcDirectControl(backend, config)
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+
+    for step in range(4):
+        assert control.command(
+            [1, 0, 0, 0, 0, 0],
+            1_000_000_000 + step * control.command_period_ns,
+        )
+        assert control.last_command_normalized[0] == pytest.approx(
+            (step + 1) * 0.0125
+        )
+    assert not control.command(
+        [1, 0, 0, 0, 0, 0],
+        1_000_000_000 + 4 * control.command_period_ns,
+    )
+    assert control.last_command_disposition == "contact_feedback_wait"
+    assert control.last_command_normalized[0] == pytest.approx(0.05)
+
+    control.poll_feedback_register("FORCE", 1_300_000_000)
+    assert control.command([1, 0, 0, 0, 0, 0], 1_300_000_000)
+    assert control.last_command_normalized[0] == pytest.approx(0.0625)
+    # Opening is never delayed waiting for a force sample.
+    assert control.command([0, 0, 0, 0, 0, 0], 1_400_000_000)
+    assert control.last_command_normalized[0] == pytest.approx(0.0125)
+
+
+def test_contact_stop_rejects_one_sample_force_spike_without_latching() -> None:
+    backend = FakeRH56PcDirectBackend()
+    control = RH56PcDirectControl(backend, _contact_stop_config())
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+    assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
+
+    backend.position[0] = 950.0
+    control.poll_feedback_register("ANGLE", 1_040_000_000)
+    control.poll_feedback_register("ANGLE", 1_070_000_000)
+    backend.load[0] = 350.0
+    control.poll_feedback_register("FORCE", 1_100_000_000)
+    # First qualified sample pauses at measured contact but is not latched.
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["candidate_count"][0] == 1
+    assert snapshot["latched"][0] is False
+    assert control.contact_limited_target([0.8, 0, 0, 0, 0, 0], allow_release=False)[0] == pytest.approx(0.04)
+
+    control.poll_feedback_register("ANGLE", 1_170_000_000)
+    backend.load[0] = 0.0
+    control.poll_feedback_register("FORCE", 1_200_000_000)
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["candidate_count"][0] == 0
+    assert snapshot["latched"][0] is False
+
+
+def test_contact_stop_latches_after_confirmed_stall_and_opening_releases() -> None:
+    backend = FakeRH56PcDirectBackend()
+    control = RH56PcDirectControl(backend, _contact_stop_config())
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+    assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
+
+    backend.position[0] = 950.0
+    backend.load[0] = 350.0
+    control.poll_feedback_register("ANGLE", 1_040_000_000)
+    for angle_ns, force_ns in (
+        (1_070_000_000, 1_100_000_000),
+        (1_170_000_000, 1_200_000_000),
+    ):
+        control.poll_feedback_register("ANGLE", angle_ns)
+        control.poll_feedback_register("FORCE", force_ns)
+
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["latched"][0] is True
+    assert snapshot["detection_count"] == 1
+    hold = snapshot["hold_target_normalized"][0]
+    assert hold == pytest.approx(0.04)
+    assert control.contact_limited_target([1, 0, 0, 0, 0, 0], allow_release=False)[0] == pytest.approx(hold)
+
+    assert control.command([0, 0, 0, 0, 0, 0], 1_200_000_000)
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["latched"][0] is False
+    assert control.last_command_normalized[0] == pytest.approx(0.0)
+
+
 def test_each_activation_rebases_first_target_on_fresh_measured_angle_act() -> None:
     control, backend = _opened_control()
     control.activate(1_000_000_000)
@@ -139,7 +330,7 @@ def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> No
         worker.cleanup()
 
 
-def test_pc_direct_worker_clamps_measured_activation_to_command_envelope() -> None:
+def test_pc_direct_worker_preserves_measured_activation_above_command_envelope() -> None:
     backend = FakeRH56PcDirectBackend()
     backend.position = [185.0] * 6
     control = RH56PcDirectControl(backend, _config())
@@ -147,14 +338,14 @@ def test_pc_direct_worker_clamps_measured_activation_to_command_envelope() -> No
     first = worker.start(RH56_COMBINED_RUN_APPROVAL)
     try:
         reference = worker.activate_from_measured(first.monotonic_ns)
-        assert reference == pytest.approx([0.8] * 6)
+        assert reference == pytest.approx([0.815] * 6)
         deadline = time.monotonic() + 0.3
         while not backend.position_writes and time.monotonic() < deadline:
             time.sleep(0.005)
-        assert backend.position_writes[0] == [200] * 6
+        assert backend.position_writes[0] == [185] * 6
         diagnostics = worker.diagnostics_snapshot()
         assert diagnostics["measured_activation_target_count"] == 1
-        assert diagnostics["clamped_activation_target_count"] == 1
+        assert diagnostics["clamped_activation_target_count"] == 0
     finally:
         worker.cleanup()
 
@@ -256,6 +447,26 @@ def test_runtime_configuration_has_separate_authorization_and_cleanup_has_no_wri
     assert configured.state is HandControlState.DISABLED
     assert configured.transport_state == "CLOSED"
     assert config_backend.write_count == writes
+
+
+def test_fault_reset_and_force_calibration_have_separate_one_write_authorizations() -> None:
+    reset_backend = FakeRH56PcDirectBackend()
+    reset = RH56PcDirectControl(reset_backend, _config())
+    reset.open(RH56_FAULT_RESET_APPROVAL)
+    reset.clear_device_error()
+    assert reset_backend.clear_error_write_count == 1
+    assert reset_backend.force_calibration_write_count == 0
+    with pytest.raises(PermissionError):
+        reset.start_force_sensor_calibration()
+
+    calibration_backend = FakeRH56PcDirectBackend()
+    calibration = RH56PcDirectControl(calibration_backend, _config())
+    calibration.open(RH56_FORCE_SENSOR_CALIBRATION_APPROVAL)
+    calibration.start_force_sensor_calibration()
+    assert calibration_backend.force_calibration_write_count == 1
+    assert calibration_backend.clear_error_write_count == 0
+    with pytest.raises(PermissionError):
+        calibration.clear_device_error()
 
 
 def test_device_path_contract_rejects_unstable_tty_name() -> None:

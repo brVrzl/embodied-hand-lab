@@ -163,6 +163,17 @@ class HandRetargetCalibration:
     pinch_intent_tripod_exit_distance_palm: float
     pinch_intent_minimum_finger_curl: float
     pinch_intent_power_grasp_curl: float
+    pinch_pose_blending_enabled: bool
+    pinch_pose_maximum_weight_step: float
+    validated_pinch_poses: Mapping[str, tuple[float, float, float, float, float, float]]
+    thumb_first_pinch_enabled: bool
+    thumb_first_lateral_target: float
+    thumb_first_lateral_tolerance: float
+    thumb_first_index_guard: float
+    thumb_first_thumb_close_guard: float
+    thumb_first_index_activation: float
+    thumb_first_thumb_close_activation: float
+    thumb_first_lateral_activation: float
     mcp_flexion_weight: float
     mcp_flexion_deadband: float
     maximum_normalized_step: float
@@ -175,6 +186,12 @@ class HandRetargetCalibration:
         thumb_close = calibration.get("thumb_close", {})
         thumb_lateral = calibration.get("thumb_lateral", {})
         pinch_intent = calibration.get("pinch_intent", {})
+        pinch_pose_blending = calibration.get("pinch_pose_blending", {})
+        thumb_first = calibration.get("thumb_first_pinch", {})
+        validated_poses = {
+            str(name): tuple(float(value) for value in pose)
+            for name, pose in pinch_pose_blending.get("validated_poses", {}).items()
+        }
         result = cls(
             calibration_id=str(calibration["calibration_id"]),
             global_scale=float(calibration["global_scale"]),
@@ -237,6 +254,42 @@ class HandRetargetCalibration:
             pinch_intent_power_grasp_curl=float(
                 pinch_intent.get("power_grasp_curl", 0.70)
             ),
+            pinch_pose_blending_enabled=bool(
+                pinch_pose_blending.get("enabled", False)
+            ),
+            pinch_pose_maximum_weight_step=float(
+                pinch_pose_blending.get("maximum_weight_step", 0.05)
+            ),
+            validated_pinch_poses=validated_poses,
+            thumb_first_pinch_enabled=bool(thumb_first.get("enabled", False)),
+            thumb_first_lateral_target=float(
+                thumb_first.get("lateral_target", 0.0)
+            ),
+            thumb_first_lateral_tolerance=float(
+                thumb_first.get("lateral_tolerance", 0.03)
+            ),
+            thumb_first_index_guard=float(
+                thumb_first.get("index_guard", 0.15)
+            ),
+            thumb_first_thumb_close_guard=float(
+                thumb_first.get("thumb_close_guard", 0.25)
+            ),
+            thumb_first_index_activation=float(
+                thumb_first.get("index_activation", 0.50)
+            ),
+            thumb_first_thumb_close_activation=float(
+                thumb_first.get("thumb_close_activation", 0.35)
+            ),
+            thumb_first_lateral_activation=float(
+                thumb_first.get(
+                    "lateral_activation",
+                    max(
+                        0.0,
+                        float(thumb_first.get("lateral_target", 0.0))
+                        - float(thumb_first.get("lateral_tolerance", 0.03)),
+                    ),
+                )
+            ),
             mcp_flexion_weight=float(calibration.get("mcp_flexion_weight", 0.0)),
             mcp_flexion_deadband=float(calibration.get("mcp_flexion_deadband", 0.15)),
             maximum_normalized_step=float(calibration["maximum_normalized_step"]),
@@ -284,6 +337,20 @@ class HandRetargetCalibration:
             or not 0.0 <= result.pinch_intent_minimum_finger_curl < 1.0
             or not result.pinch_intent_minimum_finger_curl
             < result.pinch_intent_power_grasp_curl <= 1.0
+            or not 0.0 < result.pinch_pose_maximum_weight_step <= 1.0
+            or any(
+                name not in {"index", "middle", "tripod"}
+                or len(pose) != len(RH56_CANONICAL_ORDER)
+                or not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in pose)
+                for name, pose in result.validated_pinch_poses.items()
+            )
+            or not 0.0 <= result.thumb_first_lateral_target <= 1.0
+            or not 0.0 <= result.thumb_first_lateral_tolerance < 1.0
+            or not 0.0 <= result.thumb_first_index_guard <= 1.0
+            or not 0.0 <= result.thumb_first_thumb_close_guard <= 1.0
+            or not 0.0 <= result.thumb_first_index_activation <= 1.0
+            or not 0.0 <= result.thumb_first_thumb_close_activation <= 1.0
+            or not 0.0 <= result.thumb_first_lateral_activation <= 1.0
             or not 0 <= result.mcp_flexion_weight <= 1
             or not 0 <= result.mcp_flexion_deadband < 1
             or not 0 < result.maximum_normalized_step <= 1
@@ -465,6 +532,170 @@ class PinchIntentDetector:
                 ),
             )
         return self.mode, confidence
+
+
+class PinchPoseBlender:
+    """Continuously blend retarget output toward physically validated poses."""
+
+    def __init__(
+        self,
+        validated_poses: Mapping[
+            str, tuple[float, float, float, float, float, float]
+        ],
+        *,
+        maximum_weight_step: float,
+    ) -> None:
+        self.validated_poses = {
+            name: np.asarray(pose, dtype=np.float64)
+            for name, pose in validated_poses.items()
+        }
+        self.maximum_weight_step = float(maximum_weight_step)
+        self.mode = "none"
+        self.weight = 0.0
+
+    def reset(self) -> None:
+        self.mode = "none"
+        self.weight = 0.0
+
+    def update(
+        self,
+        continuous_target: np.ndarray,
+        *,
+        detected_mode: str,
+        confidence: float,
+        tracking_valid: bool = True,
+    ) -> tuple[np.ndarray, str, float]:
+        continuous = np.asarray(continuous_target, dtype=np.float64)
+        if continuous.shape != (len(RH56_CANONICAL_ORDER),) or not np.all(
+            np.isfinite(continuous)
+        ):
+            raise ValueError("continuous pinch-blend target must be six finite channels")
+        desired_mode = (
+            detected_mode
+            if tracking_valid
+            and detected_mode in self.validated_poses
+            and math.isfinite(confidence)
+            and confidence > 0.0
+            else "none"
+        )
+        desired_weight = float(np.clip(confidence, 0.0, 1.0))
+
+        if self.mode == "none" and desired_mode != "none":
+            self.mode = desired_mode
+        elif self.mode != "none" and desired_mode != self.mode:
+            desired_weight = 0.0
+
+        weight_delta = float(
+            np.clip(
+                desired_weight - self.weight,
+                -self.maximum_weight_step,
+                self.maximum_weight_step,
+            )
+        )
+        self.weight = float(np.clip(self.weight + weight_delta, 0.0, 1.0))
+        if self.weight == 0.0 and desired_mode != self.mode:
+            self.mode = desired_mode
+        if self.mode == "none":
+            return continuous.copy(), self.mode, self.weight
+
+        pose = self.validated_poses[self.mode]
+        blended = (1.0 - self.weight) * continuous + self.weight * pose
+        return blended, self.mode, self.weight
+
+
+class ThumbFirstPinchSequencer:
+    """Observe verified index-pinch entry without reshaping the target.
+
+    RH56 has one thumb opposition actuator shared by the thumb mechanism.  A
+    simultaneous six-channel target can therefore let the index occupy the
+    space that the thumb needs for opposition. The validated triplet is
+    already below the known self-collision boundary,
+    so a smaller index/thumb-close preposition would only create an unnatural
+    retreat.  This state machine now provides diagnostics only; every target
+    passes through unchanged and remains subject to the normal command delta
+    and safety gates.
+    """
+
+    def __init__(
+        self,
+        *,
+        enabled: bool,
+        lateral_target: float,
+        lateral_tolerance: float,
+        index_guard: float,
+        thumb_close_guard: float,
+        index_activation: float = 0.50,
+        thumb_close_activation: float = 0.35,
+        lateral_activation: float | None = None,
+    ) -> None:
+        self.enabled = bool(enabled)
+        self.lateral_target = float(lateral_target)
+        self.lateral_tolerance = float(lateral_tolerance)
+        self.index_guard = float(index_guard)
+        self.thumb_close_guard = float(thumb_close_guard)
+        self.index_activation = float(index_activation)
+        self.thumb_close_activation = float(thumb_close_activation)
+        self.lateral_activation = float(
+            self.lateral_target - self.lateral_tolerance
+            if lateral_activation is None
+            else lateral_activation
+        )
+        self.stage = "idle"
+
+    def reset(self) -> None:
+        self.stage = "idle"
+
+    def update(
+        self,
+        canonical_target: np.ndarray,
+        *,
+        detected_mode: str,
+        confidence: float,
+        tracking_valid: bool,
+        measured_canonical: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, str]:
+        target = np.asarray(canonical_target, dtype=np.float64).copy()
+        if target.shape != (len(RH56_CANONICAL_ORDER),) or not np.all(
+            np.isfinite(target)
+        ):
+            raise ValueError("thumb-first target must be six finite channels")
+        active = (
+            self.enabled
+            and tracking_valid
+            and detected_mode == "index"
+            and math.isfinite(confidence)
+            and confidence > 0.0
+        )
+        if not active:
+            self.reset()
+            return target, self.stage
+        if measured_canonical is not None:
+            measured = np.asarray(measured_canonical, dtype=np.float64)
+            if measured.shape != target.shape or not np.all(np.isfinite(measured)):
+                measured = None
+        else:
+            measured = None
+
+        # Do not turn every index-pinch intent into a staged pose.  The gate is
+        # only relevant once the continuous retarget is already close to the
+        # previously verified physical index-pinch pose.  In particular, an
+        # earlier approach target such as [index=.48, thumb_close=.38,
+        # lateral=.65] must pass through unchanged so the thumb can continue
+        # its natural side swing.
+        near_verified_pose = (
+            target[0] >= self.index_activation
+            and target[4] >= self.thumb_close_activation
+            and target[5] >= self.lateral_activation
+        )
+        if measured is None or not near_verified_pose:
+            self.reset()
+            return target, self.stage
+        # The current measured pose may be far from opposition, but the
+        # validated index value is known not to occupy the thumb's lateral
+        # workspace.  Approach all three pinch channels directly; do not
+        # retreat to index_guard/thumb_close_guard first.
+        self.stage = "index_approach"
+        return target, self.stage
 
 
 class ProjectRh56Retargeter:

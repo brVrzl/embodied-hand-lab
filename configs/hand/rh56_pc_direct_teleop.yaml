@@ -61,6 +61,16 @@ diagnostics:
   telemetry_buffer_capacity: 64
   telemetry_flush_every_records: 16
   telemetry_flush_interval_sec: 1.0
+# Software-only normalized position shaping.  This limits command velocity and
+# acceleration at the 40 Hz hand boundary; it does not write RH56 registers or
+# bypass the delta/contact/fault gates below.
+command_shaping:
+  enabled: true
+  maximum_closing_velocity: [0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
+  # Opening is intentionally bounded separately because direct measurements
+  # showed abrupt four-times-faster release steps than closure steps.
+  maximum_opening_velocity: [0.60, 0.60, 0.60, 0.60, 0.60, 0.60]
+  maximum_acceleration: [1.40, 1.40, 1.40, 1.40, 1.40, 1.40]
 close_strength: 0.35
 pinch_strength: 0.25
 speed_default: [800, 800, 800, 800, 800, 800]
@@ -89,9 +99,31 @@ topics:
   command: /hand/command
 safety:
   estop_enabled: true
-  max_close_strength: 0.8
+  # The RH56 normalized protocol domain is available on every channel. Object
+  # protection is handled by the feedback-qualified contact stop below, not by
+  # a fixed 0.8 travel truncation.
+  max_close_strength: 1.0
+  contact_stop:
+    enabled: true
+    require_fresh_force_before_closure_step: true
+    # Preserve the prior worst-case 0.05 closure between FORCE samples, but
+    # distribute it across four 40 Hz writes instead of one visible 10 Hz jump.
+    closure_budget_per_force_sample: 0.05
+    maximum_closure_step: 0.0125
+    # FORCE_ACT must move this far from the activation/no-contact baseline.
+    force_delta_onset: [400, 400, 400, 400, 400, 400]
+    force_delta_release: [150, 150, 150, 150, 150, 150]
+    # A force event is only a contact candidate while closure is still
+    # requested and fresh ANGLE_ACT progress has stalled. The first sample
+    # pauses closure provisionally; the second consecutive sample latches.
+    minimum_closing_gap: 0.008
+    maximum_stall_progress: 0.005
+    consecutive_samples: 2
+    relief_margin: 0.01
+    release_open_delta: 0.02
+    baseline_alpha: 0.10
   teleop_notes:
     - This config is for RH56 PC-direct hand-only teleop.
     - Fast40 is the physically selected default; baseline/fast30/fast50 remain explicit comparison profiles. Delta_limit remains 0.05 and this gate performs no automatic config writes.
-    - No PC-direct low-pass filter is configured.
+    - Command shaping is a normalized position trajectory limit, not a low-pass filter; the latest-only target and 40 Hz scheduler remain unchanged.
     - /hand/command_angles expects canonical raw count order.

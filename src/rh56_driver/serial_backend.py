@@ -45,6 +45,7 @@ class RH56SerialBackend(HandBackend):
 
     REG = {
         "CLEAR_ERROR": 1004,
+        "GESTURE_FORCE_CLB": 1009,
         "POS_SET": 1474,
         "ANGLE_SET": 1486,
         "FORCE_SET": 1498,
@@ -139,6 +140,11 @@ class RH56SerialBackend(HandBackend):
 
     def clear_error(self) -> bool:
         return self.write_register(self.REG["CLEAR_ERROR"], [1])
+
+    def calibrate_force_sensors(self) -> bool:
+        """Start the RH56's built-in no-load force-sensor calibration."""
+
+        return self.write_register(self.REG["GESTURE_FORCE_CLB"], [1])
 
     def set_speeds(self, values: list[int]) -> bool:
         self._validate_vector(values, 0, 1000)
