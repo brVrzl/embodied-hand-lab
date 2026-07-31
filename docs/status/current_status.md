@@ -143,6 +143,25 @@ physically derived index-pinch three-channel relationship. The previous
 combined path accidentally inherited the simulation-uncalibrated calibration;
 the correction is offline tested but has not yet been revalidated on hardware.
 
+A later bottle-grasp combined run stopped fail-closed on middle-channel
+`ERROR=4` after contact had already been detected. The log showed that a grip
+release followed by loaded reacquisition rebased `FORCE_ACT` to the loaded
+values and cleared provisional/latched holds; the command shaper also retained
+closing momentum after the contact target moved toward relief. The controller
+now preserves the no-load baseline and contact state across loaded
+reacquisition, restores a provisional hold when release races detection, and
+discards residual closing velocity at the contact clamp. This correction is
+offline regression tested but has not yet received a post-fix object-contact
+physical validation.
+
+An unloaded bounded hand-only endpoint test then commanded canonical
+`[index, middle, ring, pinky, thumb_close, thumb_lateral] =
+[0, 0, 0, 0, 0, 0.9]`. Final measured normalized feedback was approximately
+`[0.004, 0.004, 0.002, 0.002, 0.005, 0.914]`, with zero current, zero ERROR,
+all STATUS values 2, and no serial/protocol fault. This physically confirms
+that the thumb-lateral actuator can reach the 0.9 region while unloaded; it
+does not by itself validate Quest retarget coverage or loaded motion there.
+
 ## Simulation limits
 
 The integrated live MuJoCo model has six JAKA and six RH56 position actuators.

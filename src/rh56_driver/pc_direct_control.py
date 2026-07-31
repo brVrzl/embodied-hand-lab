@@ -186,8 +186,13 @@ class RH56CommandShaper:
 
         error = target_value - self.position
         closing = error > 0.0
-        if np.any(contact_mask & closing):
-            self.velocity[contact_mask & closing] = 0.0
+        # A contact hold is an outer safety clamp.  Do not carry positive
+        # (closing) momentum into the lower hold target: acceleration-limited
+        # reversal would otherwise keep closing for several cycles after
+        # contact had already been detected.
+        self.velocity[contact_mask] = np.minimum(
+            self.velocity[contact_mask], 0.0
+        )
         speed_limit = np.where(
             closing,
             self.maximum_closing_velocity,
@@ -203,7 +208,9 @@ class RH56CommandShaper:
             -acceleration_step,
             acceleration_step,
         )
-        self.velocity[contact_mask & closing] = 0.0
+        self.velocity[contact_mask] = np.minimum(
+            self.velocity[contact_mask], 0.0
+        )
         step = self.velocity * dt_sec
         step = np.where(closing, np.minimum(step, error), np.maximum(step, error))
         output = self.position + step
@@ -614,6 +621,9 @@ class RH56PcDirectControl:
         self._contact_last_closure_force_generation = -1
         self._contact_closure_since_force = np.zeros(6, dtype=np.float64)
         self.contact_detection_count = 0
+        self.contact_activation_preserved_count = 0
+        self.contact_activation_rebased_count = 0
+        self._contact_last_activation_mode = "never_activated"
 
     def open(self, approval_token: str) -> None:
         authorization = parse_rh56_approval(approval_token)
@@ -884,7 +894,7 @@ class RH56PcDirectControl:
         )
         self.last_requested_target_normalized = self.last_command_normalized
         self.command_shaper.reset(self.last_command_normalized, monotonic_ns)
-        self._reset_contact_stop(self.last_feedback)
+        self._prepare_contact_stop_activation(self.last_feedback)
         self.state = HandControlState.ACTIVE
         self.transport_state = "CONNECTED_COMMAND_AUTHORIZED"
         self.next_command_monotonic_ns = int(monotonic_ns)
@@ -977,9 +987,13 @@ class RH56PcDirectControl:
                 ):
                     self.last_command_disposition = "contact_feedback_wait"
                     return False
+            # The mask represents an outer contact hold, not merely a target
+            # that still points in the closing direction.  The hold target is
+            # normally below the last command, and the shaper must discard any
+            # residual positive velocity before starting that relief motion.
             contact_closing_mask = (
                 self._contact_latched | (self._contact_candidate_count > 0)
-            ) & (requested > previous_command + 1e-12)
+            )
             requested = self.command_shaper.step(
                 previous_command,
                 requested,
@@ -1360,6 +1374,67 @@ class RH56PcDirectControl:
         )
         self._contact_closure_since_force.fill(0.0)
 
+    def _prepare_contact_stop_activation(
+        self, feedback: PcDirectFeedback
+    ) -> None:
+        """Rebase only after an unloaded clutch cycle; preserve loaded holds."""
+
+        if not self.contact_stop_enabled or self._contact_force_baseline is None:
+            self._reset_contact_stop(feedback)
+            self.contact_activation_rebased_count += 1
+            self._contact_last_activation_mode = "rebased"
+            return
+
+        current_force = np.asarray(
+            feedback.load_or_force_raw_count, dtype=np.float64
+        )
+        force_delta = np.abs(current_force - self._contact_force_baseline)
+        contact_active = self._contact_latched | (
+            self._contact_candidate_count > 0
+        )
+        load_persists = force_delta >= self.contact_force_delta_release
+        if not np.any(contact_active | load_persists):
+            self._reset_contact_stop(feedback)
+            self.contact_activation_rebased_count += 1
+            self._contact_last_activation_mode = "rebased_unloaded"
+            return
+
+        # A grip release stops new writes but the RH56 continues servoing its
+        # last position target.  Reacquiring while an object is still loaded
+        # must therefore retain the no-load baseline and all provisional or
+        # latched holds instead of treating the loaded FORCE_ACT values as zero.
+        self._contact_force_delta = force_delta
+        measured = np.asarray(
+            feedback.position_normalized, dtype=np.float64
+        )
+        self._contact_last_angle = measured.copy()
+        self._contact_angle_progress.fill(0.0)
+        self._contact_angle_generation += 1
+        self._contact_force_angle_generation = self._contact_angle_generation
+        self._contact_last_closure_force_generation = (
+            self._contact_force_generation - 1
+        )
+        self._contact_closure_since_force.fill(0.0)
+
+        # If release raced the first qualified FORCE sample, conservatively
+        # restore a provisional hold on a still-loaded channel that had been
+        # closing.  A later fresh sample confirms it; an explicit opening
+        # command remains able to release it through the normal hysteresis.
+        provisional = (
+            load_persists
+            & ~self._contact_latched
+            & (self._contact_candidate_count == 0)
+            & (self._contact_last_closing_request_ns >= 0)
+        )
+        for index in np.flatnonzero(provisional):
+            self._contact_candidate_count[index] = 1
+            self._contact_hold_target[index] = max(
+                0.0, float(measured[index]) - self.contact_relief_margin
+            )
+
+        self.contact_activation_preserved_count += 1
+        self._contact_last_activation_mode = "preserved_loaded_contact"
+
     def _observe_contact_angle(self, values: Sequence[float]) -> None:
         current = np.asarray(values, dtype=np.float64)
         if self._contact_last_angle is not None:
@@ -1459,6 +1534,9 @@ class RH56PcDirectControl:
         return {
             "enabled": self.contact_stop_enabled,
             "detection_count": self.contact_detection_count,
+            "activation_preserved_count": self.contact_activation_preserved_count,
+            "activation_rebased_count": self.contact_activation_rebased_count,
+            "last_activation_mode": self._contact_last_activation_mode,
             "latched": self._contact_latched.tolist(),
             "candidate_count": self._contact_candidate_count.tolist(),
             "hold_target_normalized": [

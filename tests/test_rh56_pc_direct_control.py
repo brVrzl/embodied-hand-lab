@@ -287,10 +287,108 @@ def test_contact_stop_latches_after_confirmed_stall_and_opening_releases() -> No
     assert hold == pytest.approx(0.04)
     assert control.contact_limited_target([1, 0, 0, 0, 0, 0], allow_release=False)[0] == pytest.approx(hold)
 
-    assert control.command([0, 0, 0, 0, 0, 0], 1_200_000_000)
+    control.hold("grip_released")
+    feedback = control.poll_feedback(1_300_000_000)
+    control.activate(1_300_000_000)
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["latched"][0] is True
+    assert snapshot["force_baseline"][0] == pytest.approx(0.0)
+    assert snapshot["last_activation_mode"] == "preserved_loaded_contact"
+    assert control.command(
+        feedback.position_normalized,
+        1_300_000_000,
+        force_write=True,
+        measured_activation_write=True,
+    )
+
+    assert control.command(
+        [0, 0, 0, 0, 0, 0],
+        1_300_000_000 + control.command_period_ns,
+    )
     snapshot = control.contact_stop_snapshot()
     assert snapshot["latched"][0] is False
     assert control.last_command_normalized[0] == pytest.approx(0.0)
+
+
+def test_contact_candidate_discards_shaper_closing_momentum_immediately() -> None:
+    backend = FakeRH56PcDirectBackend()
+    config = _contact_stop_config()
+    config["control_frequency_hz"] = 40
+    config["command_shaping"] = {
+        "enabled": True,
+        "maximum_closing_velocity": [0.35] * 6,
+        "maximum_opening_velocity": [0.60] * 6,
+        "maximum_acceleration": [1.40] * 6,
+    }
+    control = RH56PcDirectControl(backend, config)
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+
+    period = control.command_period_ns
+    for step in range(8):
+        timestamp = 1_000_000_000 + step * period
+        assert control.command([0.8, 0, 0, 0, 0, 0], timestamp)
+        backend.position[0] = round(
+            1000.0 * (1.0 - control.last_command_normalized[0])
+        )
+        control.poll_feedback_register("ANGLE", timestamp + period // 2)
+
+    before_contact = control.last_command_normalized[0]
+    assert control.command_shaper.velocity[0] > 0.0
+    backend.load[0] = 350.0
+    control.poll_feedback_register("FORCE", 1_000_000_000 + 8 * period)
+    assert control.contact_stop_snapshot()["candidate_count"][0] == 1
+
+    assert control.command(
+        [0.8, 0, 0, 0, 0, 0], 1_000_000_000 + 9 * period
+    )
+    assert control.last_command_normalized[0] < before_contact
+    assert control.command_shaper.velocity[0] <= 0.0
+
+
+def test_loaded_reactivation_preserves_baseline_and_provisional_hold() -> None:
+    backend = FakeRH56PcDirectBackend()
+    control = RH56PcDirectControl(backend, _contact_stop_config())
+    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+    assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
+    assert control.last_command_normalized[0] == pytest.approx(0.05)
+
+    control.hold("grip_released")
+    backend.position[0] = 950.0
+    backend.load[0] = 200.0
+    feedback = control.poll_feedback(1_100_000_000)
+    control.activate(1_100_000_000)
+
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["last_activation_mode"] == "preserved_loaded_contact"
+    assert snapshot["activation_preserved_count"] == 1
+    assert snapshot["activation_rebased_count"] == 1
+    assert snapshot["force_baseline"][0] == pytest.approx(0.0)
+    assert snapshot["force_delta"][0] == pytest.approx(200.0)
+    assert snapshot["candidate_count"][0] == 1
+    assert snapshot["hold_target_normalized"][0] == pytest.approx(0.04)
+    assert control.last_command_normalized == feedback.position_normalized
+
+    assert control.command(
+        feedback.position_normalized,
+        1_100_000_000,
+        force_write=True,
+        measured_activation_write=True,
+    )
+    assert control.command(
+        [0.8, 0, 0, 0, 0, 0],
+        1_100_000_000 + control.command_period_ns,
+    )
+    assert control.last_command_normalized[0] == pytest.approx(0.04)
+
+    assert control.command(
+        [0, 0, 0, 0, 0, 0],
+        1_100_000_000 + 2 * control.command_period_ns,
+    )
+    assert control.contact_stop_snapshot()["candidate_count"][0] == 0
 
 
 def test_each_activation_rebases_first_target_on_fresh_measured_angle_act() -> None:
