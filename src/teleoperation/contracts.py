@@ -372,22 +372,6 @@ class RobotState:
 
 
 @dataclass(frozen=True, slots=True)
-class ControllerStatus:
-    state: ControllerState
-    monotonic_ns: int
-    last_command_sequence: int | None
-    owner_pid: int | None
-    reason: str = ""
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "monotonic_ns", int(self.monotonic_ns))
-        if self.monotonic_ns < 0:
-            raise ValueError("monotonic_ns must be non-negative")
-        if self.last_command_sequence is not None:
-            _validate_sequence(self.last_command_sequence)
-
-
-@dataclass(frozen=True, slots=True)
 class HealthState:
     level: HealthLevel
     monotonic_ns: int
@@ -439,53 +423,6 @@ class CommandAcknowledgement:
                 field_name="robot_command_monotonic_ns",
             ),
         )
-
-
-@dataclass(frozen=True, slots=True)
-class TimingStatistics:
-    name: str
-    unit: str
-    count: int
-    requested_period_ns: int | None
-    mean: float
-    median: float
-    stddev: float
-    minimum: float
-    maximum: float
-    p95: float
-    p99: float
-    p999: float | None
-    missed_deadlines: int = 0
-    max_consecutive_missed_deadlines: int = 0
-
-    def __post_init__(self) -> None:
-        _validate_identity(self.name, "name")
-        _validate_identity(self.unit, "unit")
-        if self.count < 0 or self.missed_deadlines < 0 or self.max_consecutive_missed_deadlines < 0:
-            raise ValueError("timing counts must be non-negative")
-        object.__setattr__(
-            self,
-            "requested_period_ns",
-            _nonnegative_ns(self.requested_period_ns, field_name="requested_period_ns"),
-        )
-        numeric = (
-            self.mean,
-            self.median,
-            self.stddev,
-            self.minimum,
-            self.maximum,
-            self.p95,
-            self.p99,
-        )
-        if not all(math.isfinite(value) for value in numeric):
-            raise ValueError("timing statistics must be finite")
-        if self.p999 is not None and not math.isfinite(self.p999):
-            raise ValueError("p999 must be finite when provided")
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
 def _validate_identity(value: str, field_name: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")

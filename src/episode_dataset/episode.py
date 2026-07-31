@@ -200,6 +200,9 @@ class CanonicalSample:
     synchronization_valid: bool
     stale_sources: tuple[str, ...] = ()
     dropped_sources: tuple[str, ...] = ()
+    nominal_slot_index: int | None = None
+    missed_slots_before: int = 0
+    missed_slots_after: int = 0
 
 
 class CanonicalEpisodeWriter:
@@ -232,6 +235,7 @@ class CanonicalEpisodeWriter:
         self._start_ns: int | None = None
         self._last_timestamp_ns: int | None = None
         self._trigger_press_ns: int | None = None
+        self._total_missed_slots = 0
         self._raw_camera_keys: set[tuple[str, int, int]] = set()
         self._raw_camera_paths: dict[
             tuple[str, int, int], dict[str, Path | None]
@@ -261,6 +265,19 @@ class CanonicalEpisodeWriter:
         missing_calibration = [str(path) for path in self._calibration_files if not path.is_file()]
         if missing_calibration:
             raise ValueError(f"calibration snapshot files do not exist: {missing_calibration}")
+        calibration_names = [path.name for path in self._calibration_files]
+        duplicate_names = sorted(
+            {
+                name
+                for name in calibration_names
+                if calibration_names.count(name) > 1
+            }
+        )
+        if duplicate_names:
+            raise ValueError(
+                "calibration snapshot basenames must be unique: "
+                + ", ".join(duplicate_names)
+            )
         if self.final_dir.exists() or self.partial_dir.exists():
             raise FileExistsError(self.final_dir)
         for path in (
@@ -330,6 +347,15 @@ class CanonicalEpisodeWriter:
             raise ValueError("canonical timestamp must increase strictly")
         if not sample.synchronization_valid:
             raise ValueError("invalid synchronization cannot enter canonical training data")
+        if sample.missed_slots_before < 0 or sample.missed_slots_after < 0:
+            raise ValueError("missed canonical slot counts must be non-negative")
+        nominal_slot = (
+            sample.frame_index
+            if sample.nominal_slot_index is None
+            else int(sample.nominal_slot_index)
+        )
+        if nominal_slot < sample.frame_index:
+            raise ValueError("nominal_slot_index cannot precede frame_index")
         paths: dict[str, dict[str, str | None]] = {}
         for camera in (sample.workspace, sample.wrist):
             paths[camera.role] = self._write_camera_sample(camera, sample.frame_index)
@@ -340,6 +366,7 @@ class CanonicalEpisodeWriter:
             handle.flush()
             os.fsync(handle.fileno())
         self._last_timestamp_ns = sample.timestamp_ns
+        self._total_missed_slots += int(sample.missed_slots_after)
         self._sample_count += 1
 
     def append_raw_camera(self, camera: CameraSample) -> None:
@@ -407,6 +434,7 @@ class CanonicalEpisodeWriter:
                 "end_host_monotonic_ns": end_ns,
                 "duration_s": None if self._start_ns is None else (end_ns - self._start_ns) / 1e9,
                 "sample_count": self._sample_count,
+                "canonical_missed_slot_count": self._total_missed_slots,
                 "trigger_release_host_monotonic_ns": trigger_release_monotonic_ns,
                 "completion_status": status.value,
                 "termination_reason": termination_reason,
@@ -434,6 +462,10 @@ class CanonicalEpisodeWriter:
 
     def discard_rejected_start(self, reason: str) -> Path:
         """Write a report only; no episode directory is created."""
+        self._close_raw_handles()
+        if self.partial_dir.is_dir():
+            shutil.rmtree(self.partial_dir)
+        self._started = False
         self.root.mkdir(parents=True, exist_ok=True)
         report = self.root / f"rejected-start-{self.episode_uuid}.json"
         self._write_json(
@@ -532,12 +564,13 @@ class CanonicalEpisodeWriter:
                 "policy": "latest_sample_at_or_before_canonical_timestamp",
                 "future_samples_allowed": False,
                 "stale_samples_copied": False,
+                "missed_canonical_slots": "recorded_not_compressed",
             },
             "completion_status": None,
             "termination_reason": None,
             "success_label": "unlabeled",
             "finalized": False,
-            "code": _git_state(Path.cwd()),
+            "code": _git_state(Path(__file__).resolve().parents[2]),
             **self._metadata_extra,
         }
 
@@ -603,6 +636,17 @@ class CanonicalEpisodeWriter:
                 "synchronization_valid": sample.synchronization_valid,
                 "stale_sources": list(sample.stale_sources),
                 "dropped_sources": list(sample.dropped_sources),
+                "nominal_slot_index": (
+                    sample.frame_index
+                    if sample.nominal_slot_index is None
+                    else int(sample.nominal_slot_index)
+                ),
+                "missed_slots_before": int(sample.missed_slots_before),
+                "missed_slots_after": int(sample.missed_slots_after),
+                "timing_valid": (
+                    sample.missed_slots_before == 0
+                    and sample.missed_slots_after == 0
+                ),
             },
             "camera": {
                 role: {
@@ -672,6 +716,15 @@ def file_sha256(path: str | Path) -> str:
 
 
 def _git_state(cwd: Path) -> dict[str, Any]:
+    explicit_revision = os.environ.get("EMBODIED_LAB_SOURCE_REVISION")
+    if explicit_revision:
+        return {
+            "commit": explicit_revision,
+            "dirty": None,
+            "source": "EMBODIED_LAB_SOURCE_REVISION",
+        }
+    if not (cwd / ".git").exists():
+        return {"commit": None, "dirty": None, "source": "no_repository_metadata"}
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=cwd, check=True, text=True, capture_output=True
@@ -681,6 +734,6 @@ def _git_state(cwd: Path) -> dict[str, Any]:
                 ["git", "status", "--porcelain"], cwd=cwd, check=True, text=True, capture_output=True
             ).stdout
         )
-        return {"commit": commit, "dirty": dirty}
+        return {"commit": commit, "dirty": dirty, "source": "git"}
     except (OSError, subprocess.CalledProcessError):
-        return {"commit": None, "dirty": None}
+        return {"commit": None, "dirty": None, "source": "git_unavailable"}

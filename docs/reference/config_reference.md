@@ -1,41 +1,102 @@
 # Configuration reference
 
-| Configuration | Current role |
-|---|---|
-| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | authoritative live Quest/JAKA shared pipeline |
-| `configs/sim/quest_hts_jaka_mini2_offline.yaml` | recorded-input/offline simulation |
-| `configs/motion_input/quest_hts_right_hand.yaml` | HTS receiver/provider settings |
-| `configs/sim/quest_rh56_retarget.yaml` | simulated RH56 retargeting |
-| `configs/robot/jaka_mini2_real.yaml` | physical connection example; not controller truth |
-| `configs/hand/rh56_real.yaml` | RH56 physical example; separately gated |
-| `configs/teleoperation/jaka_foundation.yaml` | dated foundation-gate policy |
-| `digital_twin/configs/static_environment.yaml` | provisional integrated-workspace geometry |
+This is a compact inventory. The authoritative loading, units, environment
+variables, and local-copy rules are in
+[Configuration](../configuration/CONFIGURATION.md).
 
-The live Quest config documents freshness, clutch, mapping, filter,
-continuation, IK, singularity, output velocity/acceleration, native period, and
-safety timeouts. Comments in historical configs do not override current code.
+Configuration never authorizes hardware. There is no repository-wide implicit
+merge and no general `.env` loader. For a field supported by a maintained
+entry point, precedence is:
 
-Validate YAML syntactically and through existing loader tests. Do not
-automatically translate a versioned sample IP, serial port, payload, or TCP
-value into local device state.
+```text
+code schema/default < explicitly selected YAML < explicit CLI override
+```
 
----
+Older standalone tools may implement only part of this pattern; use the
+owning loader and current `--help`.
 
-# 中文版：配置参考
+## Maintained YAML inventory
 
-| 配置 | 当前用途 |
-|---|---|
-| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | 权威的实时 Quest/JAKA 共享管线 |
-| `configs/sim/quest_hts_jaka_mini2_offline.yaml` | 录制输入/离线仿真 |
-| `configs/motion_input/quest_hts_right_hand.yaml` | HTS 接收器/provider 设置 |
-| `configs/sim/quest_rh56_retarget.yaml` | 仿真 RH56 重定向 |
-| `configs/robot/jaka_mini2_real.yaml` | 真机连接示例，不代表控制器真实配置 |
-| `configs/hand/rh56_real.yaml` | RH56 真机示例，需单独 gate |
-| `configs/teleoperation/jaka_foundation.yaml` | 带日期的基础 gate 策略 |
-| `digital_twin/configs/static_environment.yaml` | 临时集成工作空间几何 |
+| Configuration | Current role and boundary |
+| --- | --- |
+| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter; also owns the maintained MuJoCo live-scene settings |
+| `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Recorded-input and headless/offline simulation policy; deliberately smaller and different from live policy |
+| `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
+| `configs/sim/jaka_collision_sweep_poses.yaml` | Offline digital-twin collision-sweep pose samples |
+| `configs/motion_input/quest_hts_right_hand.yaml` | HTS receiver and canonical-operator preparation values; not physical robot bounds |
+| `configs/benchmark/smoke.yaml` | Deterministic offline JAKA joint-reach/RH56 actuator pre-shape smoke benchmark |
+| `configs/hand/rh56_pc_direct_teleop.yaml` | Maintained PC-direct transport, scheduler, channel order, feedback, command bounds, and safety policy; actual stable serial device remains a CLI choice |
+| `configs/hand/quest_rh56_real_retarget.yaml` | Dated physical Quest hand-feature calibration; does not own RH56 protocol travel or authorize writes |
+| `configs/camera/default_rgbd.yaml` | Small mock RGB-D fixture, not a physical-camera default |
+| `configs/camera/realsense_thor.yaml` | Site-specific dual-D435 snapshot with recorded serials; not portable and not end-to-end validated |
+| `configs/perception/d435_tabletop.yaml` | Offline tabletop processing parameters; camera-to-JAKA transform and workspace remain explicitly uncalibrated |
+| `configs/data_collection/dual_d435_episode.example.yaml` | Copyable settings for the current simulation-backed Quest + dual-D435 episode path; not a physical JAKA/RH56 collector configuration |
+| `configs/training/distributed.example.yaml` | Proposed future trainer contract; explicitly not consumed by a current ACT, Diffusion Policy, or other trainer |
 
-实时 Quest 配置记录 freshness、clutch、映射、滤波、continuation、IK、奇异性、输出速度/
-加速度、原生周期和安全超时。历史配置中的注释不能覆盖当前代码。
+`digital_twin/configs/` is a separate set of calibration evidence, provisional
+scene geometry, transforms, collision classifications, and examples owned by
+specific digital-twin tools. It is not loaded globally. Follow the
+[digital-twin guide](../digital_twin/README.md).
 
-应通过 YAML 语法检查和现有 loader 测试验证配置。不能自动把版本化示例中的 IP、串口、
-payload 或 TCP 值转化为本地设备状态。
+## Shared arm and scene boundary
+
+The live Quest YAML defines freshness, clutch semantics, frames, provisional
+mapping, filters, continuation IK, singularity/joint/collision checks, output
+velocity and acceleration feasibility, transport period, and timeouts.
+Physical and MuJoCo adapters are identical only through immutable
+`AcceptedArmTarget`.
+
+The configured live viewer can load
+`digital_twin/configs/workspace.yaml`, including a provisional table.
+`SharedJakaTargetGenerator` still uses the base MJCF, so injected scene
+geometry is not shared pre-acceptance collision authority and cannot establish
+physical clearance.
+
+## Device values are not controller truth
+
+- JAKA IP addresses are explicit command-line gate inputs. Versioned examples
+  are not a statement of the current network.
+- Actual RH56 serial identity is selected explicitly, preferably through a
+  stable `/dev/serial/by-id/...` path. The placeholder in YAML must not be used
+  as a device.
+- Camera roles are selected by verified serial, never `/dev/video*` ordering.
+- Payload, COM, installation, TCP, collision, and controller safety settings
+  must be verified at the controller. Software must not silently apply
+  recorded operator values.
+- A syntactically valid physical YAML is neither a no-motion guarantee nor
+  permission to connect.
+
+For RH56, the canonical software order is:
+
+```text
+[index, middle, ring, pinky, thumb_close, thumb_lateral]
+```
+
+Raw `ANGLE_ACT`, `CURRENT`, `FORCE_ACT`, `ERROR`, and `STATUS` are register
+feedback, not a tactile array or complete passive-joint state. MuJoCo hand
+actuator radians and physical RH56 register counts are different units.
+
+## Validation
+
+The following offline checks are the applicable repository commands:
+
+```bash
+.venv/bin/python -m pytest -q -p no:cacheprovider tests/test_configs.py
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import yaml
+
+files = sorted(Path("configs").rglob("*.yaml"))
+for file in files:
+    value = yaml.safe_load(file.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError(f"{file}: YAML root must be a mapping")
+print(f"parsed {len(files)} YAML mappings")
+PY
+```
+
+These checks prove syntax and selected loader contracts only. Hardware
+profiles, physical calibration, and device identity require their separately
+gated procedures. The historical foundation policy is bounded by its dated
+[minimal-joint validation](../history/gates/jaka_foundation_20260716/jaka_gate3c_minimal_joint_validation_20260716.md);
+it does not override current configuration.

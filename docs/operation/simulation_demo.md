@@ -218,7 +218,7 @@ The viewer retains the desired/actual TCP markers and the terminal prints the
 selected arm output mode. Use `Ctrl-C` or close the viewer for normal cleanup.
 Stale input, clutch release, joint/collision/singularity/velocity/acceleration/
 jerk policy and hard fault behavior remain active in both modes; do not relax
-them to complete a replay. See [troubleshooting](troubleshooting.md) for packet,
+them to complete a replay. See [troubleshooting](../TROUBLESHOOTING.md) for packet,
 viewer, rejection, and stop diagnostics.
 
 Known limits remain: MuJoCo dynamics are approximate, Mini2 dynamics were not
@@ -267,7 +267,7 @@ offline tested, and the Quest/MuJoCo path is simulation validated. A fresh
 post-fix Quest live run is not implied by offline replay, and none of these
 commands constitutes physical JAKA or RH56 validation.
 
-See [troubleshooting](troubleshooting.md) for packet, viewer, and rejection
+See [troubleshooting](../TROUBLESHOOTING.md) for packet, viewer, and rejection
 diagnostics.
 
 ---
@@ -455,7 +455,7 @@ PYTHONPATH=src .venv/bin/python tools/quest_jaka_mujoco_sim.py \
 viewer 保留 desired/actual TCP marker，terminal 会打印所选 arm output mode。正常停止使用
 `Ctrl-C` 或关闭 viewer。stale input、clutch release、joint/collision/singularity/velocity/
 acceleration/jerk policy 和 hard fault 在两种 mode 中都保持有效；不得为完成回放而放宽。
-数据包、viewer、拒绝和停止诊断见[故障排查](troubleshooting.md)。
+数据包、viewer、拒绝和停止诊断见[故障排查](../TROUBLESHOOTING.md)。
 
 ## 验收检查
 
@@ -472,7 +472,7 @@ acceleration/jerk policy 和 hard fault 在两种 mode 中都保持有效；不�
 路径已通过仿真验证。离线 replay 不代表已重新完成修复后的 Quest live 操作，也不构成
 JAKA 或 RH56 真机验证。
 
-数据包、viewer 和拒绝问题见[故障排查](troubleshooting.md)。
+数据包、viewer 和拒绝问题见[故障排查](../TROUBLESHOOTING.md)。
 
 ## `root_cause_fix` 有效策略
 

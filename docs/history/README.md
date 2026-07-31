@@ -21,8 +21,10 @@ Current operational documentation lives outside this directory.
 `gates/jaka_foundation_20260716/` contains Gates 1/2, 3A read-only results, 3B
 zero-motion/EDG timing stages, 3C minimal J6 plans/results, and their
 `gate3b_measurements/` and `gate3c_measurements/` files. The report/raw-file
-group is preserved together. Gate 3C physically passed its exact small J6
-procedures; it is not proof of current Quest teleoperation.
+group is preserved together. Its dated `jaka_foundation.yaml` policy is kept
+beside that evidence rather than in current runtime configuration. Gate 3C
+physically passed its exact small J6 procedures; it is not proof of current
+Quest teleoperation.
 
 ### Quest/JAKA incident and correction sequence, 2026-07-22–23
 
@@ -50,6 +52,14 @@ path. Stale branch names, paths, or test totals are not current instructions.
 checkpoint and disposition rationale for the earlier repository pruning. The
 later workspace inventory/process logs were removed after their dispositions
 were completed; Git history remains the recovery source.
+
+### D435 algorithm measurements, 2026-07-13
+
+`d435_algorithm_selection_20260713.md` and
+`d435_depth_quality_assessment_20260713.md` preserve the device/scene-specific
+filter comparison and quality snapshot. The current implementation boundary is
+documented in `../d435_depth_pointcloud_readiness.md`; the dated measurements
+are not a portable camera profile or completed robot-frame calibration.
 
 ## Retention policy
 

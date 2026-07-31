@@ -21,7 +21,7 @@ from .simulation import (
     SharedJakaTargetGenerator,
     build_twin_viewer_mjcf,
 )
-from .smooth_operator import Se3FilterProfile, SmoothRightHandOperator
+from .smooth_operator import Se3FilterProfile
 from .smooth_session import ArmControlTickResult, SmoothQuestJakaSession
 from .output import (
     AcceptedArmTarget,
@@ -69,7 +69,6 @@ __all__ = [
     "JakaEquivalent125HzMujocoAdapter",
     "MujocoArmTargetAdapter",
     "RecordingArmTargetAdapter",
-    "SmoothRightHandOperator",
     "ProjectRh56Retargeter",
     "AnalogClutchSample",
     "AnalogHoldToRun",

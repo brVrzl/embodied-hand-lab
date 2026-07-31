@@ -44,13 +44,3 @@ cameras:
 
 calibration:
   snapshot_files: []
-
-sources:
-  quest_raw: available
-  accepted_arm_target: available
-  emitted_arm_command_125hz: available
-  arm_q: measured
-  arm_dq: estimated_from_causal_measured_q
-  tcp_pose: estimated_from_measured_q_fk
-  hand_target: commanded
-  hand_observation: unavailable_until_feedback_is_integrated

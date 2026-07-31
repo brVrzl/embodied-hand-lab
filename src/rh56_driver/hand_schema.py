@@ -34,8 +34,6 @@ RH56_PROTOCOL_ORDER: tuple[str, ...] = (
 
 HAND_SCHEMA_VERSION = "inspire6_v1"
 DEFAULT_HAND_DELTA_LIMIT = 0.05
-DEFAULT_EE_TRANSLATION_DELTA_LIMIT_M = 0.02
-DEFAULT_EE_ROTATION_DELTA_LIMIT_RAD = float(np.deg2rad(5.0))
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,21 +188,6 @@ def moving_direction(
     last = _as_array(last_cmd, expected=len(CANONICAL_HAND_ORDER))
     current = _as_array(current_cmd, expected=len(CANONICAL_HAND_ORDER))
     return np.sign(current - last).astype(np.int8).tolist()
-
-
-def clip_ee_delta(
-    ee_delta: Sequence[float] | np.ndarray,
-    *,
-    translation_limit_m: float = DEFAULT_EE_TRANSLATION_DELTA_LIMIT_M,
-    rotation_limit_rad: float = DEFAULT_EE_ROTATION_DELTA_LIMIT_RAD,
-) -> list[float]:
-    delta = _as_array(ee_delta, expected=6)
-    clipped = delta.copy()
-    clipped[:3] = np.clip(clipped[:3], -abs(translation_limit_m), abs(translation_limit_m))
-    clipped[3:] = np.clip(clipped[3:], -abs(rotation_limit_rad), abs(rotation_limit_rad))
-    return clipped.astype(np.float32).tolist()
-
-
 def calibration_to_dict(calibration: Mapping[str, HandDofCalibration]) -> dict[str, dict[str, float | int]]:
     return {name: calibration[name].to_dict() for name in CANONICAL_HAND_ORDER}
 

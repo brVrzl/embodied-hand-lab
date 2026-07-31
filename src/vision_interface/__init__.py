@@ -15,7 +15,7 @@ from .depth_processing import (
     voxel_downsample,
 )
 from .interfaces import CameraInterface, RGBDFrame
-from .mock_camera import MockRGBDCamera, MockRGDBCamera
+from .mock_camera import MockRGBDCamera
 from .naming import CAMERA_FRAMES, CAMERA_TOPICS
 from .realsense_adapter import RealSenseCamera, list_realsense_devices, resolve_realsense_config
 
@@ -26,7 +26,6 @@ __all__ = [
     "PlaneModel",
     "PointCloud",
     "MockRGBDCamera",
-    "MockRGDBCamera",
     "RealSenseCamera",
     "RGBDFrame",
     "TabletopConfig",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import mujoco
@@ -75,8 +76,38 @@ def test_clean_default_has_no_sparse_geometry_and_primitives_collide() -> None:
     assert config["visual_layers"]["cables"] is False
 
 
-def test_optional_sparse_debug_geometry_has_no_collision() -> None:
-    model = _model("workspace_scene_sparse_debug.xml")
+def test_optional_sparse_debug_geometry_has_no_collision(tmp_path: Path) -> None:
+    visual_mesh = tmp_path / "sparse_debug.obj"
+    visual_mesh.write_text(
+        "\n".join(
+            (
+                "v 0 0 0",
+                "v 0.01 0 0",
+                "v 0 0.01 0",
+                "v 0 0 0.01",
+                "f 1 2 3",
+                "f 1 2 4",
+                "f 1 3 4",
+                "f 2 3 4",
+            )
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "workspace_sparse.xml"
+    command = [
+        sys.executable,
+        str(ROOT / "tools/digital_twin/build_mujoco_workspace_scene.py"),
+        "--robot-model", str(ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"),
+        "--static-config", str(ROOT / "digital_twin/configs/static_environment.yaml"),
+        "--camera-config", str(ROOT / "digital_twin/configs/camera_placeholders.yaml"),
+        "--operational-config", str(ROOT / "digital_twin/configs/robot_operational_placement.yaml"),
+        "--visual-mesh", str(visual_mesh),
+        "--show-sparse-debug",
+        "--output", str(output),
+        "--manifest", str(tmp_path / "manifest.yaml"),
+    ]
+    subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    model = mujoco.MjModel.from_xml_path(str(output))
     debug = _id(model, mujoco.mjtObj.mjOBJ_GEOM, "colmap_sparse_debug")
     assert debug >= 0
     assert model.geom_contype[debug] == 0
@@ -90,37 +121,10 @@ def test_camera_placeholders_are_sites_not_collision_geoms() -> None:
         assert _id(model, mujoco.mjtObj.mjOBJ_GEOM, name) < 0
 
 
-def test_segmentation_manifest_is_complete_and_debug_only() -> None:
-    manifest = load_structured(ROOT / "artifacts/digital_twin/static_scene/segmentation_manifest.yaml")
-    expected = {"table", "aluminium_frame", "permanent_background", "removable_clutter", "robot", "calibration_boards", "cables"}
-    assert set(manifest["segment_counts"]) == expected
-    assert sum(manifest["segment_counts"].values()) == manifest["source_point_count_after_crop"]
-    assert manifest["robot_reconstruction_removed"] is True
-    assert manifest["sparse_debug_default_enabled"] is False
-    assert manifest["sparse_debug_collision"] is False
-
-
-def test_scene_package_and_manifest_policy() -> None:
-    directory = ROOT / "artifacts/digital_twin/static_scene"
-    required = [
-        "workspace_scene.ply", "workspace_scene.obj", "workspace_scene.glb",
-        "workspace_clean_engineering.png", "workspace_clean_presentation.png",
-        "zero_pose_top_verified.png", "orientation_before.png", "orientation_after.png",
-        "sparse_debug_optional.png",
-    ]
-    assert all((directory / name).is_file() for name in required)
-    manifest = load_structured(directory / "scene_manifest.yaml")
-    assert manifest["world_frame"] == "P"
-    assert manifest["robot_source_modified"] is False
-    assert manifest["operational_robot_placement"]["yaw_deg"] == 180.0
-    assert manifest["sparse_debug_included"] is False
-    assert manifest["sparse_debug_collision"] is False
-
-
 def test_generated_XML_regeneration_consistency(tmp_path: Path) -> None:
     output = tmp_path / "workspace.xml"; manifest = tmp_path / "manifest.yaml"
     command = [
-        str(ROOT / ".venv/bin/python"), str(ROOT / "tools/digital_twin/build_mujoco_workspace_scene.py"),
+        sys.executable, str(ROOT / "tools/digital_twin/build_mujoco_workspace_scene.py"),
         "--robot-model", str(ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"),
         "--static-config", str(ROOT / "digital_twin/configs/static_environment.yaml"),
         "--camera-config", str(ROOT / "digital_twin/configs/camera_placeholders.yaml"),
@@ -135,6 +139,12 @@ def test_generated_XML_regeneration_consistency(tmp_path: Path) -> None:
         assert np.allclose(regenerated.body_pos[left], checked_in.body_pos[right])
         assert np.allclose(regenerated.body_quat[left], checked_in.body_quat[right])
     assert _id(regenerated, mujoco.mjtObj.mjOBJ_GEOM, "colmap_sparse_debug") < 0
+    generated_manifest = load_structured(manifest)
+    assert generated_manifest["world_frame"] == "P"
+    assert generated_manifest["robot_source_modified"] is False
+    assert generated_manifest["operational_robot_placement"]["yaw_deg"] == 180.0
+    assert generated_manifest["sparse_debug_included"] is False
+    assert generated_manifest["sparse_debug_collision"] is False
 
 
 def test_clean_scene_rendering_smoke() -> None:

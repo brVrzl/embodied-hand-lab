@@ -98,8 +98,8 @@ def test_default_patch_and_runtime_configs_select_visual_coacd() -> None:
     assert not any("correll" in name or "proxy" in name for name in names)
 
     for relative_path in (
-        "configs/teleop/hebi_mobile_io_jaka_rh56_mount_v2.yaml",
-        "configs/teleop/hebi_mobile_io_jaka_rh56.yaml",
+        "configs/sim/quest_hts_jaka_mini2_offline.yaml",
+        "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
     ):
         config = yaml.safe_load((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
-        assert config["shadow"]["mjcf_path"] == "data/sim_assets/jaka_rh56_visual_coacd.xml"
+        assert config["simulation"]["mjcf_path"] == "data/sim_assets/jaka_rh56_visual_coacd.xml"

@@ -425,6 +425,7 @@
     </body>
   </worldbody>
   <contact>
+    <exclude body1="jaka_Link_0" body2="jaka_Link_1" />
     <exclude body1="rh56_R_thumb_proximal_base" body2="rh56_R_thumb_proximal" />
     <exclude body1="rh56_R_thumb_proximal" body2="rh56_R_thumb_intermediate" />
     <exclude body1="rh56_R_thumb_intermediate" body2="rh56_R_thumb_distal" />

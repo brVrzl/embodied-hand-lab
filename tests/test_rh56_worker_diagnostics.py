@@ -297,7 +297,9 @@ def test_diagnostics_toggle_does_not_change_target_values_or_channel_order() -> 
 
 
 def test_feedback_timeout_and_protocol_decode_error_have_structured_context() -> None:
-    backend = RH56SerialBackend({"serial": {"hand_id": 1}})
+    backend = RH56SerialBackend(
+        {"serial": {"port": "/dev/serial/by-id/not-opened", "hand_id": 1}}
+    )
     backend._exchange = lambda payload, expected_frames: []  # type: ignore[method-assign]
     with pytest.raises(RH56SerialError) as timeout:
         backend.read_register(backend.REG["CURRENT"], 12)
@@ -352,6 +354,19 @@ def test_logging_callback_failure_does_not_kill_serial_worker() -> None:
         diagnostics = worker.diagnostics_snapshot()
         assert diagnostics["record_callback_failure_count"] == 1
         assert diagnostics["last_record_callback_failure"]["exception_type"] == "OSError"
+    finally:
+        worker.cleanup()
+
+
+def test_worker_preserves_first_terminal_reason_before_next_serial_cycle() -> None:
+    worker, control, backend, _clock = _manual_worker()
+    try:
+        worker.arm_terminal_stop("controller_collision")
+        worker.arm_terminal_stop("later_transport_symptom")
+
+        assert not worker.run_cycle()
+        assert control.fault_reason == "arm_terminal_hard_stop:controller_collision"
+        assert backend.position_writes == []
     finally:
         worker.cleanup()
 

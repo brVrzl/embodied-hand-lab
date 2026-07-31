@@ -18,6 +18,8 @@ class AsyncEpisodeWriter:
     """Move frame serialization off control, camera, and preview threads."""
 
     def __init__(self, writer: CanonicalEpisodeWriter, *, capacity: int = 256) -> None:
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+            raise ValueError("episode writer queue capacity must be a positive integer")
         self._writer = writer
         self._queue: queue.Queue[tuple[str, tuple[Any, ...]] | None] = queue.Queue(
             maxsize=capacity
@@ -104,6 +106,18 @@ class AsyncEpisodeWriter:
         finally:
             self._close_worker()
 
+    def close(self) -> None:
+        """Close an unused writer without creating a rejected-start record."""
+
+        if self._closed:
+            return
+        if self._writer.start_monotonic_ns is not None:
+            raise RuntimeError(
+                "an active episode must be finalized or discarded before close"
+            )
+        self._queue.join()
+        self._close_worker()
+
     def _enqueue(self, method: str, *args: Any) -> None:
         self._raise_if_failed()
         if self._closed:
@@ -123,6 +137,8 @@ class AsyncEpisodeWriter:
         self._closed = True
         self._queue.put(None)
         self._thread.join(timeout=3.0)
+        if self._thread.is_alive():
+            raise RuntimeError("episode writer worker did not stop")
 
     def _run(self) -> None:
         while True:

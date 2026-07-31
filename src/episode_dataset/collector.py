@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+import math
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -39,6 +40,12 @@ class SingleEpisodeCollector:
         self.camera_max_age_ns = int(camera_max_age_ns)
         self.maximum_start_delta_rad = float(maximum_start_delta_rad)
         self.maximum_hand_start_delta_rad = float(maximum_hand_start_delta_rad)
+        for name, value in (
+            ("maximum_start_delta_rad", self.maximum_start_delta_rad),
+            ("maximum_hand_start_delta_rad", self.maximum_hand_start_delta_rad),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
         self.state = CaptureState.IDLE
         self._state_listener: Callable[[CaptureState], None] | None = None
         self.clock = CanonicalClock(writer.dataset_fps)
@@ -160,6 +167,19 @@ class SingleEpisodeCollector:
         if self.state is CaptureState.REC:
             self.abort(f"{role}_camera_disconnected:{reason}")
 
+    def shutdown(self, reason: str) -> None:
+        """End capture lifecycle without leaving an idle writer thread behind."""
+
+        if self.state is CaptureState.DONE:
+            return
+        if self.state is CaptureState.IDLE:
+            close = getattr(self.writer, "close", None)
+            if callable(close):
+                close()
+            self._set_state(CaptureState.DONE)
+            return
+        self.abort(reason)
+
     def abort(self, reason: str, *, invalid: bool = False, detail: str | None = None) -> None:
         if self.state is CaptureState.DONE:
             return
@@ -253,6 +273,21 @@ class SingleEpisodeCollector:
                         for name, selection in selections.items()
                     },
                     synchronization_valid=True,
+                    nominal_slot_index=(
+                        0
+                        if frame_index == 0
+                        else self.clock.last_nominal_slot_index
+                    ),
+                    missed_slots_before=(
+                        0
+                        if frame_index == 0
+                        else self.clock.last_missed_slots_before
+                    ),
+                    missed_slots_after=(
+                        0
+                        if frame_index == 0
+                        else self.clock.last_missed_slots_after
+                    ),
                 )
             )
         except (OSError, ValueError) as exc:

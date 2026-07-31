@@ -4,9 +4,9 @@
 > SDK interpretation used for that gate. It is not a current operating guide.
 > See [`docs/operation/hardware_prerequisites.md`](../../../operation/hardware_prerequisites.md).
 
-Date: 2026-07-16  
-Scope: documentation and static inspection only  
-Hardware connection: not performed  
+Date: 2026-07-16
+Scope: documentation and static inspection only
+Hardware connection: not performed
 Robot-state changes: none
 
 ## Decision summary
@@ -49,7 +49,7 @@ Version-specific sources:
   that mode is active.
 - [`jakaAPI.h`](../../../../third_party/jaka_sdk/v2.2.7/linux/c_cpp/inc_of_c/jakaAPI.h)
   provides the equivalent C capability boundary.
-- [`SDK V2.2.7 Release Notes.pdf`](../../../../third_party/jaka_sdk/v2.2.7/SDK%20V2.2.7%20Release%20Notes.pdf)
+- [`SDK V2.2.7 Release Notes.pdf`](<../../../../third_party/jaka_sdk/v2.2.7/SDK V2.2.7 Release Notes.pdf>)
   specifies controller version `1_7_2_28` or newer, Linux outside a virtual
   machine, a real-time patch where practical, an approximately 8 ms client
   cycle, CPU affinity/priority/frequency precautions, and the ordering
@@ -65,9 +65,10 @@ Repository evidence:
   already follows the required enable order: EDG initialization, then servo-mode
   enable. Its cleanup uses reverse acquisition order: servo-mode disable, EDG
   disable, logout.
-- [`src/jaka_driver_adapter/servo_jog.py`](../../../../src/jaka_driver_adapter/servo_jog.py)
-  uses the correct enable order but disables servo mode without disabling EDG.
-  That wrapper is not an acceptable lifecycle reference for Gate 3B cleanup.
+- The then-present `src/jaka_driver_adapter/servo_jog.py` used the correct
+  enable order but disabled servo mode without disabling EDG. That wrapper,
+  which is no longer in the maintained tree, is not an acceptable lifecycle
+  reference for Gate 3B cleanup.
 - The existing Stage 3 entry-only binary excludes `servo_move_enable`,
   `edg_servo_j`, `edg_servo_p`, and general motion APIs at link time. Its
   conservative requirement that servo-move mode already be active is the item

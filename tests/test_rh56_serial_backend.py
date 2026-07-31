@@ -5,6 +5,11 @@ import pytest
 from rh56_driver.serial_backend import RH56SerialBackend
 
 
+def test_serial_backend_requires_an_explicit_device_path() -> None:
+    with pytest.raises(ValueError, match="serial.port is required"):
+        RH56SerialBackend({"serial": {"hand_id": 1}})
+
+
 def _u16_bytes(values: list[int]) -> list[int]:
     data: list[int] = []
     for value in values:
@@ -25,7 +30,21 @@ def _response(hand_id: int, command: int, address: int, data: list[int]) -> byte
 
 
 def test_serial_backend_converts_canonical_commands_to_official_protocol_order() -> None:
-    backend = RH56SerialBackend({"hand_schema": {"protocol_order": ["pinky", "ring", "middle", "index", "thumb_close", "thumb_lateral"]}})
+    backend = RH56SerialBackend(
+        {
+            "serial": {"port": "/dev/serial/by-id/not-opened"},
+            "hand_schema": {
+                "protocol_order": [
+                    "pinky",
+                    "ring",
+                    "middle",
+                    "index",
+                    "thumb_close",
+                    "thumb_lateral",
+                ]
+            },
+        }
+    )
     writes: list[tuple[int, list[int]]] = []
 
     def fake_write_register(address: int, data_bytes: list[int]) -> bool:
@@ -40,7 +59,21 @@ def test_serial_backend_converts_canonical_commands_to_official_protocol_order()
 
 
 def test_serial_backend_returns_canonical_state_from_official_protocol_order() -> None:
-    backend = RH56SerialBackend({"hand_schema": {"protocol_order": ["pinky", "ring", "middle", "index", "thumb_close", "thumb_lateral"]}})
+    backend = RH56SerialBackend(
+        {
+            "serial": {"port": "/dev/serial/by-id/not-opened"},
+            "hand_schema": {
+                "protocol_order": [
+                    "pinky",
+                    "ring",
+                    "middle",
+                    "index",
+                    "thumb_close",
+                    "thumb_lateral",
+                ]
+            },
+        }
+    )
     reads = {
         backend.REG["ANGLE_ACT"]: _u16_bytes([4, 3, 2, 1, 5, 6]),
         backend.REG["FORCE_ACT"]: _u16_bytes([40, 30, 20, 10, 50, 60]),
@@ -62,7 +95,21 @@ def test_serial_backend_returns_canonical_state_from_official_protocol_order() -
 
 
 def test_serial_backend_decodes_force_feedback_as_signed_16_bit() -> None:
-    backend = RH56SerialBackend({"hand_schema": {"protocol_order": ["pinky", "ring", "middle", "index", "thumb_close", "thumb_lateral"]}})
+    backend = RH56SerialBackend(
+        {
+            "serial": {"port": "/dev/serial/by-id/not-opened"},
+            "hand_schema": {
+                "protocol_order": [
+                    "pinky",
+                    "ring",
+                    "middle",
+                    "index",
+                    "thumb_close",
+                    "thumb_lateral",
+                ]
+            },
+        }
+    )
 
     def fake_read_register(address: int, length: int) -> list[int]:
         assert address == backend.REG["FORCE_ACT"]
@@ -79,7 +126,9 @@ def test_serial_backend_decodes_force_feedback_as_signed_16_bit() -> None:
     "failure", ["header", "id", "command", "address", "length", "trailing", "checksum"]
 )
 def test_read_register_rejects_mismatched_response_boundary(failure: str) -> None:
-    backend = RH56SerialBackend({"serial": {"hand_id": 1}})
+    backend = RH56SerialBackend(
+        {"serial": {"port": "/dev/serial/by-id/not-opened", "hand_id": 1}}
+    )
     address = backend.REG["ANGLE_ACT"]
     frame = bytearray(_response(1, 0x11, address, [0] * 12))
     if failure == "header":
@@ -105,7 +154,9 @@ def test_read_register_rejects_mismatched_response_boundary(failure: str) -> Non
 
 
 def test_write_register_requires_matching_acknowledgement() -> None:
-    backend = RH56SerialBackend({"serial": {"hand_id": 1}})
+    backend = RH56SerialBackend(
+        {"serial": {"port": "/dev/serial/by-id/not-opened", "hand_id": 1}}
+    )
     address = backend.REG["ANGLE_SET"]
     accepted = _response(1, 0x12, address, [1])
     backend._exchange = lambda payload, expected_frames: [accepted]  # type: ignore[method-assign]

@@ -25,7 +25,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
-    parser.add_argument("--project-ip", default="10.24.1.68")
+    parser.add_argument(
+        "--project-ip",
+        help="host IPv4 address shown to the Quest application",
+    )
     parser.add_argument("--allowed-sender")
     parser.add_argument("--duration-sec", type=float, default=180.0)
     parser.add_argument("--stale-ms", type=float, default=250.0)
@@ -38,7 +41,10 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if not args.project_ip:
+        parser.error("--project-ip is required")
     for name, value in (
         ("--duration-sec", args.duration_sec),
         ("--stale-ms", args.stale_ms),

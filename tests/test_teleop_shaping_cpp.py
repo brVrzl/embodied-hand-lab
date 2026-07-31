@@ -3,7 +3,6 @@ from __future__ import annotations
 import ctypes
 import math
 from pathlib import Path
-import subprocess
 
 import pytest
 
@@ -22,19 +21,13 @@ from teleop_rearchitecture.cpp_shaping import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD = ROOT / "build/teleop_shaping"
 LIBRARY = default_cpp_library(ROOT)
 PERIOD_NS = 8_000_000
 
 
 @pytest.fixture(scope="module", autouse=True)
-def build_cpp_reference() -> None:
-    subprocess.run(
-        ["cmake", "-S", str(ROOT / "native/teleop_shaping"), "-B", str(BUILD),
-         "-DCMAKE_BUILD_TYPE=Release"],
-        check=True,
-    )
-    subprocess.run(["cmake", "--build", str(BUILD), "-j2"], check=True)
+def build_cpp_reference(teleop_shaping_library: Path) -> None:
+    assert teleop_shaping_library == LIBRARY
 
 
 def _configure_validation(library: ctypes.CDLL) -> None:

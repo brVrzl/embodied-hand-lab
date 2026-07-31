@@ -989,7 +989,7 @@ class SharedJakaTargetGenerator:
         )
         self.output_feasibility.reset(self.last_safe_joint_target)
         self._synthetic_generated_monotonic_ns = 1_000_000_000
-        self._baseline_contacts = self._contact_pairs(self.ik.data)
+        self._require_contact_free_authoritative_state("configured initial state")
         self.accepted_metrics: list[CandidateMetrics] = []
         self._singularity_slowdown_latched = False
 
@@ -1021,14 +1021,21 @@ class SharedJakaTargetGenerator:
         joints = np.asarray(joints_rad, dtype=np.float64)
         if joints.shape != (6,) or not np.all(np.isfinite(joints)):
             raise ValueError("authoritative arm state must contain six finite radians")
+        previous_joints = self.ik.arm_joints_rad.copy()
         self.ik.set_arm_joints_rad(joints.tolist())
+        try:
+            self._require_contact_free_authoritative_state(
+                "authoritative synchronization state"
+            )
+        except ValueError:
+            self.ik.set_arm_joints_rad(previous_joints.tolist())
+            raise
         current = self._kinematic_tcp_pose
         self.initial_tcp = current
         self.last_safe_target = current
         self.last_safe_joint_target = joints.copy()
         self.last_safe_joint_velocity[:] = 0.0
         self.output_feasibility.reset(joints)
-        self._baseline_contacts = self._contact_pairs(self.ik.data)
         self._singularity_slowdown_latched = False
 
     def capture_reference(self) -> Pose6D:
@@ -1211,7 +1218,7 @@ class SharedJakaTargetGenerator:
             )
         )
         phase_started_ns = time.perf_counter_ns()
-        new_contacts = self._contact_pairs(self.ik.data) - self._baseline_contacts
+        new_contacts = self._contact_pairs(self.ik.data)
         self_collision = any(self._pair_kind(pair) == "self" for pair in new_contacts)
         environment_collision = any(
             self._pair_kind(pair) == "environment" for pair in new_contacts
@@ -1428,6 +1435,22 @@ class SharedJakaTargetGenerator:
 
     def _contact_pairs(self, data: mujoco.MjData) -> set[tuple[int, int]]:
         return {self._contact_pair(data, index) for index in range(data.ncon)}
+
+    def _require_contact_free_authoritative_state(self, context: str) -> None:
+        contacts = self._contact_pairs(self.ik.data)
+        if not contacts:
+            return
+        descriptions = []
+        for geom1, geom2 in sorted(contacts):
+            names = [
+                mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
+                or f"geom_{geom_id}"
+                for geom_id in (geom1, geom2)
+            ]
+            descriptions.append("/".join(names))
+        raise ValueError(
+            f"{context} contains collision contacts: {', '.join(descriptions)}"
+        )
 
     @staticmethod
     def _contact_pair(data: mujoco.MjData, index: int) -> tuple[int, int]:

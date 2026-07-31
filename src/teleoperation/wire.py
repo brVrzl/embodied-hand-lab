@@ -269,7 +269,8 @@ class LatestTargetPublisher:
 
     def __init__(self, path: str | Path, *, send_buffer_bytes: int = TARGET_STRUCT.size * 8) -> None:
         self._path = str(path)
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK)
+        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self._socket.setblocking(False)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, send_buffer_bytes)
         self.sent = 0
         self.dropped = 0
@@ -302,7 +303,8 @@ class WorkerStatusReceiver:
             os.unlink(self.path)
         except FileNotFoundError:
             pass
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK)
+        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self._socket.setblocking(False)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, receive_buffer_bytes)
         self._socket.bind(self.path)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 from dataclasses import dataclass
 from pathlib import Path
+import sys
 from typing import Iterable
 
 
@@ -50,7 +51,14 @@ class ProductionResampledPoint:
 
 def default_resampler_library(repository_root: Path | None = None) -> Path:
     root = Path(__file__).resolve().parents[2] if repository_root is None else repository_root
-    return root / "build/jaka_servo_worker/libjaka_servo_resampler.so"
+    suffix = (
+        ".dylib"
+        if sys.platform == "darwin"
+        else ".dll"
+        if sys.platform == "win32"
+        else ".so"
+    )
+    return root / f"build/jaka_servo_worker/libjaka_servo_resampler{suffix}"
 
 
 class ProductionJointServoResampler:

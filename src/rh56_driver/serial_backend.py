@@ -65,7 +65,11 @@ class RH56SerialBackend(HandBackend):
         self.logger = get_logger("RH56SerialBackend")
         self.ser: Any | None = None
         serial_cfg = config.get("serial", {})
-        self.port = serial_cfg.get("port", "/dev/ttyUSB0")
+        self.port = serial_cfg.get("port")
+        if not isinstance(self.port, str) or not self.port.strip():
+            raise ValueError(
+                "RH56 serial.port is required; no implicit device path is safe"
+            )
         self.baudrate = int(serial_cfg.get("baudrate", 115200))
         self.timeout = float(serial_cfg.get("timeout_sec", 0.2))
         self.hand_id = int(serial_cfg.get("hand_id", 1))
@@ -423,28 +427,3 @@ class RH56SerialBackend(HandBackend):
             register=record["register"],
             context=record["context"],
         )
-
-
-class RH56Ros2ServiceBackend(HandBackend):
-    """Official ROS2 service naming shim.
-
-    The service names are grounded in the local vendor workspace, but the concrete client
-    implementation depends on the target ROS2 environment and generated service packages.
-    """
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        self.config = config
-
-    def connect(self) -> bool:
-        raise NotImplementedError(
-            "此处为待替换适配点: RH56 ROS2 service backend requires the vendor service_interfaces package in the active ROS2 workspace."
-        )
-
-    def execute(self, command: HandCommand) -> bool:
-        raise NotImplementedError
-
-    def read_state(self) -> HandState:
-        raise NotImplementedError
-
-    def stop(self) -> None:
-        raise NotImplementedError

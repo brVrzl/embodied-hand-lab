@@ -4,6 +4,7 @@ import json
 import math
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -20,6 +21,10 @@ from teleoperation.wire import (
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
+pytestmark = pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="the real-time JAKA worker requires Linux scheduling and procfs",
+)
 
 
 @pytest.fixture(scope="module", autouse=True)

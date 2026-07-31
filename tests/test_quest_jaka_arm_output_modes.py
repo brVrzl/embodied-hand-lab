@@ -231,6 +231,71 @@ def test_production_125hz_adapter_updates_arm_on_8ms_deadlines_and_bypasses_shap
     adapter.close()
 
 
+def test_125hz_adapter_bounds_records_without_losing_cumulative_diagnostics(
+    tmp_path: Path,
+) -> None:
+    simulation = _simulation(tmp_path)
+    adapter = JakaEquivalent125HzMujocoAdapter(
+        simulation,
+        record_capacity=3,
+    )
+    initial = simulation.arm_joints_rad.copy()
+    all_rows: list[dict[str, object]] = []
+    accepted_timestamps: dict[int, int] = {}
+
+    for sequence in range(1, 7):
+        generated_ns = 1_000_000_000 + (sequence - 1) * 8_000_000
+        destination = initial.copy()
+        destination[0] += sequence * 0.0001
+        accepted_timestamps[sequence] = generated_ns
+        adapter.apply(
+            _target(
+                simulation,
+                tuple(destination),
+                sequence=sequence,
+                generated_ns=generated_ns,
+            )
+        )
+        adapter.advance_to((sequence - 1) * 0.008)
+        all_rows.append(dict(adapter.records[-1]))
+
+    retained = list(adapter.records)
+    assert not hasattr(adapter, "_accepted")
+    assert len(adapter.records) == 6
+    assert len(retained) == 3
+    assert [row["emitted_sequence"] for row in retained] == [4, 5, 6]
+    assert [row["emitted_sequence"] for row in adapter.records[3:]] == [4, 5, 6]
+    with pytest.raises(IndexError, match="evicted"):
+        _ = adapter.records[0]
+    for row in all_rows:
+        source_sequence = int(row["source_accepted_sequence"])
+        assert row["source_accepted_timestamp_ns"] == accepted_timestamps[
+            source_sequence
+        ]
+
+    report = adapter.report()
+    assert report["arm_emitted_count"] == 6
+    assert report["arm_emitted_record_capacity"] == 3
+    assert report["arm_emitted_record_retained_count"] == 3
+    assert report["arm_emitted_record_dropped_count"] == 3
+    assert report["maximum_emitted_joint_velocity_rad_s"] == pytest.approx(
+        max(
+            max(abs(value) for value in row["dq_emit_rad_s"])
+            for row in all_rows
+        )
+    )
+    assert report["maximum_emitted_joint_acceleration_rad_s2"] == pytest.approx(
+        max(
+            max(abs(value) for value in row["ddq_emit_rad_s2"])
+            for row in all_rows
+        )
+    )
+    assert report["transition_limited_emitted_count"] == sum(
+        bool(row["transition_limited"]) for row in all_rows
+    )
+    adapter.close()
+
+
 def test_125hz_starts_from_nonzero_q_without_historical_deadline_catchup(
     tmp_path: Path,
 ) -> None:

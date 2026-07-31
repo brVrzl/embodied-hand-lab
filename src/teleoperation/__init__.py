@@ -1,8 +1,7 @@
-"""Clean-slate, arm-only teleoperation foundation.
+"""Shared arm-target, safety, supervision, and transport contracts.
 
-This package must not import :mod:`teleop_tools`, HEBI, or RH56.  Input
-devices and robot transports are adapters at the package boundary; the active
-Gates 1-2 runtime is synthetic/fake by default.
+This package must not import device-specific input stacks or the RH56 driver.
+Quest input and robot transports remain adapters at the package boundary.
 """
 
 from .contracts import (
@@ -14,7 +13,6 @@ from .contracts import (
     RobotState,
     SafetyState,
     TimestampSet,
-    TimingStatistics,
 )
 from .accepted_target import (
     AcceptedArmTarget,
@@ -38,5 +36,4 @@ __all__ = [
     "RobotState",
     "SafetyState",
     "TimestampSet",
-    "TimingStatistics",
 ]

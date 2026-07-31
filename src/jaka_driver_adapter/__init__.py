@@ -1,6 +1,7 @@
-from .adapter import JakaDriverAdapter
-from .interfaces import JakaBackend
-from .jaka_sdk_backend import JakaSDKBackend
-from .mock_jaka_backend import MockJakaBackend
+"""Shared JAKA kinematic feasibility helpers.
 
-__all__ = ["JakaBackend", "JakaDriverAdapter", "JakaSDKBackend", "MockJakaBackend"]
+Physical Quest/JAKA output is owned by :mod:`teleoperation.jaka` and the native
+worker; this package deliberately exposes no alternate Python SDK command path.
+"""
+
+__all__: list[str] = []

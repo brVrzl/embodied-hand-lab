@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import argparse
+import sys
 import threading
 from types import SimpleNamespace
 
@@ -38,9 +40,16 @@ def test_task_placement_reports_current_python_thread() -> None:
         thread_name="pytest-main",
     )
     assert "error" not in placement
-    assert placement["current_cpu"] >= 0
-    assert placement["affinity_mask"]
-    assert placement["scheduler_policy"] >= 0
+    if sys.platform.startswith("linux"):
+        assert placement["supported"] is True
+        assert placement["current_cpu"] >= 0
+        assert placement["affinity_mask"]
+        assert placement["scheduler_policy"] >= 0
+    else:
+        assert placement["supported"] is False
+        assert placement["reason"] == (
+            "Linux procfs scheduling telemetry is unavailable"
+        )
 
 
 def test_physical_summary_uses_production_budget_counters() -> None:
@@ -77,7 +86,7 @@ def _base_args(tmp_path: Path) -> list[str]:
         "--log-dir",
         str(tmp_path / "logs"),
         "--worker",
-        "/bin/true",
+        shutil.which("true") or "/usr/bin/true",
         "--no-auto-retry",
         "--estop-accessible",
         "--workspace-clear",
@@ -166,6 +175,10 @@ def test_complete_plant_free_command_uses_pwl_and_zero_rh56(
         1.2,
         1.2,
         1.2,
+    ]
+    assert report["native_worker_velocity_limit_args"] == [
+        "--maximum-output-joint-velocity-rad-s-per-joint",
+        "1.5,1.5,1.5,1.2,1.2,1.2",
     ]
     assert report["no_auto_retry"] is True
     assert not (tmp_path / "logs").exists()
@@ -306,7 +319,11 @@ def test_transport_failure_is_not_relabelled_without_native_fault_evidence() -> 
 def test_combined_entry_validates_both_gates_without_network_or_device_open(
     tmp_path: Path,
 ) -> None:
-    control_cpu = min(os.sched_getaffinity(0))
+    control_cpu = min(
+        os.sched_getaffinity(0)
+        if hasattr(os, "sched_getaffinity")
+        else range(os.cpu_count() or 1)
+    )
     command = [
         str(COMBINED_SCRIPT),
         "--robot-ip", "192.0.2.1",
@@ -317,7 +334,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         "--no-auto-retry",
         "--estop-accessible",
         "--workspace-clear",
-        "--worker", "/bin/true",
+        "--worker", shutil.which("true") or "/usr/bin/true",
         "--rh56-scheduler-profile", "fast40",
         "--native-control-cpu", str(control_cpu),
         "--log-dir", str(tmp_path / "logs"),

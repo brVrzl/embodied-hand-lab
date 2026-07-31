@@ -859,6 +859,80 @@ def test_composite_adapters_receive_the_identical_accepted_target_object() -> No
     assert identities == [id(target), id(target)]
 
 
+def test_composite_adapter_fans_out_before_aggregating_false_results() -> None:
+    calls: list[tuple[str, str, int]] = []
+
+    class _ResultAdapter:
+        def __init__(self, name: str, result: bool) -> None:
+            self.name = name
+            self.result = result
+
+        def apply(self, target: AcceptedArmTarget) -> bool:
+            calls.append((self.name, "target", id(target)))
+            return self.result
+
+        def heartbeat(self, heartbeat: ArmControlHeartbeat) -> bool:
+            calls.append((self.name, "heartbeat", id(heartbeat)))
+            return self.result
+
+    target = _accepted()
+    heartbeat = ArmControlHeartbeat(
+        input_sequence_number=43,
+        input_receive_monotonic_ns=2_100_000,
+        generated_monotonic_ns=2_200_000,
+        reference_generation=1,
+        clutch_generation=1,
+        state=ArmControlState.HOLD_REJECTED,
+        reason="IK_POSITION_FAILED",
+        last_accepted_target_sequence=target.sequence_number,
+    )
+    adapter = CompositeArmTargetAdapter(
+        (_ResultAdapter("first", False), _ResultAdapter("second", True))
+    )
+
+    assert not adapter.apply(target)
+    assert not adapter.heartbeat(heartbeat)
+    assert calls == [
+        ("first", "target", id(target)),
+        ("second", "target", id(target)),
+        ("first", "heartbeat", id(heartbeat)),
+        ("second", "heartbeat", id(heartbeat)),
+    ]
+
+
+def test_motion_statistics_uses_linear_release_indices() -> None:
+    class _NoIndexList(list[dict[str, object]]):
+        def index(self, *_args, **_kwargs) -> int:
+            raise AssertionError("motion statistics must not rescan with list.index")
+
+    session = object.__new__(SmoothQuestJakaSession)
+    session.event_records = _NoIndexList(
+        [
+            {
+                "control_monotonic_ns": 100_000_000,
+                "arm_clutch_state": "engaged",
+                "orientation_backlog_deg": 2.0,
+            },
+            {
+                "control_monotonic_ns": 200_000_000,
+                "arm_clutch_state": "disengaged",
+                "orientation_backlog_deg": 2.0,
+            },
+            {
+                "control_monotonic_ns": 250_000_000,
+                "arm_clutch_state": "disengaged",
+                "orientation_backlog_deg": 0.5,
+            },
+        ]
+    )
+
+    statistics = session._motion_statistics()
+
+    assert statistics[
+        "orientation_backlog_recovery_to_1deg_ms_after_release"
+    ] == pytest.approx(50.0)
+
+
 def test_jaka_adapter_imports_and_operates_when_mujoco_import_is_blocked() -> None:
     code = r'''
 import builtins

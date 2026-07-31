@@ -78,6 +78,12 @@ class CanonicalClock:
         self.start_ns: int | None = None
         self.next_ns: int | None = None
         self.frame_index = 0
+        self.nominal_slot_index = 0
+        self.last_nominal_slot_index = 0
+        self.last_missed_slots_before = 0
+        self.last_missed_slots_after = 0
+        self._missed_slots_before_next = 0
+        self.total_missed_slots = 0
 
     def start(self, timestamp_ns: int) -> tuple[int, int]:
         if self.start_ns is not None:
@@ -85,6 +91,12 @@ class CanonicalClock:
         self.start_ns = int(timestamp_ns)
         self.next_ns = self.start_ns + self.period_ns
         self.frame_index = 1
+        self.nominal_slot_index = 1
+        self.last_nominal_slot_index = 0
+        self.last_missed_slots_before = 0
+        self.last_missed_slots_after = 0
+        self._missed_slots_before_next = 0
+        self.total_missed_slots = 0
         return 0, self.start_ns
 
     def due(self, now_ns: int) -> tuple[int, int] | None:
@@ -94,11 +106,20 @@ class CanonicalClock:
             return None
         timestamp_ns = self.next_ns
         index = self.frame_index
+        self.last_nominal_slot_index = self.nominal_slot_index
+        self.last_missed_slots_before = self._missed_slots_before_next
+        self.last_missed_slots_after = 0
+        self._missed_slots_before_next = 0
         self.frame_index += 1
+        self.nominal_slot_index += 1
         self.next_ns += self.period_ns
         if now_ns >= self.next_ns:
             # Drop missed canonical slots. Never replay expired samples in a
             # burst and never move the episode time origin.
             missed = (now_ns - self.next_ns) // self.period_ns + 1
             self.next_ns += int(missed) * self.period_ns
+            self.nominal_slot_index += int(missed)
+            self._missed_slots_before_next = int(missed)
+            self.last_missed_slots_after = int(missed)
+            self.total_missed_slots += int(missed)
         return index, timestamp_ns
