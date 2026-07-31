@@ -1535,12 +1535,15 @@ class SmoothQuestJakaSession:
             if record.get("orientation_backlog_deg") is not None
         ]
         recovery_ms = None
-        for previous, current in zip(self.event_records, self.event_records[1:]):
+        for current_index, (previous, current) in enumerate(
+            zip(self.event_records, self.event_records[1:]),
+            start=1,
+        ):
             if previous.get("arm_clutch_state") == "engaged" and current.get("arm_clutch_state") != "engaged":
                 release_ns = current.get("control_monotonic_ns")
                 if release_ns is None:
                     continue
-                for candidate in self.event_records[self.event_records.index(current) :]:
+                for candidate in self.event_records[current_index:]:
                     if candidate.get("orientation_backlog_deg", float("inf")) <= 1.0:
                         recovery_ms = (candidate["control_monotonic_ns"] - release_ns) / 1e6
                         break

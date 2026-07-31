@@ -251,7 +251,11 @@ class RH56PcDirectWorker:
 
     def arm_terminal_stop(self, reason: str) -> None:
         with self._lock:
-            self._terminal_reason = reason
+            # The first terminal event owns the stop. The producer may observe
+            # a later transport symptom before this thread runs its next cycle;
+            # that symptom must not replace the initiating hard-stop reason.
+            if self._terminal_reason is None:
+                self._terminal_reason = reason
             self._active_requested = False
             self._pending_target = None
             self._force_write_pending = False
