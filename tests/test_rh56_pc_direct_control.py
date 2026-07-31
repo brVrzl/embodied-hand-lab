@@ -404,6 +404,27 @@ def test_each_activation_rebases_first_target_on_fresh_measured_angle_act() -> N
     assert backend.position_writes[-1] == [700] * 6
 
 
+def test_forced_measured_reactivation_bypasses_previous_command_window() -> None:
+    control, backend = _opened_control()
+    control.activate(1_000_000_000)
+    assert control.command([0.2] * 6, 1_000_000_000)
+
+    control.hold("grip_released")
+    feedback = control.poll_feedback(1_001_000_000)
+    control.activate(1_001_000_000)
+
+    assert control.command(
+        feedback.position_normalized,
+        1_001_000_000,
+        force_write=True,
+        measured_activation_write=True,
+    )
+    assert control.last_command_disposition == "serial_write_success"
+    assert backend.position_writes[-1] == [
+        int(round(value)) for value in feedback.position_raw
+    ]
+
+
 def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> None:
     backend = FakeRH56PcDirectBackend()
     backend.position = [650.0] * 6

@@ -927,7 +927,17 @@ class RH56PcDirectControl:
         if self.state is HandControlState.FAULT:
             self.last_command_disposition = "faulted"
             return False
-        if self.next_command_monotonic_ns is not None and monotonic_ns < self.next_command_monotonic_ns:
+        # A measured activation is the one safety-significant exception to the
+        # ordinary command cadence: it must be written exactly once from fresh
+        # ANGLE_ACT even when grip is re-engaged inside the previous 40 Hz
+        # command window.  Deferring it would consume the worker's one-shot
+        # force flag and turn the same activation target into an invalid normal
+        # write on the next cycle.
+        if (
+            not force_write
+            and self.next_command_monotonic_ns is not None
+            and monotonic_ns < self.next_command_monotonic_ns
+        ):
             self.command_rate_limited_count += 1
             self.last_command_disposition = "rate_limited"
             return False

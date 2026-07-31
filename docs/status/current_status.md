@@ -151,8 +151,16 @@ closing momentum after the contact target moved toward relief. The controller
 now preserves the no-load baseline and contact state across loaded
 reacquisition, restores a provisional hold when release races detection, and
 discards residual closing velocity at the contact clamp. This correction is
-offline regression tested but has not yet received a post-fix object-contact
-physical validation.
+offline regression tested and received partial post-fix object-contact evidence
+in the 2026-07-31 combined run: contact detection reached 7, loaded activation
+state was preserved 10 times, and RH56 `ERROR` remained zero. The run was not a
+PASS because it stopped fail-closed after 148.9 seconds on a separate grip
+reactivation race. A measured-activation write inside the previous 40 Hz
+command window was deferred as rate-limited after its one-shot force flag had
+already been consumed. Forced measured activation now bypasses only that
+ordinary command window; normal commands remain on the 40 Hz scheduler. This
+latest race correction is offline regression tested but not yet physically
+revalidated.
 
 An unloaded bounded hand-only endpoint test then commanded canonical
 `[index, middle, ring, pinky, thumb_close, thumb_lateral] =
