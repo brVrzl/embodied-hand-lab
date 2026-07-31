@@ -81,7 +81,7 @@ added to the candidate commit.
 | Compileall | pass | `src tools tests` compiled with bytecode disabled | PASS |
 | Public imports | not fully evidenced | 13 package imports; no socket/path writes; one read-only GLFW capability subprocess | PASS |
 | CLI | help pass | root, 5 top-level, 5 dataset subcommands, and sim smoke help | PASS |
-| Pytest | 562 passed, 114 skipped | 681 collected; 680 passed, 1 headless-rendering skipped, 0 failed/error | PASS |
+| Pytest | 562 passed, 114 skipped | Candidate validation tree: 681 collected, 680 passed, 1 headless-rendering skip, 0 failed/error. Final clean merge dev-only environment: 681 collected, 679 passed, 2 skips (headless rendering and PyTorch unavailable), 0 failed/error. | PASS; skips are identified and not counted as passes |
 | Native JAKA worker | portable build pass | Linux/aarch64 worker and portable resampler build; no CTest entries in this target | PASS (CTest N/A) |
 | Native teleop shaping | 3/3 CTest | 3/3 CTest | PASS |
 | Native minimal JAKA probe | prior fake evidence | build, safe `--help`, and 21 tests | PASS (no vendor run) |
@@ -110,12 +110,15 @@ training environment owner before claiming a clean optional `pip check`.
 
 ## 6. Git publish state
 
-The integration branch is prepared for an ordinary push. The exact integration
-commit and final main/origin-main hashes are recorded in the terminal handoff
-after commit/push/merge; the report intentionally does not invent hashes for a
-commit that contains this report itself. A clean temporary worktree is used for
-main-branch merge verification so the concurrent RH56 task's dirty files remain
-untouched.
+The integration branch was pushed ordinarily at
+`fa881595778184502a4e8f357429f52651215c6d`. The first merge commit was
+`c4c1241e7ac945188dac32ca1f20e090fd9668f8`; the candidate-overlap correction
+was merged into main as `6f364063b5b7a3e56aaf2b324f3d74547443ba39`.
+Before this report-only documentation update, local `main` and `origin/main`
+both resolved to that merge hash and the clean temporary main worktree was
+clean. The report update itself is an ordinary documentation-only commit; its
+post-update hash is recorded in the final terminal handoff. The concurrent
+RH56 task's dirty files remain untouched in the separate integration checkout.
 
 ## 7. Manual test entry points
 
