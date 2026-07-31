@@ -210,6 +210,23 @@ def test_feedback_timeout_disconnect_and_arm_hard_stop_fault_without_new_command
     assert backend3.write_count == 0
 
 
+def test_first_fault_reason_is_not_replaced_by_later_stop_symptoms() -> None:
+    control, backend = _opened_control()
+    control.activate(1_000_000_000)
+    assert control.command([0.5] * 6, 1_000_000_000)
+    backend.disconnect = True
+
+    with pytest.raises(RuntimeError, match="disconnect"):
+        control.poll_feedback(1_100_000_000)
+    writes_at_fault = backend.write_count
+    control.arm_terminal_stop("later_arm_transport_symptom")
+    control.transport_fault("later_cleanup_symptom")
+
+    assert control.fault_reason == "serial_feedback_failure"
+    assert not control.command([0.6] * 6, 1_200_000_000)
+    assert backend.write_count == writes_at_fault
+
+
 def test_nonzero_device_error_feedback_is_a_fault_and_remains_recorded() -> None:
     backend = FakeRH56PcDirectBackend()
     backend.error[2] = 7

@@ -843,7 +843,11 @@ class RH56PcDirectControl:
     def _fault(self, reason: str) -> None:
         self.state = HandControlState.FAULT
         self.transport_state = "FAULT"
-        self.fault_reason = reason
+        # Fault is terminal for this control instance. Preserve the first cause
+        # so a later arm-stop, transport, or cleanup symptom cannot replace the
+        # device/protocol failure that actually stopped command output.
+        if self.fault_reason is None:
+            self.fault_reason = reason
         self.next_command_monotonic_ns = None
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
