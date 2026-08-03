@@ -11,13 +11,12 @@ from rh56_driver.pc_direct_control import (
     RH56_COMBINED_RUN_APPROVAL,
     RH56_FAULT_RESET_APPROVAL,
     RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
-    RH56_HAND_ONLY_COMMAND_APPROVAL,
-    RH56_READ_ONLY_APPROVAL,
     RH56_RUNTIME_CONFIG_APPROVAL,
     FakeRH56PcDirectBackend,
     HandAuthorization,
     HandControlState,
     RH56PcDirectControl,
+    RH56SessionArm,
     parse_rh56_approval,
     require_serial_by_id_path,
 )
@@ -58,7 +57,9 @@ def _contact_stop_config() -> dict:
     return config
 
 
-def _opened_control(approval: str = RH56_HAND_ONLY_COMMAND_APPROVAL) -> tuple[RH56PcDirectControl, FakeRH56PcDirectBackend]:
+def _opened_control(
+    approval: str | RH56SessionArm = RH56SessionArm.hand_only(),
+) -> tuple[RH56PcDirectControl, FakeRH56PcDirectBackend]:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _config())
     control.open(approval)
@@ -67,8 +68,6 @@ def _opened_control(approval: str = RH56_HAND_ONLY_COMMAND_APPROVAL) -> tuple[RH
 
 
 def test_approval_contracts_are_distinct_and_missing_approval_opens_nothing() -> None:
-    assert parse_rh56_approval(RH56_READ_ONLY_APPROVAL) is HandAuthorization.READ_ONLY
-    assert parse_rh56_approval(RH56_HAND_ONLY_COMMAND_APPROVAL) is HandAuthorization.HAND_ONLY_COMMAND
     assert parse_rh56_approval(RH56_COMBINED_RUN_APPROVAL) is HandAuthorization.COMBINED_RUN
     assert parse_rh56_approval(RH56_RUNTIME_CONFIG_APPROVAL) is HandAuthorization.RUNTIME_CONFIG
     assert parse_rh56_approval(RH56_FAULT_RESET_APPROVAL) is HandAuthorization.FAULT_RESET
@@ -85,6 +84,26 @@ def test_approval_contracts_are_distinct_and_missing_approval_opens_nothing() ->
     assert backend.write_count == 0
 
 
+def test_session_arm_is_in_memory_hand_only_authorization() -> None:
+    session_arm = RH56SessionArm.hand_only()
+    control, backend = _opened_control(session_arm)
+
+    assert control.authorization is HandAuthorization.HAND_ONLY_SESSION
+    control.activate(1_000_000_000)
+    assert control.command([0.05] * 6, 1_000_000_000)
+    assert backend.write_count == 1
+
+    with pytest.raises(ValueError, match="hand-only"):
+        RH56SessionArm(HandAuthorization.RUNTIME_CONFIG)
+
+
+def test_session_arm_cannot_authorize_special_writes() -> None:
+    control, _ = _opened_control(RH56SessionArm.hand_only())
+
+    with pytest.raises(PermissionError, match="runtime-config"):
+        control.write_runtime_config([500] * 6, [200] * 6)
+
+
 def test_serial_backend_connect_only_opens_transport_and_writes_no_register(monkeypatch: pytest.MonkeyPatch) -> None:
     serial_port = SimpleNamespace(close=lambda: None)
     serial_module = SimpleNamespace(Serial=lambda **kwargs: serial_port)
@@ -98,16 +117,14 @@ def test_serial_backend_connect_only_opens_transport_and_writes_no_register(monk
     assert register_writes == []
 
 
-def test_read_only_open_and_feedback_perform_no_register_writes() -> None:
-    control, backend = _opened_control(RH56_READ_ONLY_APPROVAL)
+def test_session_arm_open_and_feedback_perform_no_register_writes_until_activation() -> None:
+    control, backend = _opened_control(RH56SessionArm.hand_only())
 
     assert control.state is HandControlState.HOLD
     assert backend.write_count == 0
     record = control.episode_record(1_000_000_000)
     assert record["action"]["hand_target"] is None
     assert record["action"]["selected_hand_position_raw"] is None
-    with pytest.raises(PermissionError):
-        control.activate(1_000_000_001)
     assert backend.write_count == 0
 
 
@@ -140,7 +157,7 @@ def test_enabled_command_shaper_has_bounded_acceleration_and_no_overshoot() -> N
         "maximum_acceleration": [1.40] * 6,
     }
     control = RH56PcDirectControl(backend, config)
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
 
@@ -182,7 +199,7 @@ def test_command_shaper_rejects_malformed_channel_vectors() -> None:
 def test_contact_stop_only_pauses_once_while_measured_closure_is_progressing() -> None:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _contact_stop_config())
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
@@ -208,7 +225,7 @@ def test_contact_stop_splits_one_force_sample_budget_into_40hz_steps() -> None:
         }
     )
     control = RH56PcDirectControl(backend, config)
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
 
@@ -238,7 +255,7 @@ def test_contact_stop_splits_one_force_sample_budget_into_40hz_steps() -> None:
 def test_contact_stop_rejects_one_sample_force_spike_without_latching() -> None:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _contact_stop_config())
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
@@ -265,7 +282,7 @@ def test_contact_stop_rejects_one_sample_force_spike_without_latching() -> None:
 def test_contact_stop_latches_after_confirmed_stall_and_opening_releases() -> None:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _contact_stop_config())
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
@@ -321,7 +338,7 @@ def test_contact_candidate_discards_shaper_closing_momentum_immediately() -> Non
         "maximum_acceleration": [1.40] * 6,
     }
     control = RH56PcDirectControl(backend, config)
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
 
@@ -350,7 +367,7 @@ def test_contact_candidate_discards_shaper_closing_momentum_immediately() -> Non
 def test_loaded_reactivation_preserves_baseline_and_provisional_hold() -> None:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _contact_stop_config())
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     assert control.command([0.8, 0, 0, 0, 0, 0], 1_000_000_000)
@@ -541,7 +558,7 @@ def test_nonzero_device_error_feedback_is_a_fault_and_remains_recorded() -> None
     backend = FakeRH56PcDirectBackend()
     backend.error[2] = 7
     control = RH56PcDirectControl(backend, _config())
-    control.open(RH56_READ_ONLY_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     with pytest.raises(RuntimeError, match="nonzero"):
         control.poll_feedback(1_000_000_000)
     assert control.state is HandControlState.FAULT
@@ -551,7 +568,7 @@ def test_nonzero_device_error_feedback_is_a_fault_and_remains_recorded() -> None
 
 
 def test_runtime_configuration_has_separate_authorization_and_cleanup_has_no_write() -> None:
-    control, backend = _opened_control(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control, backend = _opened_control(RH56SessionArm.hand_only())
     with pytest.raises(PermissionError):
         control.write_runtime_config([800] * 6, [260] * 6)
     assert backend.speed_writes == []

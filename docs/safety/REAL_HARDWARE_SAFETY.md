@@ -6,10 +6,14 @@ Repository maintenance, source review, tests, `--help`, simulation, replay, and
 fake-worker execution do not authorize a JAKA, RH56DFX, Quest headset, camera,
 or other actuator connection.
 
-Every physical action requires a separate, current-session authorization for
-the exact device path, gate, duration, motion envelope, acknowledgement flags,
-and stop procedure. The maintained wrappers must reject missing or incorrect
-approvals before opening hardware. Automatic retry is prohibited.
+The ordinary RH56 hand-only entry uses one explicit, current-process
+`--real --arm-session` authorization for the exact device path, duration,
+motion envelope, acknowledgement flags, and stop procedure. It expires when
+that process exits and is not persisted or shared. JAKA gates, combined runs,
+runtime configuration writes, fault reset, and force-sensor calibration retain
+their separate exact authorizations. The maintained wrappers must reject a
+missing or incorrect gate before opening hardware. Automatic retry is
+prohibited.
 
 Use [physical hardware prerequisites](../operation/hardware_prerequisites.md)
 and [physical test gates](physical_test_gates.md) before proposing any run.

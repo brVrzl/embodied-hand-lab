@@ -114,9 +114,12 @@ These commands were **Help verified**:
 ```
 
 Do not remove `--help` or append device arguments merely to validate
-documentation. Any JAKA/RH56 connection, enable, servo/EDG, register write, or
-motion requires a separately approved physical gate with the exact
-acknowledgements. See [real-hardware safety](../safety/REAL_HARDWARE_SAFETY.md),
+documentation. Any JAKA connection, enable, servo/EDG, or motion requires its
+separate physical gate. RH56 hand-only debugging is dry-run unless the
+operator explicitly supplies `--real --device ... --arm-session`; see the
+[RH56 session-debug entry](../operation/rh56_session_debug.md). Configuration
+writes, fault reset, force calibration, and combined JAKA/RH56 operation keep
+their separate approvals. See [real-hardware safety](../safety/REAL_HARDWARE_SAFETY.md),
 [RH56 operation](../operation/rh56_operation.md), and
 [combined operation](../operation/jaka_rh56_combined_teleop.md).
 

@@ -1,8 +1,11 @@
 # Physical hardware prerequisites
 
 This page is a prerequisite checklist, not authorization to run hardware.
-Every physical gate needs explicit user authorization in a new/current session
-for its exact stage, duration, motion bound, and acknowledgement flags.
+Ordinary RH56 hand-only debugging uses one explicit `--real --arm-session`
+authorization for the current process; it expires at process exit. JAKA,
+combined, controller-write, fault-reset, and force-calibration gates still
+need their own exact current-session authorization for stage, duration, motion
+bound, and acknowledgement flags.
 
 Before any connection or command:
 

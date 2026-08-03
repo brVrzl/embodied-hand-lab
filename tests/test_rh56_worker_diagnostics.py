@@ -8,9 +8,9 @@ import pytest
 
 from rh56_driver.pc_direct_control import (
     RH56_COMBINED_RUN_APPROVAL,
-    RH56_HAND_ONLY_COMMAND_APPROVAL,
     FakeRH56PcDirectBackend,
     RH56PcDirectControl,
+    RH56SessionArm,
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend, RH56SerialError
@@ -285,7 +285,7 @@ def test_diagnostics_toggle_does_not_change_target_values_or_channel_order() -> 
     for enabled in (False, True):
         backend = FakeRH56PcDirectBackend()
         control = RH56PcDirectControl(backend, _config(diagnostics=enabled))
-        control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+        control.open(RH56SessionArm.hand_only())
         control.poll_feedback(1_000_000_000)
         control.activate(1_000_000_000)
         assert control.command([0.01, 0.02, 0.03, 0.04, 0.05, 0.06], 1_000_000_000)
@@ -331,7 +331,7 @@ def test_command_write_error_is_structured_in_control_failure() -> None:
 
     backend = FailingWriteBackend()
     control = RH56PcDirectControl(backend, _config())
-    control.open(RH56_HAND_ONLY_COMMAND_APPROVAL)
+    control.open(RH56SessionArm.hand_only())
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     with pytest.raises(RH56SerialError):

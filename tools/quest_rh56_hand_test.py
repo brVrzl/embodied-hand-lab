@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from embodiment_core.config import load_yaml
+from motion_input import HtsCanonicalAssembler, SerializationError, parse_hts_datagram
 from motion_input.hts_transport import HtsRawRecordingWriter
 from quest_jaka_sim import (
     ReplayConfig,
@@ -17,11 +18,17 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
+from quest_jaka_sim.hand_retarget import (
+    HandRetargetCalibration,
+    ProjectRh56Retargeter,
+    QuestHandSkeleton,
+)
 from quest_jaka_sim.output import RecordingArmTargetAdapter
 from rh56_driver.hand_schema import CANONICAL_HAND_ORDER
 from rh56_driver.pc_direct_control import (
     HandAuthorization,
     RH56PcDirectControl,
+    RH56SessionArm,
     inspect_serial_device,
     parse_rh56_approval,
     require_serial_by_id_path,
@@ -32,6 +39,16 @@ from rh56_driver.telemetry import BoundedJsonlRecorder
 
 MAX_READ_ONLY_DURATION_SEC = 60.0
 MAX_BOUNDED_COMMAND_DURATION_SEC = 10.0
+MAPPING_CHECK_POSES = (
+    ("open", (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
+    ("index", (0.55, 0.0, 0.0, 0.0, 0.0, 0.0)),
+    ("middle", (0.0, 0.55, 0.0, 0.0, 0.0, 0.0)),
+    ("ring", (0.0, 0.0, 0.55, 0.0, 0.0, 0.0)),
+    ("pinky_little", (0.0, 0.0, 0.0, 0.55, 0.0, 0.0)),
+    ("thumb_curve", (0.0, 0.0, 0.0, 0.0, 0.55, 0.0)),
+    ("thumb_lateral", (0.0, 0.0, 0.0, 0.0, 0.0, 0.55)),
+    ("open_return", (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)),
+)
 
 
 def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
@@ -45,13 +62,14 @@ def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Staged RH56DFX PC-direct USB/RS485 gate. This tool never imports or connects JAKA. "
-            "Every serial-open mode requires its exact RH56 approval."
+            "RH56DFX PC-direct USB/RS485 hand-only entry. This tool never imports or connects JAKA. "
+            "Default is dry-run; real hardware requires --real --arm-session."
         )
     )
     parser.add_argument(
         "--device",
-        required=True,
+        required=False,
+        default="",
         help="Preferred /dev/serial/by-id/... path, or explicitly acknowledged custom CH341 tty.",
     )
     parser.add_argument(
@@ -77,7 +95,27 @@ def _build_parser() -> argparse.ArgumentParser:
             "The simulation config is not modified."
         ),
     )
-    parser.add_argument("--approval", default="")
+    parser.add_argument(
+        "--real",
+        action="store_true",
+        help="Opt into the real RH56 serial path; without it this command is dry-run only.",
+    )
+    parser.add_argument(
+        "--arm-session",
+        action="store_true",
+        help=(
+            "Arm one in-memory operator session for read/hand-position debugging. "
+            "Requires --real and expires when this process exits."
+        ),
+    )
+    parser.add_argument(
+        "--approval",
+        default="",
+        help=(
+            "Legacy exact approval retained only for configuration writes, fault reset, "
+            "and force-sensor calibration."
+        ),
+    )
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--read-only", action="store_true", help="Stage 1 feedback-only probe (default).")
     modes.add_argument("--bounded-command", action="store_true", help="Stage 2 measured-relative one-channel test.")
@@ -92,6 +130,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Stage 2 measured-activated ramp to one explicit six-channel canonical normalized pose.",
     )
     modes.add_argument("--quest-teleop", action="store_true", help="Stage 3 Quest grip hand-only teleoperation.")
+    modes.add_argument(
+        "--mapping-check",
+        action="store_true",
+        help="Hand-only six-channel target sequence; every pose dwells for at least four seconds.",
+    )
     modes.add_argument("--write-runtime-config", action="store_true", help="Separately authorized SPEED/FORCE write.")
     modes.add_argument(
         "--clear-error",
@@ -105,6 +148,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--duration-sec", type=float, default=5.0)
     parser.add_argument("--hold-sec", type=float, default=1.0)
+    parser.add_argument(
+        "--mapping-hold-sec",
+        type=float,
+        default=5.0,
+        help="Mapping-check dwell per target; minimum is 4 seconds.",
+    )
     parser.add_argument("--feedback-period-sec", type=float, default=0.2)
     parser.add_argument("--channel", choices=CANONICAL_HAND_ORDER)
     parser.add_argument("--delta", type=float)
@@ -131,6 +180,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _mode(args: argparse.Namespace) -> str:
+    if args.mapping_check:
+        return "mapping-check"
     if args.bounded_channel_target:
         return "bounded-channel-target"
     if args.bounded_pose:
@@ -149,27 +200,53 @@ def _mode(args: argparse.Namespace) -> str:
 
 
 def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
+    if not args.real:
+        if args.arm_session or args.approval:
+            raise PermissionError("Real RH56 options require --real.")
+        if args.preflight_only:
+            raise ValueError("--preflight-only requires --real; the default is dry-run.")
+        return None
+    if not args.device:
+        raise ValueError("--real requires --device /dev/serial/by-id/... .")
     require_serial_by_id_path(
         args.device,
         require_exists=not args.preflight_only,
         allow_direct_ch341=args.allow_direct_ch341_device,
     )
     if args.preflight_only:
+        if args.arm_session or args.approval:
+            raise ValueError("--preflight-only does not arm or authorize writes.")
         return None
-    authorization = parse_rh56_approval(args.approval)
     mode = _mode(args)
-    expected = {
-        "read-only": HandAuthorization.READ_ONLY,
-        "bounded-command": HandAuthorization.HAND_ONLY_COMMAND,
-        "bounded-channel-target": HandAuthorization.HAND_ONLY_COMMAND,
-        "bounded-pose": HandAuthorization.HAND_ONLY_COMMAND,
-        "quest-teleop": HandAuthorization.HAND_ONLY_COMMAND,
-        "write-runtime-config": HandAuthorization.RUNTIME_CONFIG,
-        "clear-error": HandAuthorization.FAULT_RESET,
-        "force-sensor-calibration": HandAuthorization.FORCE_SENSOR_CALIBRATION,
-    }[mode]
-    if authorization is not expected:
-        raise PermissionError(f"{mode} requires its dedicated RH56 approval token.")
+    session_modes = {
+        "read-only",
+        "bounded-command",
+        "bounded-channel-target",
+        "bounded-pose",
+        "mapping-check",
+        "quest-teleop",
+    }
+    if mode in session_modes:
+        if not args.arm_session:
+            raise PermissionError(
+                f"{mode} requires one in-process --arm-session; no per-pose approval is used."
+            )
+        if args.approval:
+            raise ValueError(
+                f"{mode} uses --arm-session; --approval is only for special write modes."
+            )
+        authorization = HandAuthorization.HAND_ONLY_SESSION
+    else:
+        if args.arm_session:
+            raise ValueError("--arm-session is only valid for read/hand-position modes.")
+        authorization = parse_rh56_approval(args.approval)
+        expected = {
+            "write-runtime-config": HandAuthorization.RUNTIME_CONFIG,
+            "clear-error": HandAuthorization.FAULT_RESET,
+            "force-sensor-calibration": HandAuthorization.FORCE_SENSOR_CALIBRATION,
+        }[mode]
+        if authorization is not expected:
+            raise PermissionError(f"{mode} requires its dedicated RH56 approval token.")
     if args.duration_sec <= 0.0:
         raise ValueError("--duration-sec must be positive.")
     if mode == "read-only" and args.duration_sec > MAX_READ_ONLY_DURATION_SEC:
@@ -209,10 +286,13 @@ def validate_gate(args: argparse.Namespace) -> HandAuthorization | None:
             raise ValueError("Bounded normalized targets must remain within [0, 1].")
         if args.hold_sec < 0.0:
             raise ValueError("--hold-sec must be nonnegative.")
+    if mode == "mapping-check" and args.mapping_hold_sec < 4.0:
+        raise ValueError("--mapping-hold-sec must be at least 4 seconds.")
     if mode in {
         "bounded-command",
         "bounded-channel-target",
         "bounded-pose",
+        "mapping-check",
         "quest-teleop",
         "clear-error",
         "force-sensor-calibration",
@@ -272,6 +352,12 @@ def _write_summary(result: dict[str, Any], path_value: str) -> None:
         with path.open("x", encoding="utf-8") as output:
             output.write(serialized)
     print(serialized, end="")
+
+
+def _session_authorization(args: argparse.Namespace) -> str | RH56SessionArm:
+    """Return the one-process arm or the exceptional exact approval token."""
+
+    return RH56SessionArm.hand_only() if args.arm_session else args.approval
 
 
 def _backend_counts(backend: RH56SerialBackend) -> dict[str, int]:
@@ -485,7 +571,7 @@ def _run_worker_bounded_target(
     """Use the production worker to ramp from measured activation to a target."""
 
     worker = RH56PcDirectWorker(control, record=recorder)
-    first = worker.start(args.approval)
+    first = worker.start(_session_authorization(args))
     activation = worker.activate_from_measured(time.monotonic_ns())
     activation_deadline = time.monotonic() + min(
         1.0, control.feedback_stale_timeout_ns / 1e9
@@ -548,7 +634,7 @@ def _run_quest(
     recorder: BoundedJsonlRecorder,
 ) -> dict[str, Any]:
     worker = RH56PcDirectWorker(control, record=recorder)
-    worker.start(args.approval)
+    worker.start(_session_authorization(args))
     quest_config = _load_hand_only_quest_config(
         args.quest_config,
         args.hand_calibration,
@@ -642,6 +728,141 @@ def _run_quest(
     }
 
 
+def _run_mapping_check(
+    args: argparse.Namespace,
+    control: RH56PcDirectControl,
+    recorder: BoundedJsonlRecorder,
+) -> dict[str, Any]:
+    """Run a slow, hand-only six-channel pose sequence with Quest diagnostics."""
+
+    worker = RH56PcDirectWorker(control, record=recorder)
+    worker.start(_session_authorization(args))
+    worker.activate_from_measured(time.monotonic_ns())
+    activation_deadline = time.monotonic() + 1.0
+    while time.monotonic() < activation_deadline:
+        worker.raise_if_failed()
+        if int(worker.diagnostics_snapshot(include_windows=False)["successful_serial_write_count"]) >= 1:
+            break
+        time.sleep(0.001)
+    else:
+        raise RuntimeError("Measured activation write did not complete before mapping check.")
+
+    capture_path = Path(args.capture) if args.capture else None
+    if capture_path is not None:
+        capture_path.parent.mkdir(parents=True, exist_ok=True)
+    capture = (
+        HtsRawRecordingWriter(capture_path, metadata={"stage": "rh56-six-channel-mapping-check"})
+        if capture_path
+        else None
+    )
+    if capture is not None:
+        capture.open()
+    events = _open_output(args.events)
+    receiver = QuestDatagramReceiverWorker(
+        bind=args.bind,
+        port=args.port,
+        allowed_sender=args.allowed_sender,
+        record=None if capture is None else capture.write,
+    )
+    assembler = HtsCanonicalAssembler(stale_after_s=0.25)
+    backend_name, calibration = HandRetargetCalibration.load(args.hand_calibration)
+    retargeter = ProjectRh56Retargeter(calibration, backend=backend_name)
+    latest_debug: dict[str, Any] | None = None
+    printed_at = 0.0
+
+    def drain_quest(now_ns: int, pose_name: str, target: tuple[float, ...]) -> None:
+        nonlocal latest_debug, printed_at
+        for datagram in receiver.drain():
+            try:
+                state = assembler.ingest(
+                    parse_hts_datagram(datagram.payload),
+                    receive_monotonic_ns=datagram.receive_monotonic_ns,
+                    source_endpoint=datagram.source_endpoint,
+                    datagram_size=len(datagram.payload),
+                )
+            except SerializationError:
+                continue
+            if not state.right.tracking_valid:
+                continue
+            result = retargeter.retarget(QuestHandSkeleton.from_observation(state.right))
+            if not result.valid:
+                continue
+            diagnostics = result.pinch_diagnostics
+            thumb_names = {
+                "thumb_metacarpal",
+                "thumb_proximal",
+                "thumb_distal",
+                "thumb_tip",
+            }
+            raw_thumb_joints = {
+                joint.name: list(joint.position_m)
+                for joint in state.right.joints
+                if joint.name in thumb_names
+            }
+            latest_debug = {
+                "pose": pose_name,
+                "raw_quest_thumb_joints_m": raw_thumb_joints,
+                "raw_thumb_curve_rad": diagnostics.get("thumb_raw_bend_rad"),
+                "normalized_thumb_curve": diagnostics.get("thumb_normalized_bend"),
+                "thumb_lateral": diagnostics.get("thumb_lateral_effective_feature"),
+                "quest_normalized_targets": [
+                    float(result.normalized_targets[name]) for name in CANONICAL_HAND_ORDER
+                ],
+                "rh56_target_normalized": list(target),
+                "timestamp_monotonic_ns": now_ns,
+            }
+            if events is not None:
+                _write_jsonl(events, dict(latest_debug))
+            if time.monotonic() - printed_at >= 0.5:
+                print(
+                    "MAPPING "
+                    f"pose={pose_name} "
+                    f"raw_thumb_joints_m={raw_thumb_joints} "
+                    f"raw_curve_rad={latest_debug['raw_thumb_curve_rad']} "
+                    f"normalized_curve={latest_debug['normalized_thumb_curve']} "
+                    f"thumb_lateral={latest_debug['thumb_lateral']} "
+                    f"rh56_target={list(target)} "
+                    f"quest_targets={latest_debug['quest_normalized_targets']}",
+                    flush=True,
+                )
+                printed_at = time.monotonic()
+
+    receiver.start()
+    try:
+        for pose_name, target in MAPPING_CHECK_POSES:
+            worker.raise_if_failed()
+            worker.submit_target(target, time.monotonic_ns())
+            print(
+                f"MAPPING_TARGET pose={pose_name} target={list(target)} "
+                f"hold_sec={args.mapping_hold_sec:g}; follow this pose with the real hand.",
+                flush=True,
+            )
+            deadline = time.monotonic() + args.mapping_hold_sec
+            while time.monotonic() < deadline:
+                worker.raise_if_failed()
+                drain_quest(time.monotonic_ns(), pose_name, target)
+                time.sleep(0.01)
+    finally:
+        receiver.close()
+        worker.hold("mapping_check_complete")
+        worker.cleanup()
+        if capture is not None:
+            capture.close()
+        if events is not None:
+            events.close()
+    return {
+        "jaka_sessions": 0,
+        "mapping_pose_count": len(MAPPING_CHECK_POSES),
+        "mapping_hold_sec": args.mapping_hold_sec,
+        "mapping_poses": [name for name, _ in MAPPING_CHECK_POSES],
+        "last_quest_mapping_debug": latest_debug,
+        "hand_telemetry_records": recorder.telemetry_record_count,
+        "rh56_worker_failure": worker.failure_record,
+        "rh56_diagnostics": worker.diagnostics_snapshot(),
+        "rh56_logging": recorder.summary(),
+    }
+
+
 def _load_hand_only_quest_config(
     quest_config_path: str,
     hand_calibration_path: str,
@@ -657,6 +878,21 @@ def _load_hand_only_quest_config(
 def main() -> None:
     args = _build_parser().parse_args()
     authorization = validate_gate(args)
+    summary_path = args.summary or args.out
+    if not args.real:
+        _write_summary(
+            {
+                "mode": "dry-run",
+                "requested_mode": _mode(args),
+                "real_hardware": False,
+                "rh56_connected": False,
+                "jaka_sessions": 0,
+                "authorization": None,
+                "hardware_validation": "not_run",
+            },
+            summary_path,
+        )
+        return
     identity = inspect_serial_device(
         args.device,
         allow_direct_ch341=args.allow_direct_ch341_device,
@@ -680,7 +916,6 @@ def main() -> None:
             raise RuntimeError(
                 f"RH56 tty is already occupied by PID(s) {identity['occupied_pids']}."
             )
-    summary_path = args.summary or args.out
     result: dict[str, Any] = {
         "mode": "preflight-only" if args.preflight_only else _mode(args),
         "requested_device": identity.get("requested_device", identity["requested_by_id"]),
@@ -736,12 +971,16 @@ def main() -> None:
     try:
         assert authorization is not None
         if _mode(args) == "quest-teleop":
+            result["authorization"] = authorization.value
             result.update(_run_quest(args, control, recorder))
+        elif _mode(args) == "mapping-check":
+            result["authorization"] = authorization.value
+            result.update(_run_mapping_check(args, control, recorder))
         elif args.bounded_channel_target or args.bounded_pose:
             result["authorization"] = authorization.value
             result.update(_run_worker_bounded_target(args, control, recorder))
         else:
-            control.open(args.approval)
+            control.open(_session_authorization(args))
             result["authorization"] = authorization.value
             if args.write_runtime_config:
                 control.write_runtime_config(args.speed, args.force)

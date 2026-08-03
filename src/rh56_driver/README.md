@@ -7,7 +7,9 @@ boundary, command scheduling, telemetry, and canonical actuator ordering.
 feedback fields. They are not a full passive-joint state, tactile array, or
 direct slip measurement.
 
-The physical entry points are `tools/quest_rh56_hand_test.py` and the combined
-Quest/JAKA tool. They require explicit device identity and physical gate
-arguments. Importing this package never opens a serial port. The retired JAKA
-TIO and ROS2 JSON bridge paths are not supported.
+The physical hand-only entry point is `tools/quest_rh56_hand_test.py`. It is
+dry-run by default and requires `--real --device ... --arm-session` to create
+one in-memory authorization for the current process. Importing this package
+never opens a serial port. Runtime configuration, fault reset, force
+calibration, and combined Quest/JAKA operation retain separate gates. The
+retired JAKA TIO and ROS2 JSON bridge paths are not supported.

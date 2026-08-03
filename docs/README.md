@@ -45,6 +45,7 @@ must not follow MuJoCo state, remap, filter, or solve IK.
 - [Quest host setup](operation/quest_setup.md)
 - [Hardware prerequisites](operation/hardware_prerequisites.md)
 - [JAKA arm teleoperation](operation/jaka_arm_teleoperation.md)
+- [RH56 hand-only session debug](operation/rh56_session_debug.md)
 - [RH56 PC-direct operation](operation/rh56_operation.md)
 - [Combined JAKA and RH56 teleoperation](operation/jaka_rh56_combined_teleop.md)
 

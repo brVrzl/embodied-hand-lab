@@ -23,8 +23,6 @@ from .hand_schema import (
     raw_to_canonical,
 )
 
-RH56_READ_ONLY_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_READ_ONLY_PROBE"
-RH56_HAND_ONLY_COMMAND_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_BOUNDED_HAND_TEST"
 RH56_COMBINED_RUN_APPROVAL = "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
 RH56_RUNTIME_CONFIG_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_RUNTIME_CONFIG_WRITE"
 RH56_FAULT_RESET_APPROVAL = "I_AUTHORIZE_ONE_RH56_FAULT_RESET"
@@ -47,12 +45,31 @@ class HandControlState(str, Enum):
 
 
 class HandAuthorization(str, Enum):
-    READ_ONLY = "read_only_probe"
-    HAND_ONLY_COMMAND = "hand_only_command_test"
+    HAND_ONLY_SESSION = "hand_only_session"
     COMBINED_RUN = "arm_hand_combined_run"
     RUNTIME_CONFIG = "runtime_config_write"
     FAULT_RESET = "fault_reset"
     FORCE_SENSOR_CALIBRATION = "force_sensor_calibration"
+
+
+@dataclass(frozen=True, slots=True)
+class RH56SessionArm:
+    """In-memory authorization for one operator-led RH56 hand session.
+
+    The arm is deliberately not serializable and is accepted only for the
+    ordinary read/position-debug path.  Configuration writes, fault reset, and
+    force-sensor calibration retain their separate exact authorizations.
+    """
+
+    authorization: HandAuthorization
+
+    def __post_init__(self) -> None:
+        if self.authorization is not HandAuthorization.HAND_ONLY_SESSION:
+            raise ValueError("RH56 session arm is only valid for hand-only commands.")
+
+    @classmethod
+    def hand_only(cls) -> "RH56SessionArm":
+        return cls(HandAuthorization.HAND_ONLY_SESSION)
 
 
 class RH56CommandShaper:
@@ -238,8 +255,6 @@ class RH56CommandShaper:
 
 
 _APPROVALS = {
-    RH56_READ_ONLY_APPROVAL: HandAuthorization.READ_ONLY,
-    RH56_HAND_ONLY_COMMAND_APPROVAL: HandAuthorization.HAND_ONLY_COMMAND,
     RH56_COMBINED_RUN_APPROVAL: HandAuthorization.COMBINED_RUN,
     RH56_RUNTIME_CONFIG_APPROVAL: HandAuthorization.RUNTIME_CONFIG,
     RH56_FAULT_RESET_APPROVAL: HandAuthorization.FAULT_RESET,
@@ -625,8 +640,12 @@ class RH56PcDirectControl:
         self.contact_activation_rebased_count = 0
         self._contact_last_activation_mode = "never_activated"
 
-    def open(self, approval_token: str) -> None:
-        authorization = parse_rh56_approval(approval_token)
+    def open(self, approval_token: str | RH56SessionArm) -> None:
+        authorization = (
+            approval_token.authorization
+            if isinstance(approval_token, RH56SessionArm)
+            else parse_rh56_approval(approval_token)
+        )
         try:
             connected = self.backend.connect()
         except Exception:
@@ -877,7 +896,7 @@ class RH56PcDirectControl:
 
     def activate(self, monotonic_ns: int) -> None:
         if self.authorization not in {
-            HandAuthorization.HAND_ONLY_COMMAND,
+            HandAuthorization.HAND_ONLY_SESSION,
             HandAuthorization.COMBINED_RUN,
         }:
             raise PermissionError("This RH56 authorization does not allow position commands.")
