@@ -150,6 +150,8 @@ class HandRetargetCalibration:
     finger_curve_exponent: tuple[float, float, float, float]
     thumb_scale: float
     key_vector_scale: float
+    thumb_curve_open_rad: float
+    thumb_curve_closed_rad: float
     thumb_close_bend_gain: float
     thumb_close_pinch_assist_gain: float
     thumb_pinch_closed_distance_palm: float
@@ -186,6 +188,7 @@ class HandRetargetCalibration:
         values = load_yaml(path)
         calibration = values["calibration"]
         thumb_close = calibration.get("thumb_close", {})
+        thumb_curve = calibration.get("thumb_curve", {})
         thumb_lateral = calibration.get("thumb_lateral", {})
         pinch_intent = calibration.get("pinch_intent", {})
         pinch_pose_blending = calibration.get("pinch_pose_blending", {})
@@ -219,6 +222,10 @@ class HandRetargetCalibration:
             ),
             thumb_scale=float(calibration["thumb_scale"]),
             key_vector_scale=float(calibration["key_vector_scale"]),
+            thumb_curve_open_rad=float(thumb_curve.get("curve_open_rad", 0.0)),
+            thumb_curve_closed_rad=float(
+                thumb_curve.get("curve_closed_rad", math.pi)
+            ),
             thumb_close_bend_gain=float(thumb_close.get("bend_gain", 1.0)),
             thumb_close_pinch_assist_gain=float(
                 thumb_close.get("pinch_assist_gain", 0.4)
@@ -334,6 +341,9 @@ class HandRetargetCalibration:
             or result.thumb_close_bend_gain < 0.0
             or not math.isfinite(result.thumb_close_pinch_assist_gain)
             or result.thumb_close_pinch_assist_gain < 0.0
+            or not math.isfinite(result.thumb_curve_open_rad)
+            or not math.isfinite(result.thumb_curve_closed_rad)
+            or result.thumb_curve_closed_rad <= result.thumb_curve_open_rad
             or not 0 <= result.thumb_pinch_closed_distance_palm
             < result.thumb_pinch_open_distance_palm
             or not math.isfinite(result.thumb_lateral_open_across_palm)
@@ -416,6 +426,29 @@ def calibrate_finger_feature(
         )
     )
     return normalized**curve_exponent
+
+
+def calibrate_thumb_curve(
+    raw_curve_rad: float,
+    *,
+    curve_open_rad: float,
+    curve_closed_rad: float,
+) -> float:
+    """Map the local Quest thumb-chain bend onto the calibrated [0, 1] span."""
+
+    values = (raw_curve_rad, curve_open_rad, curve_closed_rad)
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("thumb curve calibration inputs must be finite")
+    if curve_closed_rad <= curve_open_rad:
+        raise ValueError("thumb curve calibration closed feature must exceed open feature")
+    return float(
+        np.clip(
+            (raw_curve_rad - curve_open_rad)
+            / (curve_closed_rad - curve_open_rad),
+            0.0,
+            1.0,
+        )
+    )
 
 
 class PinchIntentDetector:
@@ -835,8 +868,11 @@ class ProjectRh56Retargeter:
         # closest-fingertip strength rather than an index-only special case.
         pinch = float(np.max(pinch_strengths))
         closest_index = int(np.argmin(thumb_tip_distances))
-        raw_thumb_bend_rad, normalized_thumb_bend = _finger_angle_curl_components(
-            points, (1, 2, 3, 4)
+        raw_thumb_bend_rad, _ = _finger_angle_curl_components(points, (1, 2, 3, 4))
+        normalized_thumb_bend = calibrate_thumb_curve(
+            raw_thumb_bend_rad,
+            curve_open_rad=self.calibration.thumb_curve_open_rad,
+            curve_closed_rad=self.calibration.thumb_curve_closed_rad,
         )
         thumb_close, bend_contribution, pinch_assist_contribution = (
             thumb_close_bend_primary_feature(
@@ -907,6 +943,8 @@ class ProjectRh56Retargeter:
             "pinch_confidence": pinch_confidence,
             "thumb_raw_bend_rad": raw_thumb_bend_rad,
             "thumb_normalized_bend": normalized_thumb_bend,
+            "thumb_curve_open_rad": self.calibration.thumb_curve_open_rad,
+            "thumb_curve_closed_rad": self.calibration.thumb_curve_closed_rad,
             "thumb_closest_fingertip_index": fingertip_indices[closest_index],
             "thumb_raw_pinch_distance_m": float(
                 thumb_tip_distances_m[closest_index]

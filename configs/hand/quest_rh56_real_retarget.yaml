@@ -5,7 +5,7 @@ selected_backend: adaptive
 # human tracking features only; RH56 protocol travel is owned by
 # configs/hand/rh56_pc_direct_teleop.yaml.
 calibration:
-  calibration_id: quest_rh56dfx_real_20260803_v2
+  calibration_id: quest_rh56dfx_real_20260803_v3
   global_scale: 1.0
   palm_scale: 1.0
   finger_scale: [1.0, 1.0, 1.0, 1.0]
@@ -17,6 +17,13 @@ calibration:
     curve_exponent: [1.0, 1.0, 1.0, 1.0]
   thumb_scale: 1.0
   key_vector_scale: 1.0
+  thumb_curve:
+    # Stable tails from the 2026-08-03 open, pregrasp, and lateral-only
+    # captures stayed at or below 0.588 rad. The dedicated thumb-curve tail
+    # reached 1.471 rad. This removes anatomical/resting bend from the live
+    # curve while preserving a continuous range for real thumb flexion.
+    curve_open_rad: 0.60
+    curve_closed_rad: 1.47
   thumb_close:
     bend_gain: 1.0
     pinch_assist_gain: 0.4

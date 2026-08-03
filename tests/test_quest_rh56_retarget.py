@@ -18,6 +18,7 @@ from quest_jaka_sim.hand_retarget import (
     RH56_MUJOCO_ACTUATOR_ORDER,
     RH56_THUMB_CLOSE_RANGE_RAD,
     calibrate_finger_feature,
+    calibrate_thumb_curve,
     right_hand_palm_local_frame,
     thumb_close_coupled_joint_positions,
     thumb_close_bend_primary_feature,
@@ -110,7 +111,7 @@ def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() 
     _, calibration = HandRetargetCalibration.load(
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
-    assert calibration.calibration_id == "quest_rh56dfx_real_20260803_v2"
+    assert calibration.calibration_id == "quest_rh56dfx_real_20260803_v3"
     for open_feature, closed_feature, exponent in zip(
         calibration.finger_feature_open,
         calibration.finger_feature_closed,
@@ -129,6 +130,33 @@ def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() 
         assert samples == sorted(samples)
         assert samples[0] == pytest.approx(0.0)
         assert samples[-1] == pytest.approx(1.0)
+
+
+def test_real_thumb_curve_calibration_removes_recorded_open_rest_bend() -> None:
+    _, calibration = HandRetargetCalibration.load(
+        "configs/hand/quest_rh56_real_retarget.yaml"
+    )
+    assert calibration.thumb_curve_open_rad == pytest.approx(0.60)
+    assert calibration.thumb_curve_closed_rad == pytest.approx(1.47)
+    assert calibrate_thumb_curve(
+        0.588,
+        curve_open_rad=calibration.thumb_curve_open_rad,
+        curve_closed_rad=calibration.thumb_curve_closed_rad,
+    ) == pytest.approx(0.0)
+    assert calibrate_thumb_curve(
+        1.47,
+        curve_open_rad=calibration.thumb_curve_open_rad,
+        curve_closed_rad=calibration.thumb_curve_closed_rad,
+    ) == pytest.approx(1.0)
+    samples = [
+        calibrate_thumb_curve(
+            value,
+            curve_open_rad=calibration.thumb_curve_open_rad,
+            curve_closed_rad=calibration.thumb_curve_closed_rad,
+        )
+        for value in np.linspace(0.0, 2.0, 101)
+    ]
+    assert samples == sorted(samples)
 
 
 def test_finger_calibration_rejects_zero_span_and_nonfinite_features() -> None:
