@@ -3,10 +3,12 @@
 This is the current normal physical teleoperation entry. The arm and hand use
 their production operating envelopes rather than the temporary post-payload or
 single-channel diagnostic restrictions. All production safety limits remain
-active. RH56 Quest hand-only completed a 60 second physical run on 2026-07-29.
-After the timing fixes described below, a 60 second `fast40` combined run
-completed on 2026-07-30 with no arm, hand, heartbeat, controller, or transport
-fault. Five-minute combined operation remains physically unvalidated.
+active. The maintained command below is the same command used for the latest
+combined run on 2026-08-03: it loaded the real RH56 calibration, accepted
+10,035 arm targets, and stopped fail-closed after 234.32 seconds when Quest
+input did not recover within the 10-second window. No arm/controller/RH56
+transport fault occurred. This is partial evidence, not a 300-second PASS;
+parcel-box and tissue extraction outcomes were not completed in that run.
 
 The first combined attempt on 2026-07-29 ran for 27.34 seconds and then exposed
 a recoverable-clutch protocol defect: `HOLD_CURRENT` was misclassified as a
@@ -114,10 +116,10 @@ run remains single-shot and requires `--no-auto-retry`.
 # 中文版：JAKA Mini2 + RH56DFX 联合遥操作
 
 这是当前正常真机遥操作入口。arm 与 hand 使用 production 正常工作范围，不继承
-post-payload 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。2026-07-29
-RH56 Quest hand-only 已完成一次 60 秒真机运行。完成下述 timing 修复后，2026-07-30
-一次 60 秒 `fast40` combined 运行无 arm、hand、heartbeat、controller 或 transport fault
-并正常结束；5 分钟 combined 仍未完成真机验证。
+post-payload 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。下方命令就是
+2026-08-03 最近一次联合运行使用的最新入口：加载了真实 RH56 标定，接受 10,035 个 arm
+目标，运行 234.32 秒后因 Quest 输入超过 10 秒未恢复而 fail-closed 停止；没有 arm、controller
+或 RH56 transport fault。这只是部分证据，不是 300 秒 PASS；该次没有完成快递盒或抽纸抽出结果。
 
 2026-07-29 首次联合运行持续 27.34 秒后暴露 recoverable clutch 协议缺陷：
 `HOLD_CURRENT` 被误当成不带 `ALLOW_MOTION` 的运动 target。worker 现已将其处理为有界减速，
