@@ -822,6 +822,34 @@ def test_default_recorder_control_age_accepts_observed_producer_jitter(
     assert collector.state is CaptureState.REC
 
 
+def test_default_recorder_camera_age_accepts_observed_producer_stall(
+    tmp_path: Path,
+) -> None:
+    collector = SingleEpisodeCollector(
+        CanonicalEpisodeWriter(tmp_path, task_name="pick", operator="tester"),
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+    base = 3_300_000_000
+    # A healthy 30 Hz frame can be about 72 ms behind the next causal slot
+    # after the measured ~83 ms outer-loop stall on the target host.
+    collector.ingest_camera(_camera("workspace", base + 25_000_000, 1))
+    collector.ingest_camera(_camera("wrist", base + 25_000_000, 1))
+    collector.ingest_control(
+        _control(base, trigger=True), reference_established=True
+    )
+    collector.ingest_control(
+        _control(base + 30_000_000, trigger=True), reference_established=True
+    )
+    collector.ingest_control(
+        _control(base + 70_000_000, trigger=True), reference_established=True
+    )
+    collector.ingest_control(
+        _control(base + 105_000_000, trigger=True), reference_established=True
+    )
+    assert collector.state is CaptureState.REC
+
+
 def test_device_timestamp_regression_invalidates_recording(tmp_path: Path) -> None:
     collector = _collector(tmp_path)
     base = 3_500_000_000

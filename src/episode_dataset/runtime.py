@@ -127,7 +127,7 @@ class EpisodeDataRuntime:
             collector = SingleEpisodeCollector(
                 writer,
                 camera_max_age_ns=round(
-                    float(dataset.get("camera_max_age_ms", 70.0)) * 1e6
+                    float(dataset.get("camera_max_age_ms", 100.0)) * 1e6
                 ),
                 control_max_age_ns=round(
                     float(dataset.get("control_max_age_ms", 40.0)) * 1e6

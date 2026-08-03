@@ -86,8 +86,8 @@ IDLE -> ARMING -> REC -> FINALIZING -> DONE
    limits; and fresh, causal post-trigger frames available from both cameras.
 4. `REC` writes raw sources asynchronously and emits canonical samples on a
    fixed-rate clock. At the current 30 Hz camera profile, causal latest-frame
-   selection permits 70 ms of source age (about two frame periods plus host
-   jitter); it never selects a future frame and longer stalls abort capture.
+   selection permits 100 ms of source age; it never selects a future frame and
+   longer stalls abort capture.
 5. The configured capture boundary finalizes a `completed` episode with no
    fabricated tail. Physical v2 remains active across arm/hand clutch changes.
    Camera/control staleness, clock regression, hard fault, heartbeat loss, or

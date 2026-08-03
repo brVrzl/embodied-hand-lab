@@ -1,9 +1,10 @@
 dataset:
   root: data/episodes
   fps: 30
-  # Canonical selection is causal. Two 30 Hz frame periods plus a small margin
-  # tolerate ordinary host receive jitter; longer stalls still abort capture.
-  camera_max_age_ms: 70.0
+  # Canonical selection is causal. A measured ~83 ms producer stall can leave
+  # a healthy 30 Hz frame about 75 ms behind the next slot; 100 ms keeps that
+  # recorder snapshot usable while longer camera stalls still abort capture.
+  camera_max_age_ms: 100.0
   # Recorder snapshot freshness only; robot heartbeat/watchdogs are separate.
   # Covers the measured 30.6 ms producer jitter without accepting a lost source.
   control_max_age_ms: 40.0

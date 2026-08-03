@@ -32,7 +32,10 @@ class SingleEpisodeCollector:
         self,
         writer: CanonicalEpisodeWriter,
         *,
-        camera_max_age_ns: int = 70_000_000,
+        # Recorder snapshot freshness is separate from robot watchdogs.  The
+        # target host measured an ~83 ms producer stall, leaving a healthy
+        # 30 Hz frame about 75 ms behind the next canonical slot.
+        camera_max_age_ns: int = 100_000_000,
         control_max_age_ns: int = 40_000_000,
         maximum_start_delta_rad: float,
         maximum_hand_start_delta_rad: float,

@@ -78,7 +78,7 @@ The implemented config fields are:
 dataset:
   root: data/episodes
   fps: 30
-  camera_max_age_ms: 70.0
+  camera_max_age_ms: 100.0
   control_max_age_ms: 40.0
   hand_start_tolerance_rad: 0.05
 
@@ -107,9 +107,9 @@ and must differ. Roles are never inferred from `/dev/video*` order.
 `--episode-root` overrides `dataset.root`; it is accepted only when
 `--episode-data-config` is also present.
 
-At 30 Hz, keep `camera_max_age_ms: 70.0`. Canonical rows causally select the
+At 30 Hz, keep `camera_max_age_ms: 100.0`. Canonical rows causally select the
 latest frame at or before the recorder timestamp, so this permits ordinary
-host receive jitter and at most roughly one repeated selection. It never
+host receive jitter, including the measured ~83 ms producer stall. It never
 selects a future frame. A longer camera stall still aborts the episode, while
 raw frame numbers and device/host timestamps remain available for the summary.
 
