@@ -542,7 +542,7 @@ def test_timing_gap_is_recorded_and_excluded_from_training(tmp_path: Path) -> No
 
 def test_deep_validator_rejects_corrupt_camera_array(tmp_path: Path) -> None:
     episode = _complete_one_sample_episode(tmp_path, 2_400_000_000)
-    _set_success_label(episode, "failure")
+    _set_success_label(episode, "success")
     rgb = episode / "canonical/frames/workspace/rgb/000000.npy"
     np.save(rgb, np.zeros((8, 10, 3), dtype=np.float32), allow_pickle=False)
     report = validate_episode(episode)
@@ -660,6 +660,7 @@ def test_manifest_split_and_train_only_statistics_are_episode_level(
             fast_manifest_path, tmp_path / "fast-statistics.json"
         )
 
+    _set_success_label(episode, "success")
     manifest_path = build_dataset_manifest(
         tmp_path, tmp_path / "manifest.json", seed=seed, deep_validation=True
     )
@@ -683,6 +684,26 @@ def test_manifest_split_and_train_only_statistics_are_episode_level(
         compute_train_statistics(
             manifest_path, tmp_path / "stale-statistics.json"
         )
+
+
+def test_manifest_and_act_export_exclude_reviewed_failures(tmp_path: Path) -> None:
+    episode = _complete_one_sample_episode(tmp_path, 2_475_000_000)
+    _set_success_label(episode, "failure")
+    report = validate_episode(episode, deep=True)
+    assert report["training_eligible"] is True
+
+    manifest_path = build_dataset_manifest(
+        tmp_path, tmp_path / "manifest.json", deep_validation=True
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["split_counts"]["excluded"] == 1
+    assert manifest["episodes"][0]["training_eligible"] is False
+    assert any(
+        "failure episode is excluded" in warning
+        for warning in manifest["episodes"][0]["validation_warnings"]
+    )
+    with pytest.raises(ValueError, match="requires success_label='success'"):
+        export_act_hdf5(episode, tmp_path / "failure.hdf5")
 
 
 def test_async_writer_drains_before_atomic_finalize(tmp_path: Path) -> None:

@@ -345,15 +345,18 @@ Before training:
 
 - inspect `split_counts`; a small set may have no validation or test episodes;
 - confirm all intended episodes appear and rejected/invalid data is excluded;
-- confirm every selected episode has an independently reviewed `success` or
-  `failure` label; `unlabeled` is always excluded;
+- confirm every selected episode is independently reviewed and labeled
+  `success`; `failure` and `unlabeled` episodes remain visible but are excluded
+  from behavior-cloning splits;
 - define a group-aware split when object, scene, task, operator, or collection
   session leakage would invalidate the experiment;
 - freeze the manifest and statistics hashes with the run config;
 - never recompute normalization statistics from validation or test data.
 
 The current manifest uses whole-episode UUID hashing. It prevents frame leakage
-between splits, and it enforces explicit success/failure labels. It does not
+between splits, and includes only explicitly successful episodes. Reviewed
+failures remain in the canonical dataset for diagnosis but are not exported or
+used for normalization. The manifest does not
 enforce object/session grouping or reviewer identity/provenance. Deep payload
 validation is the default; explicit `--fast` creates an
 inventory whose episodes are all excluded from splits.
@@ -381,8 +384,8 @@ LeRobot v3:
   --repo-id <LOCAL_NAMESPACE>/<DATASET_NAME>
 ```
 
-Both exports require an explicit success/failure label, process one episode at
-a time, and refuse an existing destination. The LeRobot exporter stores RGB
+Both behavior-cloning exports require an explicit `success` label, process one
+episode at a time, and refuse an existing destination. The LeRobot exporter stores RGB
 and low-dimensional data through the official SDK and keeps raw `uint16` depth
 in an explicit sidecar. The repository has no multi-episode merge command or
 framework trainer. See

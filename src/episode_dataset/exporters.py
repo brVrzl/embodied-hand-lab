@@ -57,6 +57,11 @@ def _training_episode(
     metadata = json.loads(
         (episode_dir / "metadata.json").read_text(encoding="utf-8")
     )
+    if metadata.get("success_label") != "success":
+        raise ValueError(
+            "behavior-cloning export requires success_label='success'; "
+            "reviewed failures remain in the canonical dataset for analysis"
+        )
     rows, errors = load_canonical_rows(episode_dir)
     if errors:
         raise ValueError("cannot read canonical rows: " + "; ".join(errors))

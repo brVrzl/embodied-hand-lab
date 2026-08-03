@@ -101,11 +101,19 @@ def build_dataset_manifest(
             except (OSError, ValueError, json.JSONDecodeError):
                 pass
         episode_uuid = metadata.get("episode_uuid")
-        eligible = bool(deep_validation and report["training_eligible"])
+        eligible = bool(
+            deep_validation
+            and report["training_eligible"]
+            and metadata.get("success_label") == "success"
+        )
         validation_warnings = list(report.get("warnings", []))
         if not deep_validation:
             validation_warnings.append(
                 "fast inventory did not validate payloads; training split is excluded"
+            )
+        elif report["training_eligible"] and metadata.get("success_label") == "failure":
+            validation_warnings.append(
+                "reviewed failure episode is excluded from behavior-cloning splits"
             )
         entries.append(
             {

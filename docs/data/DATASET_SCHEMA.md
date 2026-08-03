@@ -355,6 +355,12 @@ loading and raw JSONL parsing.
   at least one sample, zero canonical missed slots, and an explicit
   `success_label` of `success` or `failure`.
 
+This validator flag means a labeled trajectory is structurally usable for a
+downstream task that intentionally models either outcome. The maintained
+behavior-cloning manifest and ACT/LeRobot exporters are stricter: they include
+only `success`; reviewed failures stay archived and are excluded from splits,
+normalization, and export.
+
 Validation is offline evidence only. Its report always sets
 `physically_validated=false`. It does not establish task success, calibration
 accuracy, sensor semantics, or physical safety.
