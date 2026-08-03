@@ -107,6 +107,11 @@ observer work to the remaining allowed CPUs. An unisolated combined invocation
 is rejected before either hardware path opens. The wrapper creates HTS capture,
 shared events, native metrics/cycle telemetry, event
 extract, RH56 telemetry, and combined summary files under `logs/`.
+When physical episode capture is enabled, the canonical dataset remains at
+30 Hz and the diagnostic combined-event log is sampled at that same rate;
+faults and clutch edges are still written immediately. The raw Quest, JAKA,
+native, RH56, and dual-camera streams retain their source rates for offline
+alignment.
 The combined wrapper default and explicit upper bound are both 300 seconds;
 arm-only and post-payload entries retain their existing shorter bounds. Every
 run remains single-shot and requires `--no-auto-retry`.
@@ -177,5 +182,8 @@ ulimit -r
 payload/TCP/安装、控制器安全状态、急停、工作区和已完成的 RH56 hand 证据。日志会写入
 `logs/` 下的 HTS、shared events、native metrics/cycles、
 event extract、RH56 telemetry 和 combined summary。
+启用真机 episode 采集时，canonical dataset 仍为 30 Hz，诊断用 combined-event
+日志也按 30 Hz 记录；fault 和 clutch 边沿仍立即写入。Quest、JAKA、native、RH56
+以及双相机原始流保留各自采样率，供离线对齐。
 combined wrapper 默认时长与显式上限均为 300 秒；arm-only 与 post-payload 入口保持原有
 较短上限。每段仍为 single-shot，且必须使用 `--no-auto-retry`。

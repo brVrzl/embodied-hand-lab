@@ -1109,6 +1109,7 @@ def main() -> int:
         episode_runtime: EpisodeDataRuntime | None = None
         episode_record_next_ns: int | None = None
         episode_record_period_ns = 1_000_000_000 // 30
+        event_log_next_ns: int | None = None
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
         try:
@@ -1402,6 +1403,13 @@ def main() -> int:
                             and tick.output_applied
                             and not engaged
                         )
+                        event_log_due = (
+                            episode_runtime is None
+                            or event_log_next_ns is None
+                            or now_ns >= event_log_next_ns
+                            or dispatch_failed
+                            or clutch_edge_reason is not None
+                        )
                         event = dict(session.event_records[-1])
                         operator_delta = event.get("operator_delta")
                         if operator_delta is not None:
@@ -1453,7 +1461,10 @@ def main() -> int:
                             rh56_telemetry=(
                                 None
                                 if rh56_control is None
-                                else rh56_control.episode_record(now_ns)
+                                else rh56_control.episode_record(
+                                    now_ns,
+                                    include_diagnostics=event_log_due,
+                                )
                             ),
                         )
                         record_episode_sample = (
@@ -1591,12 +1602,17 @@ def main() -> int:
                             / 1e6,
                         }
                         pending_receiver_drain_and_ingest_ns = 0
-                        serialize_started_ns = time.perf_counter_ns()
-                        serialized_event = json.dumps(event, sort_keys=True) + "\n"
-                        serialize_ns = time.perf_counter_ns() - serialize_started_ns
-                        write_started_ns = time.perf_counter_ns()
-                        log.write(serialized_event)
-                        write_ns = time.perf_counter_ns() - write_started_ns
+                        serialize_ns = 0
+                        write_ns = 0
+                        if event_log_due:
+                            serialize_started_ns = time.perf_counter_ns()
+                            serialized_event = json.dumps(event, sort_keys=True) + "\n"
+                            serialize_ns = time.perf_counter_ns() - serialize_started_ns
+                            write_started_ns = time.perf_counter_ns()
+                            log.write(serialized_event)
+                            write_ns = time.perf_counter_ns() - write_started_ns
+                            if episode_runtime is not None:
+                                event_log_next_ns = now_ns + episode_record_period_ns
                         producer_timing_rows.append({
                             **event["producer_outer_timing_ms"],
                             "event_json_serialize": serialize_ns / 1e6,
