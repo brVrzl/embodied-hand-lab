@@ -60,6 +60,7 @@ def _camera(
         rgb=np.full((8, width, 3), frame_number, dtype=np.uint8),
         depth_raw=np.full((8, width), 1000 + frame_number, dtype=np.uint16),
         depth_aligned_to_rgb=np.full((8, width), 1100 + frame_number, dtype=np.uint16),
+        depth_scale_m=0.001,
         device_rgb_timestamp_ms=timestamp_ns / 1e6,
         device_depth_timestamp_ms=timestamp_ns / 1e6 + 0.1,
         rgb_frame_number=frame_number,
