@@ -1634,6 +1634,19 @@ def main() -> int:
         except KeyboardInterrupt:
             stop_reason = "operator_keyboard_stop"
             jaka_adapter.stop()
+        except Exception:
+            # An exception escaping the producer must never be recorded as a
+            # duration-complete episode.  Preserve the traceback for the
+            # operator, but let the lifecycle cleanup finalize the active
+            # writer as aborted so the directory cannot look trainable.
+            if abort_reason is None:
+                abort_reason = (
+                    "rh56_transport_or_feedback_fault"
+                    if rh56_worker is not None and rh56_worker.failed
+                    else "teleop_runtime_exception"
+                )
+                stop_reason = abort_reason
+            raise
         finally:
             if rh56_worker is not None:
                 if abort_reason is not None:

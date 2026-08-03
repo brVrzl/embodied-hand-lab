@@ -734,6 +734,14 @@ class RH56PcDirectWorker:
             return False
         if target.sequence > self._evaluated_sequence:
             return True
+        # A measured activation is a one-shot continuity write.  Once its
+        # forced command has been evaluated, do not replay the same mailbox
+        # entry merely because ANGLE_ACT moved by a count before the next
+        # ordinary hand target arrived.  Replaying it without the activation
+        # force flag is a safety error; a fresh submit_target() will replace
+        # this entry and carry the normal command cadence forward.
+        if target.measured_activation:
+            return False
         effective = self.control.contact_limited_target(
             target.values, allow_release=False
         )

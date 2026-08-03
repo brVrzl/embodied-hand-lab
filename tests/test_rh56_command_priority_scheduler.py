@@ -241,6 +241,25 @@ def test_activation_force_is_consumed_before_concurrent_latest_target_arrives() 
         worker.cleanup()
 
 
+def test_measured_activation_is_not_replayed_after_angle_feedback_changes() -> None:
+    worker, _control, backend, clock, first = _worker("fast40")
+    try:
+        worker.activate_from_measured(first.monotonic_ns)
+        worker.run_cycle()
+        assert backend.position_writes == [[1000] * 6]
+
+        # A later ANGLE_ACT sample may differ by a raw count while the
+        # producer has not yet submitted the first ordinary hand target.
+        backend.position = [999.0] * 6
+        clock.advance_ms(25)
+        worker.run_cycle()
+
+        assert backend.position_writes == [[1000] * 6]
+        worker.raise_if_failed()
+    finally:
+        worker.cleanup()
+
+
 def test_failed_write_is_not_committed_or_suppressed_in_next_authorized_session() -> None:
     class RejectOnceBackend(ScheduledBackend):
         def set_canonical_angles(self, values: list[int]) -> bool:
