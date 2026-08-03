@@ -164,8 +164,8 @@ Canonical hard links do not double that payload. Measure sustained write rate
 and free space on the actual destination; do not rely on the estimate for a
 long collection session.
 
-Bottle Pickup combined capture is raw-first and uses the D435 Default visual
-preset. A target-host trial with full-rate disparity-domain spatial filtering
+Bottle Pickup combined capture is raw-first and does not write a visual preset
+while starting the two camera workers. A target-host trial with full-rate disparity-domain spatial filtering
 made the shared producer loop stall for 131 ms (versus 36 ms maximum in the
 unfiltered Phase A run), so online spatial processing is not enabled in this
 control-coupled process. Temporal filtering and global hole filling also stay
@@ -175,7 +175,10 @@ invent surfaces across occlusion edges. Native unaligned Z16 remains in
 live preview uses the aligned view with a fixed 0.15–1.5 m scale and renders
 invalid/out-of-range pixels black instead of stretching every frame by its
 percentiles. Use the independent camera checker with `--filter-profile
-spatial` when comparing depth quality without the robot control process.
+spatial` when comparing depth quality without the robot control process. Any
+intentional preset comparison belongs in that independent preflight; concurrent
+XU preset writes during a combined startup produced a target-host
+`Device or resource busy` failure and are therefore excluded here.
 
 Keep the episode root on one local filesystem so the final staging rename is
 atomic. Avoid an unstable network mount for live capture. If data must live on

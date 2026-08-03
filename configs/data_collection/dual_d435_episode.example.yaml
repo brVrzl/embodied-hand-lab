@@ -16,7 +16,6 @@ cameras:
     width: 640
     height: 480
     fps: 30
-    visual_preset: default
     allow_profile_fallback: true
     align_depth_to_color: true
     warmup_frames: 5
@@ -35,7 +34,6 @@ cameras:
     width: 640
     height: 480
     fps: 30
-    visual_preset: default
     allow_profile_fallback: true
     align_depth_to_color: true
     warmup_frames: 5
