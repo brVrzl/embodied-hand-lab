@@ -1282,6 +1282,22 @@ class RH56PcDirectControl:
             "hand_feedback_register_latency_ms": (
                 None if feedback is None else feedback.register_latency_ms
             ),
+            "hand_feedback_register_timestamps_ns": {
+                "ANGLE_ACT": self._feedback_success_ns["ANGLE"],
+                "CURRENT": self._feedback_success_ns["CURRENT"],
+                "FORCE_ACT": self._feedback_success_ns["FORCE"],
+                "ERROR": self._feedback_success_ns["ERROR"],
+                "STATUS": self._feedback_success_ns["STATUS"],
+            },
+            "rh56_registers": {
+                "ANGLE_ACT": None if feedback is None else list(feedback.position_raw),
+                "CURRENT": None if feedback is None else list(feedback.current_raw_count),
+                "FORCE_ACT": None
+                if feedback is None
+                else list(feedback.load_or_force_raw_count),
+                "ERROR": None if feedback is None else list(feedback.error),
+                "STATUS": None if feedback is None else list(feedback.status),
+            },
             "hand_error": None if feedback is None else list(feedback.error),
             "hand_status": None if feedback is None else list(feedback.status),
             "hand_fault_reason": self.fault_reason,

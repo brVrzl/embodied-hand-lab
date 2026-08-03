@@ -30,7 +30,7 @@ owning loader and current `--help`.
 | `configs/camera/default_rgbd.yaml` | Small mock RGB-D fixture, not a physical-camera default |
 | `configs/camera/realsense_thor.yaml` | Site-specific dual-D435 snapshot with recorded serials; not portable and not end-to-end validated |
 | `configs/perception/d435_tabletop.yaml` | Offline tabletop processing parameters; camera-to-JAKA transform and workspace remain explicitly uncalibrated |
-| `configs/data_collection/dual_d435_episode.example.yaml` | Copyable settings for the current simulation-backed Quest + dual-D435 episode path; not a physical JAKA/RH56 collector configuration |
+| `configs/data_collection/dual_d435_episode.example.yaml` | Copyable dual-D435 settings shared by simulation capture and the separately gated physical v2 collector; local serials/calibration are required |
 | `configs/training/distributed.example.yaml` | Proposed future trainer contract; explicitly not consumed by a current ACT, Diffusion Policy, or other trainer |
 
 `digital_twin/configs/` is a separate set of calibration evidence, provisional

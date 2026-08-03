@@ -14,6 +14,8 @@ from .episode import (
     ACTION_ORDER,
     OBSERVATION_STATE_ORDER,
     SCHEMA_VERSION,
+    PHYSICAL_SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
     file_sha256,
 )
 
@@ -158,6 +160,77 @@ def _raw_jsonl_errors(episode_dir: Path) -> list[str]:
     return errors
 
 
+def _physical_v2_raw_errors(episode_dir: Path) -> list[str]:
+    errors: list[str] = []
+    for stream in ("jaka_state", "rh56_feedback"):
+        path = episode_dir / "raw" / f"{stream}.jsonl"
+        try:
+            payload = path.read_text(encoding="utf-8")
+        except OSError:
+            payload = ""
+        if not payload.strip():
+            errors.append(f"physical v2 requires non-empty raw/{stream}.jsonl")
+            continue
+        for line_number, line in enumerate(payload.splitlines(), 1):
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            label = f"raw/{stream}.jsonl:{line_number}"
+            if not isinstance(row, dict):
+                continue
+            if stream == "jaka_state":
+                for name in (
+                    "read_host_monotonic_ns",
+                    "record_host_monotonic_ns",
+                    "command_host_monotonic_ns",
+                ):
+                    if not isinstance(row.get(name), int):
+                        errors.append(f"{label}: {name} must be int")
+                for name, length in (
+                    ("accepted_joint_target_rad", 6),
+                    ("measured_joint_position_rad", 6),
+                    ("estimated_joint_velocity_rad_s", 6),
+                    ("commanded_tcp_pose_xyzw", 7),
+                ):
+                    _finite_vector(
+                        row.get(name), length=length, label=f"{label}.{name}", errors=errors
+                    )
+                continue
+            action = row.get("action", {})
+            hand_target = action.get("hand_target") if isinstance(action, dict) else None
+            if hand_target is not None:
+                _finite_vector(
+                    hand_target,
+                    length=6,
+                    label=f"{label}.action.hand_target",
+                    errors=errors,
+                )
+            timestamps = row.get("hand_feedback_register_timestamps_ns", {})
+            registers = row.get("rh56_registers", {})
+            if hand_target is not None:
+                if not isinstance(row.get("hand_command_timestamp"), int):
+                    errors.append(f"{label}: hand_command_timestamp must be int when a target was issued")
+            elif row.get("hand_command_timestamp") is not None:
+                errors.append(
+                    f"{label}: hand_command_timestamp must be null when no target was issued"
+                )
+            if not isinstance(row.get("hand_feedback_timestamp"), int):
+                errors.append(f"{label}: hand_feedback_timestamp must be int")
+            for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS"):
+                if not isinstance(timestamps, dict) or not isinstance(
+                    timestamps.get(name), int
+                ):
+                    errors.append(f"{label}: missing {name} read timestamp")
+                _finite_vector(
+                    registers.get(name) if isinstance(registers, dict) else None,
+                    length=6,
+                    label=f"{label}.rh56_registers.{name}",
+                    errors=errors,
+                )
+    return errors
+
+
 def _validate_calibration(
     episode_dir: Path, metadata: Mapping[str, Any], errors: list[str]
 ) -> None:
@@ -185,7 +258,8 @@ def _validate_calibration(
 def _validate_schema_metadata(
     metadata: Mapping[str, Any], errors: list[str], warnings: list[str]
 ) -> None:
-    if metadata.get("schema_version") != SCHEMA_VERSION:
+    schema_version = metadata.get("schema_version")
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         errors.append(
             f"unsupported schema_version: {metadata.get('schema_version')!r}"
         )
@@ -229,11 +303,25 @@ def _validate_schema_metadata(
             "review is required for training"
         )
     units = metadata.get("units", {})
-    if not isinstance(units, dict) or units.get("hand") != "rad":
+    expected_hand_unit = (
+        "normalized_closure_0_to_1"
+        if schema_version == PHYSICAL_SCHEMA_VERSION
+        else "rad"
+    )
+    if not isinstance(units, dict) or units.get("hand") != expected_hand_unit:
         errors.append(
-            "canonical v1 requires hand state/action in radians; raw RH56 "
-            "ANGLE_ACT counts require a different versioned schema"
+            f"{schema_version} requires metadata.units.hand="
+            f"{expected_hand_unit!r}"
         )
+    if not isinstance(metadata.get("notes", ""), str):
+        errors.append("metadata.notes must be a string")
+    failure_stage = metadata.get("failure_stage")
+    if failure_stage is not None and not isinstance(failure_stage, str):
+        errors.append("metadata.failure_stage must be null or a string")
+    if success_label == "success" and failure_stage is not None:
+        errors.append("successful episode must not declare failure_stage")
+    if success_label == "failure" and not failure_stage:
+        warnings.append("failed episode has no failure_stage")
 
 
 def validate_episode(
@@ -398,6 +486,22 @@ def validate_episode(
                     )
         if action.get("arm_status") not in {"accepted", "held_rejected"}:
             errors.append(f"{label}: invalid action.arm_status")
+        if action.get("arm_source") not in {
+            "accepted_target",
+            "measured_hold_reference",
+        }:
+            errors.append(f"{label}: invalid action.arm_source")
+        segment_id = state.get("control_segment_id")
+        segment_mode = state.get("control_segment_mode")
+        if not isinstance(segment_id, int) or segment_id < 0:
+            errors.append(f"{label}: invalid control_segment_id")
+        if segment_mode not in {
+            "both_idle",
+            "arm_only",
+            "hand_only",
+            "arm_and_hand",
+        }:
+            errors.append(f"{label}: invalid control_segment_mode")
 
         images = observation.get("images", {}) if isinstance(observation, dict) else {}
         if not isinstance(images, dict):
@@ -505,6 +609,8 @@ def validate_episode(
     _validate_calibration(episode_dir, metadata, errors)
     if deep:
         errors.extend(_raw_jsonl_errors(episode_dir))
+        if metadata.get("schema_version") == PHYSICAL_SCHEMA_VERSION:
+            errors.extend(_physical_v2_raw_errors(episode_dir))
     if frozen_payload_transitions:
         warnings.append(
             f"{frozen_payload_transitions} camera frame-number transitions "
@@ -520,7 +626,7 @@ def validate_episode(
         and len(rows) > 0
     )
     return {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": metadata.get("schema_version", SCHEMA_VERSION),
         "episode": str(episode_dir),
         "episode_uuid": metadata.get("episode_uuid"),
         "completion_status": metadata.get("completion_status"),

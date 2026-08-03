@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 import math
 from pathlib import Path
 import time
@@ -15,6 +16,66 @@ from .validation import load_canonical_rows, validate_episode
 
 
 INSPECTION_SCHEMA_VERSION = "embodied_lab.episode_inspection.v1"
+
+
+def _rate_summary(timestamps_ns: Iterable[int]) -> dict[str, Any]:
+    sequence = np.asarray([int(value) for value in timestamps_ns], dtype=np.int64)
+    regression_count = int(np.count_nonzero(np.diff(sequence) < 0)) if sequence.size > 1 else 0
+    timestamps = np.asarray(sorted(set(sequence.tolist())), dtype=np.int64)
+    if timestamps.size < 2:
+        return {"sample_count": int(timestamps.size), "actual_hz": None}
+    intervals = np.diff(timestamps).astype(np.float64) / 1e9
+    median = float(np.median(intervals))
+    return {
+        "sample_count": int(timestamps.size),
+        "actual_hz": float((timestamps.size - 1) / ((timestamps[-1] - timestamps[0]) / 1e9)),
+        "median_interval_ms": median * 1000.0,
+        "maximum_interval_ms": float(np.max(intervals) * 1000.0),
+        "timestamp_regression_count": regression_count,
+        "large_gap_count": int(np.count_nonzero(intervals > max(2.5 * median, median + 0.05))),
+    }
+
+
+def _raw_rows(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def _hand_lag_summary(
+    target: np.ndarray, measured: np.ndarray, *, fps: float
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    maximum_lag = max(1, int(round(0.5 * fps)))
+    for axis in range(target.shape[1]):
+        target_delta = np.diff(target[:, axis])
+        measured_delta = np.diff(measured[:, axis])
+        if np.ptp(target[:, axis]) < 0.02 or np.count_nonzero(np.abs(target_delta) > 1e-4) < 3:
+            result[f"H{axis + 1}"] = {"available": False, "reason": "insufficient_motion"}
+            continue
+        best: tuple[float, int] | None = None
+        for lag in range(maximum_lag + 1):
+            left = target_delta[: len(target_delta) - lag or None]
+            right = measured_delta[lag:]
+            if left.size < 5 or np.std(left) == 0.0 or np.std(right) == 0.0:
+                continue
+            correlation = float(np.corrcoef(left, right)[0, 1])
+            if math.isfinite(correlation) and (best is None or correlation > best[0]):
+                best = (correlation, lag)
+        result[f"H{axis + 1}"] = (
+            {"available": False, "reason": "no_finite_correlation"}
+            if best is None
+            else {
+                "available": True,
+                "estimated_lag_ms": best[1] * 1000.0 / fps,
+                "correlation": best[0],
+            }
+        )
+    return result
 
 
 def _finite_array(
@@ -37,6 +98,7 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
     """Return a human-review-oriented summary after full payload validation."""
 
     episode_dir = Path(episode).resolve()
+    metadata = json.loads((episode_dir / "metadata.json").read_text(encoding="utf-8"))
     validation = validate_episode(episode_dir, deep=True)
     report: dict[str, Any] = {
         "schema_version": INSPECTION_SCHEMA_VERSION,
@@ -71,6 +133,80 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
     hand_target = _finite_array(rows, "action", "hand_target")
     arm_error = np.abs(arm_target - arm_state)
     hand_error = np.abs(hand_target - hand_state)
+    sensor_rates: dict[str, Any] = {}
+    for role in ("workspace", "wrist"):
+        camera_rows = _raw_rows(episode_dir / "raw" / f"camera_{role}.jsonl")
+        sensor_rates[f"camera_{role}"] = _rate_summary(
+            row["host_monotonic_ns"] for row in camera_rows
+        )
+    jaka_rows = _raw_rows(episode_dir / "raw" / "jaka_state.jsonl")
+    if jaka_rows:
+        sensor_rates["jaka_state"] = _rate_summary(
+            row["read_host_monotonic_ns"] for row in jaka_rows
+        )
+    rh56_rows = _raw_rows(episode_dir / "raw" / "rh56_feedback.jsonl")
+    missing_required_fields = {"jaka_state": 0, "rh56_feedback": 0}
+    for row in jaka_rows:
+        if any(
+            row.get(name) is None
+            for name in (
+                "read_host_monotonic_ns",
+                "accepted_joint_target_rad",
+                "measured_joint_position_rad",
+                "commanded_tcp_pose_xyzw",
+            )
+        ):
+            missing_required_fields["jaka_state"] += 1
+    if rh56_rows:
+        register_timestamps: dict[str, list[int]] = {
+            name: []
+            for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS")
+        }
+        for row in rh56_rows:
+            values = row.get("hand_feedback_register_timestamps_ns", {})
+            registers = row.get("rh56_registers", {})
+            if (
+                not isinstance(values, Mapping)
+                or not isinstance(registers, Mapping)
+                or any(
+                    values.get(name) is None or registers.get(name) is None
+                    for name in register_timestamps
+                )
+            ):
+                missing_required_fields["rh56_feedback"] += 1
+            for name in register_timestamps:
+                value = values.get(name) if isinstance(values, Mapping) else None
+                if isinstance(value, int):
+                    register_timestamps[name].append(value)
+        for name, values in register_timestamps.items():
+            sensor_rates[f"rh56_{name.lower()}"] = _rate_summary(values)
+
+    depth_valid_fraction: dict[str, float] = {}
+    for role in ("workspace", "wrist"):
+        valid = total = 0
+        for row in rows:
+            depth = np.load(
+                episode_dir / row["observation"]["images"][role]["depth_raw"],
+                allow_pickle=False,
+            )
+            valid += int(np.count_nonzero(depth))
+            total += int(depth.size)
+        depth_valid_fraction[role] = 0.0 if total == 0 else valid / total
+
+    constant_channels = {
+        "arm_q_measured": [
+            f"J{index + 1}" for index, value in enumerate(np.ptp(arm_state, axis=0)) if value < 1e-8
+        ],
+        "arm_q_target": [
+            f"J{index + 1}" for index, value in enumerate(np.ptp(arm_target, axis=0)) if value < 1e-8
+        ],
+        "hand_measured": [
+            f"H{index + 1}" for index, value in enumerate(np.ptp(hand_state, axis=0)) if value < 1e-6
+        ],
+        "hand_target": [
+            f"H{index + 1}" for index, value in enumerate(np.ptp(hand_target, axis=0)) if value < 1e-6
+        ],
+    }
 
     offsets_by_source: dict[str, list[float]] = {}
     for row in rows:
@@ -94,6 +230,14 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
         if values
     }
     statuses = Counter(str(row["action"]["arm_status"]) for row in rows)
+    segment_modes = Counter(
+        str(row["observation"]["state"]["control_segment_mode"])
+        for row in rows
+    )
+    segment_ids = {
+        int(row["observation"]["state"]["control_segment_id"])
+        for row in rows
+    }
     duration_s = (
         0.0 if len(timestamps) == 1 else float(timestamps[-1] - timestamps[0])
     )
@@ -104,6 +248,8 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
             "duration_s": duration_s,
             "action_order": list(ACTION_ORDER),
             "arm_action_status_counts": dict(sorted(statuses.items())),
+            "control_segment_count": len(segment_ids),
+            "control_segment_mode_sample_counts": dict(sorted(segment_modes.items())),
             "arm_command_state_error_rad": {
                 "maximum": float(np.max(arm_error)),
                 "mean": float(np.mean(arm_error)),
@@ -115,6 +261,13 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
                 "per_axis_maximum": np.max(hand_error, axis=0).tolist(),
             },
             "source_offset_summary": offset_summary,
+            "sensor_rate_summary": sensor_rates,
+            "depth_nonzero_fraction": depth_valid_fraction,
+            "constant_channels": constant_channels,
+            "missing_required_record_counts": missing_required_fields,
+            "rh56_target_to_angle_act_lag": _hand_lag_summary(
+                hand_target, hand_state, fps=float(metadata["dataset_fps"])
+            ),
             "manual_review_required": [
                 "confirm workspace and wrist camera role/order",
                 "inspect RGB/depth content for occlusion, freeze, and corruption",

@@ -23,16 +23,14 @@ import time
 import mujoco
 import numpy as np
 
-from embodiment_core.config import load_yaml
 from episode_dataset.camera import AsyncRGBDCamera
 from episode_dataset.collector import CaptureState, SingleEpisodeCollector
-from episode_dataset.async_writer import AsyncEpisodeWriter
-from episode_dataset.episode import CanonicalEpisodeWriter, ControlSample, file_sha256
+from episode_dataset.episode import ControlSample
 from episode_dataset.preview import (
     AsyncDualCameraPreview,
     PreviewStatus,
-    require_preview_dependencies,
 )
+from episode_dataset.runtime import EpisodeDataRuntime
 from motion_input import HtsRawRecordingReader, HtsRawRecordingWriter
 from quest_jaka_sim import (
     AnalogClutchSample,
@@ -51,7 +49,6 @@ from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.se3 import quaternion_angle_rad
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
-from vision_interface.realsense_adapter import RealSenseCamera, resolve_realsense_config
 
 
 DEFAULT_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_offline.yaml")
@@ -810,85 +807,19 @@ def _start_episode_data_runtime(
     AsyncRGBDCamera,
     AsyncDualCameraPreview | None,
 ]:
-    if args.episode_preview:
-        require_preview_dependencies()
-    data_config = load_yaml(args.episode_data_config)
-    cameras = data_config.get("cameras")
-    if not isinstance(cameras, dict) or set(cameras) != {"workspace", "wrist"}:
-        raise SystemExit("episode data config must define exactly workspace and wrist cameras")
-    resolved = {
-        role: resolve_realsense_config(data_config, camera_name=role)
-        for role in ("workspace", "wrist")
-    }
-    serials = {role: str(resolved[role].get("serial", "")) for role in resolved}
-    if any(not serial or serial.startswith("REPLACE_") for serial in serials.values()):
-        raise SystemExit("both D435 roles require explicit non-placeholder serial numbers")
-    if len(set(serials.values())) != 2:
-        raise SystemExit("workspace and wrist must bind different RealSense serial numbers")
-    workers = {
-        role: AsyncRGBDCamera(
-            role,
-            lambda role=role: RealSenseCamera(resolved[role]),
-        )
-        for role in ("workspace", "wrist")
-    }
-    for worker in workers.values():
-        worker.start()
-    deadline = time.monotonic() + max(
-        float(resolved[role].get("timeout_ms", 5000)) / 1000.0 + 2.0 for role in resolved
-    )
-    while time.monotonic() < deadline:
-        errors = {role: worker.error for role, worker in workers.items() if worker.error is not None}
-        if errors:
-            for worker in workers.values():
-                worker.stop()
-            raise SystemExit(f"RealSense startup failed: {errors}")
-        if all(worker.latest() is not None for worker in workers.values()):
-            break
-        time.sleep(0.01)
-    else:
-        for worker in workers.values():
-            worker.stop()
-        raise SystemExit("dual RealSense startup timed out before fresh frames arrived")
-
-    writer: AsyncEpisodeWriter | None = None
-    preview: AsyncDualCameraPreview | None = None
-    preview_started = False
     try:
-        dataset_config = data_config.get("dataset", {})
-        if not isinstance(dataset_config, dict):
-            raise SystemExit("episode data config dataset must be a mapping")
-        root = args.episode_root or Path(
-            dataset_config.get("root", "data/episodes")
-        )
-        camera_profiles = {
-            role: workers[role].profile_metadata() for role in workers
-        }
-        calibration = data_config.get("calibration", {})
-        if not isinstance(calibration, dict):
-            raise SystemExit("episode data config calibration must be a mapping")
-        calibration_files = calibration.get("snapshot_files", [])
         hardware_config = config.raw.get("hardware_adapter", {})
-        start_tolerance = float(
-            hardware_config.get("startup_alignment_tolerance_rad", 0.001)
-        )
-        staging_writer = CanonicalEpisodeWriter(
-            root,
+        runtime = EpisodeDataRuntime.start(
+            args.episode_data_config,
+            episode_root=args.episode_root,
             task_name=args.task_name,
             operator=args.operator,
-            dataset_fps=int(dataset_config.get("fps", 30)),
+            control_config_path=args.config,
+            maximum_start_delta_rad=float(
+                hardware_config.get("startup_alignment_tolerance_rad", 0.001)
+            ),
+            preview_enabled=args.episode_preview,
             metadata={
-                "camera_serials": serials,
-                "camera_profiles": camera_profiles,
-                "calibration_files": calibration_files,
-                "calibration_snapshot": {
-                    "files": [],
-                    "version": calibration.get("version"),
-                },
-                "control_config": {
-                    "path": str(args.config.resolve()),
-                    "sha256": file_sha256(args.config),
-                },
                 "raw_streams": {
                     "quest_raw_datagram": "measured",
                     "quest_decoded_input": "measured",
@@ -912,55 +843,14 @@ def _start_episode_data_runtime(
                 "physically_validated": False,
             },
         )
-        writer = AsyncEpisodeWriter(staging_writer)
-        collector = SingleEpisodeCollector(
-            writer,
-            camera_max_age_ns=round(
-                float(
-                    dataset_config.get("camera_max_age_ms", 33.333334)
-                )
-                * 1e6
-            ),
-            control_max_age_ns=round(
-                float(dataset_config.get("control_max_age_ms", 20.0)) * 1e6
-            ),
-            maximum_start_delta_rad=start_tolerance,
-            maximum_hand_start_delta_rad=float(
-                dataset_config.get("hand_start_tolerance_rad", 0.05)
-            ),
+        return (
+            runtime.collector,
+            runtime.cameras["workspace"],
+            runtime.cameras["wrist"],
+            runtime.preview,
         )
-        writer.set_final_metadata_provider(
-            lambda: {
-                "camera_profiles": {
-                    role: workers[role].profile_metadata() for role in workers
-                }
-            }
-        )
-        if args.episode_preview:
-            preview = AsyncDualCameraPreview(
-                workers["workspace"],
-                workers["wrist"],
-                PreviewStatus(
-                    state=collector.state,
-                    temporary_id=writer.temporary_id,
-                    episode_start_ns=None,
-                    arm_trigger=False,
-                    hand_grip=False,
-                    recording_frame_count=0,
-                ),
-            )
-            preview.start()
-            preview_started = True
-            collector.set_state_listener(preview.set_capture_state)
-        return collector, workers["workspace"], workers["wrist"], preview
-    except BaseException:
-        if preview_started and preview is not None:
-            preview.stop()
-        if writer is not None:
-            writer.close()
-        for worker in workers.values():
-            worker.stop()
-        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _simulation_control_sample(

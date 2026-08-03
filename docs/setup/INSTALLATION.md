@@ -17,7 +17,7 @@ authorized hardware work.
 | RH56DFX | Linux PC-direct USB/RS485 driver | Hand-only read/command/Quest evidence exists; long combined operation remains incomplete |
 | RealSense D435 | Python adapter, stream checker, RGB-D processing, and example configs | Offline tested; target dual-camera profiles and synchronization are not physically validated |
 | Meta Quest 3 | Host-side HTS and CTRL UDP parsing, recording, replay, and simulation | Host path implemented; headset APK/runtime installation is external and must be verified separately |
-| Dataset tools | Simulation-backed Quest + dual-D435 episode capture, validation, manifest, statistics, ACT-style HDF5 and LeRobot export boundaries | Offline-tested data contracts; physical JAKA/RH56 multimodal collection is not integrated or validated |
+| Dataset tools | Shared simulation/physical-gated dual-D435 episode capture, validation, inspection, labeling, manifest, statistics, ACT-style HDF5 and LeRobot export boundaries | Offline-tested data contracts; physical JAKA/RH56 multimodal collection is integrated but not physically validated |
 | Training | PyTorch/distributed smoke infrastructure only | No ACT, Diffusion Policy, OpenPI/pi0, or general trainer exists |
 | Jetson Thor | aarch64 JAKA SDK snapshot and device-oriented configs exist | End-to-end Thor installation, camera stack, policy deployment, and latency are not validated |
 

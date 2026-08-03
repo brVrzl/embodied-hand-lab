@@ -39,7 +39,8 @@ absolute target through the 8 ms latest-destination/PWL worker.
 | Integrated arm + RH56 simulation | Validated as a six-arm-actuator plus six-hand-actuator approximation |
 | Physical combined operation | One bounded 60.105 s PASS; no 300 s PASS |
 | TCP calibration | Not complete |
-| Dual-camera physical dataset capture and policy training | Not validated end to end |
+| Dual-camera physical dataset capture | Integrated and offline tested; not physically validated end to end |
+| Policy training from physical episodes | Not validated |
 
 Offline, replay, and simulation results are not physical PASS evidence.
 
@@ -222,9 +223,10 @@ The maintained combined wrapper is:
 ./scripts/run_quest_jaka_rh56_teleop.sh --help
 ```
 
-It requires exact arm and hand approvals, completed hand prerequisites,
-accessible E-stop, a clear workspace, bounded duration, stable/verified device
-identity, and `--no-auto-retry`. The wrapper permits at most 300 seconds, but
+It requires an explicit complete real-device invocation for the current
+process, completed hand prerequisites, accessible E-stop, a clear workspace,
+bounded duration, stable/verified device identity, and `--no-auto-retry`. No
+approval token or file persists after the process exits. The wrapper permits at most 300 seconds, but
 that upper bound is not a validated operating duration. It also requires an
 explicit verified `--native-control-cpu`; unisolated combined operation is
 rejected before hardware I/O. The fixed native control priority is
@@ -253,8 +255,8 @@ Inspecting help or running plant-free tests does not authorize hardware.
    relabelled as a 300-second PASS.
 5. Complete physical RH56 target/feedback characterization and the staged
    Quest-driven hand validation.
-6. Calibrate camera/robot time and geometry before physical dual-D435 dataset
-   collection.
+6. Physically validate integrated dual-D435 v2 capture and calibrate
+   camera/robot time and geometry before treating it as a training dataset.
 7. Validate dataset quality and framework adapters before claiming ACT,
    Diffusion Policy, or OpenPI training support.
 

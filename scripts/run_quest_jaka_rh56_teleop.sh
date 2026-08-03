@@ -28,6 +28,11 @@ PLANT_FREE_NO_NETWORK_CHECK="false"
 ALLOW_DIRECT_CH341_DEVICE="false"
 NATIVE_CONTROL_CPU=""
 NATIVE_CONTROL_REALTIME_PRIORITY="10"
+EPISODE_DATA_CONFIG=""
+EPISODE_ROOT="data/episodes"
+TASK_NAME="fixed_bottle_pick_lift_10cm_hold_3s_replace"
+OPERATOR="unknown"
+EPISODE_PREVIEW="false"
 
 usage() {
   cat <<'EOF'
@@ -67,6 +72,12 @@ Options:
   --worker PATH
   --log-dir PATH
   --python PATH
+  --episode-data-config PATH
+                            enable canonical dual-camera physical episode capture
+  --episode-root PATH       default data/episodes
+  --task-name NAME          dataset task identifier
+  --operator ID             dataset operator identifier
+  --episode-preview         show the existing dual-camera preview
   --plant-free-no-network-check  validate both gates without sockets/hardware
 EOF
 }
@@ -89,6 +100,11 @@ while [[ $# -gt 0 ]]; do
     --worker) need_value "$@"; WORKER="$2"; shift 2 ;;
     --log-dir) need_value "$@"; LOG_DIR="$2"; shift 2 ;;
     --python) need_value "$@"; PYTHON_BIN="$2"; shift 2 ;;
+    --episode-data-config) need_value "$@"; EPISODE_DATA_CONFIG="$2"; shift 2 ;;
+    --episode-root) need_value "$@"; EPISODE_ROOT="$2"; shift 2 ;;
+    --task-name) need_value "$@"; TASK_NAME="$2"; shift 2 ;;
+    --operator) need_value "$@"; OPERATOR="$2"; shift 2 ;;
+    --episode-preview) EPISODE_PREVIEW="true"; shift ;;
     --estop-accessible) ESTOP_ACCESSIBLE="true"; shift ;;
     --workspace-clear) WORKSPACE_CLEAR="true"; shift ;;
     --no-auto-retry) NO_AUTO_RETRY="true"; shift ;;
@@ -117,6 +133,10 @@ fi
 awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 300) }' || { echo "duration must be >0 and <=300" >&2; exit 2; }
 [[ -x "${PYTHON_BIN}" ]] || { echo "Python is not executable: ${PYTHON_BIN}" >&2; exit 2; }
 [[ -x "${WORKER}" ]] || { echo "Native worker is not executable: ${WORKER}" >&2; exit 2; }
+if [[ "${EPISODE_PREVIEW}" == true && -z "${EPISODE_DATA_CONFIG}" ]]; then
+  echo "--episode-preview requires --episode-data-config" >&2
+  exit 2
+fi
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
 prefix="${LOG_DIR%/}/quest_jaka_rh56_combined_${timestamp}_$$"
@@ -149,5 +169,10 @@ if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"
 cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}")
 cmd+=(--native-control-realtime-priority "${NATIVE_CONTROL_REALTIME_PRIORITY}")
 if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
+if [[ -n "${EPISODE_DATA_CONFIG}" ]]; then
+  cmd+=(--episode-data-config "${EPISODE_DATA_CONFIG}" --episode-root "${EPISODE_ROOT}")
+  cmd+=(--task-name "${TASK_NAME}" --operator "${OPERATOR}")
+fi
+if [[ "${EPISODE_PREVIEW}" == true ]]; then cmd+=(--episode-preview); fi
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == true ]]; then cmd+=(--plant-free-no-network-check); fi
 exec "${cmd[@]}"

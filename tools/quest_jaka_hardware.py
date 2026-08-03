@@ -48,6 +48,9 @@ from teleoperation.output_feasibility import (
     PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
 )
 from embodiment_core.config import load_yaml
+from episode_dataset.collector import CaptureState
+from episode_dataset.episode import ControlSample, PHYSICAL_SCHEMA_VERSION
+from episode_dataset.runtime import EpisodeDataRuntime
 from rh56_driver.pc_direct_control import (
     RH56PcDirectControl,
     RH56SessionArm,
@@ -355,6 +358,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--metrics", type=Path, required=True)
     parser.add_argument("--capture", type=Path, required=True)
+    parser.add_argument("--episode-data-config", type=Path)
+    parser.add_argument("--episode-root", type=Path)
+    parser.add_argument("--task-name", default="fixed_bottle_pick_lift_10cm_hold_3s_replace")
+    parser.add_argument("--operator", default="unknown")
+    parser.add_argument("--episode-preview", action="store_true")
     parser.add_argument("--native-telemetry", type=Path)
     parser.add_argument("--event-extract", type=Path)
     velocity_group = parser.add_mutually_exclusive_group()
@@ -573,6 +581,10 @@ def main() -> int:
     args = _parser().parse_args()
     if args.duration_sec <= 0.0:
         raise SystemExit("duration must be positive")
+    if args.episode_root is not None and args.episode_data_config is None:
+        raise SystemExit("--episode-root requires --episode-data-config")
+    if args.episode_data_config is not None and args.stage != "combined-normal-teleop":
+        raise SystemExit("physical episode capture is only available for combined-normal-teleop")
     try:
         config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
         if args.stage == "combined-normal-teleop":
@@ -1094,7 +1106,66 @@ def main() -> int:
         pending_receiver_drain_and_ingest_ns = 0
         arm_commands_while_index_released = 0
         native_started = False
+        episode_runtime: EpisodeDataRuntime | None = None
+        previous_episode_q: tuple[float, ...] | None = None
+        previous_episode_observation_ns: int | None = None
         try:
+            if args.episode_data_config is not None:
+                episode_runtime = EpisodeDataRuntime.start(
+                    args.episode_data_config,
+                    episode_root=args.episode_root,
+                    task_name=args.task_name,
+                    operator=args.operator,
+                    control_config_path=args.config,
+                    maximum_start_delta_rad=float(
+                        hardware["startup_alignment_tolerance_rad"]
+                    ),
+                    schema_version=PHYSICAL_SCHEMA_VERSION,
+                    preview_enabled=args.episode_preview,
+                    metadata={
+                        "units": {
+                            "arm_q": "rad",
+                            "arm_dq": "rad/s",
+                            "tcp_translation": "m",
+                            "tcp_orientation": "quaternion_xyzw",
+                            "hand": "normalized_closure_0_to_1",
+                            "rh56_angle_act": "raw_count",
+                            "rh56_current": "raw_count",
+                            "rh56_force_act": "raw_count",
+                            "rh56_error": "raw_code",
+                            "rh56_status": "raw_code",
+                            "depth_raw": "device_units_uint16",
+                            "timestamp": "host_monotonic_ns",
+                        },
+                        "raw_streams": {
+                            "quest_raw_datagram": "measured_external_capture",
+                            "quest_decoded_input": "measured",
+                            "accepted_arm_target_60hz": "commanded",
+                            "emitted_arm_command_125hz": "measured_external_native_log",
+                            "jaka_arm_q": "measured",
+                            "jaka_arm_dq": "estimated_finite_difference",
+                            "native_telemetry": "measured_external_native_log",
+                            "rh56_target": "commanded",
+                            "rh56_feedback": "measured_raw_registers",
+                            "workspace_rgbd": "measured",
+                            "wrist_rgbd": "measured",
+                            "fault_events": "measured",
+                        },
+                        "simulation_only": False,
+                        "physically_validated": False,
+                        "physical_log_paths": {
+                            "quest_capture": str(args.capture.resolve()),
+                            "native_telemetry": str(args.native_telemetry.resolve()),
+                            "rh56_telemetry": str(args.rh56_log.resolve()),
+                            "combined_events": str(args.log.resolve()),
+                        },
+                    },
+                )
+                print(
+                    f"EPISODE_CAPTURE=IDLE id={episode_runtime.collector.writer.temporary_id} "
+                    f"root={episode_runtime.collector.writer.root}",
+                    flush=True,
+                )
             if rh56_worker is not None:
                 rh56_worker.start(RH56SessionArm.combined())
             native.start()
@@ -1172,6 +1243,15 @@ def main() -> int:
                             time.sleep(min(0.001, next_tick - now))
                             continue
                         now_ns = time.monotonic_ns()
+                        if episode_runtime is not None:
+                            episode_runtime.ingest_cameras()
+                            if episode_runtime.collector.state is CaptureState.DONE:
+                                abort_reason = "episode_capture_failure"
+                                stop_reason = abort_reason
+                                jaka_adapter.stop()
+                                if rh56_worker is not None:
+                                    rh56_worker.arm_terminal_stop(abort_reason)
+                                break
                         outer_tick_started_ns = time.perf_counter_ns()
                         poll_started_ns = time.perf_counter_ns()
                         router.poll(now_ns, session)
@@ -1366,6 +1446,115 @@ def main() -> int:
                                 else rh56_control.episode_record(now_ns)
                             ),
                         )
+                        if episode_runtime is not None and status is not None:
+                            assert rh56_control is not None
+                            feedback = rh56_control.last_feedback
+                            held_target = (
+                                tick.accepted_target
+                                if tick.accepted_target is not None
+                                else session.last_accepted_target
+                            )
+                            if feedback is not None:
+                                measured_q = tuple(status.joint_position_rad)
+                                observation_ns = int(status.observation_monotonic_ns)
+                                if (
+                                    previous_episode_q is None
+                                    or previous_episode_observation_ns is None
+                                    or observation_ns <= previous_episode_observation_ns
+                                ):
+                                    measured_dq = (0.0,) * 6
+                                else:
+                                    dt = (observation_ns - previous_episode_observation_ns) / 1e9
+                                    measured_dq = tuple(
+                                        (value - previous) / dt
+                                        for value, previous in zip(
+                                            measured_q, previous_episode_q, strict=True
+                                        )
+                                    )
+                                previous_episode_q = measured_q
+                                previous_episode_observation_ns = observation_ns
+                                if held_target is None:
+                                    arm_target = measured_q
+                                    tcp = target_generator.current_tcp_pose
+                                    arm_action_source = "measured_hold_reference"
+                                    accepted_target_sequence = None
+                                else:
+                                    arm_target = held_target.joint_position_rad
+                                    tcp = held_target.filtered_tcp
+                                    arm_action_source = "accepted_target"
+                                    accepted_target_sequence = held_target.sequence_number
+                                hand_target = (
+                                    feedback.position_normalized
+                                    if rh56_control.last_command_normalized is None
+                                    else rh56_control.last_command_normalized
+                                )
+                                rh56_record = rh56_control.episode_record(
+                                    now_ns, include_diagnostics=False
+                                )
+                                episode_runtime.collector.ingest_control(
+                                    ControlSample(
+                                        host_monotonic_ns=now_ns,
+                                        accepted_arm_q=arm_target,
+                                        arm_q_measured=measured_q,
+                                        arm_dq_measured=measured_dq,
+                                        arm_dq_source="estimated",
+                                        tcp_pose_xyzw=(
+                                            *tcp.position_m,
+                                            *tcp.orientation_xyzw,
+                                        ),
+                                        tcp_pose_source="commanded",
+                                        hand_observation=feedback.position_normalized,
+                                        hand_source="measured",
+                                        hand_target=hand_target,
+                                        arm_trigger=engaged,
+                                        hand_grip=session.hand_clutch.state.value
+                                        in {"reacquire", "engaged"},
+                                        arm_action_status=(
+                                            "held_rejected"
+                                            if event.get("control_state")
+                                            == "HOLD_REJECTED"
+                                            else "accepted"
+                                        ),
+                                        arm_action_source=arm_action_source,
+                                        accepted_target_sequence=accepted_target_sequence,
+                                        source_timestamps_ns={
+                                            "jaka_observation": observation_ns,
+                                            "jaka_command": status.command_monotonic_ns,
+                                            "rh56_angle_act": feedback.monotonic_ns,
+                                        },
+                                        source_timestamp_domains={
+                                            "jaka_observation": "host_monotonic_ns",
+                                            "jaka_command": "host_monotonic_ns",
+                                            "rh56_angle_act": "host_monotonic_ns",
+                                        },
+                                        control_heartbeat_valid=not dispatch_failed,
+                                        controller_fault=bool(status.error_code),
+                                    ),
+                                    reference_established=True,
+                                    capture_active=True,
+                                    raw_records={
+                                        "quest_decoded_control_event": event,
+                                        "jaka_state": {
+                                            "read_host_monotonic_ns": observation_ns,
+                                            "record_host_monotonic_ns": now_ns,
+                                            "command_host_monotonic_ns": status.command_monotonic_ns,
+                                            "accepted_joint_target_rad": list(arm_target),
+                                            "joint_target_source": arm_action_source,
+                                            "measured_joint_position_rad": list(measured_q),
+                                            "estimated_joint_velocity_rad_s": list(measured_dq),
+                                            "commanded_tcp_pose_xyzw": [
+                                                *tcp.position_m,
+                                                *tcp.orientation_xyzw,
+                                            ],
+                                        },
+                                        "rh56_feedback": rh56_record,
+                                    },
+                                )
+                                episode_runtime.update_preview(
+                                    arm_trigger=engaged,
+                                    hand_grip=session.hand_clutch.state.value
+                                    in {"reacquire", "engaged"},
+                                )
                         event["producer_outer_timing_ms"] = {
                             "receiver_drain_and_router_ingest": (
                                 pending_receiver_drain_and_ingest_ns / 1e6
@@ -1446,6 +1635,26 @@ def main() -> int:
                 rh56_recorder.close()
             if rh56_log is not None:
                 rh56_log.close()
+            if episode_runtime is not None:
+                if episode_runtime.collector.state is CaptureState.REC:
+                    if abort_reason is None and stop_reason in {
+                        "duration_complete",
+                        "operator_keyboard_stop",
+                    }:
+                        episode_runtime.collector.finish(stop_reason)
+                    else:
+                        episode_runtime.collector.abort(
+                            abort_reason or stop_reason
+                        )
+                else:
+                    episode_runtime.collector.shutdown(
+                        abort_reason or stop_reason
+                    )
+                print(
+                    f"EPISODE_RESULT={episode_runtime.collector.result}",
+                    flush=True,
+                )
+                episode_runtime.close()
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
     abort_reason, transport_symptom_reason = (

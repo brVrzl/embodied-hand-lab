@@ -41,6 +41,14 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     )
     inspect.add_argument("--playback-rate", type=float, default=1.0)
 
+    label = commands.add_parser(
+        "label", help="assign reviewed task outcome metadata to one episode"
+    )
+    label.add_argument("episode", type=Path)
+    label.add_argument("--success", choices=("success", "failure"), required=True)
+    label.add_argument("--failure-stage")
+    label.add_argument("--notes", default="")
+
     manifest = commands.add_parser(
         "manifest",
         help="build deterministic episode-level train/validation/test splits",
@@ -89,6 +97,25 @@ def _write_report(path: Path, payload: object) -> None:
     temporary.replace(path)
 
 
+def _label_episode(
+    episode: Path, *, success: str, failure_stage: str | None, notes: str
+) -> Path:
+    episode = episode.resolve()
+    metadata_path = episode / "metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("finalized") is not True:
+        raise ValueError("only a finalized episode can be labeled")
+    if success == "success" and failure_stage is not None:
+        raise ValueError("--failure-stage is only valid with --success failure")
+    if success == "failure" and not failure_stage:
+        raise ValueError("failed episode requires --failure-stage")
+    metadata["success_label"] = success
+    metadata["failure_stage"] = failure_stage
+    metadata["notes"] = notes
+    _write_report(metadata_path, metadata)
+    return metadata_path
+
+
 def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
     args = build_parser(prog=prog).parse_args(argv)
     if args.command == "validate":
@@ -112,6 +139,15 @@ def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
         if args.playback and payload["inspection_available"]:
             play_episode(args.episode, playback_rate=args.playback_rate)
         return 0 if payload["validation"]["valid"] else 1
+    if args.command == "label":
+        result = _label_episode(
+            args.episode,
+            success=args.success,
+            failure_stage=args.failure_stage,
+            notes=args.notes,
+        )
+        print(result)
+        return 0
     if args.command == "manifest":
         result = build_dataset_manifest(
             args.dataset_root,

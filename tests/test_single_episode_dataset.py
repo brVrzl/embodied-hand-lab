@@ -18,6 +18,7 @@ from episode_dataset.episode import (
     CameraSample,
     CanonicalEpisodeWriter,
     ControlSample,
+    PHYSICAL_SCHEMA_VERSION,
     StartPrerequisites,
 )
 from episode_dataset.exporters import (
@@ -148,6 +149,86 @@ def test_canonical_clock_skips_deadlines_without_catchup_or_index_gap() -> None:
     assert clock.last_nominal_slot_index == 6
     assert clock.last_missed_slots_before == 4
     assert clock.total_missed_slots == 4
+
+
+def test_physical_v2_preserves_normalized_hand_unit(tmp_path: Path) -> None:
+    writer = CanonicalEpisodeWriter(
+        tmp_path,
+        task_name="pick",
+        operator="tester",
+        schema_version=PHYSICAL_SCHEMA_VERSION,
+        metadata={"units": {"hand": "normalized_closure_0_to_1"}},
+    )
+    collector = SingleEpisodeCollector(
+        writer,
+        camera_max_age_ns=33_333_334,
+        control_max_age_ns=20_000_000,
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+    base = 1_000_000_000
+    collector.ingest_control(_control(base, trigger=True), reference_established=True)
+    collector.ingest_camera(_camera("workspace", base + 1_000_000, 1, width=32))
+    collector.ingest_camera(_camera("wrist", base + 1_000_000, 1, width=32))
+    collector.ingest_control(
+        _control(base + 2_000_000, trigger=True), reference_established=True
+    )
+    collector.ingest_control(
+        _control(base + 3_000_000, trigger=False),
+        reference_established=True,
+        capture_active=True,
+    )
+    assert collector.state is CaptureState.REC
+    collector.writer.append_raw(
+        "jaka_state",
+        {
+            "read_host_monotonic_ns": base + 1_000_000,
+            "record_host_monotonic_ns": base + 2_000_000,
+            "command_host_monotonic_ns": base + 1_000_000,
+            "accepted_joint_target_rad": [0.1] * 6,
+            "measured_joint_position_rad": [0.1] * 6,
+            "estimated_joint_velocity_rad_s": [0.0] * 6,
+            "commanded_tcp_pose_xyzw": [0.3, 0.0, 0.2, 0.0, 0.0, 0.0, 1.0],
+        },
+    )
+    collector.writer.append_raw(
+        "rh56_feedback",
+        {
+            "action": {"hand_target": [0.2] * 6},
+            "hand_command_timestamp": base + 1_000_000,
+            "hand_feedback_timestamp": base + 1_000_000,
+            "hand_feedback_register_timestamps_ns": {
+                name: base + 1_000_000
+                for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS")
+            },
+            "rh56_registers": {
+                name: [0.0] * 6
+                for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS")
+            },
+        },
+    )
+    collector.writer.append_raw(
+        "rh56_feedback",
+        {
+            "action": {"hand_target": None},
+            "hand_command_timestamp": None,
+            "hand_feedback_timestamp": base + 2_000_000,
+            "hand_feedback_register_timestamps_ns": {
+                name: base + 2_000_000
+                for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS")
+            },
+            "rh56_registers": {
+                name: [0.0] * 6
+                for name in ("ANGLE_ACT", "CURRENT", "FORCE_ACT", "ERROR", "STATUS")
+            },
+        },
+    )
+    collector.finish("duration_complete")
+
+    assert collector.result is not None
+    report = validate_episode(collector.result, deep=True)
+    assert report["schema_version"] == PHYSICAL_SCHEMA_VERSION
+    assert report["valid"]
 
 
 def test_trigger_bounds_exactly_one_episode_and_excludes_idle(

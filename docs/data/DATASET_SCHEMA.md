@@ -4,8 +4,9 @@
 
 This page documents the dataset code that currently exists in
 `src/episode_dataset/`. It is the contract for
-`embodied_lab.single_episode.v1`; examples or historical reports do not override
-the source schema.
+`embodied_lab.single_episode.v1` and the physical-hand extension
+`embodied_lab.single_episode.v2`; examples or historical reports do not
+override the source schema.
 
 The status words used below are deliberate:
 
@@ -16,12 +17,11 @@ The status words used below are deliberate:
 - **Planned** means the field or workflow is required before physical
   JAKA/RH56 collection or policy training, but does not yet exist.
 
-Canonical v1 is an offline-validated, one-episode archive. The only wired
-end-to-end producer combines real Quest input and two real D435 streams with a
-MuJoCo JAKA/RH56 state source. `SingleEpisodeCollector` is **not** connected to
-the physical JAKA/RH56 command loop. A v1 archive therefore must not be cited as
-physical robot validation merely because its model names are JAKA Mini2 and
-RH56DFX.
+Canonical v1 remains the simulation-hand archive. V2 reuses the same writer,
+camera payloads, causal clock, vector ordering, and lifecycle while declaring
+physical RH56 normalized actuator units and retaining raw register telemetry.
+The physical producer is wired only into the separately authorized combined
+JAKA/RH56 gate. Implementation and offline tests are not a physical PASS.
 
 ## Episode directory
 
@@ -75,7 +75,9 @@ IDLE -> ARMING -> REC -> FINALIZING -> DONE
 
 1. `IDLE` retains preview and latest-source state but creates no episode
    directory.
-2. A rising arm-trigger edge enters `ARMING`.
+2. A rising capture-boundary edge enters `ARMING`. The simulation producer
+   uses the arm trigger; physical v2 uses the explicitly started bounded run,
+   independently of either clutch.
 3. Recording begins only after all start prerequisites pass:
    reference established; first accepted arm target available; measured arm
    position available; measured or explicitly estimated arm velocity and TCP
@@ -83,8 +85,11 @@ IDLE -> ARMING -> REC -> FINALIZING -> DONE
    still held; arm and hand start-continuity deltas inside their configured
    limits; and fresh, causal post-trigger frames available from both cameras.
 4. `REC` writes raw sources asynchronously and emits canonical samples on a
-   fixed-rate clock.
-5. Trigger release finalizes a `completed` episode with no release tail.
+   fixed-rate clock. At the current 30 Hz camera profile, causal latest-frame
+   selection permits 70 ms of source age (about two frame periods plus host
+   jitter); it never selects a future frame and longer stalls abort capture.
+5. The configured capture boundary finalizes a `completed` episode with no
+   fabricated tail. Physical v2 remains active across arm/hand clutch changes.
    Camera/control staleness, clock regression, hard fault, heartbeat loss, or
    write failure finalizes an `aborted` or `invalid` episode.
 6. A start rejected before recording removes any staging directory and writes
@@ -121,6 +126,8 @@ are implemented.
 | `task_name` | string | Operator-provided task identifier. It is not currently validated against a registry. |
 | `operator` | string | Operator identifier supplied at launch. |
 | `start_host_monotonic_ns`, `end_host_monotonic_ns` | integer | Host monotonic recording bounds. These are not UTC wall-clock values. |
+| `start_wall_time_utc`, `end_wall_time_utc` | ISO-8601 string | Human/audit wall-clock bounds; canonical alignment never uses them. |
+| `finalized_host_monotonic_ns` | integer | Host time at finalization, separate from the last canonical sample time. |
 | `trigger_press_host_monotonic_ns`, `trigger_release_host_monotonic_ns` | integer or null | Trigger boundary evidence. |
 | `dataset_fps` | positive integer | Canonical sampling rate. Current example is 30 Hz. |
 | `sample_count`, `duration_s` | integer, float | Final canonical row count and elapsed monotonic duration. |
@@ -137,7 +144,8 @@ are implemented.
 | `time_alignment` | object | Causal selection and missed-slot policy. |
 | `completion_status` | enum | `completed`, `aborted`, or `invalid`. |
 | `termination_reason` | string | Literal reason for finalization. |
-| `success_label` | enum | `unlabeled`, `success`, or `failure`. The writer finalizes as `unlabeled`; no labeling CLI exists. |
+| `success_label` | enum | `unlabeled`, `success`, or `failure`. The writer finalizes as `unlabeled`; `dataset label` applies the reviewed outcome. |
+| `failure_stage`, `notes` | string/null, string | Reviewed task outcome detail set by `dataset label`. |
 | `finalized` | bool | Must be `true` for validation. |
 | `code` | object | Git revision/dirty state when available, `EMBODIED_LAB_SOURCE_REVISION`, or an explicit no-repository marker. |
 | `simulation_only`, `physically_validated` | bool | Producer-supplied validation boundary. The current connected collector writes `true` and `false`, respectively. |
@@ -207,9 +215,11 @@ Every line of `canonical/samples.jsonl` is one JSON object.
 | `observation.state.hand` | six floats | Hand actuator-space observation, radians in v1. |
 | `observation.state.*_source` | enum | `measured`, `commanded`, `estimated`, or `unavailable`. |
 | `observation.state.arm_trigger`, `hand_grip` | bool | Input clutch state selected at the canonical time. |
+| `observation.state.control_segment_id`, `control_segment_mode` | integer, enum | Increments on stable arm/hand clutch-mode transitions: idle, arm-only, hand-only, or both. |
 | `action.arm_q_target` | six floats | Accepted/held arm target, radians. |
 | `action.hand_target` | six floats | Hand target, radians in v1. |
 | `action.arm_status` | enum | `accepted` or `held_rejected`. |
+| `action.arm_source` | enum | `accepted_target` or the pre-engagement `measured_hold_reference`. |
 | `timing.source_timestamps_ns` | object | Source timestamps keyed by source name. |
 | `timing.source_timestamp_domains` | object | Clock domain for every source timestamp. |
 | `timing.signed_offsets_ns` | object | `source_timestamp - canonical_timestamp` when clocks are comparable. |
@@ -278,6 +288,19 @@ The validator rejects a canonical v1 archive whose metadata does not declare
 the hand unit as `rad`. Raw RH56 register counts therefore require a different
 versioned schema or a separately declared training view.
 
+### Physical v2
+
+V2 declares canonical `observation.state.hand` and `action.hand_target` as
+`normalized_closure_0_to_1`. `raw/rh56_feedback.jsonl` retains commanded
+normalized/raw targets, measured `ANGLE_ACT`, normalized `ANGLE_ACT`, raw
+`CURRENT`, raw `FORCE_ACT`, raw `ERROR`, raw `STATUS`, command/feedback
+timestamps, per-register successful-read timestamps, latency, sequences,
+disposition, transport state, and fault state. `raw/jaka_state.jsonl` retains
+accepted commanded joints, measured joints, finite-difference velocity, the
+accepted commanded TCP pose, and JAKA observation/command/record host
+timestamps. Canonical TCP provenance is `commanded`; measured joints remain
+available for offline FK without adding FK work to the command-critical loop.
+
 ### Physical RH56 PC-direct raw record
 
 `src/rh56_driver/pc_direct_control.py::episode_record` currently exposes:
@@ -299,10 +322,9 @@ feedback fields. They are not the complete passive-joint configuration, a
 tactile sensor array, or direct slip sensing. Defaults or missing values from a
 schema helper must never be promoted to measured zero.
 
-A future physical dataset schema must retain the raw values, normalized views,
-calibration/version identifiers, provenance, register freshness, read latency,
-command disposition, and validity masks. It must not convert counts to
-canonical-v1 radians without a validated actuator calibration.
+Physical v2 retains the raw values, normalized views, calibration/version
+identifiers, provenance, register freshness, read latency, command disposition,
+and validity evidence. It does not convert counts to canonical-v1 radians.
 
 ## Validation
 
@@ -320,7 +342,8 @@ loading and raw JSONL parsing.
 `valid` and `training_eligible` are different:
 
 - `valid` requires a finalized supported schema, matching vector orders, the
-  canonical-v1 `hand=rad` unit declaration, readable metadata/indexes,
+  matching hand-unit declaration (`rad` for v1 or normalized closure for v2),
+  readable metadata/indexes,
   contiguous stored frame indices, monotonic canonical time and nominal slots,
   correct fixed-slot timestamps, valid finite vector shapes, JAKA arm
   state/target inside the manufacturer boundaries, valid action status, safe
@@ -338,9 +361,16 @@ accuracy, sensor semantics, or physical safety.
 
 An episode finalized by the current collector remains structurally valid with
 `success_label=unlabeled`, but it is not training eligible. An audited
-post-collection process must explicitly set `success` or `failure` before
-manifest construction or export. The repository does not yet provide that
-annotation command; do not bypass the gate by treating `completed` as success.
+post-collection review must explicitly set `success` or `failure` before
+manifest construction or export:
+
+```bash
+.venv/bin/embodied-lab dataset label data/episodes/episode-<uuid> \
+  --success success --notes "reviewed bottle task"
+
+.venv/bin/embodied-lab dataset label data/episodes/episode-<uuid> \
+  --success failure --failure-stage grasp --notes "bottle slipped"
+```
 
 ## Dataset manifest, split, and statistics
 
@@ -420,15 +450,10 @@ framework-specific boundary.
 
 The following are requirements, not current capabilities:
 
-- connect the collector to the authoritative physical loop without bypassing
-  `AcceptedArmTarget`, safety gates, fault handling, or liveness;
-- define a versioned physical hand view with raw RH56 registers, calibrated
-  actuator representation, provenance, masks, and calibration version;
 - require structured task, object, initial-state, success, failure-category,
   hardware-configuration, environment, and session metadata;
 - define device-to-host clock models and synchronization uncertainty rather
   than comparing unrelated clock domains;
-- add an audited post-collection labeling workflow;
 - add crash discovery/quarantine and, if justified, repair for `.partial`
   archives;
 - add complete payload checksums and directory durability where required;

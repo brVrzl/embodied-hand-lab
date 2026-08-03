@@ -190,10 +190,11 @@ accepted arm targets, 125 Hz emitted arm records, native metrics/cycle
 telemetry, and RH56 feedback. These records share host monotonic time where the
 runtime can establish it; device/source timestamps remain separately labelled.
 
-`src/episode_dataset` provides an offline-tested episode layer and simulation
-capture path. Dual physical D435 capture, complete clock calibration, a
-validated real multimodal dataset, and end-to-end ACT, Diffusion Policy, or
-OpenPI training are not current control-path capabilities.
+`src/episode_dataset` provides an offline-tested episode layer shared by the
+simulation path and the separately gated physical combined path. The physical
+v2 wiring is not yet physically validated. Complete clock/geometry calibration,
+a validated real multimodal dataset, and end-to-end ACT, Diffusion Policy, or
+OpenPI training remain unavailable.
 
 ## Maintained entry points
 

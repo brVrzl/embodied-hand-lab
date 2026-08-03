@@ -64,8 +64,9 @@ Offline tests, replay, and MuJoCo results are not physical PASS evidence.
 
 - RealSense profile fallback is offline tested but has not been validated on
   the target dual-D435 hardware/profile combinations.
-- Camera-to-robot extrinsics, cross-device time synchronization, and a complete
-  dual-camera physical episode capture have not been validated end to end.
+- Camera-to-robot extrinsics, cross-device time synchronization, and the
+  integrated dual-camera physical v2 episode path have not been physically
+  validated end to end.
 - Canonical episode validation, manifest/statistics tooling, selected export
   paths, and an offline MuJoCo smoke benchmark exist. They do not constitute a
   validated production dataset or policy-training run.

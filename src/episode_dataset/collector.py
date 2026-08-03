@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from dataclasses import replace
 import math
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -31,7 +32,7 @@ class SingleEpisodeCollector:
         self,
         writer: CanonicalEpisodeWriter,
         *,
-        camera_max_age_ns: int = 33_333_334,
+        camera_max_age_ns: int = 70_000_000,
         control_max_age_ns: int = 20_000_000,
         maximum_start_delta_rad: float,
         maximum_hand_start_delta_rad: float,
@@ -53,6 +54,8 @@ class SingleEpisodeCollector:
         self.workspace = CausalTimeline[CameraSample](max_age_ns=camera_max_age_ns)
         self.wrist = CausalTimeline[CameraSample](max_age_ns=camera_max_age_ns)
         self._last_trigger = False
+        self._control_segment_id = 0
+        self._last_control_segment_mode: str | None = None
         self._trigger_press_ns: int | None = None
         self._last_camera_clock: dict[str, tuple[float, float, int, int, str, str]] = {}
         self._last_control_source_timestamps: dict[str, int] = {}
@@ -104,15 +107,35 @@ class SingleEpisodeCollector:
         *,
         reference_established: bool,
         raw_records: Mapping[str, Mapping[str, Any]] | None = None,
+        capture_active: bool | None = None,
     ) -> None:
         if self.state is CaptureState.DONE:
             return
+        segment_mode = (
+            "arm_and_hand"
+            if sample.arm_trigger and sample.hand_grip
+            else "arm_only"
+            if sample.arm_trigger
+            else "hand_only"
+            if sample.hand_grip
+            else "both_idle"
+        )
+        if self._last_control_segment_mode is not None and (
+            segment_mode != self._last_control_segment_mode
+        ):
+            self._control_segment_id += 1
+        self._last_control_segment_mode = segment_mode
+        sample = replace(
+            sample,
+            control_segment_id=self._control_segment_id,
+            control_segment_mode=segment_mode,
+        )
         try:
             self.control.append(sample.host_monotonic_ns, sample)
         except TimestampRegression as exc:
             self.abort("control_timestamp_regression", invalid=True, detail=str(exc))
             return
-        pressed = sample.arm_trigger
+        pressed = sample.arm_trigger if capture_active is None else bool(capture_active)
         press_edge = pressed and not self._last_trigger
         release_edge = not pressed and self._last_trigger
         self._last_trigger = pressed
@@ -128,7 +151,9 @@ class SingleEpisodeCollector:
                 )
                 self._set_state(CaptureState.DONE)
                 return
-            if pressed and self._start_if_ready(sample, reference_established):
+            if pressed and self._start_if_ready(
+                sample, reference_established, capture_active=pressed
+            ):
                 if raw_records:
                     self._append_raw_records(raw_records)
                 return
@@ -180,6 +205,22 @@ class SingleEpisodeCollector:
             return
         self.abort(reason)
 
+    def finish(self, reason: str, *, release_ns: int | None = None) -> None:
+        """Finalize an active externally bounded session as completed."""
+
+        if self.state is CaptureState.DONE:
+            return
+        if self.state is not CaptureState.REC:
+            self.shutdown(reason)
+            return
+        self._set_state(CaptureState.FINALIZING)
+        self.result = self.writer.finalize(
+            EpisodeStatus.COMPLETED,
+            termination_reason=reason,
+            trigger_release_monotonic_ns=release_ns,
+        )
+        self._set_state(CaptureState.DONE)
+
     def abort(self, reason: str, *, invalid: bool = False, detail: str | None = None) -> None:
         if self.state is CaptureState.DONE:
             return
@@ -196,7 +237,13 @@ class SingleEpisodeCollector:
         )
         self._set_state(CaptureState.DONE)
 
-    def _start_if_ready(self, sample: ControlSample, reference_established: bool) -> bool:
+    def _start_if_ready(
+        self,
+        sample: ControlSample,
+        reference_established: bool,
+        *,
+        capture_active: bool,
+    ) -> bool:
         if not reference_established or sample.accepted_arm_q is None:
             return False
         workspace = self.workspace.latest_at_or_before(sample.host_monotonic_ns)
@@ -213,7 +260,11 @@ class SingleEpisodeCollector:
         prerequisites = StartPrerequisites(
             trigger_press_monotonic_ns=trigger_press_ns,
             reference_established=True,
-            accepted=sample,
+            accepted=(
+                sample
+                if sample.arm_trigger
+                else replace(sample, arm_trigger=capture_active)
+            ),
             workspace=workspace.value,
             wrist=wrist.value,
             maximum_start_delta_rad=self.maximum_start_delta_rad,

@@ -1,7 +1,9 @@
 dataset:
   root: data/episodes
   fps: 30
-  camera_max_age_ms: 33.333334
+  # Canonical selection is causal. Two 30 Hz frame periods plus a small margin
+  # tolerate ordinary host receive jitter; longer stalls still abort capture.
+  camera_max_age_ms: 70.0
   control_max_age_ms: 20.0
   hand_start_tolerance_rad: 0.05
 

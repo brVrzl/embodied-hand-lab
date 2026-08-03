@@ -2,7 +2,8 @@
 
 ## Current support boundary
 
-The repository currently has one end-to-end canonical episode producer:
+The repository has two producers using the same canonical writer and
+dual-D435 runtime. The simulation-backed producer is:
 
 ```text
 real Quest HTS/CTRL input + real workspace/wrist D435 RGB-D
@@ -16,10 +17,14 @@ throughput, causal sampling, archive finalization, and offline export. The arm
 and hand data are simulated and metadata records `simulation_only=true` and
 `physically_validated=false`.
 
-There is no supported command that jointly records this canonical dataset from
-the physical JAKA and RH56DFX. `tools/quest_jaka_hardware.py` does not contain
-that integration. Do not infer physical collection support from the existence
-of the hardware teleoperation path or the RH56 raw telemetry helper.
+The separately gated `combined-normal-teleop` path can additionally write v2
+episodes from the physical JAKA/RH56 data already present in that loop. It does
+not alter the accepted-target pipeline or native worker. The explicitly
+started bounded run is the episode boundary; collection starts after fresh
+camera/JAKA/RH56 state is ready and remains active across every arm/hand clutch
+change. Stable clutch-mode transitions receive automatic segment IDs without
+creating multiple episode directories. This integration is offline tested and
+has not yet been physically validated.
 
 This guide does not authorize a physical robot, hand, headset, or camera run.
 Physical use requires its own session and the exact gate required by the
@@ -73,7 +78,7 @@ The implemented config fields are:
 dataset:
   root: data/episodes
   fps: 30
-  camera_max_age_ms: 33.333334
+  camera_max_age_ms: 70.0
   control_max_age_ms: 20.0
   hand_start_tolerance_rad: 0.05
 
@@ -101,6 +106,12 @@ The two serials are mandatory, must not retain the `REPLACE_...` placeholder,
 and must differ. Roles are never inferred from `/dev/video*` order.
 `--episode-root` overrides `dataset.root`; it is accepted only when
 `--episode-data-config` is also present.
+
+At 30 Hz, keep `camera_max_age_ms: 70.0`. Canonical rows causally select the
+latest frame at or before the recorder timestamp, so this permits ordinary
+host receive jitter and at most roughly one repeated selection. It never
+selects a future frame. A longer camera stall still aborts the episode, while
+raw frame numbers and device/host timestamps remain available for the summary.
 
 `calibration.snapshot_files` should contain the exact versioned files needed to
 interpret this capture. The current writer resolves those paths from the
@@ -194,14 +205,75 @@ cannot enter a training split or be exported.
 5. Release the arm trigger immediately at the intended episode boundary. The
    last already-complete canonical sample is retained, no release tail is
    fabricated, the archive finalizes, and the command exits.
-6. Record the semantic outcome outside the archive until an audited labeling
-   command exists. Do not equate `completed` with task success.
+6. Review and label the semantic outcome with `dataset label`. Do not equate
+   `completed` with task success.
 
 Closing the preview while recording, pressing Ctrl+C, camera disconnect,
 source staleness, timestamp regression, heartbeat loss, hard fault, queue
 overflow, or write failure ends the episode as `aborted` or `invalid`.
 Pre-recording rejection writes a `rejected-start-*.json` report and no episode
 directory.
+
+## Run one physical v2 episode
+
+This is a physical motion gate. Executing the complete real-device command
+authorizes the current process. After camera identities, calibration snapshots,
+controller state, E-stop,
+workspace, device identity, CPU isolation, and RH56 prerequisites are checked:
+
+```bash
+./scripts/run_quest_jaka_rh56_teleop.sh \
+  --robot-ip <ROBOT_IPV4> \
+  --rh56-device /dev/serial/by-id/<RH56_ADAPTER> \
+  --hand-prerequisites-complete --no-auto-retry \
+  --estop-accessible --workspace-clear \
+  --native-control-cpu <VERIFIED_CPU> \
+  --duration-sec <BOUNDED_SECONDS> \
+  --episode-data-config data/local/dual_d435_episode.yaml \
+  --episode-root data/episodes \
+  --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
+  --operator <OPERATOR_ID> --episode-preview
+```
+
+The first trial should be short. The combined command opens the separately
+gated JAKA/RH56 paths even when neither clutch is pressed, so it is not a
+read-only preflight. Use the maintained JAKA and RH56 read-only probes for the
+static hardware checks before authorizing this command.
+
+### Bottle Pickup A/B/C gate
+
+Use the same wrapper and schema for every phase. One process invocation is one
+episode; arm and hand clutch transitions only create `control_segment_id`
+boundaries inside it.
+
+Phase A is a 10 second no-new-target record. Keep both clutches released for
+the whole run; the canonical action is then explicitly sourced as
+`measured_hold_reference`, not presented as a demonstration:
+
+```bash
+./scripts/run_quest_jaka_rh56_teleop.sh \
+  --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
+  --rh56-device "$RH56_DEVICE" --allow-direct-ch341-device \
+  --duration-sec 10 --hand-prerequisites-complete --no-auto-retry \
+  --estop-accessible --workspace-clear --native-control-cpu 6 \
+  --rh56-scheduler-profile fast40 \
+  --episode-data-config data/local/dual_d435_episode.yaml \
+  --episode-root data/episodes \
+  --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
+  --operator <OPERATOR_ID> --episode-preview --log-dir logs
+```
+
+For Phase B, use the identical command with `--duration-sec 60`. Perform one
+approach, grasp, approximately 10 cm lift, approximately 3 second hold,
+replace, and retreat. Do not use clutch edges as episode boundaries. Stop the
+bounded process after the task, then inspect and label its single result.
+
+For Phase C, repeat the Phase B process exactly three times. Reset the bottle
+before each process, preserve each printed `EPISODE_RESULT`, inspect and label
+it immediately, and do not proceed if deep validation is not both
+`valid=true` and `training_eligible=true`. Export all three individually to
+the ACT-layout HDF5 view and run the existing exporter regression before
+starting a larger collection.
 
 ## Inspect and validate every episode
 
@@ -225,10 +297,8 @@ have separate meanings:
 
 Immediately after collection, `valid=true` with
 `training_eligible=false` is expected because the writer deliberately
-finalizes `success_label=unlabeled`. The repository has no audited annotation
-command yet. Keep the episode excluded until a controlled review process
-updates the label and records reviewer/provenance outside the current schema,
-then run deep validation again.
+finalizes `success_label=unlabeled`. Use `dataset label` only after reviewing
+both camera views and task outcome, then run deep validation again.
 
 Review warnings instead of discarding them blindly:
 
@@ -284,8 +354,8 @@ Before training:
 
 The current manifest uses whole-episode UUID hashing. It prevents frame leakage
 between splits, and it enforces explicit success/failure labels. It does not
-enforce object/session grouping or define the still-missing annotation
-workflow. Deep payload validation is the default; explicit `--fast` creates an
+enforce object/session grouping or reviewer identity/provenance. Deep payload
+validation is the default; explicit `--fast` creates an
 inventory whose episodes are all excluded from splits.
 
 ## Create derived training formats
@@ -377,34 +447,21 @@ review camera roles, outcome, occlusion, freeze, and failure context.
 The current writer's final rename protects readers from observing a
 half-finalized namespace, but it is not a full crash-consistent storage system.
 
-## Physical combined collection: required work
+## Physical combined collection boundary
 
-This section is a gate list, not an executable procedure.
+The physical v2 producer is now integrated at the existing authoritative
+hardware loop after it produces the immutable `AcceptedArmTarget`. It reuses
+the same JAKA/RH56 session and does not create a second controller, follow
+MuJoCo `qpos`, or call JAKA inverse kinematics in the native joint worker.
+Measured JAKA state, accepted/held arm targets, successful final RH56 targets,
+and all five required RH56 feedback register groups are retained with their
+provenance and timestamps.
 
-Before exposing a physical collection command, integration must:
-
-1. instrument the existing authoritative hardware loop after it produces an
-   immutable `AcceptedArmTarget`;
-2. use measured JAKA joint state and label derived velocity/TCP as estimated
-   when that is the actual source;
-3. preserve candidate infeasibility as `held_rejected` while retaining live
-   heartbeat, and preserve all true hard-stop conditions;
-4. record raw RH56 `ANGLE_ACT`, `CURRENT`, `FORCE_ACT`, `ERROR`, `STATUS`,
-   command disposition, freshness, and latency without calling them passive
-   joints, tactile force, or slip;
-5. introduce a versioned physical hand schema instead of putting RH56 raw
-   counts into canonical-v1 radian fields;
-6. retain the physical acknowledgement flags, bounded duration/displacement,
-   operator stop access, workspace checks, and cleanup contract;
-7. guarantee that recording cannot create a second controller or cause a JAKA
-   `kine_inverse` call in the native joint worker;
-8. validate dual-camera throughput and all control/sensor clock domains on the
-   target host;
-9. perform offline replay and simulation validation before a separately
-   authorized bounded physical gate.
-
-The physical adapter must consume the same accepted target as MuJoCo; it must
-not follow MuJoCo `qpos`, remap/filter the accepted target, or recompute IK.
+This integration is offline tested, but a completed, training-eligible
+physical Bottle Pickup episode has not yet been recorded. The remaining gate
+is the A/B/C target-host validation above, including sustained dual-camera
+write throughput and timing review; implementation alone is not a physical
+PASS.
 
 ## Data custody
 

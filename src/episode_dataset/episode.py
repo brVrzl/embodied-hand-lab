@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
@@ -16,6 +17,8 @@ import numpy as np
 
 
 SCHEMA_VERSION = "embodied_lab.single_episode.v1"
+PHYSICAL_SCHEMA_VERSION = "embodied_lab.single_episode.v2"
+SUPPORTED_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION, PHYSICAL_SCHEMA_VERSION})
 ACTION_ORDER = ("J1", "J2", "J3", "J4", "J5", "J6", "H1", "H2", "H3", "H4", "H5", "H6")
 OBSERVATION_STATE_ORDER = (
     "arm_q_measured.J1",
@@ -77,6 +80,9 @@ class ControlSample:
     arm_dq_source: str = "measured"
     tcp_pose_source: str = "measured"
     arm_action_status: str = "accepted"
+    arm_action_source: str = "accepted_target"
+    control_segment_id: int = 0
+    control_segment_mode: str = "both_idle"
     accepted_target_sequence: int | None = None
     reference_generation: int | None = None
     source_timestamps_ns: Mapping[str, int | None] | None = None
@@ -103,6 +109,17 @@ class ControlSample:
                 raise ValueError(f"{name} must describe provenance")
         if self.arm_action_status not in {"accepted", "held_rejected"}:
             raise ValueError("arm_action_status must be accepted or held_rejected")
+        if self.arm_action_source not in {"accepted_target", "measured_hold_reference"}:
+            raise ValueError("arm_action_source is invalid")
+        if self.control_segment_id < 0:
+            raise ValueError("control_segment_id must be non-negative")
+        if self.control_segment_mode not in {
+            "both_idle",
+            "arm_only",
+            "hand_only",
+            "arm_and_hand",
+        }:
+            raise ValueError("control_segment_mode is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,11 +233,15 @@ class CanonicalEpisodeWriter:
         operator: str,
         dataset_fps: int = 30,
         metadata: Mapping[str, Any] | None = None,
+        schema_version: str = SCHEMA_VERSION,
     ) -> None:
         self.root = Path(root).resolve()
         self.task_name = task_name
         self.operator = operator
         self.dataset_fps = int(dataset_fps)
+        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
+            raise ValueError(f"unsupported episode schema version: {schema_version}")
+        self.schema_version = schema_version
         self.episode_uuid = str(uuid.uuid4())
         self.temporary_id = self.episode_uuid[:8]
         self.partial_dir = self.root / f".episode-{self.episode_uuid}.partial"
@@ -432,6 +453,8 @@ class CanonicalEpisodeWriter:
         metadata.update(
             {
                 "end_host_monotonic_ns": end_ns,
+                "finalized_host_monotonic_ns": time.monotonic_ns(),
+                "end_wall_time_utc": datetime.now(timezone.utc).isoformat(),
                 "duration_s": None if self._start_ns is None else (end_ns - self._start_ns) / 1e9,
                 "sample_count": self._sample_count,
                 "canonical_missed_slot_count": self._total_missed_slots,
@@ -471,7 +494,7 @@ class CanonicalEpisodeWriter:
         self._write_json(
             report,
             {
-                "schema_version": SCHEMA_VERSION,
+                "schema_version": self.schema_version,
                 "episode_uuid": self.episode_uuid,
                 "completion_status": EpisodeStatus.INVALID.value,
                 "termination_reason": reason,
@@ -506,7 +529,7 @@ class CanonicalEpisodeWriter:
                     if not (self.partial_dir / relative).is_file():
                         errors.append(f"missing {role} {key} frame {index}")
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "offline_validation": True,
             "physically_validated": False,
             "sample_count": len(rows),
@@ -516,12 +539,15 @@ class CanonicalEpisodeWriter:
 
     def _base_metadata(self, prerequisites: StartPrerequisites) -> dict[str, Any]:
         return {
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": self.schema_version,
             "episode_uuid": self.episode_uuid,
             "task_name": self.task_name,
             "operator": self.operator,
             "start_host_monotonic_ns": self._start_ns,
+            "start_wall_time_utc": datetime.now(timezone.utc).isoformat(),
             "end_host_monotonic_ns": None,
+            "finalized_host_monotonic_ns": None,
+            "end_wall_time_utc": None,
             "dataset_fps": self.dataset_fps,
             "sample_count": 0,
             "trigger_press_host_monotonic_ns": self._trigger_press_ns,
@@ -569,6 +595,8 @@ class CanonicalEpisodeWriter:
             "completion_status": None,
             "termination_reason": None,
             "success_label": "unlabeled",
+            "failure_stage": None,
+            "notes": "",
             "finalized": False,
             "code": _git_state(Path(__file__).resolve().parents[2]),
             **self._metadata_extra,
@@ -622,12 +650,15 @@ class CanonicalEpisodeWriter:
                     "hand_source": control.hand_source,
                     "arm_trigger": control.arm_trigger,
                     "hand_grip": control.hand_grip,
+                    "control_segment_id": control.control_segment_id,
+                    "control_segment_mode": control.control_segment_mode,
                 },
             },
             "action": {
                 "arm_q_target": list(control.accepted_arm_q),
                 "hand_target": list(control.hand_target),
                 "arm_status": control.arm_action_status,
+                "arm_source": control.arm_action_source,
             },
             "timing": {
                 "source_timestamps_ns": source_timestamps,
