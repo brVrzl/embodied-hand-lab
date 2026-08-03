@@ -163,3 +163,16 @@ current measured-to-triplet transition directly. This keeps the index at or
 below the confirmed `.55` contact value and lets lateral opposition proceed
 without the visible retreat. The sequencer remains only a diagnostic state
 label; it does not alter any channel.
+
+## v2 combined physical observation (2026-08-03)
+
+The combined entry loaded `quest_rh56dfx_real_20260803_v2` and ran for 234.32
+seconds before the Quest input-recovery timeout hard stop. Native JAKA metrics
+reported 10,035 accepted targets, zero rejected targets, zero controller
+alarm/collision/E-stop events, and zero cleanup error. The RH56 contact gate
+reported 11 detections at peak and preserved loaded activation five times; the
+final latched state was released during cleanup. RH56 `ERROR` stayed all zero
+with no worker, serial, checksum, or protocol fault. The operator had
+previously reported an uncomplicated water-bottle grasp; this run did not
+complete or prove the parcel-box or tissue grasp sequence, so no grasp PASS is
+claimed.

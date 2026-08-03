@@ -166,6 +166,17 @@ the worker failure; JAKA was not connected. The operator clarified that the
 148.9-second stop occurred while grasping a parcel box, while the preceding
 water-bottle grasp itself had no observed problem.
 
+The first combined run with v2 thumb-pregrasp calibration on 2026-08-03 ran
+for 234.32 seconds before the shared input-recovery timeout hard stop. Native
+JAKA metrics recorded 10,035 accepted targets, zero rejected targets, zero
+controller alarm/collision/E-stop events, and zero cleanup error. RH56 loaded
+`quest_rh56dfx_real_20260803_v2`, reached 11 contact-stop detections at peak
+and five loaded-activation preservations, and had no worker, serial, protocol,
+or nonzero `ERROR` fault. The final latched state was released during cleanup.
+This is partial combined evidence only: it is not a 300-second PASS, and the
+parcel-box grasp/extraction outcome was not completed and must not be inferred
+from contact telemetry.
+
 An unloaded bounded hand-only endpoint test then commanded canonical
 `[index, middle, ring, pinky, thumb_close, thumb_lateral] =
 [0, 0, 0, 0, 0, 0.9]`. Final measured normalized feedback was approximately
