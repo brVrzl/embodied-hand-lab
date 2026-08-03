@@ -202,10 +202,11 @@ MuJoCo:
   --operator <OPERATOR_ID>
 ```
 
-The default MuJoCo viewer and dual-camera preview are enabled. Use
-`--no-viewer` or `--no-episode-preview` only when the corresponding visual
-check is intentionally unnecessary. `--duration-sec` defaults to 180 seconds
-and bounds the outer session.
+The default MuJoCo viewer and dual-camera preview are enabled for simulation.
+For physical capture, omit `--episode-preview` after the camera preflight:
+the preview is an optional visual check, and its Qt/OpenCV refresh competes
+with the recorder and can cause camera freshness gaps on the target host.
+`--duration-sec` defaults to 180 seconds and bounds the outer session.
 
 Do not use `unlabeled_task` or `unknown` for a real study. A stable task ID and
 non-sensitive operator pseudonym are easier to audit than later filename-based
@@ -215,13 +216,14 @@ cannot enter a training split or be exported.
 
 ### Operator sequence
 
-1. Start with the arm trigger released. Verify both preview roles and status.
+1. Start with the arm trigger released. Verify both camera roles and status
+   during the separate camera preflight, or use a short preview-only check.
 2. Establish the existing release-before-press Quest reference/clutch sequence.
 3. Press and hold the configured arm trigger. The collector enters `ARMING`;
    it does not create a training episode until reference, accepted target,
    measured/estimated state, hand continuity, and fresh post-trigger camera
    prerequisites all pass.
-4. Once the preview reports `REC`, perform one coherent demonstration. Avoid
+4. Once the capture is active, perform one coherent demonstration. Avoid
    combining multiple trials in one trigger hold.
 5. Release the arm trigger immediately at the intended episode boundary. The
    last already-complete canonical sample is retained, no release tail is
@@ -253,13 +255,15 @@ workspace, device identity, CPU isolation, and RH56 prerequisites are checked:
   --episode-data-config data/local/dual_d435_episode.yaml \
   --episode-root data/episodes \
   --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
-  --operator <OPERATOR_ID> --episode-preview
+  --operator <OPERATOR_ID>
 ```
 
 The first trial should be short. The combined command opens the separately
 gated JAKA/RH56 paths even when neither clutch is pressed, so it is not a
 read-only preflight. Use the maintained JAKA and RH56 read-only probes for the
-static hardware checks before authorizing this command.
+static hardware checks before authorizing this command. Keep this physical
+capture command without `--episode-preview`; use the preview only for a short
+camera check before recording if needed.
 
 ### Bottle Pickup A/B/C gate
 
@@ -281,7 +285,7 @@ the whole run; the canonical action is then explicitly sourced as
   --episode-data-config data/local/dual_d435_episode.yaml \
   --episode-root data/episodes \
   --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
-  --operator <OPERATOR_ID> --episode-preview --log-dir logs
+  --operator <OPERATOR_ID> --log-dir logs
 ```
 
 For Phase B, use the identical command with `--duration-sec 60`. Perform one
