@@ -2,10 +2,11 @@
 
 This page is a prerequisite checklist, not authorization to run hardware.
 Ordinary RH56 hand-only debugging uses one explicit `--real --arm-session`
-authorization for the current process; it expires at process exit. JAKA,
-combined, controller-write, fault-reset, and force-calibration gates still
-need their own exact current-session authorization for stage, duration, motion
-bound, and acknowledgement flags.
+authorization for the current process; it expires at process exit. The normal
+JAKA/combined entries use their complete explicit real-device command for the
+current process. Controller-write, fault-reset, and force-calibration gates
+still need their own exact current-session authorization for stage, duration,
+motion bound, and acknowledgement flags.
 
 Before any connection or command:
 
@@ -41,8 +42,9 @@ identify payload, calibrate TCP, or change controller settings.
 
 # 中文版：真机硬件前置条件
 
-本页只是前置检查清单，不构成真机授权。每个真机 gate 都必须在当前/新会话中针对精确的
-stage、时长、运动边界和 acknowledgement flags 获得显式授权。
+本页只是前置检查清单，不构成真机授权。普通 JAKA/combined 入口由当前进程中操作者主动
+执行完整真实设备命令来授权；配置写入、故障复位和力传感器校准仍必须针对精确的 stage、
+时长、运动边界和 acknowledgement flags 获得单独显式授权。
 
 任何连接或命令之前：
 

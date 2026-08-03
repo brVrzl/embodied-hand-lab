@@ -28,12 +28,13 @@ one Quest UDP receiver/router
 ```
 
 The RH56 I/O worker prevents USB/RS485 latency from blocking the 60 Hz arm
-producer. It does not duplicate the hand state machine. Both exact approvals
-and the RH56 device identity are validated before either hardware path starts.
+producer. It does not duplicate the hand state machine. The complete
+real-device invocation, required safety prerequisites, and RH56 device
+identity are validated before either hardware path starts.
 A stable `/dev/serial/by-id/...` path is preferred. On hosts where the custom
 `usb_ch341` driver creates no by-id link, `/dev/ttyCH341USB<N>` is accepted only
 with `--allow-direct-ch341-device` and exact VID:PID/driver identity checks.
-Missing either approval connects neither device.
+Missing a required safety prerequisite connects neither device.
 
 Control semantics:
 
@@ -87,8 +88,6 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --rh56-device "$RH56_DEVICE" \
   --allow-direct-ch341-device \
   --duration-sec 300 \
-  --arm-approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
-  --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
   --hand-prerequisites-complete \
   --no-auto-retry --estop-accessible --workspace-clear \
   --native-control-cpu 6 \
@@ -96,9 +95,10 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --log-dir logs
 ```
 
-This command is a template, not authorization. The operator must verify current
-IP addresses, payload/TCP/installation status, controller safety state, E-stop,
-workspace, and the completed RH56 hand evidence before executing it. The wrapper
+Executing this complete real-device command is the operator authorization for
+the current process. The operator must still verify current IP addresses,
+payload/TCP/installation status, controller safety state, E-stop, workspace,
+and the completed RH56 hand evidence before executing it. The wrapper
 also requires an explicitly verified native control CPU. CPU 6 is the measured
 low-load choice for the recorded 14-CPU host; it is not a portable robot
 default and must be re-verified if the host or affinity set changes. The native

@@ -36,8 +36,10 @@ export RH56_DEVICE=/dev/serial/by-id/REPLACE_WITH_ACTUAL_ADAPTER_ID
 The legacy exact `--approval` option is no longer used for ordinary
 read/position/Quest hand-only modes. It remains intentionally separate for
 `--write-runtime-config`, `--clear-error`, and
-`--force-sensor-calibration`. Combined JAKA+RH56 operation retains its own
-dual physical gate and is not covered by this hand-only session arm.
+`--force-sensor-calibration`. Combined JAKA+RH56 operation is authorized by its
+complete explicit real-device invocation for the current process and retains
+its physical prerequisite and safety gates; it is not covered by this hand-only
+session arm.
 
 ## Six-channel mapping check
 

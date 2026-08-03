@@ -12,7 +12,6 @@ BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 ALLOWED_SENDER=""
 DURATION_SEC="30"
-APPROVAL=""
 OUTPUT_GENERATOR=""
 JOINT_VELOCITY_LIMITS=("1.5" "1.5" "1.5" "1.2" "1.2" "1.2")
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
@@ -26,7 +25,6 @@ PLANT_FREE_NO_NETWORK_CHECK="false"
 OUTPUT_JERK_LIMIT_RAD_S3=""
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 
-EXPECTED_APPROVAL="I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 EXPECTED_OUTPUT_GENERATOR="pwl-8ms"
 PROJECT_SHARED_HARD_VELOCITY_RAD_S="3.141592653589793"
 
@@ -35,7 +33,6 @@ usage() {
 Usage / 用法:
   ./scripts/run_quest_jaka_bounded_teleop.sh \
     --robot-ip ROBOT_IPV4 \
-    --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
     --output-generator pwl-8ms \
     --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
     --no-auto-retry \
@@ -53,7 +50,6 @@ commands RH56.
 
 Required / 必填:
   --robot-ip IPV4
-  --approval PHRASE
   --output-generator pwl-8ms
   --no-auto-retry
   --estop-accessible
@@ -115,7 +111,6 @@ while [[ $# -gt 0 ]]; do
     --port) require_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --allowed-sender) require_value "$@"; ALLOWED_SENDER="$2"; shift 2 ;;
     --duration-sec) require_value "$@"; DURATION_SEC="$2"; shift 2 ;;
-    --approval) require_value "$@"; APPROVAL="$2"; shift 2 ;;
     --output-generator) require_value "$@"; OUTPUT_GENERATOR="$2"; shift 2 ;;
     --joint-velocity-limits-rad-s)
       if [[ $# -lt 7 ]]; then
@@ -144,10 +139,6 @@ cd "${REPO_ROOT}"
 
 if [[ -z "${ROBOT_IP}" ]]; then
   echo "--robot-ip is required / 必须提供 --robot-ip" >&2
-  exit 2
-fi
-if [[ "${APPROVAL}" != "${EXPECTED_APPROVAL}" ]]; then
-  echo "Exact approval required / 必须提供精确授权短语: ${EXPECTED_APPROVAL}" >&2
   exit 2
 fi
 if [[ "${OUTPUT_GENERATOR}" != "${EXPECTED_OUTPUT_GENERATOR}" ]]; then
@@ -217,7 +208,6 @@ CMD=(
   --bind "${BIND_HOST}"
   --port "${UDP_PORT}"
   --duration-sec "${DURATION_SEC}"
-  --approval "${APPROVAL}"
   --output-generator "${OUTPUT_GENERATOR}"
   --run-output-joint-velocity-limits-rad-s "${JOINT_VELOCITY_LIMITS[@]}"
   --no-auto-retry

@@ -9,9 +9,10 @@ or other actuator connection.
 The ordinary RH56 hand-only entry uses one explicit, current-process
 `--real --arm-session` authorization for the exact device path, duration,
 motion envelope, acknowledgement flags, and stop procedure. It expires when
-that process exits and is not persisted or shared. JAKA gates, combined runs,
-runtime configuration writes, fault reset, and force-sensor calibration retain
-their separate exact authorizations. The maintained wrappers must reject a
+that process exits and is not persisted or shared. Normal JAKA and combined
+entries use their complete explicit real-device command for the current
+process. Runtime configuration writes, fault reset, and force-sensor
+calibration retain separate exact authorizations. The maintained wrappers must reject a
 missing or incorrect gate before opening hardware. Automatic retry is
 prohibited.
 

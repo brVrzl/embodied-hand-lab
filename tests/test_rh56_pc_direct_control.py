@@ -8,7 +8,6 @@ from types import SimpleNamespace
 import pytest
 
 from rh56_driver.pc_direct_control import (
-    RH56_COMBINED_RUN_APPROVAL,
     RH56_FAULT_RESET_APPROVAL,
     RH56_FORCE_SENSOR_CALIBRATION_APPROVAL,
     RH56_RUNTIME_CONFIG_APPROVAL,
@@ -68,7 +67,6 @@ def _opened_control(
 
 
 def test_approval_contracts_are_distinct_and_missing_approval_opens_nothing() -> None:
-    assert parse_rh56_approval(RH56_COMBINED_RUN_APPROVAL) is HandAuthorization.COMBINED_RUN
     assert parse_rh56_approval(RH56_RUNTIME_CONFIG_APPROVAL) is HandAuthorization.RUNTIME_CONFIG
     assert parse_rh56_approval(RH56_FAULT_RESET_APPROVAL) is HandAuthorization.FAULT_RESET
     assert (
@@ -95,6 +93,16 @@ def test_session_arm_is_in_memory_hand_only_authorization() -> None:
 
     with pytest.raises(ValueError, match="hand-only"):
         RH56SessionArm(HandAuthorization.RUNTIME_CONFIG)
+
+
+def test_combined_session_arm_is_in_memory_authorization() -> None:
+    session_arm = RH56SessionArm.combined()
+    control, backend = _opened_control(session_arm)
+
+    assert control.authorization is HandAuthorization.COMBINED_RUN
+    control.activate(1_000_000_000)
+    assert control.command([0.05] * 6, 1_000_000_000)
+    assert backend.write_count == 1
 
 
 def test_session_arm_cannot_authorize_special_writes() -> None:
@@ -449,7 +457,7 @@ def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> No
     config["control_frequency_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
-    first = worker.start(RH56_COMBINED_RUN_APPROVAL)
+    first = worker.start(RH56SessionArm.combined())
     try:
         reference = worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target(reference, first.monotonic_ns)
@@ -471,7 +479,7 @@ def test_pc_direct_worker_preserves_measured_activation_above_command_envelope()
     backend.position = [185.0] * 6
     control = RH56PcDirectControl(backend, _config())
     worker = RH56PcDirectWorker(control)
-    first = worker.start(RH56_COMBINED_RUN_APPROVAL)
+    first = worker.start(RH56SessionArm.combined())
     try:
         reference = worker.activate_from_measured(first.monotonic_ns)
         assert reference == pytest.approx([0.815] * 6)
@@ -486,8 +494,8 @@ def test_pc_direct_worker_preserves_measured_activation_above_command_envelope()
         worker.cleanup()
 
 
-def test_combined_approval_is_only_a_state_machine_contract() -> None:
-    control, backend = _opened_control(RH56_COMBINED_RUN_APPROVAL)
+def test_combined_session_arm_is_only_a_state_machine_contract() -> None:
+    control, backend = _opened_control(RH56SessionArm.combined())
     control.activate(1_000_000_000)
     assert control.command([0.1] * 6, 1_000_000_000)
     assert backend.write_count == 1

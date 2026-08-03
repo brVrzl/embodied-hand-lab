@@ -118,15 +118,16 @@ documentation. Any JAKA connection, enable, servo/EDG, or motion requires its
 separate physical gate. RH56 hand-only debugging is dry-run unless the
 operator explicitly supplies `--real --device ... --arm-session`; see the
 [RH56 session-debug entry](../operation/rh56_session_debug.md). Configuration
-writes, fault reset, force calibration, and combined JAKA/RH56 operation keep
-their separate approvals. See [real-hardware safety](../safety/REAL_HARDWARE_SAFETY.md),
+writes, fault reset, and force calibration keep their separate approvals;
+combined JAKA/RH56 operation uses its complete explicit real-device command.
+See [real-hardware safety](../safety/REAL_HARDWARE_SAFETY.md),
 [RH56 operation](../operation/rh56_operation.md), and
 [combined operation](../operation/jaka_rh56_combined_teleop.md).
 
 The maintained combined entry is
-`scripts/run_quest_jaka_rh56_teleop.sh`. Its exact dual approvals, stable
-serial-device selection, duration, no-retry rule, E-stop/workspace checks, and
-logging command are kept in the combined-operation guide. The script permits
+`scripts/run_quest_jaka_rh56_teleop.sh`. Its complete real-device invocation,
+stable serial-device selection, duration, no-retry rule, E-stop/workspace
+checks, and logging command are kept in the combined-operation guide. The script permits
 at most 300 seconds; no 300-second physical PASS exists.
 
 ## Arm-only isolation template
@@ -138,7 +139,6 @@ at most 300 seconds; no 300-second physical PASS exists.
   --robot-ip 192.168.71.50 \
   --edg-state-ip 192.168.71.19 \
   --duration-sec 30 \
-  --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
   --output-generator pwl-8ms \
   --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
   --log-dir logs \

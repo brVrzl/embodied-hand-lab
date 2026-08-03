@@ -7,7 +7,6 @@ import time
 import pytest
 
 from rh56_driver.pc_direct_control import (
-    RH56_COMBINED_RUN_APPROVAL,
     FakeRH56PcDirectBackend,
     RH56PcDirectControl,
     RH56SessionArm,
@@ -62,7 +61,7 @@ def _manual_worker(
     clock = ManualClock()
     control = RH56PcDirectControl(selected_backend, _config(diagnostics=diagnostics))
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
-    first = worker.start(RH56_COMBINED_RUN_APPROVAL, run_in_thread=False)
+    first = worker.start(RH56SessionArm.combined(), run_in_thread=False)
     worker.activate_from_measured(first.monotonic_ns)
     return worker, control, selected_backend, clock
 
@@ -235,7 +234,7 @@ def test_worker_is_the_only_serial_backend_caller_and_never_overlaps_io() -> Non
     config["control_frequency_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
-    first = worker.start(RH56_COMBINED_RUN_APPROVAL)
+    first = worker.start(RH56SessionArm.combined())
     try:
         worker.activate_from_measured(first.monotonic_ns)
         for index in range(40):
@@ -264,7 +263,7 @@ def test_stale_command_drop_is_default_off_and_optional_drop_exempts_activation(
     clock2 = ManualClock()
     control2 = RH56PcDirectControl(backend2, config)
     worker2 = RH56PcDirectWorker(control2, monotonic_ns=clock2)
-    first = worker2.start(RH56_COMBINED_RUN_APPROVAL, run_in_thread=False)
+    first = worker2.start(RH56SessionArm.combined(), run_in_thread=False)
     try:
         worker2.activate_from_measured(first.monotonic_ns)
         clock2.advance_ms(300)
@@ -387,7 +386,7 @@ def test_worker_exception_is_persisted_with_traceback_and_context() -> None:
     backend = FailsAfterStartup()
     control = RH56PcDirectControl(backend, _config())
     worker = RH56PcDirectWorker(control, record=records.append)
-    worker.start(RH56_COMBINED_RUN_APPROVAL)
+    worker.start(RH56SessionArm.combined())
     deadline = time.monotonic() + 0.5
     while not worker.failed and time.monotonic() < deadline:
         time.sleep(0.005)

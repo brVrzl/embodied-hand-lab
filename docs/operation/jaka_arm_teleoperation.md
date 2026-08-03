@@ -9,8 +9,9 @@ normal quick-start command. Inspecting help is safe:
 
 Its stages are deliberately separated (`p2-shadow`, `e2-isolated`, `p4-live`,
 `post-payload-diagnostic`, `bounded-normal-teleop`, and
-`combined-normal-teleop`) and require
-stage-specific acknowledgements.
+`combined-normal-teleop`) and retain stage-specific hard gates. Diagnostic and
+configuration-write stages keep their dedicated approvals; normal physical
+entries use their complete, explicit device command.
 Never copy an old historical invocation without reconciling it with current
 `--help`, current config, and the approved gate.
 
@@ -55,7 +56,7 @@ Inspecting help does not connect:
 ./scripts/run_quest_jaka_rh56_teleop.sh --help
 ```
 
-The exact command and dual approvals are documented in
+The exact command and required physical prerequisites are documented in
 [JAKA + RH56 combined teleoperation](jaka_rh56_combined_teleop.md). It reuses
 the production 8 ms PWL arm path, the 20 ms producer compute budget, and the
 PC-direct RH56 controller. Left index pauses/resumes only the arm; grip

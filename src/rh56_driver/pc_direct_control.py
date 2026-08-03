@@ -23,7 +23,6 @@ from .hand_schema import (
     raw_to_canonical,
 )
 
-RH56_COMBINED_RUN_APPROVAL = "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
 RH56_RUNTIME_CONFIG_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_RUNTIME_CONFIG_WRITE"
 RH56_FAULT_RESET_APPROVAL = "I_AUTHORIZE_ONE_RH56_FAULT_RESET"
 RH56_FORCE_SENSOR_CALIBRATION_APPROVAL = (
@@ -54,22 +53,32 @@ class HandAuthorization(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class RH56SessionArm:
-    """In-memory authorization for one operator-led RH56 hand session.
+    """In-memory authorization for one operator-led RH56 session.
 
-    The arm is deliberately not serializable and is accepted only for the
-    ordinary read/position-debug path.  Configuration writes, fault reset, and
-    force-sensor calibration retain their separate exact authorizations.
+    The arm is deliberately not serializable and is accepted only for ordinary
+    hand sessions started by an explicit local entry point. Configuration
+    writes, fault reset, and force-sensor calibration retain their separate
+    exact authorizations.
     """
 
     authorization: HandAuthorization
 
     def __post_init__(self) -> None:
-        if self.authorization is not HandAuthorization.HAND_ONLY_SESSION:
-            raise ValueError("RH56 session arm is only valid for hand-only commands.")
+        if self.authorization not in {
+            HandAuthorization.HAND_ONLY_SESSION,
+            HandAuthorization.COMBINED_RUN,
+        }:
+            raise ValueError(
+                "RH56 session arm is only valid for hand-only or combined commands."
+            )
 
     @classmethod
     def hand_only(cls) -> "RH56SessionArm":
         return cls(HandAuthorization.HAND_ONLY_SESSION)
+
+    @classmethod
+    def combined(cls) -> "RH56SessionArm":
+        return cls(HandAuthorization.COMBINED_RUN)
 
 
 class RH56CommandShaper:
@@ -255,7 +264,6 @@ class RH56CommandShaper:
 
 
 _APPROVALS = {
-    RH56_COMBINED_RUN_APPROVAL: HandAuthorization.COMBINED_RUN,
     RH56_RUNTIME_CONFIG_APPROVAL: HandAuthorization.RUNTIME_CONFIG,
     RH56_FAULT_RESET_APPROVAL: HandAuthorization.FAULT_RESET,
     RH56_FORCE_SENSOR_CALIBRATION_APPROVAL: (

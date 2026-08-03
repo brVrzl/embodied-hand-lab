@@ -240,7 +240,7 @@ inspect the dry-run output, and use both `--execute` and
 authorized physical-network procedure.
 
 Do not convert these into a physical command from this installation page.
-Every real invocation needs its current exact approval phrase, bounded
+Every real invocation needs its current complete device command, bounded
 duration, workspace and stop acknowledgements, verified controller state, and
 the procedure in [JAKA arm teleoperation](../operation/jaka_arm_teleoperation.md).
 The software must not write payload, TCP, installation, collision, or
@@ -277,7 +277,7 @@ A no-open preflight is available after selecting the intended device path:
 
 Preflight does not authorize a serial-open read or a command. Read-only,
 bounded command, runtime configuration write, and Quest hand modes each have
-separate approval requirements. Follow
+separate safety or authorization requirements. Follow
 [RH56 PC-direct operation](../operation/rh56_operation.md).
 
 ## RealSense D435

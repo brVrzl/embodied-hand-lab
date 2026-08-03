@@ -31,7 +31,6 @@ from tools.quest_jaka_hardware import (
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_quest_jaka_bounded_teleop.sh"
 COMBINED_SCRIPT = ROOT / "scripts" / "run_quest_jaka_rh56_teleop.sh"
-APPROVAL = "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
 
 
 def test_task_placement_reports_current_python_thread() -> None:
@@ -97,8 +96,6 @@ def _base_args(tmp_path: Path) -> list[str]:
         "192.0.2.2",
         "--duration-sec",
         "30",
-        "--approval",
-        APPROVAL,
         "--output-generator",
         "pwl-8ms",
         "--joint-velocity-limits-rad-s",
@@ -138,12 +135,12 @@ def test_shell_syntax_and_help_are_offline() -> None:
     assert "not official JAKA Mini2 maximum speeds" in help_result.stdout
 
 
-def test_wrong_approval_is_rejected_before_outputs(tmp_path: Path) -> None:
+def test_removed_approval_option_is_rejected_before_outputs(tmp_path: Path) -> None:
     args = _base_args(tmp_path)
-    args[args.index(APPROVAL)] = "WRONG"
+    args.extend(("--approval", "obsolete"))
     result = _run(args)
     assert result.returncode == 2
-    assert APPROVAL in result.stderr
+    assert "Unknown option" in result.stderr
     assert not (tmp_path / "logs").exists()
 
 
@@ -370,8 +367,6 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         str(COMBINED_SCRIPT),
         "--robot-ip", "192.0.2.1",
         "--rh56-device", "/dev/serial/by-id/offline-test",
-        "--arm-approval", APPROVAL,
-        "--hand-approval", "I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN",
         "--hand-prerequisites-complete",
         "--no-auto-retry",
         "--estop-accessible",
@@ -420,18 +415,46 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert not (tmp_path / "logs").exists()
 
 
-def test_combined_entry_requires_both_approvals_before_outputs(tmp_path: Path) -> None:
+@pytest.mark.parametrize("removed_option", ("--arm-approval", "--hand-approval"))
+def test_removed_combined_approval_options_are_rejected_before_outputs(
+    tmp_path: Path,
+    removed_option: str,
+) -> None:
+    command = [
+        str(COMBINED_SCRIPT),
+        "--robot-ip", "192.0.2.1",
+        "--rh56-device", "/dev/serial/by-id/offline-test",
+        "--hand-prerequisites-complete", "--no-auto-retry",
+        "--estop-accessible", "--workspace-clear",
+        "--worker", "/bin/true", "--native-control-cpu", "0",
+        "--log-dir", str(tmp_path / "logs"),
+        "--plant-free-no-network-check",
+        removed_option, "obsolete",
+    ]
+    result = _run(command)
+    assert result.returncode == 2
+    assert "Unknown option" in result.stderr
+    assert not (tmp_path / "logs").exists()
+
+
+@pytest.mark.parametrize(
+    "missing_flag",
+    ("--hand-prerequisites-complete", "--estop-accessible", "--workspace-clear"),
+)
+def test_combined_entry_requires_safety_prerequisites(
+    tmp_path: Path,
+    missing_flag: str,
+) -> None:
     command = [
         str(COMBINED_SCRIPT), "--robot-ip", "192.0.2.1",
         "--rh56-device", "/dev/serial/by-id/offline-test",
-        "--arm-approval", APPROVAL,
-        "--hand-approval", "WRONG",
         "--hand-prerequisites-complete", "--no-auto-retry",
         "--estop-accessible", "--workspace-clear",
         "--worker", "/bin/true", "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
     ]
+    command.remove(missing_flag)
     result = _run(command)
     assert result.returncode == 2
-    assert "Exact hand approval" in result.stderr
+    assert missing_flag in result.stderr or "required" in result.stderr
     assert not (tmp_path / "logs").exists()

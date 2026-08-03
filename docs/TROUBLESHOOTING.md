@@ -372,8 +372,8 @@ The preflight mode does not open serial:
   --preflight-only
 ```
 
-Serial-open read-only and every command mode require their exact approvals and
-the staged procedure in
+Serial-open read-only and command modes require their applicable in-process
+session arm or dedicated maintenance approval, plus the staged procedure in
 [RH56 operation](operation/rh56_operation.md).
 
 ## RH56 timeout, checksum, protocol, or feedback fault

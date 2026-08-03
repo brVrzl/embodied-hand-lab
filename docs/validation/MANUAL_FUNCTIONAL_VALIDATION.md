@@ -270,7 +270,6 @@ readelf -d build/jaka_servo_worker/jaka_servo_worker
 
 ./scripts/run_quest_jaka_bounded_teleop.sh \
   --robot-ip 192.0.2.10 \
-  --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
   --output-generator pwl-8ms \
   --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
   --no-auto-retry --estop-accessible --workspace-clear \
@@ -577,7 +576,6 @@ required second step and produces no motion.
   --edg-state-ip <CONFIRM_FROM_CURRENT_NETWORK_CONFIG> \
   --allowed-sender <QUEST_IPV4> \
   --duration-sec 30 \
-  --approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
   --output-generator pwl-8ms \
   --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
   --no-auto-retry --estop-accessible --workspace-clear \
@@ -624,8 +622,6 @@ motion.
   --rh56-device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --allowed-sender <QUEST_IPV4> \
   --duration-sec 60 \
-  --arm-approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
-  --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
   --hand-prerequisites-complete --no-auto-retry \
   --estop-accessible --workspace-clear
 ```

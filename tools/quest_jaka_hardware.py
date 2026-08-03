@@ -49,10 +49,9 @@ from teleoperation.output_feasibility import (
 )
 from embodiment_core.config import load_yaml
 from rh56_driver.pc_direct_control import (
-    RH56_COMBINED_RUN_APPROVAL,
     RH56PcDirectControl,
+    RH56SessionArm,
     inspect_serial_device,
-    parse_rh56_approval,
     require_serial_by_id_path,
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
@@ -64,9 +63,6 @@ P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
 E2_APPROVAL = "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION"
 P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 POST_PAYLOAD_APPROVAL = "I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
-BOUNDED_NORMAL_APPROVAL = (
-    "I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
-)
 RESEARCH_THIN_APPROVAL = (
     "I_AUTHORIZE_ONE_BOUNDED_RESEARCH_THIN_ADAPTER_JAKA_GATE"
 )
@@ -331,7 +327,11 @@ def _parser() -> argparse.ArgumentParser:
             "formal combined gate requires the fixed project value 10"
         ),
     )
-    parser.add_argument("--approval", required=True)
+    parser.add_argument(
+        "--approval",
+        default="",
+        help="stage-specific approval for diagnostic or legacy isolated stages",
+    )
     parser.add_argument("--estop-accessible", action="store_true")
     parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
@@ -350,7 +350,6 @@ def _parser() -> argparse.ArgumentParser:
         choices=("baseline", "fast30", "fast40", "fast50"),
         help="Override the RH56 command/feedback scheduler profile.",
     )
-    parser.add_argument("--rh56-approval", default="")
     parser.add_argument("--rh56-log", type=Path)
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--summary", type=Path, required=True)
@@ -624,14 +623,18 @@ def main() -> int:
         "combined-normal-teleop",
         "research-thin-bounded",
     )
-    expected_approval = (
-        E2_APPROVAL if args.stage == "e2-isolated"
-        else POST_PAYLOAD_APPROVAL if args.stage == "post-payload-diagnostic"
-        else BOUNDED_NORMAL_APPROVAL if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}
-        else RESEARCH_THIN_APPROVAL if args.stage == "research-thin-bounded"
-        else P4_APPROVAL if live else P2_APPROVAL
-    )
-    if args.approval != expected_approval:
+    expected_approval = None
+    if args.stage == "e2-isolated":
+        expected_approval = E2_APPROVAL
+    elif args.stage == "post-payload-diagnostic":
+        expected_approval = POST_PAYLOAD_APPROVAL
+    elif args.stage == "research-thin-bounded":
+        expected_approval = RESEARCH_THIN_APPROVAL
+    elif args.stage == "p4-live":
+        expected_approval = P4_APPROVAL
+    elif not live:
+        expected_approval = P2_APPROVAL
+    if expected_approval is not None and args.approval != expected_approval:
         raise SystemExit(f"exact approval required: {expected_approval}")
     if live:
         if args.stage == "combined-normal-teleop":
@@ -714,8 +717,6 @@ def main() -> int:
                 require_exists=not args.plant_free_no_network_check,
                 allow_direct_ch341=args.allow_direct_ch341_device,
             )
-            if parse_rh56_approval(args.rh56_approval).value != "arm_hand_combined_run":
-                raise ValueError("wrong RH56 approval")
         except (ValueError, PermissionError) as exc:
             raise SystemExit(f"invalid combined RH56 gate before any I/O: {exc}") from exc
         if not args.plant_free_no_network_check:
@@ -1095,7 +1096,7 @@ def main() -> int:
         native_started = False
         try:
             if rh56_worker is not None:
-                rh56_worker.start(args.rh56_approval)
+                rh56_worker.start(RH56SessionArm.combined())
             native.start()
             native_started = True
             status = _wait_status(runtime, native)

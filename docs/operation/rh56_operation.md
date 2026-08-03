@@ -41,8 +41,9 @@ prepared six-channel mapping check, with a five-second hold per pose.
 
 The old per-command RH56 approval phrases are not used by these ordinary
 hand-only modes. Exact approvals remain only for runtime configuration writes,
-fault reset, and force-sensor calibration. JAKA arm-only and combined gates
-retain their separate authorizations.
+fault reset, and force-sensor calibration. JAKA arm-only and combined entries
+use their complete explicit real-device commands and retain their safety
+prerequisites.
 
 The following fake/offline check is useful before any physical hand gate:
 

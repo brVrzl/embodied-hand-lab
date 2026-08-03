@@ -14,8 +14,6 @@ BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 ALLOWED_SENDER=""
 DURATION_SEC="300"
-ARM_APPROVAL=""
-HAND_APPROVAL=""
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 RH56_CONFIG="configs/hand/rh56_pc_direct_teleop.yaml"
 RH56_SCHEDULER_PROFILE="fast40"
@@ -31,21 +29,18 @@ ALLOW_DIRECT_CH341_DEVICE="false"
 NATIVE_CONTROL_CPU=""
 NATIVE_CONTROL_REALTIME_PRIORITY="10"
 
-EXPECTED_ARM_APPROVAL="I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION"
-EXPECTED_HAND_APPROVAL="I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN"
-
 usage() {
   cat <<'EOF'
 Usage / 用法:
   ./scripts/run_quest_jaka_rh56_teleop.sh \
     --robot-ip ROBOT_IPV4 \
     --rh56-device /dev/serial/by-id/... \
-    --arm-approval I_AUTHORIZE_BOUNDED_NORMAL_QUEST_JAKA_TELEOPERATION \
-    --hand-approval I_AUTHORIZE_ONE_JAKA_RH56_PC_DIRECT_COMBINED_RUN \
     --hand-prerequisites-complete --no-auto-retry \
     --estop-accessible --workspace-clear [options]
 
-This formal gate reuses one Quest receiver, one JAKA SDK/native session, the
+Executing this full real-device entry with the current robot address and RH56
+device is the process-level operator authorization. It reuses one Quest
+receiver, one JAKA SDK/native session, the
 shared 20 ms target generator, and the production PC-direct RH56 controller.
 Left index controls only the arm; grip controls only the hand. Releasing either
 clutch holds that subsystem and does not end the combined process.
@@ -82,8 +77,6 @@ while [[ $# -gt 0 ]]; do
     --robot-ip) need_value "$@"; ROBOT_IP="$2"; shift 2 ;;
     --edg-state-ip) need_value "$@"; EDG_STATE_IP="$2"; shift 2 ;;
     --rh56-device) need_value "$@"; RH56_DEVICE="$2"; shift 2 ;;
-    --arm-approval) need_value "$@"; ARM_APPROVAL="$2"; shift 2 ;;
-    --hand-approval) need_value "$@"; HAND_APPROVAL="$2"; shift 2 ;;
     --bind) need_value "$@"; BIND_HOST="$2"; shift 2 ;;
     --port) need_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --allowed-sender) need_value "$@"; ALLOWED_SENDER="$2"; shift 2 ;;
@@ -115,8 +108,6 @@ else
   echo "--rh56-device must be /dev/serial/by-id/...; direct tty requires --allow-direct-ch341-device and /dev/ttyCH341USB<N>" >&2
   exit 2
 fi
-[[ "${ARM_APPROVAL}" == "${EXPECTED_ARM_APPROVAL}" ]] || { echo "Exact arm approval required: ${EXPECTED_ARM_APPROVAL}" >&2; exit 2; }
-[[ "${HAND_APPROVAL}" == "${EXPECTED_HAND_APPROVAL}" ]] || { echo "Exact hand approval required: ${EXPECTED_HAND_APPROVAL}" >&2; exit 2; }
 [[ "${ESTOP_ACCESSIBLE}" == true && "${WORKSPACE_CLEAR}" == true && "${NO_AUTO_RETRY}" == true && "${HAND_PREREQUISITES_COMPLETE}" == true ]] || {
   echo "E-stop, workspace, no-retry, and completed hand prerequisites are required" >&2; exit 2;
 }
@@ -142,8 +133,8 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --config "${CONFIG}" --worker "${WORKER}"
   --robot-ip "${ROBOT_IP}" --edg-state-ip "${EDG_STATE_IP}"
   --bind "${BIND_HOST}" --port "${UDP_PORT}" --duration-sec "${DURATION_SEC}"
-  --approval "${ARM_APPROVAL}" --rh56-device "${RH56_DEVICE}"
-  --rh56-config "${RH56_CONFIG}" --rh56-approval "${HAND_APPROVAL}"
+  --rh56-device "${RH56_DEVICE}"
+  --rh56-config "${RH56_CONFIG}"
   --rh56-scheduler-profile "${RH56_SCHEDULER_PROFILE}"
   --output-generator pwl-8ms
   --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2
