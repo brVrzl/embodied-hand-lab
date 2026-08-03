@@ -33,7 +33,7 @@ class SingleEpisodeCollector:
         writer: CanonicalEpisodeWriter,
         *,
         camera_max_age_ns: int = 70_000_000,
-        control_max_age_ns: int = 20_000_000,
+        control_max_age_ns: int = 40_000_000,
         maximum_start_delta_rad: float,
         maximum_hand_start_delta_rad: float,
     ) -> None:

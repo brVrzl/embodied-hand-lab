@@ -799,6 +799,29 @@ def test_camera_staleness_aborts_instead_of_copying_old_frame(tmp_path: Path) ->
     assert metadata["termination_reason"].startswith("stale_or_missing_source")
 
 
+def test_default_recorder_control_age_accepts_observed_producer_jitter(
+    tmp_path: Path,
+) -> None:
+    collector = SingleEpisodeCollector(
+        CanonicalEpisodeWriter(tmp_path, task_name="pick", operator="tester"),
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+    base = 3_250_000_000
+    collector.ingest_camera(_camera("workspace", base, 1))
+    collector.ingest_camera(_camera("wrist", base, 1))
+    collector.ingest_control(
+        _control(base, trigger=True), reference_established=True
+    )
+    # At the 33.33 ms canonical slot this new producer row is still in the
+    # future, so the selector must reuse the 33.33 ms old row. The target host
+    # produced a measured maximum interval of 30.6 ms during physical capture.
+    collector.ingest_control(
+        _control(base + 34_000_000, trigger=True), reference_established=True
+    )
+    assert collector.state is CaptureState.REC
+
+
 def test_device_timestamp_regression_invalidates_recording(tmp_path: Path) -> None:
     collector = _collector(tmp_path)
     base = 3_500_000_000

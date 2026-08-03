@@ -4,7 +4,9 @@ dataset:
   # Canonical selection is causal. Two 30 Hz frame periods plus a small margin
   # tolerate ordinary host receive jitter; longer stalls still abort capture.
   camera_max_age_ms: 70.0
-  control_max_age_ms: 20.0
+  # Recorder snapshot freshness only; robot heartbeat/watchdogs are separate.
+  # Covers the measured 30.6 ms producer jitter without accepting a lost source.
+  control_max_age_ms: 40.0
   hand_start_tolerance_rad: 0.05
 
 # Copy this example to a local ignored file and fill both serials from

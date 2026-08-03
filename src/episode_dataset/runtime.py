@@ -130,7 +130,7 @@ class EpisodeDataRuntime:
                     float(dataset.get("camera_max_age_ms", 70.0)) * 1e6
                 ),
                 control_max_age_ns=round(
-                    float(dataset.get("control_max_age_ms", 20.0)) * 1e6
+                    float(dataset.get("control_max_age_ms", 40.0)) * 1e6
                 ),
                 maximum_start_delta_rad=maximum_start_delta_rad,
                 maximum_hand_start_delta_rad=float(

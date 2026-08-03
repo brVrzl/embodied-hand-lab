@@ -79,7 +79,7 @@ dataset:
   root: data/episodes
   fps: 30
   camera_max_age_ms: 70.0
-  control_max_age_ms: 20.0
+  control_max_age_ms: 40.0
   hand_start_tolerance_rad: 0.05
 
 cameras:
@@ -112,6 +112,11 @@ latest frame at or before the recorder timestamp, so this permits ordinary
 host receive jitter and at most roughly one repeated selection. It never
 selects a future frame. A longer camera stall still aborts the episode, while
 raw frame numbers and device/host timestamps remain available for the summary.
+
+`control_max_age_ms: 40.0` applies only to the recorder's causal snapshot
+selection. It covers the target-host producer's measured 30.6 ms scheduling
+jitter. It does not alter Quest/JAKA heartbeat freshness, native worker
+watchdogs, ServoJ timing, or any physical control safety threshold.
 
 `calibration.snapshot_files` should contain the exact versioned files needed to
 interpret this capture. The current writer resolves those paths from the
