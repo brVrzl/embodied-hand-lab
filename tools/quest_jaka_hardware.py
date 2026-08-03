@@ -1107,6 +1107,8 @@ def main() -> int:
         arm_commands_while_index_released = 0
         native_started = False
         episode_runtime: EpisodeDataRuntime | None = None
+        episode_record_next_ns: int | None = None
+        episode_record_period_ns = 1_000_000_000 // 30
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
         try:
@@ -1161,6 +1163,14 @@ def main() -> int:
                         },
                     },
                 )
+                # The control producer normally runs at about 60 Hz, while
+                # the dataset clock is 30 Hz.  Recorder work (raw JSONL
+                # enqueueing and state snapshot assembly) must not consume the
+                # spare half-cycle needed by Quest/IK control.  Keep camera
+                # draining continuous, but submit one recorder control sample
+                # per dataset period; the native/JAKA/RH56 control loop remains
+                # unchanged.
+                episode_record_period_ns = episode_runtime.collector.clock.period_ns
                 print(
                     f"EPISODE_CAPTURE=IDLE id={episode_runtime.collector.writer.temporary_id} "
                     f"root={episode_runtime.collector.writer.root}",
@@ -1446,7 +1456,15 @@ def main() -> int:
                                 else rh56_control.episode_record(now_ns)
                             ),
                         )
-                        if episode_runtime is not None and status is not None:
+                        record_episode_sample = (
+                            episode_runtime is not None
+                            and status is not None
+                            and (
+                                episode_record_next_ns is None
+                                or now_ns >= episode_record_next_ns
+                            )
+                        )
+                        if record_episode_sample:
                             assert rh56_control is not None
                             feedback = rh56_control.last_feedback
                             held_target = (
@@ -1554,6 +1572,9 @@ def main() -> int:
                                     arm_trigger=engaged,
                                     hand_grip=session.hand_clutch.state.value
                                     in {"reacquire", "engaged"},
+                                )
+                                episode_record_next_ns = (
+                                    now_ns + episode_record_period_ns
                                 )
                         event["producer_outer_timing_ms"] = {
                             "receiver_drain_and_router_ingest": (
