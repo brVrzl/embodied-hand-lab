@@ -1,15 +1,16 @@
 # RH56DFX real Quest calibration and bounded travel validation
 
-Validation state: real Quest features calibrated; RH56 six-channel bounded free-space travel is physically validated through the configured normalized 1.0 command range. The staged thumb-first index probe and the 2026-07-31 anchor runs are physically recorded. Normal Quest-driven operation with this calibration is not yet physically validated because the live clutch did not engage in the latest captures.
+Validation state: real Quest features calibrated; RH56 six-channel bounded free-space travel is physically validated through the configured normalized 1.0 command range. The staged thumb-first index probe and the 2026-07-31 anchor runs are physically recorded. Calibration v2 received a 60.325-second Quest hand-only physical run on 2026-08-03 with no JAKA session, RH56 ERROR, worker fault, or serial/protocol fault.
 
 ## Calibration identity and source
 
 - selected physical hand-only calibration: `configs/hand/quest_rh56_real_retarget.yaml`
-- calibration id: `quest_rh56dfx_real_20260730_v1`
+- calibration id: `quest_rh56dfx_real_20260803_v2`
 - old physical-path calibration: `quest_rh56_sim_uncalibrated_v1`
 - labelled source captures: open, fist, thumb open, thumb neutral, thumb opposed, index pinch, middle pinch, and attempted tripod
 - each accepted statistic uses the final 1 s (about 72 frames) of an independently labelled Quest-only file
 - raw labelled captures remain under `logs/rh56_cal_*_20260730_*.hts.jsonl`; the reproducible summary is `artifacts/rh56_real_calibration_capture_analysis.md`
+- the v2 thumb pregrasp anchor comes from repeated 2026-08-03 hand-only HTS segments in `logs/quest_rh56_thumb_anchor_20260803.hts.jsonl`
 
 The old calibration used generic 0/1 finger endpoints and thumb lateral extrema -0.60/0.25. It therefore exposed only the measured raw human feature fraction, and the latest old-calibration physical run reached only 0.437/0.443/0.468/0.569 on the four finger commands. It was also explicitly named simulation-uncalibrated while being loaded by the physical hand-only path.
 
@@ -54,7 +55,15 @@ Measured stable-tail medians were:
 - neutral: -0.817716; p05/p95 -0.8244/-0.8055
 - fully opposed: 0.060326; p05/p95 -0.1415/0.0729
 
-The opposed sample contains more motion/noise than neutral, but its median and direction are distinct. The real calibration maps open/opposed to 0/1. Relative reference capture is retained: grip engagement captures the current Quest feature and current measured RH56 state, avoiding a reacquisition jump. This also means engagement pose still matters; normal operation should engage from an open/neutral human pose with RH56 thumb lateral near its open endpoint.
+The opposed sample contains more motion/noise than neutral, but its median and direction are distinct. The v1 calibration mapped open/opposed linearly to 0/1. A repeated 2026-08-03 hand-only capture measured the comfortable straight-thumb pregrasp at raw median -0.339631 and index pinch at raw median about -0.211. V2 therefore uses a continuous monotonic three-point response:
+
+```text
+-1.137268 open -> 0.0
+-0.339631 comfortable straight-thumb pregrasp -> 0.9
+ 0.060326 fully opposed -> 1.0
+```
+
+This keeps the original biological endpoints and full RH56 range while avoiding the over-opposition that a global gain increase would create during pinch. Grip engagement still begins with a forced write of fresh measured `ANGLE_ACT`; `align_on_grip` then transitions through the normal shaper toward the current absolute Quest feature, so reacquisition does not discard the calibrated span.
 
 ## Bounded RH56 channel travel
 
@@ -81,17 +90,16 @@ All bounded runs completed with ERROR `[0,0,0,0,0,0]`, normal observed STATUS `[
 The normalized 1.0 bounded probes generated the protocol raw-0 endpoint for
 the affected channels; no separate blind raw-array test was performed. The
 persistent software configuration now allows 0..1 as explicitly requested and
-does not modify hardware registers. Full Quest-driven closure and tissue
-behavior remain unverified.
+does not modify hardware registers. Full tissue behavior remains unverified.
 
-The first 45 s post-change Quest hand-only run loaded `quest_rh56dfx_real_20260730_v1` but received zero right-hand frames. It performed zero RH56 writes, generated zero arm targets, and closed cleanly. Consequently command-range improvement under live Quest control remains physically pending even though the captured frames replay to full calibrated finger features offline.
+The first 2026-08-03 60-second capture received 4258 right-hand frames but the Touch grip remained released, so it deliberately performed zero RH56 writes and generated zero arm targets. The landmarks nevertheless supplied repeated open, comfortable pregrasp, and index-pinch labels for v2. The subsequent 60.325-second v2 hand-only run loaded the new calibration, performed 470 successful writes across four grip activations, and generated zero arm targets. Comfortable straight-thumb side-sweep samples mapped to feature median 0.892 and p90 0.919; requested/submitted lateral reached 0.933 and measured `ANGLE_ACT` reached 0.945. All RH56 ERROR values remained zero, with no worker, serial, checksum, or protocol fault.
 
 ## Mechanical and data limitations
 
 - High thumb opposition can self-collide with a closing index; pinch blending must use physically validated contact poses rather than independently maximizing both actuators.
 - Index and middle human pinch intent are separable in the labelled data: normalized contact distances were about 0.051 and 0.102 respectively.
 - The first tripod file was middle-only (`thumb-index` about 0.703), and the retry was a completely frozen stale skeleton. Neither is accepted as tripod calibration evidence.
-- No RH56 fingertip contact pose, tissue hold, extraction, or release has yet been validated by these endpoint tests.
+- The index/thumb fingertip contact pose is physically validated, and the operator reported a later water-bottle grasp without observed difficulty. Tissue hold/extraction/release and loaded parcel-box behavior remain incomplete; the 148.9-second combined run stopped during parcel-box grasp on the now-fixed measured-activation scheduling race.
 - A lateral endpoint of normalized `1.0` was reached during the middle-pinch
   probe without fingertip contact; the current hand therefore has no remaining
   software lateral travel to expose for middle pinch.
@@ -105,6 +113,8 @@ serial transport closed normally. During five seconds of verification,
 `ERROR` remained all zero and `CURRENT` remained zero, but canonical `STATUS`
 persisted as `[2,2,2,2,2,7]`; `ANGLE_ACT` stayed around
 `[788,835,880,926,683,65]`. The official no-load force-sensor calibration was
-therefore not started, and no Quest teleoperation followed. The hand remains
-physically faulted/unverified until the sixth actuator fault is cleared by a
-safe mechanical/official-controller procedure.
+therefore not started during that attempt, and no Quest teleoperation
+immediately followed. This dated fault state was later cleared: a subsequent
+no-load official force calibration completed with ERROR all zero, and the
+2026-08-03 v2 hand-only run again ended with no RH56 hardware or transport
+fault.

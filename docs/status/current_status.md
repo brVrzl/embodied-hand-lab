@@ -160,7 +160,11 @@ command window was deferred as rate-limited after its one-shot force flag had
 already been consumed. Forced measured activation now bypasses only that
 ordinary command window; normal commands remain on the 40 Hz scheduler. This
 latest race correction is offline regression tested but not yet physically
-revalidated.
+revalidated in combined operation. A later 2026-08-03 hand-only run exercised
+four measured grip activations and 470 successful writes without reproducing
+the worker failure; JAKA was not connected. The operator clarified that the
+148.9-second stop occurred while grasping a parcel box, while the preceding
+water-bottle grasp itself had no observed problem.
 
 An unloaded bounded hand-only endpoint test then commanded canonical
 `[index, middle, ring, pinky, thumb_close, thumb_lateral] =
@@ -169,6 +173,21 @@ An unloaded bounded hand-only endpoint test then commanded canonical
 all STATUS values 2, and no serial/protocol fault. This physically confirms
 that the thumb-lateral actuator can reach the 0.9 region while unloaded; it
 does not by itself validate Quest retarget coverage or loaded motion there.
+
+The original real thumb-lateral feature remained ergonomically compressed:
+the 2026-08-03 hand-only HTS capture measured a comfortable straight-thumb
+pregrasp at raw palm-local across-palm median `-0.339631`, which the old linear
+mapping placed well below 0.9. Calibration
+`quest_rh56dfx_real_20260803_v2` retains the captured open and fully opposed
+endpoints and adds a continuous monotonic `-0.339631 -> 0.90` pregrasp anchor.
+Offline replay maps the labelled pregrasp segment to median 0.90 while leaving
+the verified index-pinch output relationship at lateral 0.90. A subsequent
+60.325-second hand-only physical run loaded v2, reached requested/submitted
+lateral 0.933 and measured `ANGLE_ACT` 0.945, and recorded zero RH56 ERROR,
+worker, serial, or protocol fault. The comfortable straight-thumb side-sweep
+segment mapped to median 0.892 and p90 0.919. This validates mapping coverage
+and actuator following without JAKA; final ergonomic acceptance and loaded
+parcel-box behavior remain operator/combined validation items.
 
 ## Simulation limits
 

@@ -5,7 +5,7 @@ selected_backend: adaptive
 # human tracking features only; RH56 protocol travel is owned by
 # configs/hand/rh56_pc_direct_teleop.yaml.
 calibration:
-  calibration_id: quest_rh56dfx_real_20260730_v1
+  calibration_id: quest_rh56dfx_real_20260803_v2
   global_scale: 1.0
   palm_scale: 1.0
   finger_scale: [1.0, 1.0, 1.0, 1.0]
@@ -27,6 +27,12 @@ calibration:
     # by index-MCP/pinky-MCP span. Positive is increasing opposition.
     open_across_palm: -1.137268
     neutral_across_palm: -0.817716
+    # Repeated hand-only HTS captures on 2026-08-03 placed the comfortable
+    # straight-thumb pregrasp at a -0.339631 median. Map that pose to the
+    # physically verified RH56 lateral 0.90 while preserving the original
+    # fully opposed endpoint and a continuous monotonic response.
+    pregrasp_across_palm: -0.339631
+    pregrasp_normalized: 0.90
     opposed_across_palm: 0.060326
     frame_epsilon_m: 0.00001
   pinch_intent:

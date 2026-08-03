@@ -110,7 +110,7 @@ def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() 
     _, calibration = HandRetargetCalibration.load(
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
-    assert calibration.calibration_id == "quest_rh56dfx_real_20260730_v1"
+    assert calibration.calibration_id == "quest_rh56dfx_real_20260803_v2"
     for open_feature, closed_feature, exponent in zip(
         calibration.finger_feature_open,
         calibration.finger_feature_closed,
@@ -277,9 +277,28 @@ def test_real_calibration_disables_unverified_pose_and_uses_thumb_first_gate() -
     assert calibration.thumb_first_index_activation == pytest.approx(0.50)
     assert calibration.thumb_first_thumb_close_activation == pytest.approx(0.35)
     assert calibration.thumb_first_lateral_activation == pytest.approx(0.86)
+    assert calibration.thumb_lateral_pregrasp_across_palm == pytest.approx(
+        -0.339631
+    )
+    assert calibration.thumb_lateral_pregrasp_normalized == pytest.approx(0.90)
     assert calibration.validated_pinch_poses == {
         "index": pytest.approx((0.55, 0.0, 0.0, 0.0, 0.40, 0.90))
     }
+
+
+def test_thumb_lateral_pregrasp_calibration_requires_complete_anchor(
+    tmp_path: Path,
+) -> None:
+    source = Path("configs/hand/quest_rh56_real_retarget.yaml").read_text(
+        encoding="utf-8"
+    )
+    path = tmp_path / "incomplete_thumb_anchor.yaml"
+    path.write_text(
+        source.replace("    pregrasp_normalized: 0.90\n", ""),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="malformed"):
+        HandRetargetCalibration.load(path)
 
 
 def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
@@ -436,6 +455,32 @@ def test_thumb_lateral_synthetic_across_palm_sweep_is_monotonic() -> None:
     assert values == sorted(values)
     assert values[0] == pytest.approx(0.0)
     assert values[-1] == pytest.approx(1.0)
+
+
+def test_thumb_lateral_pregrasp_anchor_preserves_endpoints_and_monotonicity() -> None:
+    points = np.asarray(_open_points(), dtype=np.float64)
+    frame = right_hand_palm_local_frame(points, epsilon_m=1e-5)
+    assert frame is not None
+    across = np.asarray(frame.across_axis)
+    base = points[1].copy()
+    raw_points = (-1.137268, -0.339631, 0.060326)
+    expected = (0.0, 0.90, 1.0)
+    measured_features = []
+    for raw, target in zip(raw_points, expected, strict=True):
+        points[4] = base + across * raw * frame.palm_width_m
+        feature, measured = thumb_lateral_opposition_feature(
+            points,
+            frame,
+            open_across_palm=raw_points[0],
+            pregrasp_across_palm=raw_points[1],
+            pregrasp_normalized=expected[1],
+            opposed_across_palm=raw_points[2],
+            palm_scale=1.0,
+        )
+        assert measured == pytest.approx(raw)
+        assert feature == pytest.approx(target)
+        measured_features.append(feature)
+    assert measured_features == sorted(measured_features)
 
 
 def test_thumb_lateral_feature_is_invariant_to_common_wrist_frame_rotation() -> None:

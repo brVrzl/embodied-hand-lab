@@ -155,6 +155,8 @@ class HandRetargetCalibration:
     thumb_pinch_closed_distance_palm: float
     thumb_pinch_open_distance_palm: float
     thumb_lateral_open_across_palm: float
+    thumb_lateral_pregrasp_across_palm: float | None
+    thumb_lateral_pregrasp_normalized: float | None
     thumb_lateral_opposed_across_palm: float
     thumb_lateral_frame_epsilon_m: float
     pinch_intent_enter_distance_palm: float
@@ -229,6 +231,16 @@ class HandRetargetCalibration:
             ),
             thumb_lateral_open_across_palm=float(
                 thumb_lateral.get("open_across_palm", -0.60)
+            ),
+            thumb_lateral_pregrasp_across_palm=(
+                None
+                if "pregrasp_across_palm" not in thumb_lateral
+                else float(thumb_lateral["pregrasp_across_palm"])
+            ),
+            thumb_lateral_pregrasp_normalized=(
+                None
+                if "pregrasp_normalized" not in thumb_lateral
+                else float(thumb_lateral["pregrasp_normalized"])
             ),
             thumb_lateral_opposed_across_palm=float(
                 thumb_lateral.get("opposed_across_palm", 0.25)
@@ -328,6 +340,22 @@ class HandRetargetCalibration:
             or not math.isfinite(result.thumb_lateral_opposed_across_palm)
             or result.thumb_lateral_open_across_palm
             >= result.thumb_lateral_opposed_across_palm
+            or (
+                (result.thumb_lateral_pregrasp_across_palm is None)
+                != (result.thumb_lateral_pregrasp_normalized is None)
+            )
+            or (
+                result.thumb_lateral_pregrasp_across_palm is not None
+                and (
+                    not math.isfinite(result.thumb_lateral_pregrasp_across_palm)
+                    or not result.thumb_lateral_open_across_palm
+                    < result.thumb_lateral_pregrasp_across_palm
+                    < result.thumb_lateral_opposed_across_palm
+                    or result.thumb_lateral_pregrasp_normalized is None
+                    or not math.isfinite(result.thumb_lateral_pregrasp_normalized)
+                    or not 0.0 < result.thumb_lateral_pregrasp_normalized < 1.0
+                )
+            )
             or not math.isfinite(result.thumb_lateral_frame_epsilon_m)
             or result.thumb_lateral_frame_epsilon_m <= 0.0
             or not 0.0 < result.pinch_intent_enter_distance_palm
@@ -822,6 +850,12 @@ class ProjectRh56Retargeter:
             points,
             palm_frame,
             open_across_palm=self.calibration.thumb_lateral_open_across_palm,
+            pregrasp_across_palm=(
+                self.calibration.thumb_lateral_pregrasp_across_palm
+            ),
+            pregrasp_normalized=(
+                self.calibration.thumb_lateral_pregrasp_normalized
+            ),
             opposed_across_palm=self.calibration.thumb_lateral_opposed_across_palm,
             palm_scale=self.calibration.palm_scale,
         )
@@ -1039,6 +1073,8 @@ def thumb_lateral_opposition_feature(
     frame: PalmLocalFrame,
     *,
     open_across_palm: float,
+    pregrasp_across_palm: float | None = None,
+    pregrasp_normalized: float | None = None,
     opposed_across_palm: float,
     palm_scale: float,
 ) -> tuple[float, float]:
@@ -1049,19 +1085,40 @@ def thumb_lateral_opposition_feature(
         raise ValueError("thumb-lateral calibration must be finite")
     if open_across_palm >= opposed_across_palm or palm_scale <= 0.0:
         raise ValueError("invalid thumb-lateral calibration")
+    if (pregrasp_across_palm is None) != (pregrasp_normalized is None):
+        raise ValueError("thumb-lateral pregrasp anchor must be complete")
+    if pregrasp_across_palm is not None:
+        assert pregrasp_normalized is not None
+        if (
+            not math.isfinite(pregrasp_across_palm)
+            or not math.isfinite(pregrasp_normalized)
+            or not open_across_palm < pregrasp_across_palm < opposed_across_palm
+            or not 0.0 < pregrasp_normalized < 1.0
+        ):
+            raise ValueError("invalid thumb-lateral pregrasp anchor")
     across = np.asarray(frame.across_axis, dtype=np.float64)
     palm_width = frame.palm_width_m * palm_scale
     if not math.isfinite(palm_width) or palm_width <= 0.0:
         raise ValueError("invalid thumb-lateral palm scale")
     raw = float(np.dot(points[4] - points[1], across) / palm_width)
-    normalized = float(
-        np.clip(
-            (raw - open_across_palm)
-            / (opposed_across_palm - open_across_palm),
-            0.0,
-            1.0,
+    if pregrasp_across_palm is None:
+        normalized = float(
+            np.clip(
+                (raw - open_across_palm)
+                / (opposed_across_palm - open_across_palm),
+                0.0,
+                1.0,
+            )
         )
-    )
+    else:
+        assert pregrasp_normalized is not None
+        normalized = float(
+            np.interp(
+                raw,
+                (open_across_palm, pregrasp_across_palm, opposed_across_palm),
+                (0.0, pregrasp_normalized, 1.0),
+            )
+        )
     return normalized, raw
 
 

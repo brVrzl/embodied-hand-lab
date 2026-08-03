@@ -1796,6 +1796,16 @@ class SmoothQuestJakaSession:
                 if self.hand_retargeter is None
                 else self.hand_retargeter.calibration.thumb_lateral_open_across_palm
             ),
+            "thumb_lateral_pregrasp_across_palm": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_lateral_pregrasp_across_palm
+            ),
+            "thumb_lateral_pregrasp_normalized": (
+                None
+                if self.hand_retargeter is None
+                else self.hand_retargeter.calibration.thumb_lateral_pregrasp_normalized
+            ),
             "thumb_lateral_opposed_across_palm": (
                 None
                 if self.hand_retargeter is None
