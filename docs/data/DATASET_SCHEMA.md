@@ -208,7 +208,7 @@ Every line of `canonical/samples.jsonl` is one JSON object.
 | `timestamp_host_monotonic_ns` | integer | Nominal canonical timestamp. |
 | `observation.images.<role>.rgb` | path | HWC `uint8` RGB NPY. |
 | `observation.images.<role>.depth_raw` | path | Two-dimensional `uint16` device-unit depth NPY. |
-| `observation.images.<role>.depth_aligned_to_rgb` | path or null | Optional aligned post-filter `uint16` depth; it never replaces native raw depth. The dynamic default is disparity-domain spatial filtering with temporal and global hole filling disabled. |
+| `observation.images.<role>.depth_aligned_to_rgb` | path or null | Optional aligned `uint16` depth; it never replaces native raw depth. A configured filter chain is applied before this view is copied, but physical combined capture currently disables online filters after measured control-loop interference. |
 | `observation.state.arm_q_measured` | six floats | Arm position, radians. |
 | `observation.state.arm_dq_measured` | six floats | Arm velocity view, radians/second. |
 | `observation.state.tcp_pose` | seven floats | `[x_m,y_m,z_m,qx,qy,qz,qw]`. |

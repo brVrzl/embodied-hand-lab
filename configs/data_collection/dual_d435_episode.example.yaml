@@ -24,8 +24,10 @@ cameras:
     max_timestamp_skew_ms: 33.333334
     sync_retry_frames: 30
     filters:
-      use_disparity: true
-      spatial: {enabled: true, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
+      # Keep physical combined capture raw-first. Full-rate spatial filtering
+      # caused a measured 131 ms producer stall on the target host.
+      use_disparity: false
+      spatial: {enabled: false, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
       temporal: {enabled: false}
       hole_filling: {enabled: false}
   wrist:
@@ -41,8 +43,8 @@ cameras:
     max_timestamp_skew_ms: 33.333334
     sync_retry_frames: 30
     filters:
-      use_disparity: true
-      spatial: {enabled: true, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
+      use_disparity: false
+      spatial: {enabled: false, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
       temporal: {enabled: false}
       hole_filling: {enabled: false}
 
