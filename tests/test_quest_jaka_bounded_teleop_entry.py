@@ -415,7 +415,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert not (tmp_path / "logs").exists()
 
 
-@pytest.mark.parametrize("removed_option", ("--arm-approval", "--hand-approval"))
+@pytest.mark.parametrize("removed_option", ("arm-approval", "hand-approval"))
 def test_removed_combined_approval_options_are_rejected_before_outputs(
     tmp_path: Path,
     removed_option: str,
@@ -429,7 +429,7 @@ def test_removed_combined_approval_options_are_rejected_before_outputs(
         "--worker", "/bin/true", "--native-control-cpu", "0",
         "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
-        removed_option, "obsolete",
+        f"--{removed_option}", "obsolete",
     ]
     result = _run(command)
     assert result.returncode == 2
