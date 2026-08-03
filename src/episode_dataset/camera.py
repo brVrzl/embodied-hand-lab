@@ -129,6 +129,7 @@ def camera_sample_from_rgbd(role: str, frame: RGBDFrame) -> CameraSample:
             if frame.depth_aligned_to_color_units is None
             else frame.depth_aligned_to_color_units.copy()
         ),
+        depth_scale_m=frame.depth_scale_m,
         device_rgb_timestamp_ms=frame.color_timestamp_ms,
         device_depth_timestamp_ms=frame.depth_timestamp_ms,
         rgb_frame_number=frame.color_frame_number,

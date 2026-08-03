@@ -188,14 +188,30 @@ def _rgb_panel(frame: CameraSample, label: str) -> np.ndarray:
 
 def _depth_panel(frame: CameraSample, label: str) -> np.ndarray:
     cv2 = require_preview_dependencies()
-    depth = frame.depth_raw
-    valid = depth[depth > 0]
-    if valid.size:
-        high = max(float(np.percentile(valid, 95)), 1.0)
-        scaled = np.clip(depth.astype(np.float32) * (255.0 / high), 0, 255).astype(np.uint8)
+    depth = (
+        frame.depth_aligned_to_rgb
+        if frame.depth_aligned_to_rgb is not None
+        else frame.depth_raw
+    )
+    if frame.depth_scale_m is not None:
+        depth_m = depth.astype(np.float32) * frame.depth_scale_m
+        valid = np.isfinite(depth_m) & (depth_m >= 0.15) & (depth_m <= 1.5)
+        normalized = np.zeros(depth.shape, dtype=np.float32)
+        normalized[valid] = (1.5 - depth_m[valid]) / (1.5 - 0.15)
+        scaled = np.rint(normalized * 255.0).astype(np.uint8)
+        panel = cv2.applyColorMap(scaled, cv2.COLORMAP_TURBO)
+        panel[~valid] = 0
     else:
-        scaled = np.zeros(depth.shape, dtype=np.uint8)
-    panel = cv2.applyColorMap(scaled, cv2.COLORMAP_TURBO)
+        valid_depth = depth[depth > 0]
+        if valid_depth.size:
+            high = max(float(np.percentile(valid_depth, 95)), 1.0)
+            scaled = np.clip(
+                depth.astype(np.float32) * (255.0 / high), 0, 255
+            ).astype(np.uint8)
+        else:
+            scaled = np.zeros(depth.shape, dtype=np.uint8)
+        panel = cv2.applyColorMap(scaled, cv2.COLORMAP_TURBO)
+        panel[depth == 0] = 0
     return _label(panel, label)
 
 

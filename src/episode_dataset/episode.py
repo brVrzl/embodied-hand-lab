@@ -135,6 +135,7 @@ class CameraSample:
     rgb_timestamp_domain: str
     depth_timestamp_domain: str
     depth_aligned_to_rgb: np.ndarray | None = None
+    depth_scale_m: float | None = None
 
     def __post_init__(self) -> None:
         if self.role not in {"workspace", "wrist"}:
@@ -147,6 +148,10 @@ class CameraSample:
             self.depth_aligned_to_rgb.dtype != np.uint16 or self.depth_aligned_to_rgb.ndim != 2
         ):
             raise ValueError("depth_aligned_to_rgb must be uint16")
+        if self.depth_scale_m is not None and (
+            not math.isfinite(self.depth_scale_m) or self.depth_scale_m <= 0.0
+        ):
+            raise ValueError("depth_scale_m must be finite and positive")
 
 
 @dataclass(frozen=True, slots=True)

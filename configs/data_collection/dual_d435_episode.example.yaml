@@ -16,6 +16,7 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    visual_preset: default
     allow_profile_fallback: true
     align_depth_to_color: true
     warmup_frames: 5
@@ -23,8 +24,8 @@ cameras:
     max_timestamp_skew_ms: 33.333334
     sync_retry_frames: 30
     filters:
-      use_disparity: false
-      spatial: {enabled: false}
+      use_disparity: true
+      spatial: {enabled: true, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
       temporal: {enabled: false}
       hole_filling: {enabled: false}
   wrist:
@@ -32,6 +33,7 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    visual_preset: default
     allow_profile_fallback: true
     align_depth_to_color: true
     warmup_frames: 5
@@ -39,8 +41,8 @@ cameras:
     max_timestamp_skew_ms: 33.333334
     sync_retry_frames: 30
     filters:
-      use_disparity: false
-      spatial: {enabled: false}
+      use_disparity: true
+      spatial: {enabled: true, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
       temporal: {enabled: false}
       hole_filling: {enabled: false}
 

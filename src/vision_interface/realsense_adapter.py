@@ -134,15 +134,17 @@ class RealSenseCamera(CameraInterface):
         if not color_frame or not depth_frame:
             raise RuntimeError("RealSense frameset did not contain both color and depth frames.")
 
+        for depth_filter in self.depth_filters:
+            depth_frame = depth_filter.process(depth_frame)
+
         if self.align is not None:
+            # Preserve the native unaligned Z16 frame above, while exposing the
+            # aligned post-filter result used by depth_m and live inspection.
             depth_aligned_units = np.asanyarray(depth_frame.get_data()).copy()
             if depth_aligned_units.dtype != np.uint16:
                 raise RuntimeError(
                     f"Unexpected RealSense aligned depth dtype: {depth_aligned_units.dtype}."
                 )
-
-        for depth_filter in self.depth_filters:
-            depth_frame = depth_filter.process(depth_frame)
 
         rgb = np.asanyarray(color_frame.get_data()).copy()
         depth_m = (

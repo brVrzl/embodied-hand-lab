@@ -164,6 +164,16 @@ Canonical hard links do not double that payload. Measure sustained write rate
 and free space on the actual destination; do not rely on the estimate for a
 long collection session.
 
+For moving Bottle Pickup demonstrations, the maintained depth default is the
+previously measured D435 chain `disparity -> spatial -> depth`, using the
+Default visual preset. Temporal filtering and global hole filling stay off:
+temporal persistence can leave robot/object motion trails, while hole filling
+can invent surfaces across occlusion edges. Native unaligned Z16 remains in
+`depth_raw`; `depth_aligned_to_rgb` is the aligned post-filter Z16 view. The
+live preview uses that aligned view with a fixed 0.15–1.5 m scale and renders
+invalid/out-of-range pixels black instead of stretching every frame by its
+percentiles.
+
 Keep the episode root on one local filesystem so the final staging rename is
 atomic. Avoid an unstable network mount for live capture. If data must live on
 shared storage, record to local SSD/NVMe, validate, then copy with checksums.
