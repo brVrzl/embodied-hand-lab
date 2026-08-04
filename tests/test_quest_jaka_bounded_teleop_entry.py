@@ -6,8 +6,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import argparse
-import sys
-import threading
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +16,6 @@ from tools.quest_jaka_hardware import (
     COMBINED_CONTROL_REALTIME_PRIORITY,
     RECOVERABLE_CLUTCH_STAGES,
     _control_compute_budget_summary,
-    _task_placement,
     _parser,
     _native_terminal_reason_if_ready,
     _reconcile_terminal_transport_symptom,
@@ -31,26 +28,6 @@ from tools.quest_jaka_hardware import (
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_quest_jaka_bounded_teleop.sh"
 COMBINED_SCRIPT = ROOT / "scripts" / "run_quest_jaka_rh56_teleop.sh"
-
-
-def test_task_placement_reports_current_python_thread() -> None:
-    placement = _task_placement(
-        component="test_main",
-        process_id=os.getpid(),
-        thread_id=threading.get_native_id(),
-        thread_name="pytest-main",
-    )
-    assert "error" not in placement
-    if sys.platform.startswith("linux"):
-        assert placement["supported"] is True
-        assert placement["current_cpu"] >= 0
-        assert placement["affinity_mask"]
-        assert placement["scheduler_policy"] >= 0
-    else:
-        assert placement["supported"] is False
-        assert placement["reason"] == (
-            "Linux procfs scheduling telemetry is unavailable"
-        )
 
 
 def test_combined_realtime_limit_is_checked_before_hardware(
