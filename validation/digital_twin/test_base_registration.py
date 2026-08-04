@@ -9,7 +9,7 @@ import yaml
 from digital_twin.calibration.base_geometry import fit_circle_ransac, fit_plane_ransac
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load_register_tool():

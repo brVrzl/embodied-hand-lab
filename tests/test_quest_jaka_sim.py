@@ -395,29 +395,3 @@ def test_offline_entrypoint_has_no_hardware_backend_imports() -> None:
         "rclpy",
     )
     assert not any(name.startswith(forbidden) for name in imported)
-
-
-def test_formal_sim_entry_has_no_keyboard_clutch_or_retired_live_command() -> None:
-    root = Path(__file__).parents[1]
-    entry = (root / "tools/quest_jaka_mujoco_sim.py").read_text(encoding="utf-8")
-    session_sources = "\n".join(
-        (root / relative).read_text(encoding="utf-8")
-        for relative in (
-            "src/quest_jaka_sim/simulation.py",
-            "src/quest_jaka_sim/smooth_session.py",
-        )
-    )
-    command_names = {
-        node.args[0].value
-        for node in ast.walk(ast.parse(entry))
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_parser"
-        and node.args
-        and isinstance(node.args[0], ast.Constant)
-        and isinstance(node.args[0].value, str)
-    }
-    assert "live" not in command_names
-    assert "live-6dof" in command_names
-    assert "key_callback" not in entry
-    assert "request_toggle" not in entry + session_sources

@@ -352,30 +352,22 @@ def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("bend", "pinch", "feature", "base", "assist"),
-    (
-        (0.0, 0.0, 0.0, 0.0, 0.0),
-        (1.0, 0.0, 1.0, 1.0, 0.0),
-        (1.0, 1.0, 1.0, 1.0, 0.0),
-        (0.7, 0.4, 0.7, 0.7, 0.0),
-        (0.2, 0.8, 0.44, 0.2, 0.24),
-    ),
-)
-def test_thumb_close_bend_primary_pinch_assist_cases(
-    bend: float,
-    pinch: float,
-    feature: float,
-    base: float,
-    assist: float,
-) -> None:
-    actual = thumb_close_bend_primary_feature(
-        bend,
-        pinch,
-        bend_gain=1.0,
-        pinch_assist_gain=0.4,
+def test_thumb_close_bend_primary_pinch_assist_cases() -> None:
+    cases = (
+        (0.0, 0.0, (0.0, 0.0, 0.0)),
+        (1.0, 0.0, (1.0, 1.0, 0.0)),
+        (1.0, 1.0, (1.0, 1.0, 0.0)),
+        (0.7, 0.4, (0.7, 0.7, 0.0)),
+        (0.2, 0.8, (0.44, 0.2, 0.24)),
     )
-    assert actual == pytest.approx((feature, base, assist))
+    for bend, pinch, expected in cases:
+        actual = thumb_close_bend_primary_feature(
+            bend,
+            pinch,
+            bend_gain=1.0,
+            pinch_assist_gain=0.4,
+        )
+        assert actual == pytest.approx(expected)
 
 
 def test_thumb_close_bend_primary_feature_is_continuous_monotonic_and_finite() -> None:

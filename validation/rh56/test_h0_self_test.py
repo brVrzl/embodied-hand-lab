@@ -12,7 +12,7 @@ import pytest
 from rh56_sim import CANONICAL_CHANNEL_ORDER, RH56_CHANNELS, Rh56H0SelfTest
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODEL_PATH = PROJECT_ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"
 TOOL_PATH = PROJECT_ROOT / "tools/rh56_h0_self_test.py"
 MODULE_PATH = PROJECT_ROOT / "src/rh56_sim/h0_self_test.py"

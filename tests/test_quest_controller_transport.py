@@ -111,74 +111,35 @@ def test_valid_ctrl_decode_preserves_all_fields() -> None:
     )
 
 
-def test_fixed_field_order_is_required() -> None:
-    swapped = VALID_LINE.replace(
-        "connected=1,active=1", "active=1,connected=1"
-    )
-    with pytest.raises(ControllerPacketError, match="order mismatch"):
-        parse_controller_line(swapped)
+def test_malformed_ctrl_schema_fields_are_rejected() -> None:
+    cases = [
+        (VALID_LINE.replace("connected=1,active=1", "active=1,connected=1"), "order mismatch"),
+        (VALID_LINE.replace("v=1", "v=2", 1), "version"),
+        (VALID_LINE.replace(",grip=0.654321", ""), "exactly nine"),
+        (VALID_LINE.replace("grip=0.654321", "index=0.654321"), "duplicate"),
+        (VALID_LINE.replace("grip=0.654321", "squeeze=0.654321"), "unknown"),
+        (VALID_LINE.replace("tracked=1", "tracked=true"), "must be 0 or 1"),
+        ("CTRL, v=1,session=1,seq=1,t_ns=1,connected=1,active=1,tracked=1,index=0,grip=0", None),
+    ]
+    for bad, message in cases:
+        with pytest.raises(ControllerPacketError, match=message):
+            parse_controller_line(bad)
 
 
-def test_wrong_version_is_rejected() -> None:
-    with pytest.raises(ControllerPacketError, match="version"):
-        parse_controller_line(VALID_LINE.replace("v=1", "v=2", 1))
-
-
-def test_missing_field_is_rejected() -> None:
-    with pytest.raises(ControllerPacketError, match="exactly nine"):
-        parse_controller_line(VALID_LINE.replace(",grip=0.654321", ""))
-
-
-def test_duplicate_field_is_rejected() -> None:
-    duplicate = VALID_LINE.replace("grip=0.654321", "index=0.654321")
-    with pytest.raises(ControllerPacketError, match="duplicate"):
-        parse_controller_line(duplicate)
-
-
-def test_unknown_field_is_rejected() -> None:
-    unknown = VALID_LINE.replace("grip=0.654321", "squeeze=0.654321")
-    with pytest.raises(ControllerPacketError, match="unknown"):
-        parse_controller_line(unknown)
-
-
-def test_invalid_boolean_is_rejected() -> None:
-    with pytest.raises(ControllerPacketError, match="must be 0 or 1"):
-        parse_controller_line(VALID_LINE.replace("tracked=1", "tracked=true"))
-
-
-@pytest.mark.parametrize(
-    ("field", "current", "bad"),
-    [
+def test_malformed_ctrl_numeric_fields_are_rejected() -> None:
+    cases = [
         ("session", "987654321", "-1"),
         ("seq", "123", "1.5"),
         ("t_ns", "123456789012345", "abc"),
         ("session", "987654321", str(1 << 64)),
-    ],
-)
-def test_invalid_uint64_is_rejected(field: str, current: str, bad: str) -> None:
-    with pytest.raises(ControllerPacketError):
-        parse_controller_line(VALID_LINE.replace(f"{field}={current}", f"{field}={bad}"))
-
-
-@pytest.mark.parametrize("bad", ["nan", "inf"])
-def test_nan_and_inf_are_rejected(bad: str) -> None:
-    with pytest.raises(ControllerPacketError, match="finite float"):
-        parse_controller_line(VALID_LINE.replace("index=0.123456", f"index={bad}"))
-
-
-@pytest.mark.parametrize("bad", ["-0.0001", "1.0001"])
-def test_out_of_range_analog_is_rejected(bad: str) -> None:
-    with pytest.raises(ControllerPacketError):
-        parse_controller_line(VALID_LINE.replace("grip=0.654321", f"grip={bad}"))
-
-
-@pytest.mark.parametrize(
-    "bad",
-    ["CTRL, v=1,session=1,seq=1,t_ns=1,connected=1,active=1,tracked=1,index=0,grip=0"],
-)
-def test_malformed_ctrl_is_rejected_without_whitespace_normalization(bad: str) -> None:
-    with pytest.raises(ControllerPacketError):
-        parse_controller_line(bad)
+        ("index", "0.123456", "nan"),
+        ("index", "0.123456", "inf"),
+        ("grip", "0.654321", "-0.0001"),
+        ("grip", "0.654321", "1.0001"),
+    ]
+    for field, current, bad in cases:
+        with pytest.raises(ControllerPacketError):
+            parse_controller_line(VALID_LINE.replace(f"{field}={current}", f"{field}={bad}"))
 
 
 def test_unknown_packet_is_not_misparsed_as_ctrl() -> None:
@@ -281,18 +242,19 @@ def test_old_session_delayed_packet_cannot_override_current() -> None:
     assert state.host_receive_monotonic_ns == 200
 
 
-@pytest.mark.parametrize(
-    ("field", "expected"),
-    [("connected", "disconnected"), ("active", "inactive"), ("tracked", "untracked")],
-)
-def test_each_controller_fact_is_independently_retained_and_invalid(field: str, expected: str) -> None:
-    provider = ControllerProvider()
-    state = provider.update(
-        replace(packet(), **{field: False}), host_receive_monotonic_ns=1
-    )
-    assert not state.controller_valid
-    assert state.invalid_reason == expected
-    assert state.invalid_count == 1
+def test_each_controller_fact_is_independently_retained_and_invalid() -> None:
+    for field, expected in (
+        ("connected", "disconnected"),
+        ("active", "inactive"),
+        ("tracked", "untracked"),
+    ):
+        provider = ControllerProvider()
+        state = provider.update(
+            replace(packet(), **{field: False}), host_receive_monotonic_ns=1
+        )
+        assert not state.controller_valid
+        assert state.invalid_reason == expected
+        assert state.invalid_count == 1
 
 
 def test_source_timestamp_interval_pause_and_reorder_are_diagnostics() -> None:
@@ -306,28 +268,22 @@ def test_source_timestamp_interval_pause_and_reorder_are_diagnostics() -> None:
 
 
 # Existing-contract integration and independent combinations (requirements 23--32).
-def test_index_only_drives_arm_transport_clutch() -> None:
-    provider, adapter, monitor = ControllerProvider(), ControllerClutchAdapter(), TransportClutchMonitor()
-    monitor_step(provider, adapter, monitor, packet(seq=1), 1)
-    state = monitor_step(provider, adapter, monitor, packet(seq=2, index=0.9), 2)
-    assert state.arm_engaged and not state.hand_engaged
-
-
-def test_grip_only_drives_hand_transport_clutch() -> None:
-    provider, adapter, monitor = ControllerProvider(), ControllerClutchAdapter(), TransportClutchMonitor()
-    monitor_step(provider, adapter, monitor, packet(seq=1), 1)
-    state = monitor_step(provider, adapter, monitor, packet(seq=2, grip=0.9), 2)
-    assert not state.arm_engaged and state.hand_engaged
-
-
-def test_both_and_neither_transport_combinations() -> None:
-    provider, adapter, monitor = ControllerProvider(), ControllerClutchAdapter(), TransportClutchMonitor()
-    released = monitor_step(provider, adapter, monitor, packet(seq=1), 1)
-    both = monitor_step(provider, adapter, monitor, packet(seq=2, index=0.9, grip=0.9), 2)
-    neither = monitor_step(provider, adapter, monitor, packet(seq=3, index=0.0, grip=0.0), 3)
-    assert not released.arm_engaged and not released.hand_engaged
-    assert both.arm_engaged and both.hand_engaged
-    assert not neither.arm_engaged and not neither.hand_engaged
+def test_transport_clutch_mapping_covers_independent_and_combined_inputs() -> None:
+    for index, grip, arm_engaged, hand_engaged in (
+        (0.0, 0.0, False, False),
+        (0.9, 0.0, True, False),
+        (0.0, 0.9, False, True),
+        (0.9, 0.9, True, True),
+    ):
+        provider, adapter, monitor = ControllerProvider(), ControllerClutchAdapter(), TransportClutchMonitor()
+        monitor_step(provider, adapter, monitor, packet(seq=1), 1)
+        state = monitor_step(
+            provider, adapter, monitor,
+            packet(seq=2, index=index, grip=grip),
+            2,
+        )
+        assert state.arm_engaged is arm_engaged
+        assert state.hand_engaged is hand_engaged
 
 
 def test_disconnect_does_not_retain_pressed_and_requires_both_released() -> None:

@@ -344,7 +344,12 @@ def test_teleop_event_log_publication_is_bounded_and_nonblocking(tmp_path: Path)
 
 def test_offline_pipeline_benchmark_cli_reports_bounded_nonblocking_run() -> None:
     completed = subprocess.run(
-        [sys.executable, "tools/benchmark_episode_pipeline.py", "--samples", "20"],
+        [
+            sys.executable,
+            "tools/validation/benchmark_episode_pipeline.py",
+            "--samples",
+            "20",
+        ],
         check=True,
         text=True,
         capture_output=True,
@@ -355,32 +360,3 @@ def test_offline_pipeline_benchmark_cli_reports_bounded_nonblocking_run() -> Non
         assert result["global_block_detected"] is False
         assert result["episode_abort"] is False
         assert result["control_loop_duration_ns"]["count"] == 20
-
-
-def test_wall_clock_benchmark_mode_reports_quality_fields() -> None:
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "tools/benchmark_episode_pipeline.py",
-            "--samples",
-            "10",
-            "--paced-seconds",
-            "0.1",
-        ],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    report = json.loads(completed.stdout)
-    paced = {key: value for key, value in report.items() if key.startswith("wall_clock_")}
-    assert set(paced) == {
-        "wall_clock_writer_0ms",
-        "wall_clock_writer_50ms",
-        "wall_clock_writer_100ms",
-        "wall_clock_writer_150ms",
-    }
-    for result in paced.values():
-        assert result["expected_camera_frames_per_role"] == result["samples"]
-        assert 0.0 <= result["validity_ratio"] <= 1.0
-        assert "process_rss_kb" in result
-        assert result["bounded_shutdown"] is True

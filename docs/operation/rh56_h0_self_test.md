@@ -130,7 +130,7 @@ Check that the generated runtime asset is current:
 Run the focused regression tests:
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_rh56_h0_self_test.py
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/rh56/test_h0_self_test.py
 ```
 
 Run a short headless smoke test:

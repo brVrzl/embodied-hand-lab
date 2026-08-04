@@ -380,9 +380,7 @@ def test_active_destination_replacement_starts_from_last_emit_without_backward_j
     assert points[-1]["joint_position_rad"] == pytest.approx((0.06,) * 6, abs=1e-15)
 
 
-@pytest.mark.parametrize("reason", ["clutch_release", "tracking_loss"])
-def test_disengagement_stop_cancels_active_segment_without_draining(reason, tmp_path) -> None:
-    del reason  # Both faults use the same STOP packet at the adapter boundary.
+def test_disengagement_stop_cancels_active_segment_without_draining(tmp_path) -> None:
     samples = [(0.0, 0, (0.0,) * 6), (0.050, 50_000_000, (0.05,) * 6)]
     result, metrics, points = _run_stream(tmp_path, samples, stop_after_s=0.058)
     assert result.returncode == 0

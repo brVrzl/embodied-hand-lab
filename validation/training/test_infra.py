@@ -15,7 +15,7 @@ from training_infra import (
 )
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SMOKE_TOOL = REPOSITORY_ROOT / "tools" / "distributed_smoke_test.py"
 RANK_ENV_KEYS = (
     "LOCAL_RANK",

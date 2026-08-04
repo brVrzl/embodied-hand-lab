@@ -62,5 +62,17 @@ platforms, and the optional collective smoke skips when PyTorch is absent.
 Every skip must be reported with its reason. Do not remove a failing or old
 test merely to make totals smaller.
 
+The episode pipeline's paced benchmark is intentionally excluded from default
+pytest and ordinary PR gates. Run it manually only for substantial recorder,
+camera-ring, sampler, preview, writer, queue/ring ownership, shutdown, or
+resource-growth changes, or before a release/long physical-collection plan:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/validation/benchmark_episode_pipeline.py --paced-seconds 120
+```
+
+It is a software stress tool, not a physical-camera or robot benchmark.
+
 中文摘要：默认 pytest 完全离线；只保留稳定契约、安全行为、真实回归和代表性流程。
 所有 skip 都必须说明平台或依赖原因，不能把离线通过描述成真机 PASS。
