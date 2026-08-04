@@ -34,7 +34,7 @@
 - `tools/check_realsense_stream.py`
 - `tools/process_rgbd_tabletop.py`
 - `configs/perception/d435_tabletop.yaml`
-- `tests/test_depth_processing.py`
+- `validation/perception/test_depth_processing.py`
 - `tests/test_realsense_adapter.py`
 
 ## 真实 D435 检查
