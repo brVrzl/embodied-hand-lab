@@ -14,7 +14,6 @@ from teleoperation.wire import StatusFlags
 from tools.quest_jaka_hardware import (
     COMBINED_CONTROL_REALTIME_PRIORITY,
     RECOVERABLE_CLUTCH_STAGES,
-    _control_compute_budget_summary,
     _parser,
     _native_terminal_reason_if_ready,
     _reconcile_terminal_transport_symptom,
