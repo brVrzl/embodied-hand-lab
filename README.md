@@ -4,7 +4,7 @@ Embodied Lab is a simulation-first research stack for teleoperating and
 studying a JAKA Mini2 arm with an Inspire RH56DFX hand. The maintained control
 path accepts Meta Quest 3 hand/wrist tracking and a left Touch controller,
 generates one safety-checked joint target, and sends that same target to either
-MuJoCo or a separately authorized physical JAKA adapter.
+MuJoCo or the explicitly selected physical JAKA adapter.
 
 ```text
 Quest HTS + CTRL
@@ -22,10 +22,15 @@ IK. In native joint-teleop mode it makes zero JAKA `kine_inverse` calls.
 ## Safety boundary
 
 Everything in the quick start below is offline. Tests, replay, simulation,
-`doctor`, and `--help` do **not** authorize connecting to or commanding a JAKA,
-RH56DFX, Quest headset, RealSense camera, or any actuator. Physical entries
-require a new authorization for the exact bounded gate, operator stop access,
-verified controller state, and the acknowledgements retained by the wrapper.
+`doctor`, and `--help` do **not** open, connect to, or command a JAKA,
+RH56DFX, Quest headset, RealSense camera, or any actuator.
+
+Physical operation must always be started explicitly by the operator through a
+maintained real-device entry. Before any hardware connection is established, the
+selected entry is still required to enforce all runtime safety conditions,
+including explicit device selection, bounded execution duration, verified
+controller state, operator stop access, workspace clearance, command limits,
+timing supervision, and deterministic shutdown.
 
 Read [current status](docs/status/current_status.md) and
 [real-hardware safety](docs/safety/REAL_HARDWARE_SAFETY.md) before interpreting
@@ -37,8 +42,8 @@ physical evidence or opening an operator guide.
 | --- | --- |
 | Quest/JAKA control | Shared input, clutch, mapping, continuation IK, collision/singularity/limit checks, output feasibility, and immutable accepted-target boundary |
 | MuJoCo | Headless smoke, replay/live simulation, six arm plus six hand actuators, and a deterministic joint reach/pre-shape benchmark |
-| Physical JAKA | Explicitly gated ServoJ/EDG joint adapter with sole-session status polling and final native safety checks; only partially physically validated |
-| RH56DFX | PC-direct USB/RS485 scheduler, bounded six-actuator commands, and raw actuator feedback; separately gated and only partially physically validated |
+| Physical JAKA | Explicitly selected ServoJ/EDG joint adapter with sole-session status polling and final native safety checks; only partially physically validated |
+| RH56DFX | PC-direct USB/RS485 scheduler, bounded six-actuator commands, and raw actuator feedback; independently operated and only partially physically validated |
 | Dataset tools | Atomic canonical episodes, integrity validation, episode-level splits, train-only statistics, ACT-style HDF5 export, and optional LeRobot v3 export |
 | Training infrastructure | Host inspection, global-batch validation, rank handling, and a PyTorch distributed communication smoke test |
 | Policy training | Integration boundaries are documented; no maintained ACT, Diffusion Policy, or OpenPI trainer is implemented in this repository |

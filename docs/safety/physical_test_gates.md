@@ -2,20 +2,20 @@
 
 ## 中文摘要
 
-真机验证按“离线/静态/回放 → 只读与无动作 → fake worker → 精确授权的有限真机门”
-单向推进。每个真机门都保留明确授权、停止方式、工作区、持续时间、输出限制、故障
-停止和清理证据；前一阶段证据不能替代后一阶段授权。
+真机验证按“离线/静态/回放 → 只读与无动作 → fake worker → 有界真机运行”单向推进。
+
+每一步都保留明确的设备身份、停止方式、工作区、运行时长、输出限制、故障停止和清理证据；前一阶段的验证结果不能替代后一阶段的安全前置条件。
 
 Physical progress is monotonic and evidence-based:
 
 1. offline build/static/unit/replay validation;
 2. read-only and no-motion checks;
 3. plant-free/fake-worker transport validation;
-4. separately authorized bounded physical gate;
+4. bounded operator-initiated physical operation;
 5. evidence review before any larger envelope.
 
 Every gate records branch/commit, config and executable identity, controller
-state, acknowledgement, bounds, start/end state, stop reason, metrics, raw-log
+state, selected operation mode, bounds, start/end state, stop reason, metrics, raw-log
 relationship, and explicit PASS/FAIL/partial status. A pass applies only to the
 tested path and envelope.
 
@@ -25,8 +25,7 @@ minimal J6 motion for its exact historical procedure; it does not validate the
 current full Quest pipeline.
 
 The next recommended Quest/JAKA gate is described in
-`docs/status/current_status.md`. This repository-maintenance session does not
-authorize it.
+`docs/status/current_status.md`. Repository maintenance does not execute or validate this physical operation.
 
 ---
 
@@ -37,15 +36,13 @@ authorize it.
 1. 离线构建、静态检查、单元测试和回放；
 2. read-only 和 no-motion 检查；
 3. plant-free/fake-worker 传输验证；
-4. 单独授权的受限真机 gate；
+4. 受限的真机运行；
 5. 审阅证据后才允许扩大运动范围。
 
-每个 gate 都应记录 branch/commit、配置和可执行文件身份、控制器状态、授权短语、边界、
-起止状态、停止原因、metrics、原始日志关系和明确的 PASS/FAIL/partial。PASS 只适用于该
-路径和该范围。
+每个 gate 都应记录 branch/commit、配置和可执行文件身份、控制器状态、运行模式、边界、
+起止状态、停止原因、metrics、原始日志关系和明确的 PASS/FAIL/partial。PASS 只适用于该路径和该范围。
 
 历史 Gates 1–3C 在 `docs/history/gates/jaka_foundation_20260716/`。Gate 3C 的最小 J6
 运动只验证其历史精确流程，不证明当前完整 Quest 管线。
 
-当前推荐的 Quest/JAKA gate 见 `docs/status/current_status.md`。运行维护命令或阅读本页
-不构成真机授权。
+当前推荐的 Quest/JAKA gate 见 `docs/status/current_status.md`。运行维护命令或阅读本页不会打开、连接或控制真实设备。
