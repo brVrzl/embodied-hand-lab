@@ -11,7 +11,7 @@ API is opened.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
-  tools/benchmark_episode_pipeline.py --samples 3000
+  tools/validation/benchmark_episode_pipeline.py --samples 3000
 ```
 
 The JSON result reports count/p50/p95/p99/max for control publication,
@@ -21,12 +21,15 @@ episode abort. This is an accelerated scheduling/memory/backpressure stress;
 USB topology, Jetson scheduling, RealSense firmware behavior, and NVMe sustained
 performance still require a separately authorized device validation.
 
-For a wall-clock paced run (30 Hz publication, latest-only preview, configurable
-duration), use for example:
+The quick sample mode above is a development tool and the default test suite
+keeps only its fast recorder/camera/writer behavior smoke. It is not a PR
+requirement to run the long paced scenarios. For an on-demand wall-clock paced
+run (30 Hz publication, latest-only preview, configurable duration), use for
+example:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
-  tools/benchmark_episode_pipeline.py --paced-seconds 120
+  tools/validation/benchmark_episode_pipeline.py --paced-seconds 120
 ```
 
 This adds normal, 50 ms, 100 ms, and 150 ms writer-stall scenarios with seeded
