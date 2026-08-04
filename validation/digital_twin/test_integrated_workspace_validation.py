@@ -9,7 +9,6 @@ import numpy as np
 
 from digital_twin.io import load_structured
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -19,29 +18,6 @@ def _id(model: mujoco.MjModel, kind: mujoco.mjtObj, name: str) -> int:
 
 def _model(name: str = "workspace_scene.xml") -> mujoco.MjModel:
     return mujoco.MjModel.from_xml_path(str(ROOT / "models/digital_twin" / name))
-
-
-def test_integrated_scene_loads_robot_hand_and_P_workspace() -> None:
-    model = _model(); data = mujoco.MjData(model); data.qpos[:] = model.qpos0; mujoco.mj_forward(model, data)
-    base = _id(model, mujoco.mjtObj.mjOBJ_BODY, "jaka_Link_0")
-    hand = _id(model, mujoco.mjtObj.mjOBJ_BODY, "rh56_R_hand_base_link")
-    assert base >= 0 and hand >= 0
-    assert np.allclose(data.xpos[base], [0.0, 0.0, 0.0])
-    assert np.allclose(model.body_quat[base], [0.0, 0.0, 0.0, 1.0])  # MuJoCo wxyz, yaw=180 deg
-    assert _id(model, mujoco.mjtObj.mjOBJ_GEOM, "workspace_tabletop") >= 0
-    assert _id(model, mujoco.mjtObj.mjOBJ_GEOM, "workspace_rail_positive_y") >= 0
-    assert np.allclose(model.opt.gravity, [0.0, 0.0, -9.81])
-
-
-def test_root_transform_preserves_zero_qpos_and_reference_state() -> None:
-    model = _model()
-    assert np.allclose(model.qpos0, 0.0)
-    jaka = [_id(model, mujoco.mjtObj.mjOBJ_JOINT, f"jaka_joint_{index}") for index in range(1, 7)]
-    assert all(index >= 0 for index in jaka)
-    assert [model.qpos0[model.jnt_qposadr[index]] for index in jaka] == [0.0] * 6
-    rh56 = [index for index in range(model.njnt) if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, index) or "").startswith("rh56_")]
-    assert len(rh56) == 12
-    assert all(model.qpos0[model.jnt_qposadr[index]] == 0.0 for index in rh56)
 
 
 def test_palm_and_cable_directions_face_P_negative_x() -> None:

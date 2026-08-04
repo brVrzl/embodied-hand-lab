@@ -9,6 +9,7 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/digital_twin
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/perception
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/rh56
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/motion_input
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/training
 ```
 
 They are offline checks only. A passing suite reports software consistency or
