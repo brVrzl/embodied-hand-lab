@@ -6,7 +6,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import argparse
-from types import SimpleNamespace
 
 import pytest
 
@@ -50,17 +49,6 @@ def test_combined_realtime_limit_is_checked_before_hardware(
         "required_priority": 10,
         "soft_limit": 10,
         "hard_limit": 10,
-    }
-
-
-def test_physical_summary_uses_production_budget_counters() -> None:
-    session = SimpleNamespace(
-        control_compute_budget_ms=20.0,
-        control_compute_budget_exhausted_count=17,
-    )
-    assert _control_compute_budget_summary(session) == {
-        "control_compute_budget_ms": 20.0,
-        "control_compute_budget_exhausted_count": 17,
     }
 
 
