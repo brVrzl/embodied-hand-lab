@@ -65,9 +65,8 @@ def test_physical_path_fails_closed_before_backend_creation() -> None:
 def test_physical_stage_cannot_skip_prior_receipt() -> None:
     result = subprocess.run([
         str(BINARY), "--backend", "vendor", "--stage", "run-1s",
-        "--physical-hardware", "--zero-motion-ack", "I_ACKNOWLEDGE_INVARIANT_JOINT_COMMAND",
+        "--physical-hardware",
         "--estop-access-confirmed", "--workspace-clear-confirmed",
-        "--stage-approval", "I_APPROVE_GATE3B_STAGE_4_ONE_SECOND",
         "--robot-ip", "192.0.2.1", "--edg-state-ip", "192.0.2.2",
         "--joint-units", "radians", "--expected-tool-id", "0", "--expected-user-frame-id", "0",
         "--result-file", "/tmp/should-not-exist.json", "--raw-timing-file", "/tmp/should-not-exist.csv",

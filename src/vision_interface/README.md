@@ -41,7 +41,7 @@ Inspect current tools without opening a camera:
 .venv/bin/python tools/compare_d435_depth_algorithms.py --help
 ```
 
-Opening or enumerating a physical camera needs a separate authorization.
+Opening or enumerating a physical camera requires an explicit device operation.
 Installation and device troubleshooting are documented in
 `docs/setup/INSTALLATION.md` and `docs/TROUBLESHOOTING.md`; schema and
 collection semantics are in `docs/data/`.

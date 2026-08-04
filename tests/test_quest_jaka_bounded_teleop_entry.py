@@ -135,15 +135,6 @@ def test_shell_syntax_and_help_are_offline() -> None:
     assert "not official JAKA Mini2 maximum speeds" in help_result.stdout
 
 
-def test_removed_approval_option_is_rejected_before_outputs(tmp_path: Path) -> None:
-    args = _base_args(tmp_path)
-    args.extend(("--approval", "obsolete"))
-    result = _run(args)
-    assert result.returncode == 2
-    assert "Unknown option" in result.stderr
-    assert not (tmp_path / "logs").exists()
-
-
 def test_duration_above_sixty_seconds_is_rejected(tmp_path: Path) -> None:
     args = _base_args(tmp_path)
     args[args.index("30")] = "60.001"
@@ -265,7 +256,7 @@ def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
     parser = _parser()
     common = [
         "post-payload-diagnostic", "--robot-ip", "192.0.2.1",
-        "--approval", "x", "--log", "x", "--summary", "x",
+        "--log", "x", "--summary", "x",
         "--metrics", "x", "--capture", "x",
     ]
     parsed = parser.parse_args([*common, "--output-joint-jerk-limit-rad-s3", "70"])
@@ -412,28 +403,6 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     rejected = _run([*command, "--duration-sec", "300.001"])
     assert rejected.returncode == 2
     assert "<=300" in rejected.stderr
-    assert not (tmp_path / "logs").exists()
-
-
-@pytest.mark.parametrize("removed_option", ("arm-approval", "hand-approval"))
-def test_removed_combined_approval_options_are_rejected_before_outputs(
-    tmp_path: Path,
-    removed_option: str,
-) -> None:
-    command = [
-        str(COMBINED_SCRIPT),
-        "--robot-ip", "192.0.2.1",
-        "--rh56-device", "/dev/serial/by-id/offline-test",
-        "--hand-prerequisites-complete", "--no-auto-retry",
-        "--estop-accessible", "--workspace-clear",
-        "--worker", "/bin/true", "--native-control-cpu", "0",
-        "--log-dir", str(tmp_path / "logs"),
-        "--plant-free-no-network-check",
-        f"--{removed_option}", "obsolete",
-    ]
-    result = _run(command)
-    assert result.returncode == 2
-    assert "Unknown option" in result.stderr
     assert not (tmp_path / "logs").exists()
 
 

@@ -45,12 +45,6 @@ constexpr std::uint16_t kWireVersion = 1;
 constexpr std::uint64_t kPeriodNs = 8'000'000;
 constexpr std::size_t kMaximumSamples = 250'000;
 constexpr int kMaximumControlRealtimePriority = 10;
-constexpr const char* kHardwareAck = "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK";
-constexpr const char* kShadowAck = "I_ACKNOWLEDGE_JAKA_COMMAND_SHADOW_NO_EDG";
-constexpr const char* kBoundedTeleopAck = "I_ACKNOWLEDGE_BOUNDED_TELEDEX_JAKA_MOTION";
-constexpr const char* kQuestShadowAck = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW";
-constexpr const char* kQuestMotionAck = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION";
-constexpr const char* kE1ZeroMotionAck = "I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER";
 constexpr double kProbeMaximumVelocityRadS = 0.005;
 constexpr double kProbeMaximumAccelerationRadS2 = 0.02;
 
@@ -155,7 +149,6 @@ struct Options {
   std::string metrics_file;
   std::string emitted_points_file;
   std::string cycle_telemetry_file;
-  std::string acknowledgement;
   double duration_s = 5.0;
   int expected_tool_id = 0;
   int expected_user_frame_id = 0;
@@ -318,7 +311,6 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--probe-delta-rad") o.probe_delta_rad = std::stod(value_after(i, argc, argv));
     else if (a == "--probe-motion-s") o.probe_motion_s = std::stod(value_after(i, argc, argv));
     else if (a == "--hardware") o.hardware = true;
-    else if (a == "--acknowledgement") o.acknowledgement = value_after(i, argc, argv);
     else if (a == "--warning-ms") o.warning_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--hold-ms") o.hold_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
     else if (a == "--controlled-stop-ms") o.stop_ns = static_cast<std::uint64_t>(std::stod(value_after(i, argc, argv)) * 1e6);
@@ -392,13 +384,8 @@ Options parse_options(int argc, char** argv) {
   if (!(o.warning_ns < o.hold_ns && o.hold_ns < o.stop_ns && o.stop_ns < o.fatal_ns))
     throw std::runtime_error("stale thresholds must be strictly increasing");
   if (is_connected_mode(o.mode)) {
-    const char* expected_ack = is_joint_zero_motion_mode(o.mode) ? kE1ZeroMotionAck :
-                               is_joint_shadow_mode(o.mode) ? kQuestShadowAck :
-                               is_joint_teleop_mode(o.mode) ? kQuestMotionAck :
-                               is_shadow_mode(o.mode) ? kShadowAck :
-                               is_bounded_mode(o.mode) ? kBoundedTeleopAck : kHardwareAck;
-    if (!o.hardware || o.acknowledgement != expected_ack || o.robot_ip.empty())
-      throw std::runtime_error("connected mode requires --hardware, --robot-ip, and its exact acknowledgement");
+    if (!o.hardware || o.robot_ip.empty())
+      throw std::runtime_error("connected mode requires --hardware and an explicit --robot-ip");
   }
   if (is_bounded_mode(o.mode) || is_shadow_mode(o.mode)) {
     if (!(o.relative_translation_limit_m > 0.0 && o.relative_translation_limit_m <= 0.0200001))

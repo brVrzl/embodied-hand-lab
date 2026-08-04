@@ -57,8 +57,8 @@ from episode_dataset.episode import (
 )
 from episode_dataset.runtime import EpisodeDataRuntime
 from rh56_driver.pc_direct_control import (
+    HandOperation,
     RH56PcDirectControl,
-    RH56SessionArm,
     inspect_serial_device,
     require_serial_by_id_path,
 )
@@ -67,13 +67,6 @@ from rh56_driver.serial_backend import RH56SerialBackend
 from rh56_driver.telemetry import BoundedJsonlRecorder
 
 
-P2_APPROVAL = "I_AUTHORIZE_P2_QUEST_JAKA_COMMAND_SHADOW"
-E2_APPROVAL = "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION"
-P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
-POST_PAYLOAD_APPROVAL = "I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
-RESEARCH_THIN_APPROVAL = (
-    "I_AUTHORIZE_ONE_BOUNDED_RESEARCH_THIN_ADAPTER_JAKA_GATE"
-)
 PWL_OUTPUT_GENERATOR = "pwl-8ms"
 CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
 COMBINED_CONTROL_REALTIME_PRIORITY = 10
@@ -385,11 +378,6 @@ def _parser() -> argparse.ArgumentParser:
             "formal combined gate requires the fixed project value 10"
         ),
     )
-    parser.add_argument(
-        "--approval",
-        default="",
-        help="stage-specific approval for diagnostic or legacy isolated stages",
-    )
     parser.add_argument("--estop-accessible", action="store_true")
     parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
@@ -694,19 +682,6 @@ def main() -> int:
         "combined-normal-teleop",
         "research-thin-bounded",
     )
-    expected_approval = None
-    if args.stage == "e2-isolated":
-        expected_approval = E2_APPROVAL
-    elif args.stage == "post-payload-diagnostic":
-        expected_approval = POST_PAYLOAD_APPROVAL
-    elif args.stage == "research-thin-bounded":
-        expected_approval = RESEARCH_THIN_APPROVAL
-    elif args.stage == "p4-live":
-        expected_approval = P4_APPROVAL
-    elif not live:
-        expected_approval = P2_APPROVAL
-    if expected_approval is not None and args.approval != expected_approval:
-        raise SystemExit(f"exact approval required: {expected_approval}")
     if live:
         if args.stage == "combined-normal-teleop":
             if not (args.estop_accessible and args.workspace_clear):
@@ -765,7 +740,7 @@ def main() -> int:
         if args.native_control_cpu is None:
             raise SystemExit(
                 "combined teleoperation requires --native-control-cpu; "
-                "unisolated SCHED_OTHER operation is not an authorized gate"
+                "unisolated SCHED_OTHER operation does not satisfy the required gate"
             )
         if (
             args.native_control_realtime_priority
@@ -1073,7 +1048,6 @@ def main() -> int:
                 "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
                 "--expected-payload-mass-kg", "0.8",
                 "--expected-payload-com-mm", "9.289,12.427,36.961",
-                "--acknowledgement", RESEARCH_THIN_APPROVAL,
                 "--maximum-output-joint-velocity-rad-s-per-joint",
                 ",".join(str(value) for value in config.output_contract.velocity_boundaries_rad_s),
                 "--maximum-output-joint-acceleration-rad-s2", "2.0",
@@ -1092,10 +1066,6 @@ def main() -> int:
             "--metrics-file", str(args.metrics),
             "--expected-tool-id", str(hardware["expected_tool_id"]),
             "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
-            # E2 is an additional launcher gate around the already-audited
-            # native joint-teleop mode; the native process retains its P4 risk
-            # acknowledgement rather than gaining a second motion mode.
-            "--acknowledgement", P4_APPROVAL if live else expected_approval,
             "--warning-ms", str(hardware["command_stream_warning_ms"]),
             "--hold-ms", str(hardware["command_stream_timeout_ms"]),
             "--controlled-stop-ms", str(hardware["controlled_stop_timeout_ms"]),
@@ -1244,7 +1214,7 @@ def main() -> int:
                     flush=True,
                 )
             if rh56_worker is not None:
-                rh56_worker.start(RH56SessionArm.combined())
+                rh56_worker.start(HandOperation.COMBINED)
             native.start()
             native_started = True
             status = _wait_status(runtime, native)

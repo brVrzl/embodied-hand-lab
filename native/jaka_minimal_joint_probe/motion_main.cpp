@@ -31,21 +31,19 @@ constexpr std::array<double,6> kLo{-2*kPi,-125*kPi/180,-130*kPi/180,-2*kPi,-120*
 constexpr std::array<double,6> kHi{ 2*kPi, 125*kPi/180, 130*kPi/180, 2*kPi, 120*kPi/180, 2*kPi};
 std::atomic<bool> stop_requested{false}; void signal_handler(int){stop_requested.store(true,std::memory_order_relaxed);}
 
-struct Options{bool help=false,vendor=false,physical=false,estop=false,workspace=false,no_person=false,cables=false,direction=false,ready=false,five=false,fake_deterministic_clock=false;std::string ip,edg,ack,output,csv;int tool=0,user=0;double fake_tracking_offset=0,fake_tracking_growth=0,fake_non_target_offset=0;jaka_zero::FakeOptions fake{};};
+struct Options{bool help=false,vendor=false,physical=false,estop=false,workspace=false,no_person=false,cables=false,direction=false,ready=false,five=false,fake_deterministic_clock=false;std::string ip,edg,output,csv;int tool=0,user=0;double fake_tracking_offset=0,fake_tracking_growth=0,fake_non_target_offset=0;jaka_zero::FakeOptions fake{};};
 std::string val(int&i,int n,char**v){if(++i>=n)throw std::runtime_error("missing option value");return v[i];}
 Options parse(int n,char**v){Options o;for(int i=1;i<n;++i){std::string a=v[i];
  if(a=="--help"||a=="-h")o.help=true;
  else if(a=="--backend"){auto x=val(i,n,v);o.vendor=x=="vendor";if(x!="vendor"&&x!="fake")throw std::runtime_error("bad backend");}
  else if(a=="--physical-hardware")o.physical=true;else if(a=="--five-degree-profile")o.five=true;else if(a=="--estop-access-confirmed")o.estop=true;else if(a=="--workspace-clear-confirmed")o.workspace=true;else if(a=="--no-person-in-workspace-confirmed")o.no_person=true;else if(a=="--cable-clearance-confirmed")o.cables=true;else if(a=="--direction-understood")o.direction=true;else if(a=="--ready-to-interrupt")o.ready=true;
- else if(a=="--robot-ip")o.ip=val(i,n,v);else if(a=="--edg-state-ip")o.edg=val(i,n,v);else if(a=="--stage-approval")o.ack=val(i,n,v);else if(a=="--result-file")o.output=val(i,n,v);else if(a=="--trajectory-csv")o.csv=val(i,n,v);else if(a=="--expected-tool-id")o.tool=std::stoi(val(i,n,v));else if(a=="--expected-user-frame-id")o.user=std::stoi(val(i,n,v));
+ else if(a=="--robot-ip")o.ip=val(i,n,v);else if(a=="--edg-state-ip")o.edg=val(i,n,v);else if(a=="--result-file")o.output=val(i,n,v);else if(a=="--trajectory-csv")o.csv=val(i,n,v);else if(a=="--expected-tool-id")o.tool=std::stoi(val(i,n,v));else if(a=="--expected-user-frame-id")o.user=std::stoi(val(i,n,v));
  else if(a=="--fake-deterministic-clock")o.fake_deterministic_clock=true;else if(a=="--fake-command-failure-cycle")o.fake.command_failure_cycle=std::stoull(val(i,n,v));else if(a=="--fake-read-failure-cycle")o.fake.read_failure_cycle=std::stoull(val(i,n,v));else if(a=="--fake-observed-delta-rad")o.fake.observed_joint_delta_rad=std::stod(val(i,n,v));else if(a=="--fake-tracking-offset-rad")o.fake_tracking_offset=std::stod(val(i,n,v));else if(a=="--fake-tracking-growth-rad")o.fake_tracking_growth=std::stod(val(i,n,v));else if(a=="--fake-non-target-offset-rad")o.fake_non_target_offset=std::stod(val(i,n,v));else if(a=="--fake-servo-enable-failure")o.fake.servo_enable_failure=true;else if(a=="--fake-servo-disable-failure")o.fake.servo_disable_failure=true;else throw std::runtime_error("unknown option: "+a);}
  if(o.help)return o;
  if(o.vendor&&o.fake_deterministic_clock)throw std::runtime_error("--fake-deterministic-clock is forbidden with the vendor backend");
  if(!o.vendor)return o;
  in_addr x{},y{};
  if(!o.physical||!o.estop||!o.workspace||!o.no_person||!o.cables||!o.direction||!o.ready)throw std::runtime_error("all physical confirmations required");
- const std::string expected=o.five?"I_APPROVE_GATE3C_5_DEGREE_JOINT6_MOTION":"I_APPROVE_GATE3C_STAGE_2_0_25_DEGREE_MOTION";
- if(o.ack!=expected)throw std::runtime_error("incorrect approval");
  if(inet_pton(AF_INET,o.ip.c_str(),&x)!=1||inet_pton(AF_INET,o.edg.c_str(),&y)!=1||o.output.empty()||o.csv.empty())throw std::runtime_error("explicit addresses and outputs required");
  return o;}
 
@@ -64,11 +62,10 @@ void print_help(){std::cout<<
 "  --estop-access-confirmed --workspace-clear-confirmed\n"
 "  --no-person-in-workspace-confirmed --cable-clearance-confirmed\n"
 "  --direction-understood --ready-to-interrupt\n"
-"  --stage-approval PHRASE\n"
 "  --result-file PATH --trajectory-csv PATH\n"
 "\n"
 "The default physical profile moves only J6 by +0.25 degree and returns.\n"
-"--five-degree-profile selects the separately authorized +5 degree profile.\n";}
+"--five-degree-profile selects the explicit +5 degree profile.\n";}
 
 struct PlanPoint{jaka_zero::Joints q{},v{},a{};const char*phase="";};
 std::vector<PlanPoint> make_plan(const jaka_zero::Joints&start,bool five){const double d=five?kD5:kD,t=five?kT5:kT,h=five?kHold5:kHold;const size_t steps=static_cast<size_t>(std::llround(t/kDt)),holds=static_cast<size_t>(std::llround(h/kDt)),settles=five?static_cast<size_t>(std::llround(kSettle5/kDt)):0;std::vector<PlanPoint> p(steps+1+holds+steps+settles);size_t n=0;

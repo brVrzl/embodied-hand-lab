@@ -22,7 +22,6 @@
 
 namespace {
 using Clock = std::chrono::steady_clock;
-constexpr const char* kAcknowledgement = "I_ACKNOWLEDGE_JAKA_READ_ONLY_CONNECTION";
 constexpr int kSdkTimeoutCode = -61;
 std::atomic<bool> g_stop{false};
 void signal_handler(int) { g_stop.store(true, std::memory_order_relaxed); }
@@ -31,7 +30,6 @@ enum class Mode { DryRun, Fake, Connected };
 struct Options {
   Mode mode = Mode::DryRun;
   std::string robot_ip;
-  std::string acknowledgement;
   std::string metrics_file;
   double duration_s = 5.0;
   double poll_hz = 10.0;
@@ -63,7 +61,6 @@ Options parse(int argc, char** argv) {
       else if (value == "connected") options.mode = Mode::Connected;
       else throw std::runtime_error("mode must be dry-run, fake, or connected");
     } else if (argument == "--robot-ip") options.robot_ip = next_value(i, argc, argv);
-    else if (argument == "--acknowledgement") options.acknowledgement = next_value(i, argc, argv);
     else if (argument == "--metrics-file") options.metrics_file = next_value(i, argc, argv);
     else if (argument == "--duration-s") options.duration_s = std::stod(next_value(i, argc, argv));
     else if (argument == "--poll-hz") options.poll_hz = std::stod(next_value(i, argc, argv));
@@ -89,8 +86,6 @@ Options parse(int argc, char** argv) {
   if (options.max_samples == 0 || options.max_samples > 100'000) throw std::runtime_error("max samples must be within [1, 100000]");
   if (options.sessions < 1 || options.sessions > 20) throw std::runtime_error("sessions must be within [1, 20]");
   if (options.max_consecutive_failures < 1 || options.max_consecutive_failures > 100) throw std::runtime_error("max consecutive failures must be within [1, 100]");
-  if (options.mode == Mode::Connected && options.acknowledgement != kAcknowledgement)
-    throw std::runtime_error("connected mode requires the exact read-only acknowledgement");
   return options;
 }
 

@@ -8,8 +8,8 @@ import pytest
 
 from rh56_driver.pc_direct_control import (
     FakeRH56PcDirectBackend,
+    HandOperation,
     RH56PcDirectControl,
-    RH56SessionArm,
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend, RH56SerialError
@@ -61,7 +61,7 @@ def _manual_worker(
     clock = ManualClock()
     control = RH56PcDirectControl(selected_backend, _config(diagnostics=diagnostics))
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
-    first = worker.start(RH56SessionArm.combined(), run_in_thread=False)
+    first = worker.start(HandOperation.COMBINED, run_in_thread=False)
     worker.activate_from_measured(first.monotonic_ns)
     return worker, control, selected_backend, clock
 
@@ -234,7 +234,7 @@ def test_worker_is_the_only_serial_backend_caller_and_never_overlaps_io() -> Non
     config["control_frequency_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
-    first = worker.start(RH56SessionArm.combined())
+    first = worker.start(HandOperation.COMBINED)
     try:
         worker.activate_from_measured(first.monotonic_ns)
         for index in range(40):
@@ -263,7 +263,7 @@ def test_stale_command_drop_is_default_off_and_optional_drop_exempts_activation(
     clock2 = ManualClock()
     control2 = RH56PcDirectControl(backend2, config)
     worker2 = RH56PcDirectWorker(control2, monotonic_ns=clock2)
-    first = worker2.start(RH56SessionArm.combined(), run_in_thread=False)
+    first = worker2.start(HandOperation.COMBINED, run_in_thread=False)
     try:
         worker2.activate_from_measured(first.monotonic_ns)
         clock2.advance_ms(300)
@@ -284,7 +284,7 @@ def test_diagnostics_toggle_does_not_change_target_values_or_channel_order() -> 
     for enabled in (False, True):
         backend = FakeRH56PcDirectBackend()
         control = RH56PcDirectControl(backend, _config(diagnostics=enabled))
-        control.open(RH56SessionArm.hand_only())
+        control.open(HandOperation.HAND_ONLY)
         control.poll_feedback(1_000_000_000)
         control.activate(1_000_000_000)
         assert control.command([0.01, 0.02, 0.03, 0.04, 0.05, 0.06], 1_000_000_000)
@@ -330,7 +330,7 @@ def test_command_write_error_is_structured_in_control_failure() -> None:
 
     backend = FailingWriteBackend()
     control = RH56PcDirectControl(backend, _config())
-    control.open(RH56SessionArm.hand_only())
+    control.open(HandOperation.HAND_ONLY)
     control.poll_feedback(1_000_000_000)
     control.activate(1_000_000_000)
     with pytest.raises(RH56SerialError):
@@ -386,7 +386,7 @@ def test_worker_exception_is_persisted_with_traceback_and_context() -> None:
     backend = FailsAfterStartup()
     control = RH56PcDirectControl(backend, _config())
     worker = RH56PcDirectWorker(control, record=records.append)
-    worker.start(RH56SessionArm.combined())
+    worker.start(HandOperation.COMBINED)
     deadline = time.monotonic() + 0.5
     while not worker.failed and time.monotonic() < deadline:
         time.sleep(0.005)

@@ -23,12 +23,6 @@ from .hand_schema import (
     raw_to_canonical,
 )
 
-RH56_RUNTIME_CONFIG_APPROVAL = "I_AUTHORIZE_ONE_RH56_PC_DIRECT_RUNTIME_CONFIG_WRITE"
-RH56_FAULT_RESET_APPROVAL = "I_AUTHORIZE_ONE_RH56_FAULT_RESET"
-RH56_FORCE_SENSOR_CALIBRATION_APPROVAL = (
-    "I_AUTHORIZE_ONE_RH56_FORCE_SENSOR_CALIBRATION"
-)
-
 RH56_PC_DIRECT_SCHEMA_VERSION = "rh56_pc_direct_episode.v1"
 RH56_SPEED_MIN = 0
 RH56_SPEED_MAX = 1000
@@ -43,42 +37,12 @@ class HandControlState(str, Enum):
     FAULT = "HAND_FAULT"
 
 
-class HandAuthorization(str, Enum):
-    HAND_ONLY_SESSION = "hand_only_session"
-    COMBINED_RUN = "arm_hand_combined_run"
+class HandOperation(str, Enum):
+    HAND_ONLY = "hand_only"
+    COMBINED = "arm_hand_combined"
     RUNTIME_CONFIG = "runtime_config_write"
     FAULT_RESET = "fault_reset"
     FORCE_SENSOR_CALIBRATION = "force_sensor_calibration"
-
-
-@dataclass(frozen=True, slots=True)
-class RH56SessionArm:
-    """In-memory authorization for one operator-led RH56 session.
-
-    The arm is deliberately not serializable and is accepted only for ordinary
-    hand sessions started by an explicit local entry point. Configuration
-    writes, fault reset, and force-sensor calibration retain their separate
-    exact authorizations.
-    """
-
-    authorization: HandAuthorization
-
-    def __post_init__(self) -> None:
-        if self.authorization not in {
-            HandAuthorization.HAND_ONLY_SESSION,
-            HandAuthorization.COMBINED_RUN,
-        }:
-            raise ValueError(
-                "RH56 session arm is only valid for hand-only or combined commands."
-            )
-
-    @classmethod
-    def hand_only(cls) -> "RH56SessionArm":
-        return cls(HandAuthorization.HAND_ONLY_SESSION)
-
-    @classmethod
-    def combined(cls) -> "RH56SessionArm":
-        return cls(HandAuthorization.COMBINED_RUN)
 
 
 class RH56CommandShaper:
@@ -263,22 +227,6 @@ class RH56CommandShaper:
         }
 
 
-_APPROVALS = {
-    RH56_RUNTIME_CONFIG_APPROVAL: HandAuthorization.RUNTIME_CONFIG,
-    RH56_FAULT_RESET_APPROVAL: HandAuthorization.FAULT_RESET,
-    RH56_FORCE_SENSOR_CALIBRATION_APPROVAL: (
-        HandAuthorization.FORCE_SENSOR_CALIBRATION
-    ),
-}
-
-
-def parse_rh56_approval(token: str) -> HandAuthorization:
-    try:
-        return _APPROVALS[token]
-    except KeyError as exc:
-        raise ValueError("Missing or incorrect RH56 PC-direct approval token.") from exc
-
-
 def require_serial_by_id_path(
     device: str,
     *,
@@ -429,7 +377,7 @@ def _calibration_from_config(config: Mapping[str, Any]) -> dict[str, HandDofCali
 
 
 class RH56PcDirectControl:
-    """Authorized PC-direct hand control, independent from the JAKA arm path."""
+    """Bounded PC-direct hand control, independent from the JAKA arm path."""
 
     def __init__(
         self,
@@ -442,7 +390,7 @@ class RH56PcDirectControl:
         self.config = config
         self.state = HandControlState.DISABLED
         self.transport_state = "CLOSED"
-        self.authorization: HandAuthorization | None = None
+        self.operation: HandOperation | None = None
         profile_name = str(config.get("scheduler_profile", "baseline"))
         profiles = config.get("scheduler_profiles", {})
         profile = profiles.get(profile_name, {}) if isinstance(profiles, Mapping) else {}
@@ -648,12 +596,9 @@ class RH56PcDirectControl:
         self.contact_activation_rebased_count = 0
         self._contact_last_activation_mode = "never_activated"
 
-    def open(self, approval_token: str | RH56SessionArm) -> None:
-        authorization = (
-            approval_token.authorization
-            if isinstance(approval_token, RH56SessionArm)
-            else parse_rh56_approval(approval_token)
-        )
+    def open(self, operation: HandOperation) -> None:
+        if not isinstance(operation, HandOperation):
+            raise TypeError("RH56 operation must be a HandOperation")
         try:
             connected = self.backend.connect()
         except Exception:
@@ -662,7 +607,7 @@ class RH56PcDirectControl:
         if not connected:
             self._fault("serial_connect_failure")
             raise RuntimeError("RH56 PC-direct backend did not connect.")
-        self.authorization = authorization
+        self.operation = operation
         self.transport_state = "CONNECTED_READ_ONLY"
         self.state = HandControlState.HOLD
 
@@ -903,11 +848,11 @@ class RH56PcDirectControl:
         )
 
     def activate(self, monotonic_ns: int) -> None:
-        if self.authorization not in {
-            HandAuthorization.HAND_ONLY_SESSION,
-            HandAuthorization.COMBINED_RUN,
+        if self.operation not in {
+            HandOperation.HAND_ONLY,
+            HandOperation.COMBINED,
         }:
-            raise PermissionError("This RH56 authorization does not allow position commands.")
+            raise PermissionError("This RH56 operation does not allow position commands.")
         self._require_fresh_feedback(monotonic_ns)
         if self.state is HandControlState.FAULT:
             raise RuntimeError(f"RH56 is faulted: {self.fault_reason}")
@@ -923,7 +868,7 @@ class RH56PcDirectControl:
         self.command_shaper.reset(self.last_command_normalized, monotonic_ns)
         self._prepare_contact_stop_activation(self.last_feedback)
         self.state = HandControlState.ACTIVE
-        self.transport_state = "CONNECTED_COMMAND_AUTHORIZED"
+        self.transport_state = "CONNECTED_COMMANDING"
         self.next_command_monotonic_ns = int(monotonic_ns)
         self._force_next_command = True
 
@@ -1152,8 +1097,8 @@ class RH56PcDirectControl:
         speeds: Sequence[int],
         forces: Sequence[int],
     ) -> None:
-        if self.authorization is not HandAuthorization.RUNTIME_CONFIG:
-            raise PermissionError("Independent RH56 runtime-config authorization is required.")
+        if self.operation is not HandOperation.RUNTIME_CONFIG:
+            raise PermissionError("Runtime configuration requires the runtime-config operation.")
         speed_values = self._validated_int_vector(speeds, RH56_SPEED_MIN, RH56_SPEED_MAX, "speed")
         force_values = self._validated_int_vector(forces, RH56_FORCE_MIN, RH56_FORCE_MAX, "force")
         try:
@@ -1166,9 +1111,9 @@ class RH56PcDirectControl:
             raise
 
     def clear_device_error(self) -> None:
-        if self.authorization is not HandAuthorization.FAULT_RESET:
+        if self.operation is not HandOperation.FAULT_RESET:
             raise PermissionError(
-                "Independent RH56 fault-reset authorization is required."
+                "Fault reset requires the clear-error operation."
             )
         try:
             if not self.backend.clear_error():
@@ -1178,9 +1123,9 @@ class RH56PcDirectControl:
             raise
 
     def start_force_sensor_calibration(self) -> None:
-        if self.authorization is not HandAuthorization.FORCE_SENSOR_CALIBRATION:
+        if self.operation is not HandOperation.FORCE_SENSOR_CALIBRATION:
             raise PermissionError(
-                "Independent RH56 force-sensor-calibration authorization is required."
+                "Force calibration requires the force-sensor-calibration operation."
             )
         try:
             if not self.backend.calibrate_force_sensors():

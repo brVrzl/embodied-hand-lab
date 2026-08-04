@@ -64,14 +64,6 @@ def test_configuration_validation(arguments: tuple[str, ...]) -> None:
     assert subprocess.run([str(BINARY), *arguments], capture_output=True).returncode == 64
 
 
-def test_connected_mode_requires_exact_acknowledgement_before_backend_creation() -> None:
-    result = subprocess.run([
-        str(BINARY), "--mode", "connected", "--robot-ip", "192.0.2.1",
-    ], text=True, capture_output=True)
-    assert result.returncode == 64
-    assert "exact read-only acknowledgement" in result.stderr
-
-
 def test_vendor_boundary_calls_only_approved_read_lifecycle_api() -> None:
     implementation = (SOURCE / "readonly_backend.cpp").read_text()
     calls = set(re.findall(r"client_\.(\w+)\s*\(", implementation))

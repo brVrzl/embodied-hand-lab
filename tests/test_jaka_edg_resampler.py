@@ -604,30 +604,3 @@ def test_nonfinite_output_is_rejected_before_fake_sdk_call(tmp_path) -> None:
     assert payload["outcome"] == "invalid_command"
     assert payload["resampler_emitted_points"] == 0
     assert _read_points(emitted) == []
-
-
-def test_e1_and_e2_require_their_new_exact_separate_authorizations(tmp_path) -> None:
-    e1 = subprocess.run(
-        [
-            str(ROOT / ".venv/bin/python"), str(ROOT / "tools/jaka_edg_e1_zero_motion.py"),
-            "--robot-ip", "192.0.2.1", "--approval", "WRONG",
-            "--metrics", str(tmp_path / "e1.json"),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    assert e1.returncode != 0
-    assert "I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER" in e1.stderr
-
-    e2 = subprocess.run(
-        [
-            str(ROOT / ".venv/bin/python"), str(ROOT / "tools/quest_jaka_hardware.py"),
-            "e2-isolated", "--robot-ip", "192.0.2.1", "--approval", "WRONG",
-            "--log", str(tmp_path / "e2.jsonl"), "--summary", str(tmp_path / "e2-summary.json"),
-            "--metrics", str(tmp_path / "e2-metrics.json"), "--capture", str(tmp_path / "e2-capture.jsonl"),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    assert e2.returncode != 0
-    assert "I_AUTHORIZE_E2_ONE_SMALL_TCP_TRANSLATION" in e2.stderr

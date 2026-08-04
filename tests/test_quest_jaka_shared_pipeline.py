@@ -1273,30 +1273,6 @@ def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_rest
     assert not recovered.feasibility.metrics.branch_switch
 
 
-def test_p4_entry_requires_exact_current_authorization_before_connection(tmp_path: Path) -> None:
-    result = subprocess.run(
-        [
-            ".venv/bin/python",
-            "tools/quest_jaka_hardware.py",
-            "p4-live",
-            "--robot-ip", "192.0.2.1",
-            "--approval", "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_MOTION",
-            "--estop-accessible",
-            "--workspace-clear",
-            "--rh56-command-path-absent",
-            "--log", str(tmp_path / "log.jsonl"),
-            "--summary", str(tmp_path / "summary.json"),
-            "--metrics", str(tmp_path / "metrics.json"),
-            "--capture", str(tmp_path / "capture.jsonl"),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    assert result.returncode != 0
-    assert "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION" in result.stderr
-    assert not (tmp_path / "metrics.json").exists()
-
-
 def test_p4_entry_requires_operator_safety_gates_before_connection(tmp_path: Path) -> None:
     result = subprocess.run(
         [
@@ -1304,7 +1280,6 @@ def test_p4_entry_requires_operator_safety_gates_before_connection(tmp_path: Pat
             "tools/quest_jaka_hardware.py",
             "p4-live",
             "--robot-ip", "192.0.2.1",
-            "--approval", "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION",
             "--log", str(tmp_path / "log.jsonl"),
             "--summary", str(tmp_path / "summary.json"),
             "--metrics", str(tmp_path / "metrics.json"),

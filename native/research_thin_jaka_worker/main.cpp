@@ -46,7 +46,6 @@ constexpr std::uint32_t kTargetMagic = 0x4A544754U;
 constexpr std::uint32_t kStatusMagic = 0x4A535441U;
 constexpr std::uint16_t kWireVersion = 1U;
 constexpr std::int64_t kPeriodNs = 8'000'000;
-constexpr char kGateAck[] = "I_AUTHORIZE_ONE_BOUNDED_RESEARCH_THIN_ADAPTER_JAKA_GATE";
 constexpr std::array<double, 6> kJointLower{-6.28, -2.09, -2.27, -6.28, -2.09, -6.28};
 constexpr std::array<double, 6> kJointUpper{6.28, 2.09, 2.27, 6.28, 2.09, 6.28};
 constexpr double kJointMargin = 0.08726646259971647;
@@ -139,7 +138,6 @@ struct Options {
   std::string status_socket;
   std::string metrics_file;
   std::string telemetry_file;
-  std::string acknowledgement;
   double duration_s{30.0};
   int expected_tool_id{0};
   int expected_user_frame_id{0};
@@ -185,7 +183,6 @@ Options ParseOptions(int argc, char** argv) {
     else if (arg == "--status-socket") options.status_socket = ValueAfter(i, argc, argv);
     else if (arg == "--metrics-file") options.metrics_file = ValueAfter(i, argc, argv);
     else if (arg == "--cycle-telemetry-file") options.telemetry_file = ValueAfter(i, argc, argv);
-    else if (arg == "--acknowledgement") options.acknowledgement = ValueAfter(i, argc, argv);
     else if (arg == "--duration-s") options.duration_s = std::stod(ValueAfter(i, argc, argv));
     else if (arg == "--expected-tool-id") options.expected_tool_id = std::stoi(ValueAfter(i, argc, argv));
     else if (arg == "--expected-user-frame-id") options.expected_user_frame_id = std::stoi(ValueAfter(i, argc, argv));
@@ -200,15 +197,14 @@ Options ParseOptions(int argc, char** argv) {
     else if (arg == "--help") {
       std::cout << "research_thin_jaka_worker --hardware --robot-ip IP --edg-state-ip IP "
                    "--target-socket PATH --status-socket PATH --metrics-file PATH "
-                   "--cycle-telemetry-file PATH --duration-s SEC --acknowledgement TOKEN\n";
+                   "--cycle-telemetry-file PATH --duration-s SEC\n";
       std::exit(0);
     } else {
       throw std::runtime_error("unknown option: " + arg);
     }
   }
-  if (!options.hardware || options.acknowledgement != kGateAck ||
-      options.robot_ip.empty() || options.edg_state_ip.empty()) {
-    throw std::runtime_error("physical thin-adapter worker requires the exact bounded gate acknowledgement");
+  if (!options.hardware || options.robot_ip.empty() || options.edg_state_ip.empty()) {
+    throw std::runtime_error("physical thin-adapter worker requires --hardware and explicit robot/EDG addresses");
   }
   if (!(options.duration_s > 0.0 && options.duration_s <= 30.0) ||
       (!options.preflight_only &&
