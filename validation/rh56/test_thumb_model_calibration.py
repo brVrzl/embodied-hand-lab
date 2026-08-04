@@ -21,7 +21,7 @@ from quest_jaka_sim.hand_retarget import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SOURCE_MODEL = ROOT / "data/sim_assets/jaka_rh56.xml"
 RUNTIME_MODEL = ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"
 AUDIT_PATH = ROOT / "data/sim_assets/rh56_thumb_table_calibration.json"

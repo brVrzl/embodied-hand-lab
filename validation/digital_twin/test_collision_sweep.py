@@ -26,7 +26,7 @@ from digital_twin.collision_sweep import (
 from digital_twin.io import load_structured
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SCENE = ROOT / "models/digital_twin/workspace_scene.xml"
 CONFIG = ROOT / "digital_twin/configs/collision_classification.yaml"
 OPERATIONAL = ROOT / "digital_twin/configs/robot_operational_placement.yaml"

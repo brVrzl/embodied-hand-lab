@@ -10,7 +10,7 @@ import numpy as np
 from digital_twin.io import load_structured
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _id(model: mujoco.MjModel, kind: mujoco.mjtObj, name: str) -> int:

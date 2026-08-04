@@ -6,7 +6,7 @@ from motion_input.diagnostics import StreamingDiagnostics
 from motion_input.model import Timestamp, TrackingState
 from motion_input.visualization import MotionInputVisualizer
 
-from test_motion_input_protocol import make_sample
+from tests.test_motion_input_protocol import make_sample
 
 
 def test_diagnostics_report_stream_health_and_clock_safe_latency() -> None:
