@@ -9,11 +9,11 @@ normal quick-start command. Inspecting help is safe:
 
 Its stages are deliberately separated (`p2-shadow`, `e2-isolated`, `p4-live`,
 `post-payload-diagnostic`, `bounded-normal-teleop`, and
-`combined-normal-teleop`) and retain stage-specific hard gates. Diagnostic and
-configuration-write stages keep their dedicated approvals; normal physical
-entries use their complete, explicit device command.
-Never copy an old historical invocation without reconciling it with current
-`--help`, current config, and the approved gate.
+`combined-normal-teleop`) because they represent different operating modes.
+Diagnostic, configuration-write, and normal teleoperation continue to enforce
+their own runtime safety prerequisites. Never copy an old historical invocation;
+always reconcile it with the current `--help`, current configuration, and the
+maintained real-device entry before any physical operation.
 
 ## Current runtime contract
 
@@ -44,8 +44,9 @@ Never copy an old historical invocation without reconciling it with current
   loss remains governed by the unchanged 100 ms native watchdog.
 
 See [current status](../status/current_status.md) before proposing a physical
-stage. The next recommended gate is not yet authorized and must occur in a new
-session.
+stage. The next recommended physical operation has not yet been executed and should be
+performed only in a new operator session after the documented runtime safety
+prerequisites have been satisfied.
 
 ## Current normal combined command entry
 
@@ -79,8 +80,8 @@ sends zero RH56 commands and is no longer the normal combined operator entry.
 ```
 
 stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live`、
-`post-payload-diagnostic`、`bounded-normal-teleop` 和 `combined-normal-teleop`，每个都要求精确 acknowledgement。不得直接复制历史命令，
-必须与当前 `--help`、配置和已批准 gate 核对。
+`post-payload-diagnostic`、`bounded-normal-teleop` 和
+`combined-normal-teleop`，分别对应不同运行模式。诊断、配置写入和正常遥操作继续保留各自的运行时安全前置条件。不得直接复制历史命令，必须与当前 `--help`、当前配置以及维护中的真机入口保持一致。
 
 ## 当前运行契约
 
@@ -96,8 +97,7 @@ stage 被明确分成 `p2-shadow`、`e2-isolated`、`p4-live`、
   碰撞、SDK 或硬时序错误会停止并清理。native 100 ms producer watchdog 保持不变。
 - 唯一 SDK 会话每两个命令周期执行一次轻量健康轮询。
 
-在提出真机 gate 前先阅读[当前状态](../status/current_status.md)。当前推荐 gate 仍需新的
-显式授权。
+在提出真机 gate 前先阅读[当前状态](../status/current_status.md)。当前推荐 gate 仍需操作者发起的独立运行，并满足全部运行时安全前置条件。
 
 ## 当前正常联合命令入口
 

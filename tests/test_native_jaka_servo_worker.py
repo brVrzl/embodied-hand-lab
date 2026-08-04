@@ -26,7 +26,6 @@ from teleoperation.wire import (
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / "build" / "jaka_servo_worker" / "jaka_servo_worker"
-P4_APPROVAL = "I_AUTHORIZE_P4_LIVE_QUEST_JAKA_TELEOPERATION"
 pytestmark = pytest.mark.skipif(
     not sys.platform.startswith("linux"),
     reason="the real-time JAKA worker requires Linux scheduling and procfs",
@@ -240,20 +239,12 @@ def test_connected_modes_are_hardware_gated(tmp_path) -> None:
     result = subprocess.run([str(WORKER), "--mode", "zero-motion", "--robot-ip", "127.0.0.1"],
                             text=True, capture_output=True)
     assert result.returncode == 64
-    assert "exact acknowledgement" in result.stderr
-
-
-def test_native_p4_authorization_matches_python_hardware_entry() -> None:
-    native_source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text()
-    hardware_entry = (ROOT / "tools/quest_jaka_hardware.py").read_text()
-    assert f'kQuestMotionAck = "{P4_APPROVAL}"' in native_source
-    assert f'P4_APPROVAL = "{P4_APPROVAL}"' in hardware_entry
+    assert "requires --hardware" in result.stderr
 
 
 def test_minimal_motion_requires_explicit_workspace_before_connection() -> None:
     result = subprocess.run([
         str(WORKER), "--mode", "minimal-motion", "--hardware", "--robot-ip", "192.0.2.1",
-        "--acknowledgement", "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK",
     ], text=True, capture_output=True)
     assert result.returncode == 64
     assert "workspace" in result.stderr
@@ -371,18 +362,6 @@ def test_bounded_mode_rejects_target_without_motion_flag(tmp_path) -> None:
     assert result.returncode == 2
     assert "motion flag" in metrics["outcome"]
     assert metrics["maximum_intentional_command_delta_rad"] == 0.0
-
-
-def test_connected_command_shadow_has_distinct_no_edg_acknowledgement() -> None:
-    result = subprocess.run(
-        [str(WORKER), "--mode", "command-shadow", "--hardware",
-         "--robot-ip", "192.0.2.1", "--acknowledgement",
-         "I_ACKNOWLEDGE_JAKA_HARDWARE_RISK"],
-        text=True,
-        capture_output=True,
-    )
-    assert result.returncode == 64
-    assert "exact acknowledgement" in result.stderr
 
 
 def test_quest_joint_shadow_accepts_shared_solution_without_ik_edg_or_command(tmp_path) -> None:

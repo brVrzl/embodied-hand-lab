@@ -30,7 +30,7 @@ constexpr std::array<double, 6> kUpper{ 2*kPi,  125*kPi/180,  130*kPi/180,  2*kP
 struct Options {
   bool physical = false, estop = false, workspace = false, no_person = false;
   bool cables = false, direction = false, ready = false;
-  std::string robot_ip, approval, output;
+  std::string robot_ip, output;
   int expected_tool = 0, expected_user = 0;
 };
 
@@ -47,7 +47,7 @@ Options parse(int argc, char** argv) {
     else if(a=="--workspace-clear-confirmed")o.workspace=true; else if(a=="--no-person-in-workspace-confirmed")o.no_person=true;
     else if(a=="--cable-clearance-confirmed")o.cables=true; else if(a=="--direction-understood")o.direction=true;
     else if(a=="--ready-to-interrupt")o.ready=true; else if(a=="--robot-ip")o.robot_ip=value(i,argc,argv);
-    else if(a=="--stage-approval")o.approval=value(i,argc,argv); else if(a=="--result-file")o.output=value(i,argc,argv);
+    else if(a=="--result-file")o.output=value(i,argc,argv);
     else if(a=="--expected-tool-id")o.expected_tool=std::stoi(value(i,argc,argv));
     else if(a=="--expected-user-frame-id")o.expected_user=std::stoi(value(i,argc,argv));
     else throw std::runtime_error("unknown option: "+a);
@@ -56,7 +56,6 @@ Options parse(int argc, char** argv) {
   in_addr ip{};
   if(!o.estop||!o.workspace)
     throw std::runtime_error("physical plan requires E-stop and workspace confirmations");
-  if(o.approval!="I_APPROVE_GATE3C_STAGE_1_PLAN")throw std::runtime_error("incorrect Stage 3C-1 approval");
   if(inet_pton(AF_INET,o.robot_ip.c_str(),&ip)!=1||o.output.empty())throw std::runtime_error("explicit IP and result file required");
   return o;
 }

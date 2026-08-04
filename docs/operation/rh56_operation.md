@@ -26,11 +26,11 @@ no guessed status-code policy is applied.
 
 ## Current hand-only entry
 
-The single authorization and operator procedure is maintained in
+The single operator procedure is maintained in
 [RH56 hand-only session debug](rh56_session_debug.md). In brief, the default
 entry is dry-run; a physical hand-only process requires
-`--real --device /dev/serial/by-id/... --arm-session`. That in-memory arm covers
-all poses in that process and expires at process exit. It never starts JAKA.
+`--real --device /dev/serial/by-id/...`, an explicit hand operation mode, and
+the runtime safety prerequisites below. It never starts JAKA.
 
 Use `--preflight-only` for identity and tty checks without opening the serial
 transport. Prefer `/dev/serial/by-id/...`; the explicit CH341 fallback remains
@@ -39,11 +39,12 @@ The recommended physical progression is read-only, measured-relative bounded
 single-channel, then Quest hand-only. The canonical page also contains the
 prepared six-channel mapping check, with a five-second hold per pose.
 
-The old per-command RH56 approval phrases are not used by these ordinary
-hand-only modes. Exact approvals remain only for runtime configuration writes,
-fault reset, and force-sensor calibration. JAKA arm-only and combined entries
-use their complete explicit real-device commands and retain their safety
-prerequisites.
+Ordinary hand-only modes do not use magic phrases or tokens.
+Runtime configuration writes, fault reset, and force-sensor calibration remain
+separate explicit operation modes with their existing configuration-write,
+mechanical-obstruction, and calibration no-load confirmations. JAKA arm-only
+and combined entries use complete explicit real-device commands and retain
+their safety prerequisites.
 
 The following fake/offline check is useful before any physical hand gate:
 
@@ -98,8 +99,8 @@ tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Q
 
 ## 中文当前入口
 
-授权、设备前置检查、read-only/单通道阶段和下一步六通道映射命令统一见
+设备前置检查、read-only/单通道阶段和下一步六通道映射命令统一见
 [RH56 hand-only session debug](rh56_session_debug.md)。普通 hand-only 真机命令只需在进程
-启动时一次传入 `--real --device ... --arm-session`；进程内不再逐姿势确认，退出后自动失效。
-默认命令仍是 dry-run。旧的 per-command RH56 授权短语已从普通 hand-only 操作说明移除；
-runtime config、clear error、force calibration 和 JAKA 联合运行继续使用独立 gate。
+启动时传入 `--real --device ...` 和显式 operation mode，并满足运行时安全前置条件；
+默认命令仍是 dry-run。普通 hand-only 不使用 magic token 或短语；runtime config、
+clear error、force calibration 和 JAKA 联合运行继续使用各自独立 gate。

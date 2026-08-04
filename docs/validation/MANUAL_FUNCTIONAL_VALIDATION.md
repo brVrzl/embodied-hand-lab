@@ -2,7 +2,7 @@
 
 This runbook was checked against the maintained command-line parsers, wrapper
 scripts, configuration files, and safety documentation on 2026-07-31. It does
-not authorize hardware use. Run the levels in order; a failure at one level
+does not open or command hardware. Run the levels in order; a failure at one level
 blocks every later level. Commands containing `<...>` are templates and must
 not be pasted until every placeholder has been replaced from the current
 configuration, controller, device identity, or vendor documentation.
@@ -22,7 +22,7 @@ instead of being replaced with invented commands.
 ## Universal stop rules
 
 - Keep the operator outside the robot workspace and continuously within reach
-  of the physical E-stop during every authorized motion gate.
+  of the physical E-stop during every operator-initiated motion gate.
 - Do not run two JAKA clients or two RH56 clients. Before each physical gate,
   run the residual-process check in [Stopping and recovery](#stopping-and-recovery).
 - `Ctrl+C` is the normal software stop. A collision, alarm, tracking/timing
@@ -306,7 +306,6 @@ register and produces no commanded motion):
   --device "$RH56_DEVICE" \
   --read-only \
   --duration-sec 10 \
-  --approval I_AUTHORIZE_ONE_RH56_PC_DIRECT_READ_ONLY_PROBE \
   --jsonl logs/rh56_read_only.jsonl \
   --summary logs/rh56_read_only.summary.json
 ```
@@ -370,18 +369,19 @@ git status --short
 ```
 
 Pass criteria: configs parse, output paths are writable, no private serial/IP
-is added to tracked configs, and physical wrappers still require exact
-approvals plus `--no-auto-retry`. Doctor does not open any device.
+is added to tracked configs, and physical wrappers still require explicit
+runtime safety prerequisites plus `--no-auto-retry`. Doctor does not open any
+device.
 
 ## Level 3 — isolated low-risk actuator motion
 
-Every command in this level requires a new, run-specific manual authorization.
+Every command in this level is an operator-initiated, bounded physical run.
 Do not substitute historical pose, IP, tool/user ID, or safety-controller
 values.
 
 ### 1. RH56 isolated single channel
 
-**PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED**
+**PHYSICAL MOTION — OPERATOR-INITIATED RUN REQUIRED**
 
 Start with the JAKA disconnected or physically E-stopped. The target is based
 on fresh measured `ANGLE_ACT`; the configured per-command normalized delta
@@ -400,13 +400,12 @@ export RH56_CHANNEL=<index|middle|ring|pinky|thumb_close|thumb_lateral>
   --delta 0.03 \
   --duration-sec 2 \
   --hold-sec 2 \
-  --approval I_AUTHORIZE_ONE_RH56_PC_DIRECT_BOUNDED_HAND_TEST \
   --manual-stop-accessible --workspace-clear --no-auto-retry \
   --jsonl "logs/rh56_bounded_${RH56_CHANNEL}.jsonl" \
   --summary "logs/rh56_bounded_${RH56_CHANNEL}.summary.json"
 ```
 
-Run only one channel per authorization and inspect its summary before changing
+Run only one channel per run and inspect its summary before changing
 `RH56_CHANNEL`. Abort on wrong channel/direction, unexpected coupling, cable
 motion, nonzero `ERROR`, missing/stale feedback, checksum/protocol fault, or
 inability to stop. Normal exit is duration expiry or `Ctrl+C`; grip release is
@@ -414,7 +413,7 @@ not an E-stop.
 
 ### 2. JAKA J6 +0.25 degree outward/hold/return
 
-**PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED**
+**PHYSICAL MOTION — OPERATOR-INITIATED RUN REQUIRED**
 
 This maintained native diagnostic commands only J6: +0.25 degrees over 2 s,
 0.4 s hold, 2 s return; planned peak bounds are 0.005 rad/s,
@@ -441,7 +440,6 @@ build/jaka_minimal_joint_probe/jaka_gate3c_motion_probe \
   --cable-clearance-confirmed \
   --direction-understood \
   --ready-to-interrupt \
-  --stage-approval I_APPROVE_GATE3C_STAGE_2_0_25_DEGREE_MOTION \
   --result-file logs/jaka_j6_0p25deg.result.json \
   --trajectory-csv logs/jaka_j6_0p25deg.trajectory.csv
 ```
@@ -461,7 +459,7 @@ operator concern.
   canonical order; there is intentionally no unattended loop.
 - Real physical watchdog/stale-command injection: no standalone low-risk
   command exists. First validate fake-worker stale/fault tests. A deliberate
-  Quest loss during an authorized motion session belongs to Level 5 and must
+  Quest loss during an operator-initiated motion session belongs to Level 5 and must
   stop/hold according to that subsystem's documented contract.
 - Exit/disconnect stop: use `Ctrl+C`, verify cleanup logs, then use the residual
   process checks below. Do not unplug network/serial as a casual test while an
@@ -568,7 +566,7 @@ required second step and produces no motion.
 
 ### JAKA only
 
-**PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED**
+**PHYSICAL MOTION — OPERATOR-INITIATED RUN REQUIRED**
 
 ```bash
 ./scripts/run_quest_jaka_bounded_teleop.sh \
@@ -590,7 +588,7 @@ stop, release-before-press recovery, and cleanup.
 
 ### RH56 only
 
-**PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED**
+**PHYSICAL MOTION — OPERATOR-INITIATED RUN REQUIRED**
 
 ```bash
 timestamp="$(date +%Y%m%d_%H%M%S)"
@@ -598,7 +596,6 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
   --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --quest-teleop \
   --duration-sec 30 \
-  --approval I_AUTHORIZE_ONE_RH56_PC_DIRECT_BOUNDED_HAND_TEST \
   --manual-stop-accessible --workspace-clear --no-auto-retry \
   --capture "logs/rh56_quest_hand_${timestamp}.hts.jsonl" \
   --events "logs/rh56_quest_hand_${timestamp}.events.jsonl" \
@@ -613,7 +610,7 @@ motion.
 
 ### Combined arm and hand
 
-**PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED**
+**PHYSICAL MOTION — OPERATOR-INITIATED RUN REQUIRED**
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
@@ -628,7 +625,7 @@ motion.
 
 First combined run: keep left index released throughout and operate grip only;
 new arm commands must remain zero. Only after reviewing that run should an
-operator authorize both subsystems. Check arm/hand clutch isolation, direction,
+operator explicitly starts both operation modes. Check arm/hand clutch isolation, direction,
 control frequency, latency, clipping/rejection, camera-independent logs,
 stale/loss behavior, first terminal reason, and mutual hard-stop propagation.
 

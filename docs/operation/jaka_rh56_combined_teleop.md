@@ -7,7 +7,8 @@ active. The maintained command below is the same command used for the latest
 combined run on 2026-08-03: it loaded the real RH56 calibration, accepted
 10,035 arm targets, and stopped fail-closed after 234.32 seconds when Quest
 input did not recover within the 10-second window. No arm/controller/RH56
-transport fault occurred. This is partial evidence, not a 300-second PASS;
+transport fault occurred. This is operational evidence from one bounded physical run. 
+It does not replace longer-duration validation or task-specific evidence.
 parcel-box and tissue extraction outcomes were not completed in that run.
 
 The first combined attempt on 2026-07-29 ran for 27.34 seconds and then exposed
@@ -16,7 +17,8 @@ motion target without `ALLOW_MOTION`. The worker now handles it as bounded
 braking, publishes `STOPPED_READY`, and keeps fresh non-motion producer
 heartbeats while index is released. A later 2026-07-30 combined run exercised
 this path but failed after 21.02 seconds at a separate retained arm hard-timing
-gate; combined operation therefore remains unvalidated.
+gate; The recoverable-clutch path has since been corrected, but combined operation
+still requires additional bounded physical validation.
 
 ```text
 one Quest UDP receiver/router
@@ -28,13 +30,14 @@ one Quest UDP receiver/router
 ```
 
 The RH56 I/O worker prevents USB/RS485 latency from blocking the 60 Hz arm
-producer. It does not duplicate the hand state machine. The complete
-real-device invocation, required safety prerequisites, and RH56 device
-identity are validated before either hardware path starts.
+producer. It does not duplicate the hand state machine. The next recommended physical operation has not yet been executed and should be
+performed only in a new operator session after the documented runtime safety
+prerequisites have been satisfied.
 A stable `/dev/serial/by-id/...` path is preferred. On hosts where the custom
 `usb_ch341` driver creates no by-id link, `/dev/ttyCH341USB<N>` is accepted only
 with `--allow-direct-ch341-device` and exact VID:PID/driver identity checks.
-Missing a required safety prerequisite connects neither device.
+If any required runtime safety prerequisite is not satisfied, neither hardware
+path is opened and no physical command is issued.
 
 Control semantics:
 
@@ -95,8 +98,8 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --log-dir logs
 ```
 
-Executing this complete real-device command is the operator authorization for
-the current process. The operator must still verify current IP addresses,
+Executing this complete real-device command starts an operator-initiated,
+bounded run for the current process. The operator must still verify current IP addresses,
 payload/TCP/installation status, controller safety state, E-stop, workspace,
 and the completed RH56 hand evidence before executing it. The wrapper
 also requires an explicitly verified native control CPU. CPU 6 is the measured

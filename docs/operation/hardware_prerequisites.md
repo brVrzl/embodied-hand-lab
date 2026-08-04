@@ -1,12 +1,12 @@
 # Physical hardware prerequisites
 
-This page is a prerequisite checklist, not authorization to run hardware.
-Ordinary RH56 hand-only debugging uses one explicit `--real --arm-session`
-authorization for the current process; it expires at process exit. The normal
-JAKA/combined entries use their complete explicit real-device command for the
-current process. Controller-write, fault-reset, and force-calibration gates
-still need their own exact current-session authorization for stage, duration,
-motion bound, and acknowledgement flags.
+This page defines the runtime safety prerequisites for physical operation.
+
+Reading this page, running --help, or performing repository maintenance does not open or command hardware.
+
+Each maintained hardware entry is responsible for selecting the intended operation mode, validating the target device, enforcing bounded execution duration, verifying controller state, checking workspace conditions, and performing deterministic cleanup before any physical connection is established.
+
+Configuration writes, fault reset, and force-sensor calibration remain separate operation modes with their own safety prerequisites.
 
 Before any connection or command:
 
@@ -18,8 +18,7 @@ Before any connection or command:
    state, payload, installation, TCP, and safety limits at the controller.
 5. Confirm the operator understands the displacement/orientation envelope,
    clutch, stop conditions, and abort procedure.
-6. Perform only the separately authorized read-only/no-motion stages before
-   considering motion.
+6. Perform only the read-only and no-motion stages before considering physical motion.
 
 Recorded operator-supplied state from the latest evidence:
 
@@ -42,9 +41,13 @@ identify payload, calibrate TCP, or change controller settings.
 
 # 中文版：真机硬件前置条件
 
-本页只是前置检查清单，不构成真机授权。普通 JAKA/combined 入口由当前进程中操作者主动
-执行完整真实设备命令来授权；配置写入、故障复位和力传感器校准仍必须针对精确的 stage、
-时长、运动边界和 acknowledgement flags 获得单独显式授权。
+本页定义真机运行前必须满足的安全前置条件。
+
+阅读本文档、运行 --help 或执行仓库维护都不会打开、连接或控制真实设备。
+
+所有维护中的真机入口都负责选择对应运行模式、确认目标设备、检查控制器状态、验证工作区、限制运行时长、施加命令边界并完成确定性的退出和清理。
+
+配置写入、故障复位和力传感器校准仍属于独立运行模式，并保留各自的安全前置条件。
 
 任何连接或命令之前：
 
@@ -54,7 +57,7 @@ identify payload, calibrate TCP, or change controller settings.
 4. 在控制器端确认状态、power/enable、急停、报警、碰撞状态、payload、安装方向、TCP
    和安全限制。
 5. 确认操作者理解位移/旋转范围、clutch、停止条件和 abort 流程。
-6. 只执行另行授权的 read-only/no-motion gate，然后才考虑运动。
+6. 只执行 read-only 和 no-motion 阶段，然后才考虑实际运动。
 
 最近证据中的操作者记录值：
 

@@ -99,8 +99,8 @@ The maintained combined gate now also requires the fixed native
 `SCHED_FIFO` priority 10. Only the 8 ms native control thread is promoted,
 after SDK helper-thread setup, and it returns to `SCHED_OTHER` before cleanup.
 The entry checks inherited `RLIMIT_RTPRIO >= 10` before hardware I/O and the
-native worker verifies actual policy/priority. A one-shot, explicitly
-authorized `prlimit` scope was used without running the control stack as root.
+native worker verifies actual policy/priority. A one-shot, explicitly scoped
+`prlimit` invocation was used without running the control stack as root.
 The latest episode ran 174.915 seconds on CPU6/SCHED_FIFO 10 with zero hard
 timing miss, controller alarm, collision, E-stop, RH56 worker fault, or cleanup
 error. The operator then removed Quest, so the retained native watchdog stopped
@@ -242,7 +242,8 @@ The maintained combined wrapper is:
 It requires an explicit complete real-device invocation for the current
 process, completed hand prerequisites, accessible E-stop, a clear workspace,
 bounded duration, stable/verified device identity, and `--no-auto-retry`. No
-approval token or file persists after the process exits. The wrapper permits at most 300 seconds, but
+per-process session state or credential file persists after the process exits.
+The wrapper permits at most 300 seconds, but
 that upper bound is not a validated operating duration. It also requires an
 explicit verified `--native-control-cpu`; unisolated combined operation is
 rejected before hardware I/O. The fixed native control priority is
@@ -256,13 +257,13 @@ The arm-only isolation and RH56 staged inspection entries are:
 ./scripts/run_quest_rh56_hand_test.sh --help
 ```
 
-Inspecting help or running plant-free tests does not authorize hardware.
+Inspecting help or running plant-free tests does not open or command hardware.
 
 ## Blocking work
 
 1. Resolve the prior J4 collision cause without weakening collision, limit,
    timing, tracking, or liveness boundaries.
-2. Perform the separately authorized bounded physical validation of the latest
+2. Perform the separately scheduled, operator-initiated bounded physical validation of the latest
    output-acceleration correction.
 3. Complete and verify TCP calibration at the controller; current recorded
    TCP1--TCP10 values are zero.

@@ -43,8 +43,8 @@ Usage / 用法:
     --hand-prerequisites-complete --no-auto-retry \
     --estop-accessible --workspace-clear [options]
 
-Executing this full real-device entry with the current robot address and RH56
-device is the process-level operator authorization. It reuses one Quest
+Executing this full real-device entry with the explicitly selected robot and
+RH56 device is an operator-initiated bounded operation. It reuses one Quest
 receiver, one JAKA SDK/native session, the
 shared 20 ms target generator, and the production PC-direct RH56 controller.
 Left index controls only the arm; grip controls only the hand. Releasing either

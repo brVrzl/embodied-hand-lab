@@ -12,7 +12,6 @@ BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 ALLOWED_SENDER=""
 DURATION_SEC="30"
-APPROVAL=""
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 WORKER="build/jaka_servo_worker/jaka_servo_worker"
 LOG_PREFIX=""
@@ -21,14 +20,11 @@ WORKSPACE_CLEAR="false"
 RH56_PATH_ABSENT="false"
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 
-EXPECTED_APPROVAL="I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN"
-
 usage() {
   cat <<'EOF'
 Usage / 用法:
   ./scripts/run_quest_jaka_post_payload_manual.sh \
     --robot-ip ROBOT_IPV4 \
-    --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
     --estop-accessible \
     --workspace-clear \
     --rh56-command-path-absent \
@@ -39,7 +35,6 @@ Runs only the current bounded post-payload Quest/JAKA physical diagnostic.
 
 Required / 必填:
   --robot-ip IPV4
-  --approval PHRASE
   --estop-accessible
   --workspace-clear
   --rh56-command-path-absent
@@ -83,7 +78,6 @@ while [[ $# -gt 0 ]]; do
     --port) require_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --allowed-sender) require_value "$@"; ALLOWED_SENDER="$2"; shift 2 ;;
     --duration-sec) require_value "$@"; DURATION_SEC="$2"; shift 2 ;;
-    --approval) require_value "$@"; APPROVAL="$2"; shift 2 ;;
     --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
     --worker) require_value "$@"; WORKER="$2"; shift 2 ;;
     --log-prefix) require_value "$@"; LOG_PREFIX="$2"; shift 2 ;;
@@ -100,10 +94,6 @@ cd "${REPO_ROOT}"
 
 if [[ -z "${ROBOT_IP}" ]]; then
   echo "--robot-ip is required / 必须提供 --robot-ip" >&2
-  exit 2
-fi
-if [[ "${APPROVAL}" != "${EXPECTED_APPROVAL}" ]]; then
-  echo "Exact approval required / 必须提供精确授权短语: ${EXPECTED_APPROVAL}" >&2
   exit 2
 fi
 if [[ "${ESTOP_ACCESSIBLE}" != "true" || "${WORKSPACE_CLEAR}" != "true" || "${RH56_PATH_ABSENT}" != "true" ]]; then
@@ -153,7 +143,6 @@ CMD=(
   --bind "${BIND_HOST}"
   --port "${UDP_PORT}"
   --duration-sec "${DURATION_SEC}"
-  --approval "${APPROVAL}"
   --estop-accessible
   --workspace-clear
   --rh56-command-path-absent

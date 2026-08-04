@@ -12,9 +12,6 @@ import tempfile
 from teleoperation.runtime.arm_only import NativeWorkerProcess
 
 
-E1_APPROVAL = "I_AUTHORIZE_E1_ZERO_MOTION_EDG_RESAMPLER"
-
-
 def _strict_e1_evidence_is_valid(metrics: dict) -> bool:
     q_hold = metrics["post_edg_authoritative_q_hold_rad"]
     tracking = metrics["maximum_tracking_difference_rad_per_joint"]
@@ -54,7 +51,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--robot-ip", required=True)
     parser.add_argument("--edg-state-ip", default="192.168.71.19")
     parser.add_argument("--duration-sec", type=float, default=5.0)
-    parser.add_argument("--approval", required=True)
     parser.add_argument("--estop-accessible", action="store_true")
     parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
@@ -66,8 +62,6 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
-    if args.approval != E1_APPROVAL:
-        raise SystemExit(f"exact approval required: {E1_APPROVAL}")
     if not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
         raise SystemExit("E1 requires E-stop, clear-workspace, and no-RH56-command confirmations")
     if not 0.5 <= args.duration_sec <= 10.0:
@@ -87,7 +81,6 @@ def main() -> int:
                 "--metrics-file", str(args.metrics),
                 "--expected-tool-id", str(args.expected_tool_id),
                 "--expected-user-frame-id", str(args.expected_user_frame_id),
-                "--acknowledgement", E1_APPROVAL,
                 "--maximum-output-joint-velocity-rad-s", str(math.pi),
                 "--diagnostic-joint-acceleration-boundary-rad-s2", str(4.0 * math.pi),
             ],

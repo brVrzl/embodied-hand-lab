@@ -36,7 +36,6 @@ constexpr double kObservationWarningRad = 50e-6;
 constexpr double kObservationAbortRad = 500e-6;
 constexpr double kFirstCommandDifferenceRad = 100e-6;
 constexpr int kOperatorCountdownSeconds = 3;
-constexpr const char* kZeroMotionAck = "I_ACKNOWLEDGE_INVARIANT_JOINT_COMMAND";
 
 std::atomic<bool> g_stop{false};
 void signal_handler(int) { g_stop.store(true, std::memory_order_relaxed); }
@@ -55,24 +54,11 @@ const char* stage_name(Stage stage) {
   return "unknown";
 }
 
-const char* required_stage_approval(Stage stage) {
-  switch (stage) {
-    case Stage::Preflight: return "I_APPROVE_GATE3B_STAGE_2_PREFLIGHT";
-    case Stage::EntryExit: return "I_APPROVE_GATE3B_STAGE_3_ENTRY_EXIT";
-    case Stage::RunOneSecond: return "I_APPROVE_GATE3B_STAGE_4_ONE_SECOND";
-    case Stage::RunFiveSeconds: return "I_APPROVE_GATE3B_STAGE_5_FIVE_SECONDS";
-    case Stage::DryRun: return "";
-  }
-  return "";
-}
-
 struct Options {
   BackendKind backend = BackendKind::Fake;
   Stage stage = Stage::DryRun;
   std::string robot_ip;
   std::string edg_state_ip;
-  std::string zero_motion_ack;
-  std::string stage_approval;
   std::string joint_units;
   std::string result_file;
   std::string raw_timing_file;
@@ -121,8 +107,6 @@ Options parse(int argc, char** argv) {
     } else if (argument == "--stage") options.stage = parse_stage(next_value(i, argc, argv));
     else if (argument == "--robot-ip") options.robot_ip = next_value(i, argc, argv);
     else if (argument == "--edg-state-ip") options.edg_state_ip = next_value(i, argc, argv);
-    else if (argument == "--zero-motion-ack") options.zero_motion_ack = next_value(i, argc, argv);
-    else if (argument == "--stage-approval") options.stage_approval = next_value(i, argc, argv);
     else if (argument == "--joint-units") options.joint_units = next_value(i, argc, argv);
     else if (argument == "--result-file") options.result_file = next_value(i, argc, argv);
     else if (argument == "--raw-timing-file") options.raw_timing_file = next_value(i, argc, argv);
@@ -161,11 +145,9 @@ Options parse(int argc, char** argv) {
   if (options.expected_joint_count != static_cast<int>(jaka_zero::kJointCount)) throw std::runtime_error("expected joint count must be exactly 6");
   if (options.joint_units != "radians") throw std::runtime_error("--joint-units must explicitly equal radians");
   if (options.backend == BackendKind::Vendor) {
-    if (!options.physical_hardware || options.zero_motion_ack != kZeroMotionAck ||
+    if (!options.physical_hardware ||
         !options.estop_access_confirmed || !options.workspace_clear_confirmed)
-      throw std::runtime_error("physical mode requires hardware, zero-motion, E-stop, and workspace confirmations");
-    if (options.stage_approval != required_stage_approval(options.stage))
-      throw std::runtime_error("physical mode requires the exact approval for this stage");
+      throw std::runtime_error("physical mode requires hardware, E-stop, and workspace confirmations");
     if (!valid_ipv4(options.robot_ip) || !valid_ipv4(options.edg_state_ip))
       throw std::runtime_error("physical mode requires explicit controller and EDG-state IPv4 addresses");
     if (!options.expected_tool_id_set || !options.expected_user_frame_id_set)

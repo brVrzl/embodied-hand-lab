@@ -8,8 +8,8 @@ import pytest
 from embodiment_core.config import load_yaml
 from rh56_driver.pc_direct_control import (
     FakeRH56PcDirectBackend,
+    HandOperation,
     RH56PcDirectControl,
-    RH56SessionArm,
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 
@@ -118,7 +118,7 @@ def _worker(profile: str = "fast30"):
         backend, _config(profile), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
-    first = worker.start(RH56SessionArm.combined(), run_in_thread=False)
+    first = worker.start(HandOperation.COMBINED, run_in_thread=False)
     backend.operations.clear()
     return worker, control, backend, clock, first
 
@@ -272,7 +272,7 @@ def test_failed_write_is_not_committed_or_suppressed_in_next_authorized_session(
         rejected_backend, _config("fast30"), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
-    first = worker.start(RH56SessionArm.combined(), run_in_thread=False)
+    first = worker.start(HandOperation.COMBINED, run_in_thread=False)
     target = [0.2] * 6
     worker.activate_from_measured(first.monotonic_ns)
     worker.submit_target(target, clock())
@@ -331,7 +331,7 @@ def test_logging_is_compact_per_command_and_full_only_on_angle_feedback() -> Non
         backend, _config("fast30"), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock, record=rows.append)
-    first = worker.start(RH56SessionArm.combined(), run_in_thread=False)
+    first = worker.start(HandOperation.COMBINED, run_in_thread=False)
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target([0.05] * 6, clock())

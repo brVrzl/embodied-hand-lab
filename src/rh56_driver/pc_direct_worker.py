@@ -9,7 +9,7 @@ import time
 import traceback
 from typing import Callable, Sequence
 
-from .pc_direct_control import PcDirectFeedback, RH56PcDirectControl, RH56SessionArm
+from .pc_direct_control import HandOperation, PcDirectFeedback, RH56PcDirectControl
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,11 +134,11 @@ class RH56PcDirectWorker:
 
     def start(
         self,
-        approval_token: str | RH56SessionArm,
+        operation: HandOperation,
         *,
         run_in_thread: bool = True,
     ) -> PcDirectFeedback:
-        self.control.open(approval_token)
+        self.control.open(operation)
         feedback = self.control.poll_feedback(self._monotonic_ns())
         startup_end_ns = self._monotonic_ns()
         with self._lock:

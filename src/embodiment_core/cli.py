@@ -80,7 +80,7 @@ def _top_parser() -> argparse.ArgumentParser:
         prog="embodied-lab",
         description=(
             "Maintained offline workflows. Physical robot gates remain separate "
-            "scripts with exact acknowledgements."
+            "operator-selected scripts with explicit safety prerequisites."
         ),
     )
     commands = parser.add_subparsers(dest="command", required=True)

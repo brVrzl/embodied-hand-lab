@@ -2,25 +2,21 @@
 
 ## 中文摘要
 
-维护、源码审查、测试、`--help`、仿真、回放和 fake worker 都不构成真机授权。任何
-真机操作都必须经过当前会话的精确物理门、操作员急停可达、工作区检查、有限时长和
-清理流程；碰撞、报警、急停、看门狗、SDK、时序或活性故障必须立即停止。
+维护、源码审查、测试、--help、仿真、回放和 fake worker 都不会打开、连接或控制任何真实设备。
 
-## Authorization boundary
+任何真机运行都必须由操作者主动执行维护中的真机入口，并满足对应运行模式的全部安全前置条件，包括设备身份、工作区检查、停止装置可达、控制器状态、运行时长限制、命令边界以及确定性的退出和清理。
 
-Repository maintenance, source review, tests, `--help`, simulation, replay, and
-fake-worker execution do not authorize a JAKA, RH56DFX, Quest headset, camera,
-or other actuator connection.
+碰撞、报警、急停、看门狗、SDK、时序或活性故障仍必须立即停止，不得绕过。
 
-The ordinary RH56 hand-only entry uses one explicit, current-process
-`--real --arm-session` authorization for the exact device path, duration,
-motion envelope, acknowledgement flags, and stop procedure. It expires when
-that process exits and is not persisted or shared. Normal JAKA and combined
-entries use their complete explicit real-device command for the current
-process. Runtime configuration writes, fault reset, and force-sensor
-calibration retain separate exact authorizations. The maintained wrappers must reject a
-missing or incorrect gate before opening hardware. Automatic retry is
-prohibited.
+## Runtime safety boundary
+
+Repository maintenance, source review, tests, --help, simulation, replay, and fake-worker execution do not open, connect to, or command a JAKA, RH56DFX, Quest headset, camera, or any other actuator.
+
+Real-device operation must always be started explicitly by the operator through one of the maintained hardware entry points. Each entry remains responsible for selecting the intended operation mode, validating the target device, enforcing bounded execution duration, verifying controller state, checking workspace conditions, applying command limits, and performing deterministic cleanup.
+
+Runtime configuration writes, fault reset, and force-sensor calibration remain separate operation modes with their own safety prerequisites. These modes are selected explicitly by the operator and are never entered automatically.
+
+Hardware entry points must reject missing runtime prerequisites before opening any physical device. Automatic retry remains prohibited.
 
 Use [physical hardware prerequisites](../operation/hardware_prerequisites.md)
 and [physical test gates](physical_test_gates.md) before proposing any run.
@@ -40,7 +36,7 @@ The latest operator record states:
 These values are evidence, not software-owned truth. The software must not
 identify, apply, or alter payload, center of mass, installation, TCP, collision
 settings, or controller safety limits. An operator must verify them on the
-controller before each future authorized motion gate.
+controller before each future physical operation.
 
 TCP calibration is not complete. The prior J4 servo collision cause is
 unresolved. Do not repeat the earlier approximately 128 mm multi-axis motion
