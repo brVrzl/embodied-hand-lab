@@ -17,9 +17,6 @@ from ..wire import (
 )
 
 
-BOUNDED_MOTION_DISPATCH_ACK = "I_APPROVE_BOUNDED_TELEOP_TARGET_DISPATCH"
-
-
 class NativeWorkerProcess:
     """Explicit subprocess lifetime; never relies on Python finalization."""
 
@@ -66,11 +63,6 @@ class ArmOnlyRuntime:
 
     def dispatch(self, target: PoseTarget) -> bool:
         return self._dispatch(target, allow_motion=False)
-
-    def dispatch_authorized(self, target: PoseTarget, *, acknowledgement: str) -> bool:
-        if acknowledgement != BOUNDED_MOTION_DISPATCH_ACK:
-            raise RuntimeError("exact bounded-motion dispatch acknowledgement is required")
-        return self._dispatch(target, allow_motion=True)
 
     def _dispatch(self, target: PoseTarget, *, allow_motion: bool) -> bool:
         stamped = PoseTarget(
