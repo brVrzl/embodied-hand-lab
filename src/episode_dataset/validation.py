@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 from uuid import UUID
@@ -51,6 +52,35 @@ def load_canonical_rows(episode: str | Path) -> tuple[list[dict[str, Any]], list
                 rows.append(value)
     except OSError as exc:
         errors.append(f"cannot read canonical/samples.jsonl: {exc}")
+    return rows, errors
+
+
+def load_data_quality_rows(episode: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Load metadata-only canonical slots without treating them as training rows."""
+
+    path = Path(episode).resolve() / "raw" / "data_quality.jsonl"
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    if not path.exists():
+        return rows, errors
+    try:
+        with path.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    errors.append(f"raw/data_quality.jsonl:{line_number}: {exc}")
+                    continue
+                if not isinstance(value, dict):
+                    errors.append(
+                        f"raw/data_quality.jsonl:{line_number}: row must be an object"
+                    )
+                    continue
+                rows.append(value)
+    except OSError as exc:
+        errors.append(f"cannot read raw/data_quality.jsonl: {exc}")
     return rows, errors
 
 
@@ -357,6 +387,8 @@ def validate_episode(
     _validate_schema_metadata(metadata, errors, warnings)
     rows, row_errors = load_canonical_rows(episode_dir)
     errors.extend(row_errors)
+    quality_rows, quality_errors = load_data_quality_rows(episode_dir)
+    errors.extend(quality_errors)
     expected_count = metadata.get("sample_count")
     if not isinstance(expected_count, int) or expected_count != len(rows):
         errors.append(
@@ -369,6 +401,27 @@ def validate_episode(
     previous_timestamp: int | None = None
     previous_nominal_slot = -1
     previous_camera_frame: dict[tuple[str, str], int] = {}
+    raw_camera_index: dict[tuple[str, int | None, int, int], dict[str, Path]] = {}
+    for role in ("workspace", "wrist"):
+        raw_path = episode_dir / "raw" / f"camera_{role}.jsonl"
+        if not raw_path.is_file():
+            continue
+        try:
+            for line in raw_path.read_text(encoding="utf-8").splitlines():
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    continue
+                rgb_number, depth_number = record.get("rgb_frame_number"), record.get("depth_frame_number")
+                if not isinstance(rgb_number, int) or not isinstance(depth_number, int):
+                    continue
+                paths = {}
+                for name in ("rgb", "depth_raw"):
+                    relative = record.get(name)
+                    if isinstance(relative, str):
+                        paths[name] = episode_dir / relative
+                raw_camera_index[(role, record.get("ring_sequence"), rgb_number, depth_number)] = paths
+        except (OSError, json.JSONDecodeError):
+            pass
     previous_rgb_hash: dict[str, tuple[int, str]] = {}
     repeated_camera_selections = 0
     frozen_payload_transitions = 0
@@ -539,6 +592,36 @@ def validate_episode(
                             repeated_camera_selections += 1
                     previous_camera_frame[key] = frame_number
 
+            ring_sequence = role_camera.get("ring_sequence")
+            if isinstance(ring_sequence, int):
+                rgb_number = role_camera.get("rgb_frame_number")
+                depth_number = role_camera.get("depth_frame_number")
+                if not isinstance(rgb_number, int) or not isinstance(depth_number, int):
+                    errors.append(f"{label}: {role} ring sequence lacks frame numbers")
+                    raw_record = None
+                else:
+                    raw_key = (role, ring_sequence, rgb_number, depth_number)
+                    raw_record = raw_camera_index.get(raw_key)
+                if raw_record is None:
+                    errors.append(f"{label}: {role} ring sequence has no raw record")
+                else:
+                    for name in ("rgb", "depth_raw"):
+                        canonical_path = _inside_episode(
+                            episode_dir,
+                            role_images.get(name),
+                            f"{label}.{role}.{name}",
+                            errors,
+                        )
+                        raw_image = raw_record.get(name)
+                        if canonical_path is not None and raw_image is not None:
+                            try:
+                                if os.stat(canonical_path).st_ino != os.stat(raw_image).st_ino:
+                                    warnings.append(
+                                        f"{label}: {role}.{name} is a copied hard-link fallback"
+                                    )
+                            except OSError as exc:
+                                errors.append(f"{label}: cannot stat {role}.{name}: {exc}")
+
             for name, dtype, dimensions, channels in (
                 ("rgb", np.dtype(np.uint8), 3, 3),
                 ("depth_raw", np.dtype(np.uint16), 2, None),
@@ -618,11 +701,24 @@ def validate_episode(
         )
 
     valid = not errors
+    invalid_quality_slots = sum(
+        1
+        for row in quality_rows
+        if row.get("record_type") == "canonical_data_quality"
+        and row.get("metadata_only") is not False
+        and (
+            row.get("workspace_valid") is False
+            or row.get("wrist_valid") is False
+            or row.get("reason") in {"ring_reference_expired", "recorder_queue_full"}
+        )
+    )
     training_eligible = bool(
         valid
         and metadata.get("completion_status") == "completed"
         and metadata.get("success_label") in TRAINING_SUCCESS_LABELS
         and timing_gap_count == 0
+        and invalid_quality_slots == 0
+        and metadata.get("quality_state", "completed_valid") == "completed_valid"
         and len(rows) > 0
     )
     return {
@@ -647,6 +743,8 @@ def validate_episode(
                 f"{role}.{name}": list(shape)
                 for (role, name), shape in sorted(image_shapes.items())
             },
+            "metadata_only_slot_count": invalid_quality_slots,
+            "quality_row_count": len(quality_rows),
         },
     }
 

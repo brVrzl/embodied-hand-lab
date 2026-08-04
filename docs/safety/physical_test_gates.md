@@ -1,5 +1,11 @@
 # Physical test gates
 
+## 中文摘要
+
+真机验证按“离线/静态/回放 → 只读与无动作 → fake worker → 精确授权的有限真机门”
+单向推进。每个真机门都保留明确授权、停止方式、工作区、持续时间、输出限制、故障
+停止和清理证据；前一阶段证据不能替代后一阶段授权。
+
 Physical progress is monotonic and evidence-based:
 
 1. offline build/static/unit/replay validation;

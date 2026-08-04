@@ -156,6 +156,33 @@ category, environment conditions, hardware configuration, or a reviewed
 label annotation record. Those fields are **planned**, even though a caller
 could insert arbitrary extra keys today.
 
+Physical v2 episodes may also contain `raw/data_quality.jsonl`. A
+`canonical_data_quality` row represents a nominal canonical slot that was not
+eligible for canonical training data. It records `canonical_timestamp_ns`,
+`nominal_slot_index`, and, for each camera, `*_valid`, `*_age_ns`,
+`*_frame_sequence`, and `*_stale_reason`. Missing/stale images remain absent
+from `canonical/frames`; an old image is never relabelled with the new slot.
+Existing exporters continue to consume only valid contiguous canonical rows,
+so the v1/v2 NPY and hard-link layout is unchanged.
+
+Live ring-backed camera metadata also includes `ring_sequence`. A delayed
+writer either snapshots that exact sequence or emits a metadata-only quality
+row; it never substitutes a newer slot. `raw/data_quality.jsonl` is therefore
+the index of invalid/drop slots, while `canonical/samples.jsonl` contains only
+training-eligible image rows. Loaders and exporters reject episodes whose
+`quality_state` is not `completed_valid` by default.
+
+Counter meanings are intentionally layered: `recorder_drop_count` counts
+dropped recorder work items (queue-full or writer-expired),
+`queue_full_count` counts only failed `put_nowait` operations,
+`ring_overwrite_count` counts occupied-slot reuse at publish time, and
+`ring_reference_expired_count` counts failed consumer reads. Thus one stale
+reference can contribute to a recorder drop and a reference-expired count,
+but it is not counted as a camera acquisition drop. `workspace_drop_count` and
+`wrist_drop_count` count skipped published frames while latest-only draining;
+`canonical_missing_source_count` counts canonical ticks with at least one
+missing/invalid source. None of these counters is a robot safety fault.
+
 ## Canonical observation and action vectors
 
 ### Observation state

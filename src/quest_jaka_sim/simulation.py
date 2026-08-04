@@ -51,7 +51,6 @@ from .se3 import (
 
 DESIRED_MARKER_BODY = "quest_jaka_desired_tcp_marker"
 ACTUAL_MARKER_BODY = "quest_jaka_actual_tcp_marker"
-PHYSICAL_SEED_TWIN_PREFIX = "physical_seed_"
 PROJECT_DEFAULT_STARTUP_TIMING_GRACE_CYCLES = 25
 
 
@@ -774,46 +773,6 @@ def build_viewer_mjcf(
     return output
 
 
-def build_twin_viewer_mjcf(
-    base_path: str | Path,
-    output_path: str | Path,
-    *,
-    twin_offset_m: float,
-    scene: Mapping[str, Any] | None = None,
-) -> Path:
-    """Build one viewer model with a complete, non-colliding physical-seed twin."""
-
-    output = build_viewer_mjcf(base_path, output_path, scene=scene)
-    tree = ET.parse(output)
-    root = tree.getroot()
-    world = root.find("worldbody")
-    if world is None:
-        raise RuntimeError("MuJoCo model has no worldbody")
-    source = next(
-        (body for body in world.findall("body") if body.get("name") == "jaka_Link_0"),
-        None,
-    )
-    if source is None:
-        raise RuntimeError("MuJoCo model has no top-level jaka_Link_0 body")
-    twin = copy.deepcopy(source)
-    position = [float(value) for value in twin.get("pos", "0 0 0").split()]
-    if len(position) != 3:
-        raise RuntimeError("top-level JAKA body position must have three elements")
-    position[0] += float(twin_offset_m)
-    twin.set("pos", " ".join(f"{value:.12g}" for value in position))
-    for element in twin.iter():
-        name = element.get("name")
-        if name:
-            element.set("name", f"{PHYSICAL_SEED_TWIN_PREFIX}{name}")
-        if element.tag == "geom":
-            element.set("rgba", "1 0.35 0.05 0.72")
-            element.set("contype", "0")
-            element.set("conaffinity", "0")
-    world.append(twin)
-    tree.write(output, encoding="utf-8")
-    return output
-
-
 def _add_workspace_scene(world: ET.Element, scene: Mapping[str, Any]) -> None:
     workspace = load_yaml(scene["workspace_config_path"])
     table = workspace["tabletop"]
@@ -1352,7 +1311,12 @@ class SharedJakaTargetGenerator:
             # All candidate checks completed, but too late for this producer
             # cycle. It remains non-authoritative and the session publishes a
             # HOLD_REJECTED heartbeat instead of a late accepted destination.
-            reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+            # A current-state hard singularity is different: it is already a
+            # terminal safety condition, and must not be relabelled as a
+            # timing rejection merely because the diagnostic work crossed the
+            # producer deadline.
+            if not metrics.hard_stop_required:
+                reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
             self.ik.set_arm_joints_rad(ik_seed.tolist())
         if reason is FeasibilityReason.ACCEPTED:
             self.output_feasibility.commit(output_prediction)

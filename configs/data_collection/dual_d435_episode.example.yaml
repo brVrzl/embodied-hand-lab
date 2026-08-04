@@ -5,10 +5,27 @@ dataset:
   # a healthy 30 Hz frame about 75 ms behind the next slot; 100 ms keeps that
   # recorder snapshot usable while longer camera stalls still abort capture.
   camera_max_age_ms: 100.0
+  # A stale canonical slot is retained as an invalid quality row. Recording
+  # degrades only after roughly 0.5 s at 30 Hz and a severe/missing condition;
+  # these are initial host defaults, not robot safety thresholds.
+  camera_severe_stale_limit_ms: 500.0
+  camera_consecutive_stale_limit: 15
+  camera_missing_timeout_ms: 1000.0
+  quality_min_valid_ratio: 1.0
+  quality_max_invalid_run: 0
   # Recorder snapshot freshness only; robot heartbeat/watchdogs are separate.
   # Covers the measured 30.6 ms producer jitter without accepting a lost source.
   control_max_age_ms: 40.0
   hand_start_tolerance_rad: 0.05
+  camera_ring_capacity: 16
+  # Latest-only ring references: runtime clamps this to camera_ring_capacity
+  # so delayed references expire explicitly instead of being mislabelled.
+  recorder_queue_capacity: 16
+  recorder_overflow_policy: drop_newest
+  preview_max_fps: 10.0
+  writer_batch_size: 8
+  writer_flush_interval_s: 1.0
+  writer_shutdown_timeout_s: 5.0
 
 # Copy this example to a local ignored file and fill both serials from
 # `python tools/check_realsense_stream.py --list-devices`. Roles must never be

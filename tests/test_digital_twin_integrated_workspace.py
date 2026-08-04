@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import mujoco
 import numpy as np
-import pytest
 
 from digital_twin.io import load_structured
 
@@ -145,17 +143,6 @@ def test_generated_XML_regeneration_consistency(tmp_path: Path) -> None:
     assert generated_manifest["operational_robot_placement"]["yaw_deg"] == 180.0
     assert generated_manifest["sparse_debug_included"] is False
     assert generated_manifest["sparse_debug_collision"] is False
-
-
-def test_clean_scene_rendering_smoke() -> None:
-    if os.environ.get("MUJOCO_GL") not in {"egl", "osmesa"}:
-        pytest.skip("Headless MuJoCo rendering backend is not configured.")
-    model = _model(); data = mujoco.MjData(model); mujoco.mj_forward(model, data)
-    renderer = mujoco.Renderer(model, height=120, width=160)
-    renderer.update_scene(data, camera="digital_twin_validation_camera")
-    image = renderer.render(); renderer.close()
-    assert image.shape == (120, 160, 3)
-    assert np.isfinite(image).all()
 
 
 def test_future_object_layer_is_empty_and_extendable() -> None:

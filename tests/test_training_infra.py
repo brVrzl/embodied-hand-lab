@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -139,50 +138,3 @@ def test_help_and_check_do_not_require_eager_torch_import(
     assert report["context"]["world_size"] == 1
     assert report["status"] in {"ready", "unavailable"}
     assert "Traceback" not in check_result.stderr
-
-
-def test_optional_single_process_cpu_gloo_smoke(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _single_process_environment(monkeypatch)
-    if importlib.util.find_spec("torch") is None:
-        pytest.skip("PyTorch is not installed in this environment")
-
-    check_result = subprocess.run(
-        [sys.executable, str(SMOKE_TOOL), "--check"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if check_result.returncode != 0:
-        pytest.skip("Installed PyTorch has no usable distributed runtime")
-    capabilities = json.loads(check_result.stdout)
-    if not capabilities["gloo_available"]:
-        pytest.skip("Installed PyTorch has no Gloo backend")
-
-    output = tmp_path / "distributed-smoke.json"
-    smoke_result = subprocess.run(
-        [
-            sys.executable,
-            str(SMOKE_TOOL),
-            "--device",
-            "cpu",
-            "--backend",
-            "gloo",
-            "--sampler-size",
-            "8",
-            "--result-json",
-            str(output),
-        ],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=30,
-    )
-    assert smoke_result.returncode == 0, smoke_result.stderr
-    result = json.loads(output.read_text(encoding="utf-8"))
-    assert result["all_reduce"]["passed"]
-    assert result["sampler"]["disjoint"]
-    assert result["sampler"]["shards"] == {"0": list(range(8))}

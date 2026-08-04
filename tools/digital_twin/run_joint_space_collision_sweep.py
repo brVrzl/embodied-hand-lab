@@ -17,7 +17,6 @@ from typing import Any, Mapping, Sequence
 
 import mujoco
 import numpy as np
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -29,7 +28,6 @@ from digital_twin.collision_sweep import (  # noqa: E402
     PALM_BODY,
     PoseSample,
     actuator_ids,
-    angle_degrees,
     bounded_duration,
     canonical_pair,
     contact_rows,

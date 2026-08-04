@@ -1,5 +1,12 @@
 # System architecture
 
+## 中文摘要
+
+Quest 输入先经过边界校验、队列、释放后再按压的 clutch/reference 捕获、坐标映射与
+滤波、共享 continuation IK 和可行性检查，最后形成不可变 `AcceptedArmTarget`。MuJoCo
+和 JAKA 适配器只消费同一目标；物理适配器不得读取 MuJoCo `qpos`、重新映射、滤波或
+重新求 IK。
+
 ## Scope and authority
 
 This page describes the current Quest-to-JAKA/RH56 implementation. It is based
@@ -62,6 +69,36 @@ The Quest receiver runs independently from target generation so packet I/O
 does not perform IK. The Python producer owns the 60 Hz shared target pipeline.
 Physical JAKA output runs in a separate native process. PC-direct RH56 serial
 I/O uses its own worker so serial latency does not block the arm producer.
+
+## Episode capture topology
+
+```text
+Quest/control producer -> JAKA/RH56 command and lightweight state publication
+          |                     (never waits for camera or recorder)
+          +-> canonical sampler: latest causal state/reference, no source wait
+
+workspace D435 worker -> preallocated versioned RGB-D ring --+
+wrist D435 worker     -> preallocated versioned RGB-D ring --+-> async writer
+                                                        \-----> latest-only preview
+```
+
+Each camera ring has fixed slots. Queue and timeline entries contain frame
+metadata plus a ring sequence, not ndarrays. The writer and preview copy a slot
+only in their own threads and accept it only when version and sequence match
+before and after the copy. The canonical sampler records an invalid quality row
+when a causal frame is missing/stale; it never waits for the next frame.
+
+The writer queue is bounded and non-blocking for producers. Queue overflow,
+ring overwrite, preview lag, or an isolated stale frame is data loss with an
+explicit counter, not a robot fault. Persistent acquisition failure stops
+recording after configured evidence, while robot alarms, command-safety
+violations, control liveness loss, and hard timing faults keep their existing
+safety-stop authority. Final drain, validation, metadata fsync, and atomic
+rename occur during bounded outer cleanup.
+
+The combined teleoperation event log uses a separate bounded work queue;
+JSON encoding and file flush run on its worker. An event-log drop or error is
+reported as logging quality data and never enters the JAKA/RH56 stop path.
 
 ## Input, clutch, and frame contracts
 

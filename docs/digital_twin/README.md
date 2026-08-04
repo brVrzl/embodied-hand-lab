@@ -1,5 +1,11 @@
 # Integrated MuJoCo digital twin
 
+## 中文摘要
+
+数字孪生是离线工程场景，不是标定后的真实工作站，也不是机器人安全 authority。当前
+可维护内容是共享 JAKA/RH56 模型、参数化工作区、场景生成、渲染和碰撞表征；注册、
+相机外参、物理等价性和最终真机安全结论仍需单独证据。
+
 ## Status and scope
 
 The digital-twin subsystem is at **Integrated Workspace** maturity. It combines

@@ -10,7 +10,7 @@ from .episode import (
 )
 from .async_writer import AsyncEpisodeWriter
 from .timeline import CausalTimeline, SourceSelection, TimestampRegression
-from .validation import validate_episode
+from .validation import load_data_quality_rows, validate_episode
 from .manifest import build_dataset_manifest, compute_train_statistics
 from .inspection import inspect_episode
 
@@ -29,4 +29,5 @@ __all__ = [
     "compute_train_statistics",
     "inspect_episode",
     "validate_episode",
+    "load_data_quality_rows",
 ]

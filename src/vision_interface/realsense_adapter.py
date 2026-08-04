@@ -149,7 +149,7 @@ class RealSenseCamera(CameraInterface):
         rgb = np.asanyarray(color_frame.get_data()).copy()
         depth_m = (
             np.asanyarray(depth_frame.get_data()).astype(np.float32) * self.depth_scale
-        ).copy()
+        )
         if rgb.ndim != 3 or rgb.shape[2] != 3:
             raise RuntimeError(f"Unexpected RealSense RGB shape: {rgb.shape}.")
         if depth_m.ndim != 2:

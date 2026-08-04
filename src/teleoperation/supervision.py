@@ -6,7 +6,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from .contracts import (
-    HealthLevel,
     JointTarget,
     Pose3D,
     PoseTarget,

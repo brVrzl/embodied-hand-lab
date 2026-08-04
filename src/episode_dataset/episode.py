@@ -11,7 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import time
-from typing import Any, Callable, Mapping, Sequence, TextIO
+from typing import Any, Callable, Mapping, Sequence, TextIO, TypeAlias
 import uuid
 
 import numpy as np
@@ -137,6 +137,9 @@ class CameraSample:
     depth_timestamp_domain: str
     depth_aligned_to_rgb: np.ndarray | None = None
     depth_scale_m: float | None = None
+    # Assigned by CameraFrameRing and persisted for delayed-writer integrity
+    # checks.  None is used by offline/non-ring camera samples.
+    ring_sequence: int | None = None
 
     def __post_init__(self) -> None:
         if self.role not in {"workspace", "wrist"}:
@@ -155,13 +158,66 @@ class CameraSample:
             raise ValueError("depth_scale_m must be finite and positive")
 
 
+class CameraFrameUnavailable(RuntimeError):
+    """A bounded camera ring slot was overwritten before a consumer copied it."""
+
+    def __init__(self, message: str, *, role: str | None = None, sequence: int | None = None) -> None:
+        super().__init__(message)
+        self.role = role
+        self.sequence = sequence
+
+
+@dataclass(frozen=True, slots=True)
+class CameraFrameRef:
+    """Small immutable reference to an image held in a camera ring.
+
+    The reference contains no ndarray.  Consumers materialize a consistent
+    private snapshot in their own thread and may fail if the producer has
+    already overwritten the bounded slot.
+    """
+
+    role: str
+    host_monotonic_ns: int
+    sequence: int
+    device_rgb_timestamp_ms: float
+    device_depth_timestamp_ms: float
+    rgb_frame_number: int
+    depth_frame_number: int
+    rgb_timestamp_domain: str
+    depth_timestamp_domain: str
+    depth_scale_m: float | None
+    rgb_shape: tuple[int, ...]
+    depth_shape: tuple[int, ...]
+    rgb_dtype: str
+    depth_dtype: str
+    _reader: Callable[[int], CameraSample | None]
+
+    def snapshot(self) -> CameraSample:
+        sample = self._reader(self.sequence)
+        if sample is None:
+            raise CameraFrameUnavailable(
+                f"{self.role} camera ring sequence {self.sequence} was overwritten",
+                role=self.role,
+                sequence=self.sequence,
+            )
+        if sample.ring_sequence != self.sequence:
+            raise CameraFrameUnavailable(
+                f"{self.role} camera ring sequence changed from {self.sequence} "
+                f"to {sample.ring_sequence}", role=self.role, sequence=self.sequence
+            )
+        return sample
+
+
+CameraRecord: TypeAlias = CameraSample | CameraFrameRef
+
+
 @dataclass(frozen=True, slots=True)
 class StartPrerequisites:
     trigger_press_monotonic_ns: int
     reference_established: bool
     accepted: ControlSample
-    workspace: CameraSample
-    wrist: CameraSample
+    workspace: CameraRecord
+    wrist: CameraRecord
     maximum_start_delta_rad: float
     maximum_hand_start_delta_rad: float
 
@@ -217,8 +273,8 @@ class CanonicalSample:
     frame_index: int
     timestamp_ns: int
     control: ControlSample
-    workspace: CameraSample
-    wrist: CameraSample
+    workspace: CameraRecord
+    wrist: CameraRecord
     source_offsets_ns: Mapping[str, int]
     synchronization_valid: bool
     stale_sources: tuple[str, ...] = ()
@@ -263,12 +319,15 @@ class CanonicalEpisodeWriter:
         self._last_timestamp_ns: int | None = None
         self._trigger_press_ns: int | None = None
         self._total_missed_slots = 0
-        self._raw_camera_keys: set[tuple[str, int, int]] = set()
+        self._raw_camera_keys: set[tuple[str, int, int, int | None]] = set()
         self._raw_camera_paths: dict[
-            tuple[str, int, int], dict[str, Path | None]
+            tuple[str, int, int, int | None], dict[str, Path | None]
         ] = {}
+        self._hardlink_fallback_count = 0
         self._final_metadata_provider: Callable[[], Mapping[str, Any]] | None = None
         self._raw_handles: dict[str, TextIO] = {}
+        self._canonical_handle: TextIO | None = None
+        self._bytes_written = 0
 
     @property
     def sample_count(self) -> int:
@@ -277,6 +336,10 @@ class CanonicalEpisodeWriter:
     @property
     def start_monotonic_ns(self) -> int | None:
         return self._start_ns
+
+    @property
+    def bytes_written(self) -> int:
+        return self._bytes_written
 
     def set_final_metadata_provider(
         self, provider: Callable[[], Mapping[str, Any]]
@@ -356,12 +419,21 @@ class CanonicalEpisodeWriter:
                 "a", encoding="utf-8"
             )
             self._raw_handles[safe] = handle
-        handle.write(json.dumps(record, allow_nan=False, separators=(",", ":"), sort_keys=True) + "\n")
-        handle.flush()
+        line = json.dumps(record, allow_nan=False, separators=(",", ":"), sort_keys=True) + "\n"
+        handle.write(line)
+        self._bytes_written += len(line.encode("utf-8"))
 
     def append_raw_batch(self, records: Sequence[tuple[str, Mapping[str, Any]]]) -> None:
         for stream, record in records:
             self.append_raw(stream, record)
+
+    def flush_pending(self) -> None:
+        """Flush buffered JSONL text without issuing a storage barrier."""
+
+        for handle in self._raw_handles.values():
+            handle.flush()
+        if self._canonical_handle is not None:
+            self._canonical_handle.flush()
 
     def append_sample(self, sample: CanonicalSample) -> None:
         if not self._started or self._finalized:
@@ -384,35 +456,57 @@ class CanonicalEpisodeWriter:
         if nominal_slot < sample.frame_index:
             raise ValueError("nominal_slot_index cannot precede frame_index")
         paths: dict[str, dict[str, str | None]] = {}
-        for camera in (sample.workspace, sample.wrist):
+        materialized = tuple(_materialize_camera(camera) for camera in (sample.workspace, sample.wrist))
+        for camera in materialized:
             paths[camera.role] = self._write_camera_sample(camera, sample.frame_index)
         record = self._canonical_record(sample, paths)
         path = self.partial_dir / "canonical" / "samples.jsonl"
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, allow_nan=False, separators=(",", ":"), sort_keys=True) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        if self._canonical_handle is None:
+            self._canonical_handle = path.open("a", encoding="utf-8")
+        line = (
+            json.dumps(
+                record,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        self._canonical_handle.write(line)
+        self._bytes_written += len(line.encode("utf-8"))
         self._last_timestamp_ns = sample.timestamp_ns
         self._total_missed_slots += int(sample.missed_slots_after)
         self._sample_count += 1
 
-    def append_raw_camera(self, camera: CameraSample) -> None:
+    def append_raw_camera(self, camera: CameraRecord) -> None:
         if not self._started or self._finalized:
             raise RuntimeError("no active episode")
-        key = (camera.role, camera.rgb_frame_number, camera.depth_frame_number)
+        camera = _materialize_camera(camera)
+        key = (
+            camera.role,
+            camera.rgb_frame_number,
+            camera.depth_frame_number,
+            camera.ring_sequence,
+        )
         if key in self._raw_camera_keys:
             return
         self._raw_camera_keys.add(key)
-        stem = f"{camera.host_monotonic_ns}-{camera.rgb_frame_number}-{camera.depth_frame_number}.npy"
+        sequence_suffix = "" if camera.ring_sequence is None else f"-s{camera.ring_sequence}"
+        stem = (
+            f"{camera.host_monotonic_ns}-{camera.rgb_frame_number}-"
+            f"{camera.depth_frame_number}{sequence_suffix}.npy"
+        )
         base = self.partial_dir / "raw" / "cameras" / camera.role
         rgb_path = base / "rgb" / stem
         depth_path = base / "depth_raw" / stem
         np.save(rgb_path, camera.rgb, allow_pickle=False)
         np.save(depth_path, camera.depth_raw, allow_pickle=False)
+        self._bytes_written += camera.rgb.nbytes + camera.depth_raw.nbytes
         aligned_path = None
         if camera.depth_aligned_to_rgb is not None:
             aligned_path = base / "depth_aligned_to_rgb" / stem
             np.save(aligned_path, camera.depth_aligned_to_rgb, allow_pickle=False)
+            self._bytes_written += camera.depth_aligned_to_rgb.nbytes
         self._raw_camera_paths[key] = {
             "rgb": rgb_path,
             "depth_raw": depth_path,
@@ -428,6 +522,7 @@ class CanonicalEpisodeWriter:
                 "depth_timestamp_domain": camera.depth_timestamp_domain,
                 "rgb_frame_number": camera.rgb_frame_number,
                 "depth_frame_number": camera.depth_frame_number,
+                "ring_sequence": camera.ring_sequence,
                 "rgb": rgb_path.relative_to(self.partial_dir).as_posix(),
                 "depth_raw": depth_path.relative_to(self.partial_dir).as_posix(),
                 "depth_aligned_to_rgb": (
@@ -464,6 +559,7 @@ class CanonicalEpisodeWriter:
                 "duration_s": None if self._start_ns is None else (end_ns - self._start_ns) / 1e9,
                 "sample_count": self._sample_count,
                 "canonical_missed_slot_count": self._total_missed_slots,
+                "hardlink_fallback_count": self._hardlink_fallback_count,
                 "trigger_release_host_monotonic_ns": trigger_release_monotonic_ns,
                 "completion_status": status.value,
                 "termination_reason": termination_reason,
@@ -693,6 +789,7 @@ class CanonicalEpisodeWriter:
                     "depth_timestamp_domain": camera.depth_timestamp_domain,
                     "rgb_frame_number": camera.rgb_frame_number,
                     "depth_frame_number": camera.depth_frame_number,
+                    "ring_sequence": camera.ring_sequence,
                 }
                 for role, camera in (("workspace", sample.workspace), ("wrist", sample.wrist))
             },
@@ -701,10 +798,19 @@ class CanonicalEpisodeWriter:
     def _write_camera_sample(self, camera: CameraSample, index: int) -> dict[str, str | None]:
         stem = f"{index:06d}.npy"
         base = self.partial_dir / "canonical" / "frames" / camera.role
-        key = (camera.role, camera.rgb_frame_number, camera.depth_frame_number)
+        key = (
+            camera.role,
+            camera.rgb_frame_number,
+            camera.depth_frame_number,
+            camera.ring_sequence,
+        )
         raw_paths = self._raw_camera_paths.get(key)
         if raw_paths is None:
-            raise RuntimeError(f"canonical camera sample {key} was not retained in raw layer")
+            # Raw-camera publication is best effort under backpressure.  A
+            # canonical frame that did reach the writer still retains its
+            # source exactly once, then hard-links the public canonical view.
+            self.append_raw_camera(camera)
+            raw_paths = self._raw_camera_paths[key]
         linked: dict[str, Path | None] = {}
         for name in ("rgb", "depth_raw", "depth_aligned_to_rgb"):
             source = raw_paths[name]
@@ -712,7 +818,15 @@ class CanonicalEpisodeWriter:
                 linked[name] = None
                 continue
             destination = base / name / stem
-            os.link(source, destination)
+            try:
+                # Raw and canonical trees are normally on the same staging
+                # filesystem.  If that contract is not available (EXDEV,
+                # permissions, or a filesystem without hard links), copy in
+                # the writer thread and record the degradation explicitly.
+                os.link(source, destination)
+            except OSError:
+                shutil.copyfile(source, destination)
+                self._hardlink_fallback_count += 1
             linked[name] = destination
         return {
             name: None if path is None else path.relative_to(self.partial_dir).as_posix()
@@ -728,6 +842,9 @@ class CanonicalEpisodeWriter:
 
     def _close_raw_handles(self) -> None:
         handles, self._raw_handles = self._raw_handles, {}
+        if self._canonical_handle is not None:
+            handles["canonical_samples"] = self._canonical_handle
+            self._canonical_handle = None
         for handle in handles.values():
             try:
                 handle.flush()
@@ -742,6 +859,10 @@ class CanonicalEpisodeWriter:
             encoding="utf-8",
         )
         temporary.replace(path)
+
+
+def _materialize_camera(camera: CameraRecord) -> CameraSample:
+    return camera if isinstance(camera, CameraSample) else camera.snapshot()
 
 
 def file_sha256(path: str | Path) -> str:

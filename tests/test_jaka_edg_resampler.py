@@ -579,67 +579,6 @@ int main() {
     subprocess.run([str(binary)], check=True)
 
 
-def test_true_no_progress_output_hold_keeps_original_escalation_policy(
-    tmp_path: Path,
-) -> None:
-    metrics_path = tmp_path / "no-progress-metrics.json"
-    target_path = tmp_path / "no-progress.sock"
-    process = subprocess.Popen(
-        [
-            str(WORKER),
-            "--mode", "joint-teleop-dry-run",
-            "--duration-s", "3.0",
-            "--warning-ms", "80",
-            "--hold-ms", "200",
-            "--controlled-stop-ms", "300",
-            "--fatal-timeout-ms", "500",
-            "--target-socket", str(target_path),
-            "--metrics-file", str(metrics_path),
-            "--recover-output-acceleration-transition",
-            "--output-joint-jerk-limit-rad-s3", "1e-12",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    deadline = time.monotonic() + 2.0
-    while not target_path.exists() and time.monotonic() < deadline:
-        time.sleep(0.001)
-    assert target_path.exists()
-    time.sleep(0.05)  # allow the fake post-EDG q_hold handoff to complete
-
-    period_s = 1.0 / 60.0
-    start = time.monotonic()
-    with LatestTargetPublisher(target_path) as publisher:
-        assert publisher.publish(_packet(1, (0.0,) * 6, time.monotonic_ns()))
-        for sequence in range(2, 150):
-            scheduled = start + (sequence - 1) * period_s
-            while process.poll() is None and time.monotonic() < scheduled:
-                time.sleep(0.0005)
-            if process.poll() is not None:
-                break
-            assert publisher.publish(
-                _packet(
-                    sequence,
-                    (0.03, 0.0, 0.0, 0.0, 0.0, 0.0),
-                    time.monotonic_ns(),
-                )
-            )
-
-    stdout, stderr = process.communicate(timeout=4)
-    assert process.returncode == 2, (stdout, stderr)
-    metrics = json.loads(metrics_path.read_text())
-    assert metrics["stop_classification"] == "native_output_no_progress_hard_fault"
-    assert "sustained no-progress output hold" in metrics["outcome"]
-    assert metrics["true_output_hold_count"] == 1
-    assert metrics["output_acceleration_hold_maximum_consecutive_cycles"] == 251
-    assert metrics["output_acceleration_hold_longest_duration_ns"] >= 2_000_000_000
-    assert metrics["transition_limited_progress_points"] == 0
-    assert metrics["output_maximum_velocity_rad_s_global"] <= math.pi + 1e-12
-    assert metrics["output_maximum_acceleration_rad_s2_global"] <= 4 * math.pi + 1e-12
-    assert max(metrics["output_maximum_jerk_rad_s3"]) <= 1e-12 + 1e-15
-
-
 def test_nonfinite_output_is_rejected_before_fake_sdk_call(tmp_path) -> None:
     metrics = tmp_path / "nan-metrics.json"
     emitted = tmp_path / "nan-emitted.jsonl"

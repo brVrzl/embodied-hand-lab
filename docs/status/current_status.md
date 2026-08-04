@@ -1,5 +1,11 @@
 # Current status
 
+## 中文摘要
+
+当前主链路是 Quest 3 HTS/CTRL、左 Touch 控制器、共享 Quest/JAKA 目标管线、MuJoCo、
+JAKA Mini2 ServoJ/EDG 适配器和 PC-direct RH56 路径。默认测试与仿真不连接真机；真机
+状态必须按本页验证等级如实记录，不能把离线或回放结果写成物理 PASS。
+
 ## Executive state
 
 The primary current stack is Meta Quest 3 HTS/CTRL input, a left Touch
@@ -39,7 +45,7 @@ absolute target through the 8 ms latest-destination/PWL worker.
 | Integrated arm + RH56 simulation | Validated as a six-arm-actuator plus six-hand-actuator approximation |
 | Physical combined operation | One bounded 60.105 s PASS; no 300 s PASS |
 | TCP calibration | Not complete |
-| Dual-camera physical dataset capture | Integrated and offline tested; not physically validated end to end |
+| Dual-camera physical dataset capture | Versioned-ring/non-blocking recorder architecture offline tested; not physically validated end to end |
 | Policy training from physical episodes | Not validated |
 
 Offline, replay, and simulation results are not physical PASS evidence.
@@ -112,6 +118,16 @@ validated.
 The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
 physical PASS from accepted-target replay or fake-worker results.
+
+The dual-D435 episode path now publishes preallocated ring references through a
+bounded non-blocking recorder queue. Canonical camera staleness is retained as
+invalid data-quality metadata; isolated stale frames, preview lag, ring
+overwrite, and recorder backpressure no longer stop healthy teleoperation.
+Configured persistent acquisition failure stops recording separately from robot
+safety faults. This correction is covered by offline slow-writer, stale,
+overwrite, latest-preview, asynchronous-alignment, bounded-shutdown, and load
+tests. It has not been validated with two physical D435 cameras, Jetson Thor
+scheduling, or the target NVMe.
 
 ## RH56DFX status
 

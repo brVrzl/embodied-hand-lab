@@ -1,5 +1,12 @@
 # Shared target pipeline
 
+## 中文摘要
+
+`SmoothQuestJakaSession` 管理已验证输入和 clutch/reference 状态，
+`SharedJakaTargetGenerator` 负责连续 IK 与可行性检查；只有通过共享检查的候选才能
+成为不可变 `AcceptedArmTarget`。仿真和物理适配器在此边界前保持一致，物理侧不再做
+二次变换或隐藏式恢复。
+
 ## Acceptance is the adapter boundary
 
 `SmoothQuestJakaSession` consumes validated input, owns clutch/reference state,

@@ -79,8 +79,20 @@ dataset:
   root: data/episodes
   fps: 30
   camera_max_age_ms: 100.0
+  camera_severe_stale_limit_ms: 500.0
+  camera_consecutive_stale_limit: 15
+  camera_missing_timeout_ms: 1000.0
+  quality_min_valid_ratio: 1.0
+  quality_max_invalid_run: 0
   control_max_age_ms: 40.0
   hand_start_tolerance_rad: 0.05
+  camera_ring_capacity: 16
+  recorder_queue_capacity: 16
+  recorder_overflow_policy: drop_newest
+  preview_max_fps: 10.0
+  writer_batch_size: 8
+  writer_flush_interval_s: 1.0
+  writer_shutdown_timeout_s: 5.0
 
 cameras:
   workspace:
@@ -107,16 +119,32 @@ and must differ. Roles are never inferred from `/dev/video*` order.
 `--episode-root` overrides `dataset.root`; it is accepted only when
 `--episode-data-config` is also present.
 
-At 30 Hz, keep `camera_max_age_ms: 100.0`. Canonical rows causally select the
+At 30 Hz, `camera_max_age_ms: 100.0` is the initial data-quality limit. Canonical rows causally select the
 latest frame at or before the recorder timestamp, so this permits ordinary
 host receive jitter, including the measured ~83 ms producer stall. It never
-selects a future frame. A longer camera stall still aborts the episode, while
-raw frame numbers and device/host timestamps remain available for the summary.
+selects a future frame. A stale slot writes a `canonical_data_quality` row with
+`workspace_valid`/`wrist_valid`, source age, ring sequence, and a literal stale
+reason; it does not copy an old image under a new timestamp and does not stop
+robot control. Recording degrades only when the configured consecutive window
+also reaches the severe/missing criterion. The 500 ms, 15-slot, and 1000 ms
+values are conservative initial host settings for a 30 Hz stream, not robot
+safety thresholds; tune them only from measured acquisition evidence.
 
 `control_max_age_ms: 40.0` applies only to the recorder's causal snapshot
 selection. It covers the target-host producer's measured 30.6 ms scheduling
 jitter. It does not alter Quest/JAKA heartbeat freshness, native worker
 watchdogs, ServoJ timing, or any physical control safety threshold.
+
+The recorder uses a lossy latest-only ownership model: runtime clamps the
+bounded metadata queue to the camera ring capacity, and a reference that is
+overwritten is recorded as `metadata_only` with `reason=ring_reference_expired`.
+Queue overflow is `reason=recorder_queue_full`; neither event copies a later
+image. `workspace_drop_count`/`wrist_drop_count` count camera frames skipped by
+latest-only draining, while recorder counters count queue/write events.
+Episode metadata reports valid/invalid slot counts, longest invalid runs,
+writer/ring expiry counts, and a `quality_state` of `completed_valid`,
+`completed_degraded`, `aborted_recording`, `aborted_robot_safety`, or
+`partial_writer_failure`. Only the first state is training-eligible by default.
 
 `calibration.snapshot_files` should contain the exact versioned files needed to
 interpret this capture. The current writer resolves those paths from the
@@ -161,6 +189,12 @@ Check:
   resolution;
 - the two cameras do not share a serial and do not exceed USB bandwidth;
 - mounting and calibration versions match the intended experiment.
+
+The camera workers copy each frameset once into a preallocated 16-slot ring.
+Queue messages contain only immutable timestamps and ring sequences, never RGB
+or depth ndarrays. Odd/even slot versions and a second version check prevent a
+consumer from accepting a half-overwritten frame. A slow writer may lose an
+overwritten reference; that event is counted and does not backpressure capture.
 
 The example stores lossless RGB, raw depth, and aligned depth as NPY. At
 640×480×30 Hz with two cameras and aligned depth enabled, payload throughput is
@@ -231,11 +265,43 @@ cannot enter a training split or be exported.
 6. Review and label the semantic outcome with `dataset label`. Do not equate
    `completed` with task success.
 
-Closing the preview while recording, pressing Ctrl+C, camera disconnect,
-source staleness, timestamp regression, heartbeat loss, hard fault, queue
-overflow, or write failure ends the episode as `aborted` or `invalid`.
+Preview rendering uses the newest ring references at no more than
+`preview_max_fps`; it never consumes a historical FIFO. Resize, RGB conversion,
+depth colour mapping, and GUI calls run only on the preview thread. Preview
+drops are independent of recording drops.
+
+Recorder publication uses a bounded metadata/reference queue and
+`put_nowait`. `drop_newest` preserves already accepted writer work when full;
+the new item is counted and control continues. The writer drains up to
+`writer_batch_size` messages, retains open JSONL handles, flushes them at the
+configured interval, and performs final validation/fsync/rename only during
+bounded outer-session cleanup. It writes each raw image once and hard-links a
+canonical view, retaining the public NPY layout.
+
+Robot controller alarms, communication/liveness loss, RH56 explicit errors,
+command-safety violations, and real hard timing faults retain their existing
+stop/hold behavior. A camera stale slot, ring overwrite, preview drop, queue
+full, or transient write problem is a recording/data-quality event. A camera
+worker exit or persistent configured acquisition fault stops recording only;
+it does not issue a JAKA emergency stop. Pressing Ctrl+C or an actual
+robot/control fault still ends the outer session.
 Pre-recording rejection writes a `rejected-start-*.json` report and no episode
 directory.
+
+Episode validation/summary includes camera inter-frame and age distributions,
+stale/drop/ring counters, canonical compute time, recorder queue high-water and
+drop counts, writer batch/write/flush distributions and throughput, and
+preview drop/latency. Percentiles are computed from bounded samples outside the
+real-time path.
+
+For a future separately authorized device validation, stage evidence in this
+order: dual-D435 camera-only capture to confirm serials/USB topology; recording
+to the intended local NVMe with the robot disabled; MuJoCo plus both cameras;
+read-only robot/hand state plus cameras; then the repository's existing bounded
+physical teleoperation gate with operator stop access and unchanged safety
+limits. Compare camera intervals, control p99/max, queue high-water, ring
+overwrites, sustained bytes/s, and shutdown completeness at every stage. A
+camera-only or offline result is not a physical teleoperation PASS.
 
 ## Run one physical v2 episode
 

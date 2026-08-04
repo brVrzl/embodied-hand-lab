@@ -123,7 +123,7 @@ RH56 task's dirty files remain untouched in the separate integration checkout.
 ## 7. Manual test entry points
 
 The complete staged manual procedure is
-[`docs/validation/MANUAL_FUNCTIONAL_VALIDATION.md`](../validation/MANUAL_FUNCTIONAL_VALIDATION.md).
+[`docs/validation/MANUAL_FUNCTIONAL_VALIDATION.md`](../../docs/validation/MANUAL_FUNCTIONAL_VALIDATION.md).
 It provides exact Level 0 offline commands, Level 1 simulation sequence,
 Level 2 no-motion checks, and Levels 3–6 commands with the required
 `PHYSICAL MOTION — MANUAL AUTHORIZATION REQUIRED` marker. Physical task stages

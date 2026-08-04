@@ -12,8 +12,8 @@ import numpy as np
 
 from teleoperation.accepted_target import (
     AcceptedArmTarget,
-    AcceptedTcpPose,
     ArmControlHeartbeat,
+    AcceptedTcpPose,
 )
 from .production_resampler import (
     ProductionJointServoResampler,

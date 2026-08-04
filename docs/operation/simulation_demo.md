@@ -1,5 +1,11 @@
 # Quest/JAKA MuJoCo recording, replay, and 125 Hz simulation
 
+## 中文摘要
+
+这是推荐的首个操作流程：接收 Quest 网络输入并只驱动 MuJoCo，不导入、初始化、登录
+或控制 JAKA/RH56 真机 SDK。先使用 `--help`、回放和离线报告验证配置，再进行仿真；
+仿真结果不能表述为真机 PASS。
+
 This is the recommended first operational workflow. It receives Quest network
 input and drives only MuJoCo. It does not import, initialize, log in to, or
 command the JAKA or RH56 physical SDKs.

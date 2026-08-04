@@ -64,6 +64,13 @@ class EpisodeDataRuntime:
             role: AsyncRGBDCamera(
                 role,
                 lambda role=role: RealSenseCamera(resolved[role]),
+                queue_capacity=int(
+                    data_config.get("dataset", {}).get("camera_ring_capacity", 16)
+                ),
+                # RealSenseCamera copies the SDK buffers before returning an
+                # RGBDFrame.  Do not copy those full RGB-D arrays a second
+                # time on the capture thread.
+                copy_arrays=False,
             )
             for role in ("workspace", "wrist")
         }
@@ -95,10 +102,19 @@ class EpisodeDataRuntime:
             dataset = data_config.get("dataset", {})
             if not isinstance(dataset, dict):
                 raise ValueError("episode data config dataset must be a mapping")
+            overflow_policy = dataset.get("recorder_overflow_policy", "drop_newest")
+            if overflow_policy != "drop_newest":
+                raise ValueError("recorder_overflow_policy must be drop_newest")
             calibration = data_config.get("calibration", {})
             if not isinstance(calibration, dict):
                 raise ValueError("episode data config calibration must be a mapping")
             control_config_path = Path(control_config_path)
+            ring_capacity = int(dataset.get("camera_ring_capacity", 16))
+            requested_queue_capacity = int(dataset.get("recorder_queue_capacity", 64))
+            # Strategy D: references are intentionally lossy/latest-only.  Do
+            # not allow more queued references than a ring can retain; excess
+            # producer work is rejected explicitly as recorder backpressure.
+            effective_queue_capacity = min(requested_queue_capacity, ring_capacity)
             writer = AsyncEpisodeWriter(
                 CanonicalEpisodeWriter(
                     episode_root or dataset.get("root", "data/episodes"),
@@ -122,7 +138,12 @@ class EpisodeDataRuntime:
                         },
                         **dict(metadata),
                     },
-                )
+                ),
+                capacity=effective_queue_capacity,
+                batch_size=int(dataset.get("writer_batch_size", 8)),
+                flush_interval_s=float(dataset.get("writer_flush_interval_s", 1.0)),
+                shutdown_timeout_s=float(dataset.get("writer_shutdown_timeout_s", 5.0)),
+                require_frame_references=True,
             )
             collector = SingleEpisodeCollector(
                 writer,
@@ -136,12 +157,29 @@ class EpisodeDataRuntime:
                 maximum_hand_start_delta_rad=float(
                     dataset.get("hand_start_tolerance_rad", 0.05)
                 ),
+                defer_finalization=True,
+                camera_severe_stale_ns=round(
+                    float(dataset.get("camera_severe_stale_limit_ms", 500.0)) * 1e6
+                ),
+                camera_consecutive_stale_limit=int(
+                    dataset.get("camera_consecutive_stale_limit", 15)
+                ),
+                camera_missing_timeout_ns=round(
+                    float(dataset.get("camera_missing_timeout_ms", 1000.0)) * 1e6
+                ),
+                quality_min_valid_ratio=float(
+                    dataset.get("quality_min_valid_ratio", 1.0)
+                ),
+                quality_max_invalid_run=int(
+                    dataset.get("quality_max_invalid_run", 0)
+                ),
             )
             writer.set_final_metadata_provider(
                 lambda: {
                     "camera_profiles": {
                         role: workers[role].profile_metadata() for role in workers
-                    }
+                    },
+                    **collector.diagnostics(),
                 }
             )
             if preview_enabled:
@@ -156,6 +194,7 @@ class EpisodeDataRuntime:
                         hand_grip=False,
                         recording_frame_count=0,
                     ),
+                    refresh_hz=float(dataset.get("preview_max_fps", 10.0)),
                 )
                 preview.start()
                 collector.set_state_listener(preview.set_capture_state)
@@ -175,13 +214,15 @@ class EpisodeDataRuntime:
             raise
 
     def ingest_cameras(self) -> None:
+        if self.collector.state is CaptureState.DONE:
+            return
         for role, camera in self.cameras.items():
             if camera.error is not None:
                 self.collector.camera_fault(role, str(camera.error))
                 continue
-            frames = camera.frames_after(self.last_camera_timestamp_ns[role])
-            for frame in frames:
-                self.collector.ingest_camera(frame)
+            frame, skipped = camera.latest_after(self.last_camera_timestamp_ns[role])
+            if frame is not None:
+                self.collector.ingest_camera(frame, skipped_frames=skipped)
                 self.last_camera_timestamp_ns[role] = frame.host_monotonic_ns
 
     def update_preview(self, *, arm_trigger: bool, hand_grip: bool) -> None:

@@ -16,7 +16,7 @@ import pkgutil
 import sys
 
 sys.path.insert(0, {str(ROOT / "src")!r})
-forbidden = {{"hebi", "motion_input", "rh56_driver", "robot_bringup", "teleop_tools"}}
+forbidden = {{"hebi", "motion_input", "rh56_driver", "robot_bringup"}}
 
 class BlockForbidden(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):

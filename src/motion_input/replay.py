@@ -6,7 +6,7 @@ from enum import Enum
 import time
 from typing import Callable, Iterator
 
-from .model import DeviceDescriptor, MotionInputSample, Timestamp
+from .model import DeviceDescriptor, MotionInputSample
 from .provider import MotionInputProvider, ProviderState
 from .recording import MotionRecordingReader
 

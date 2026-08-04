@@ -19,7 +19,6 @@ from .simulation import (
     QuestJakaReplaySession,
     ReplayConfig,
     SharedJakaTargetGenerator,
-    build_twin_viewer_mjcf,
 )
 from .smooth_operator import Se3FilterProfile
 from .smooth_session import ArmControlTickResult, SmoothQuestJakaSession
@@ -52,7 +51,6 @@ __all__ = [
     "FeasibilityReason",
     "JakaMujocoSimulation",
     "SharedJakaTargetGenerator",
-    "build_twin_viewer_mjcf",
     "HandRetargetCalibration",
     "HandRetargeter",
     "InspireRetargetResult",

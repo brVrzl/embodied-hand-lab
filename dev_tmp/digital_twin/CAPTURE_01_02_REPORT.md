@@ -83,7 +83,7 @@ For 02 at the default 3 px association threshold:
 - square-length residual RMS: **3.23 mm**; maximum: **7.60 mm**;
 - scale-dispersion indicator: **0.01269 m/R-unit** (about 10% of the candidate).
 
-Sensitivity is not yet strong: a tighter 2.5 px association produces A3 0.129552 and A4 0.122257 m/R-unit, a 5.79% material disagreement. Thresholds of 1–2 px do not retain enough adjacent sparse-point pairs. The subsequent base-registration pass spatially separated both A4 instances and added CAD/base checks; see `BASE_REGISTRATION_REPORT.md` for the newer provisional scale and `T_P_R`. `T_B_R` remains null.
+Sensitivity is not yet strong: a tighter 2.5 px association produces A3 0.129552 and A4 0.122257 m/R-unit, a 5.79% material disagreement. Thresholds of 1–2 px do not retain enough adjacent sparse-point pairs. The subsequent base-registration pass spatially separated both A4 instances and added CAD/base checks; see `BASE_REGISTRATION_REPORT.md` in this directory for the newer provisional scale and `T_P_R`. `T_B_R` remains null.
 
 ## Reconstruction grouping decision
 
@@ -101,4 +101,4 @@ P is now formally defined at the fixed 110 mm mounting-PCD centre on the lowest 
 - `T_B_R`: unresolved derived transform, `T_B_R = T_B_P × T_P_R`.
 - Scale: a weak 02 candidate exists as above, but no transform field was silently populated.
 
-See `MEASUREMENT_REQUEST.md` and its P-frame sketch for the minimal remaining measurements.
+See `MEASUREMENT_REQUEST.md` in this directory and its P-frame sketch for the minimal remaining measurements.

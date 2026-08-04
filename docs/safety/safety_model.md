@@ -1,5 +1,11 @@
 # Safety model
 
+## 中文摘要
+
+输入失效、进程/IPC 超时、控制器故障、碰撞、限位、奇异性、输出速度/加速度/jerk 和
+清理失败属于不同故障类，必须按各自处置。候选不可行时保持新鲜 heartbeat 并保持最后
+安全目标；真正的活性或硬件故障停止物理输出。不要用宽泛异常捕获或自动重试掩盖故障。
+
 ## Fault classes
 
 | Class | Examples | Required behavior |

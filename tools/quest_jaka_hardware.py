@@ -19,6 +19,7 @@ import json
 import math
 import os
 from pathlib import Path
+import queue
 import resource
 import signal
 import subprocess
@@ -49,7 +50,11 @@ from teleoperation.output_feasibility import (
 )
 from embodiment_core.config import load_yaml
 from episode_dataset.collector import CaptureState
-from episode_dataset.episode import ControlSample, PHYSICAL_SCHEMA_VERSION
+from episode_dataset.episode import (
+    ControlSample,
+    EpisodeStatus,
+    PHYSICAL_SCHEMA_VERSION,
+)
 from episode_dataset.runtime import EpisodeDataRuntime
 from rh56_driver.pc_direct_control import (
     RH56PcDirectControl,
@@ -77,6 +82,56 @@ RECOVERABLE_CLUTCH_STAGES = frozenset((
     "combined-normal-teleop",
     "research-thin-bounded",
 ))
+
+
+class _AsyncEventLog:
+    """Bounded event-log sink; producer publication is strictly non-blocking."""
+
+    def __init__(self, path: Path, *, capacity: int = 256) -> None:
+        self.path = path
+        self._queue: queue.Queue[dict[str, object] | None] = queue.Queue(maxsize=capacity)
+        self._stop = threading.Event()
+        self.drop_count = 0
+        self.error_count = 0
+        self._file = None
+        self._thread = threading.Thread(target=self._run, name="teleop-event-log", daemon=True)
+
+    def __enter__(self) -> "_AsyncEventLog":
+        self._file = self.path.open("x", encoding="utf-8")
+        self._thread.start()
+        return self
+
+    def write(self, record: dict[str, object]) -> None:
+        try:
+            self._queue.put_nowait(dict(record))
+        except queue.Full:
+            self.drop_count += 1
+
+    def __exit__(self, *_: object) -> None:
+        try:
+            self._queue.put(None, timeout=1.0)
+        except queue.Full:
+            self.drop_count += self._queue.qsize()
+        self._thread.join(timeout=1.0)
+        if self._thread.is_alive():
+            self.error_count += 1
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def _run(self) -> None:
+        assert self._file is not None
+        while True:
+            record = self._queue.get()
+            try:
+                if record is None:
+                    return
+                self._file.write(json.dumps(record, sort_keys=True) + "\n")
+                self._file.flush()
+            except Exception:
+                self.error_count += 1
+            finally:
+                self._queue.task_done()
 
 
 def _timestamp_rate_hz(timestamps_ns: list[int]) -> float | None:
@@ -451,7 +506,11 @@ def _producer_timing_summary(
             return values[lower] * (1.0 - fraction) + values[upper] * fraction
 
         result[name] = {
+            "count": len(values),
             "mean": sum(values) / len(values),
+            "p50": percentile(50.0),
+            "p95": percentile(95.0),
+            "p99": percentile(99.0),
             "p99_9": percentile(99.9),
             "max": values[-1],
         }
@@ -1107,6 +1166,13 @@ def main() -> int:
         arm_commands_while_index_released = 0
         native_started = False
         episode_runtime: EpisodeDataRuntime | None = None
+        episode_capture_failed = False
+        episode_capture_abort_reason: str | None = None
+        episode_recorder_diagnostics: dict[str, object] | None = None
+        episode_camera_diagnostics: dict[str, object] | None = None
+        episode_quality_diagnostics: dict[str, object] | None = None
+        episode_preview_diagnostics: dict[str, object] | None = None
+        event_log_diagnostics: dict[str, int] = {"drop_count": 0, "error_count": 0}
         episode_record_next_ns: int | None = None
         episode_record_period_ns = 1_000_000_000 // 30
         event_log_next_ns: int | None = None
@@ -1191,7 +1257,7 @@ def main() -> int:
             with HtsRawRecordingWriter(
                 args.capture,
                 metadata={"stage": args.stage, "hardware_commands": live},
-            ) as capture, args.log.open("x", encoding="utf-8") as log:
+            ) as capture, _AsyncEventLog(args.log) as log:
                 receiver = QuestDatagramReceiverWorker(
                     bind=args.bind,
                     port=args.port,
@@ -1256,13 +1322,20 @@ def main() -> int:
                         now_ns = time.monotonic_ns()
                         if episode_runtime is not None:
                             episode_runtime.ingest_cameras()
-                            if episode_runtime.collector.state is CaptureState.DONE:
-                                abort_reason = "episode_capture_failure"
-                                stop_reason = abort_reason
-                                jaka_adapter.stop()
-                                if rh56_worker is not None:
-                                    rh56_worker.arm_terminal_stop(abort_reason)
-                                break
+                            collector = episode_runtime.collector
+                            if (
+                                collector.state is CaptureState.DONE
+                                and collector.completion_status is not EpisodeStatus.COMPLETED
+                                and not episode_capture_failed
+                            ):
+                                # A recorder fault ends only the episode.  Do
+                                # not stop a healthy teleop session or turn a
+                                # camera/write jitter into a robot fault.
+                                episode_capture_failed = True
+                                episode_capture_abort_reason = (
+                                    collector.termination_reason
+                                    or "episode_capture_failure"
+                                )
                         outer_tick_started_ns = time.perf_counter_ns()
                         poll_started_ns = time.perf_counter_ns()
                         router.poll(now_ns, session)
@@ -1470,6 +1543,9 @@ def main() -> int:
                         record_episode_sample = (
                             episode_runtime is not None
                             and status is not None
+                            and not episode_capture_failed
+                            and episode_runtime.collector.state
+                            is not CaptureState.DONE
                             and (
                                 episode_record_next_ns is None
                                 or now_ns >= episode_record_next_ns
@@ -1605,11 +1681,12 @@ def main() -> int:
                         serialize_ns = 0
                         write_ns = 0
                         if event_log_due:
-                            serialize_started_ns = time.perf_counter_ns()
-                            serialized_event = json.dumps(event, sort_keys=True) + "\n"
-                            serialize_ns = time.perf_counter_ns() - serialize_started_ns
+                            log_record = dict(event)
+                            # JSON encoding and filesystem writes run in the
+                            # bounded event-log worker, outside control.
+                            serialize_ns = 0
                             write_started_ns = time.perf_counter_ns()
-                            log.write(serialized_event)
+                            log.write(log_record)
                             write_ns = time.perf_counter_ns() - write_started_ns
                             if episode_runtime is not None:
                                 event_log_next_ns = now_ns + episode_record_period_ns
@@ -1647,6 +1724,10 @@ def main() -> int:
                         )
                     )
                     receiver.close()
+            event_log_diagnostics = {
+                "drop_count": log.drop_count,
+                "error_count": log.error_count,
+            }
         except KeyboardInterrupt:
             stop_reason = "operator_keyboard_stop"
             jaka_adapter.stop()
@@ -1700,6 +1781,26 @@ def main() -> int:
                     episode_runtime.collector.shutdown(
                         abort_reason or stop_reason
                     )
+                # Hardware/control cleanup is complete before this bounded
+                # recorder drain.  Deferred finalization must run for both a
+                # normal trigger release and a recorder-only fault; otherwise
+                # the writer would leave an unclassified .partial episode.
+                episode_runtime.collector.finalize_pending()
+                episode_recorder_diagnostics = (
+                    episode_runtime.collector.writer.diagnostics()
+                )
+                episode_camera_diagnostics = {
+                    role: camera.profile_metadata()
+                    for role, camera in episode_runtime.cameras.items()
+                }
+                episode_quality_diagnostics = (
+                    episode_runtime.collector.diagnostics()
+                )
+                episode_preview_diagnostics = (
+                    None
+                    if episode_runtime.preview is None
+                    else episode_runtime.preview.diagnostics()
+                )
                 print(
                     f"EPISODE_RESULT={episode_runtime.collector.result}",
                     flush=True,
@@ -1887,6 +1988,13 @@ def main() -> int:
         "arm_transport_packets_dropped": runtime.publisher.dropped,
         "stop_reason": stop_reason,
         "abort_reason": abort_reason,
+        "episode_capture_failed": episode_capture_failed,
+        "episode_capture_abort_reason": episode_capture_abort_reason,
+        "episode_recorder_diagnostics": episode_recorder_diagnostics,
+        "episode_camera_diagnostics": episode_camera_diagnostics,
+        "episode_quality_diagnostics": episode_quality_diagnostics,
+        "episode_preview_diagnostics": episode_preview_diagnostics,
+        "event_log_diagnostics": event_log_diagnostics,
         "transport_symptom_reason": transport_symptom_reason,
         "arm_clutch_pause_count": arm_clutch_pause_count,
         "rh56_commands": (
@@ -1947,7 +2055,12 @@ def main() -> int:
         ),
         "combined_episode_valid": (
             args.stage != "combined-normal-teleop"
-            or (abort_reason is None and rh56_control is not None and rh56_control.fault_reason is None)
+            or (
+                abort_reason is None
+                and not episode_capture_failed
+                and rh56_control is not None
+                and rh56_control.fault_reason is None
+            )
         ),
         "maximum_quest_displacement_m": maximum_quest_displacement_m,
         "minimum_continuation_fraction": minimum_continuation_fraction,
@@ -1994,8 +2107,24 @@ def main() -> int:
         "e2_failures": e2_failures,
         "e2_pass": args.stage == "e2-isolated" and not e2_failures,
     }
+    outer_timing = summary["producer_timing_ms"].get("complete_outer_tick", {})
+    summary["control_loop_duration_ns"] = {
+        key: (
+            int(round(float(value) * 1e6))
+            if key in {"p50", "p95", "p99", "max"}
+            else value
+        )
+        for key, value in outer_timing.items()
+        if key in {"count", "p50", "p95", "p99", "max"}
+    }
+    summary["control_deadline_miss_count"] = int(
+        metrics.get("deadline_miss_count", 0)
+    )
+    summary["control_hard_miss_count"] = int(metrics.get("hard_timing_misses", 0))
     args.summary.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2, sort_keys=True))
+    if episode_capture_failed:
+        return 2
     return 2 if abort_reason is not None or e2_failures else 0
 
 

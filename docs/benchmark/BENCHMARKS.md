@@ -1,6 +1,43 @@
 # Offline benchmark harness
 
-## Supported scope
+## RGB-D recording backpressure benchmark
+
+The pure-software episode pipeline benchmark allocates two 640×480 RGB arrays
+and two 640×480 uint16 depth arrays, publishes them through the real versioned
+ring implementation at a virtual 30 Hz canonical cadence, and uses a bounded
+metadata queue. It compares a normal writer with a writer that pauses 50–150 ms
+every 30 samples, while preview consumes only at 7.5 Hz. No camera or actuator
+API is opened.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/benchmark_episode_pipeline.py --samples 3000
+```
+
+The JSON result reports count/p50/p95/p99/max for control publication,
+canonical enqueue, wrist age, writer work, and preview latency, plus ring and
+queue drops/high-watermark, throughput, bounded shutdown, global blocking, and
+episode abort. This is an accelerated scheduling/memory/backpressure stress;
+USB topology, Jetson scheduling, RealSense firmware behavior, and NVMe sustained
+performance still require a separately authorized device validation.
+
+For a wall-clock paced run (30 Hz publication, latest-only preview, configurable
+duration), use for example:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/benchmark_episode_pipeline.py --paced-seconds 120
+```
+
+This adds normal, 50 ms, 100 ms, and 150 ms writer-stall scenarios with seeded
+jitter and reports expected/published/valid/invalid frames, validity ratio,
+longest invalid run, queue/ring occupancy, process RSS, shutdown time, bytes/s,
+and the same latency percentiles. It remains a software replay benchmark, not
+a D435, USB-root-hub, Jetson Thor scheduler, or NVMe validation.
+
+## MuJoCo smoke benchmark
+
+### Supported scope
 
 The repository currently provides one engineering smoke benchmark:
 `mujoco_joint_reach_preshape_smoke`.

@@ -1,5 +1,8 @@
 # Documentation index
 
+中文导航：[中文文档索引](zh/README.md)。命令、路径和安全规则以当前英文权威页为准，
+中文索引用于快速定位和双语补充。
+
 This index separates current authority from dated evidence. Read
 [current status](status/current_status.md) before interpreting an old report
 or planning physical work. Files under `history/` record what happened at a
@@ -13,11 +16,7 @@ operator pages.
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Command reference](reference/command_reference.md)
 - [Current validation matrix](status/validation_matrix.md)
-- [Final repository review](maintenance/FINAL_REPOSITORY_REVIEW.md)
-
-The final review is created by the 2026-07-31 overhaul and records the exact
-environment and commands used. A missing page during an in-progress source
-transfer is not a substitute for its eventual evidence.
+- [Maintenance policy](maintenance/README.md)
 
 ## Architecture and safety
 
@@ -66,6 +65,10 @@ The repository provides data validation/export boundaries and a distributed
 communication smoke test. It does not currently ship a maintained ACT,
 Diffusion Policy, or OpenPI trainer.
 
+Working reports and dated development records are kept outside the current
+documentation set in [`../dev_tmp/`](../dev_tmp/). They are evidence only and
+never override the current status or safety pages.
+
 ## Development and reference
 
 - [Build](development/build.md)
@@ -113,3 +116,6 @@ architecture, safety, and maintenance pages above.
 请先阅读[当前状态](status/current_status.md)、[安装](setup/INSTALLATION.md)和
 [真机安全](safety/REAL_HARDWARE_SAFETY.md)。`history/` 中的文件只保存当时证据，
 不覆盖当前代码和操作说明。测试、回放、仿真、`doctor` 与 `--help` 均不构成真机授权。
+
+开发过程报告和带日期记录统一放在仓库根目录的 [`dev_tmp/`](../dev_tmp/)；它们只是证据，
+不能覆盖当前状态页和安全页。

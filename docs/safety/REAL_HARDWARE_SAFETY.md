@@ -1,5 +1,11 @@
 # Real hardware safety
 
+## 中文摘要
+
+维护、源码审查、测试、`--help`、仿真、回放和 fake worker 都不构成真机授权。任何
+真机操作都必须经过当前会话的精确物理门、操作员急停可达、工作区检查、有限时长和
+清理流程；碰撞、报警、急停、看门狗、SDK、时序或活性故障必须立即停止。
+
 ## Authorization boundary
 
 Repository maintenance, source review, tests, `--help`, simulation, replay, and

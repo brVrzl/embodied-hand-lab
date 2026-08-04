@@ -37,7 +37,7 @@ earlier safety, calibration, or data-quality dependency.
 
 1. Preserve the transferred directory as a source bundle before editing it.
 2. Run the installation and validation commands from
-   `docs/maintenance/FINAL_REPOSITORY_REVIEW.md`.
+   `dev_tmp/maintenance/FINAL_REPOSITORY_REVIEW.md`.
 3. Save `embodied-lab doctor --json` output.
 4. On Linux, build the native JAKA resampler/worker targets without connecting
    to a controller.

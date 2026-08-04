@@ -9,7 +9,7 @@ Git-backed second-round integration on 2026-07-31. Its original macOS counts
 and limitations remain historical evidence; the authoritative current results,
 including Linux/aarch64 validation and the repaired regressions, are in the
 second-round appendix at the end of this file and in
-`INTEGRATION_VALIDATION_REPORT.md`.
+`INTEGRATION_VALIDATION_REPORT.md` in this directory.
 
 ## 1. Executive summary
 
@@ -648,4 +648,4 @@ The second-round Linux distributed checks passed CPU/Gloo one- and two-process
 `torchrun` (including parent reaping) and one-GPU NCCL. No multi-GPU,
 multi-node, Slurm, ACT/Diffusion/OpenPI training, physical hardware, or
 Jetson policy inference was claimed. See
-`docs/maintenance/INTEGRATION_VALIDATION_REPORT.md` for the complete matrix.
+`dev_tmp/maintenance/INTEGRATION_VALIDATION_REPORT.md` for the complete matrix.

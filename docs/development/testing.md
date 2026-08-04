@@ -1,5 +1,11 @@
 # Testing
 
+## 中文摘要
+
+默认 pytest 套件只做离线验证，硬件访问被隔离在专门的 CLI 门和 fake/static 合约测试
+之外。长期测试应保护稳定的功能、安全行为或真实回归；一次性探针、环境可选 smoke、
+私有 helper 测试和对调度抖动敏感的单次实验不应长期保留。
+
 ## Suite policy
 
 The default pytest suite is offline. Hardware access is kept outside collection

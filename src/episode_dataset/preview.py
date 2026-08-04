@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections import deque
 import threading
 import time
 from types import ModuleType
@@ -9,7 +10,7 @@ import numpy as np
 
 from .camera import AsyncRGBDCamera
 from .collector import CaptureState
-from .episode import CameraSample
+from .episode import CameraFrameUnavailable, CameraSample
 
 
 _CV2: ModuleType | None = None
@@ -48,6 +49,9 @@ class DualCameraPreview:
         self.cv2 = require_preview_dependencies()
         self.window_name = window_name
         self._opened = False
+        self.drop_count = 0
+        self.last_sequences: dict[str, int] = {}
+        self.last_latency_ns = 0
 
     def render(
         self,
@@ -55,10 +59,26 @@ class DualCameraPreview:
         wrist: AsyncRGBDCamera,
         status: PreviewStatus,
     ) -> bool:
-        workspace_frame = workspace.latest()
-        wrist_frame = wrist.latest()
-        if workspace_frame is None or wrist_frame is None:
+        workspace_ref = workspace.latest()
+        wrist_ref = wrist.latest()
+        if workspace_ref is None or wrist_ref is None:
             return True
+        try:
+            workspace_frame = workspace_ref.snapshot()
+            wrist_frame = wrist_ref.snapshot()
+        except CameraFrameUnavailable:
+            self.drop_count += 1
+            return True
+        for role, reference in (("workspace", workspace_ref), ("wrist", wrist_ref)):
+            previous = self.last_sequences.get(role)
+            if previous is not None and reference.sequence > previous + 1:
+                self.drop_count += reference.sequence - previous - 1
+            self.last_sequences[role] = reference.sequence
+        self.last_latency_ns = max(
+            0,
+            time.monotonic_ns()
+            - min(workspace_ref.host_monotonic_ns, wrist_ref.host_monotonic_ns),
+        )
         panel = np.vstack(
             [
                 np.hstack(
@@ -132,11 +152,15 @@ class AsyncDualCameraPreview:
         self.workspace = workspace
         self.wrist = wrist
         self.refresh_hz = float(refresh_hz)
+        if self.refresh_hz <= 0:
+            raise ValueError("preview refresh rate must be positive")
         self._status = initial_status
         self._status_lock = threading.Lock()
         self._stop = threading.Event()
         self._closed = threading.Event()
         self._error: BaseException | None = None
+        self._drop_count = 0
+        self._latencies_ns: deque[int] = deque(maxlen=4096)
         self._thread = threading.Thread(target=self._run, name="episode-preview", daemon=True)
 
     def start(self) -> None:
@@ -163,6 +187,14 @@ class AsyncDualCameraPreview:
         self._stop.set()
         self._thread.join(timeout=2.0)
 
+    def diagnostics(self) -> dict[str, object]:
+        values = sorted(self._latencies_ns)
+        return {
+            "preview_drop_count": self._drop_count,
+            "preview_latency_ns": _summary(values),
+            "thread_alive": self._thread.is_alive(),
+        }
+
     def _run(self) -> None:
         renderer = DualCameraPreview()
         try:
@@ -172,6 +204,9 @@ class AsyncDualCameraPreview:
                 if not renderer.render(self.workspace, self.wrist, status):
                     self._closed.set()
                     return
+                self._drop_count = renderer.drop_count
+                if renderer.last_latency_ns:
+                    self._latencies_ns.append(renderer.last_latency_ns)
                 self._stop.wait(max(1.0 / self.refresh_hz, 0.001))
         except BaseException as exc:
             self._error = exc
@@ -229,3 +264,16 @@ def _label(panel: np.ndarray, label: str) -> np.ndarray:
         cv2.LINE_AA,
     )
     return result
+
+
+def _summary(values: list[int]) -> dict[str, int]:
+    if not values:
+        return {"count": 0, "p50": 0, "p95": 0, "p99": 0, "max": 0}
+    last = len(values) - 1
+    return {
+        "count": len(values),
+        "p50": values[round(last * 0.50)],
+        "p95": values[round(last * 0.95)],
+        "p99": values[round(last * 0.99)],
+        "max": values[-1],
+    }

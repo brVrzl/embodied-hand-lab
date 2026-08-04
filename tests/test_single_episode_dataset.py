@@ -29,7 +29,7 @@ from episode_dataset.exporters import (
 from episode_dataset.manifest import build_dataset_manifest, compute_train_statistics
 from episode_dataset.inspection import inspect_episode, write_inspection_plot
 from episode_dataset.timeline import CanonicalClock, CausalTimeline, TimestampRegression
-from episode_dataset.validation import validate_episode
+from episode_dataset.validation import load_data_quality_rows, validate_episode
 from vision_interface.realsense_adapter import choose_closest_profile
 
 
@@ -560,6 +560,67 @@ def test_deep_validator_rejects_corrupt_camera_array(tmp_path: Path) -> None:
     )
 
 
+def test_hardlink_failure_uses_writer_thread_fallback_and_remains_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_link(*_args: object, **_kwargs: object) -> None:
+        raise OSError("EXDEV: synthetic cross-device link")
+
+    monkeypatch.setattr("episode_dataset.episode.os.link", fail_link)
+    episode = _complete_one_sample_episode(tmp_path, 2_410_000_000)
+    metadata = json.loads((episode / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["hardlink_fallback_count"] >= 4
+    report = validate_episode(episode)
+    assert report["valid"]
+    assert report["training_eligible"] is False
+
+
+def test_metadata_only_quality_slot_round_trips_without_an_image_row(tmp_path: Path) -> None:
+    writer = CanonicalEpisodeWriter(tmp_path, task_name="quality", operator="tester")
+    collector = SingleEpisodeCollector(
+        writer,
+        camera_max_age_ns=20_000_000,
+        camera_severe_stale_ns=1_000_000_000,
+        camera_consecutive_stale_limit=100,
+        camera_missing_timeout_ns=2_000_000_000,
+        control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+    base = 2_415_000_000
+    collector.ingest_camera(_camera("workspace", base, 1))
+    collector.ingest_camera(_camera("wrist", base, 1))
+    collector.ingest_control(_control(base, trigger=True), reference_established=True)
+    # One stale wrist slot is retained as metadata-only; it is not put into
+    # canonical/samples.jsonl and cannot be mistaken for a valid image.
+    collector.ingest_control(
+        _control(base + 34_000_000, trigger=True), reference_established=True
+    )
+    collector.ingest_camera(_camera("workspace", base + 34_000_000, 2))
+    collector.ingest_camera(_camera("wrist", base + 34_000_000, 2))
+    collector.ingest_control(
+        _control(base + 67_000_000, trigger=False), reference_established=True
+    )
+    assert collector.result is not None
+    quality, errors = load_data_quality_rows(collector.result)
+    assert errors == []
+    assert any(row.get("metadata_only") for row in quality)
+    assert len(load_data_quality_rows(collector.result)[0]) >= 1
+    assert not any(
+        row.get("timing", {}).get("nominal_slot_index") == 1
+        for row in json.loads(
+            "[" + ",".join(
+                (collector.result / "canonical/samples.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+            ) + "]"
+        )
+    )
+    report = validate_episode(collector.result)
+    assert report["valid"]
+    assert report["training_eligible"] is False
+
+
 def test_manifest_excludes_every_duplicate_uuid_occurrence(tmp_path: Path) -> None:
     episode = _complete_one_sample_episode(tmp_path, 2_425_000_000)
     _set_success_label(episode, "success")
@@ -783,7 +844,7 @@ def test_collector_shutdown_closes_idle_and_rejects_arming_writer(
         )
 
 
-def test_camera_staleness_aborts_instead_of_copying_old_frame(tmp_path: Path) -> None:
+def test_camera_staleness_marks_invalid_without_copying_old_frame(tmp_path: Path) -> None:
     collector = _collector(tmp_path)
     base = 3_000_000_000
     collector.ingest_camera(_camera("workspace", base, 1))
@@ -793,10 +854,16 @@ def test_camera_staleness_aborts_instead_of_copying_old_frame(tmp_path: Path) ->
     collector.ingest_control(_control(base + 34_000_000, trigger=True), reference_established=True)
     collector.ingest_control(_control(base + 51_000_000, trigger=True), reference_established=True)
     collector.ingest_control(_control(base + 67_000_000, trigger=True), reference_established=True)
-    assert collector.state is CaptureState.DONE
-    metadata = json.loads((collector.result / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["completion_status"] == "aborted"
-    assert metadata["termination_reason"].startswith("stale_or_missing_source")
+    assert collector.state is CaptureState.REC
+    collector.writer.flush_pending()
+    quality = (
+        collector.writer.partial_dir / "raw" / "data_quality.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    row = json.loads(quality[-1])
+    assert row["workspace_valid"] is False
+    assert row["wrist_valid"] is False
+    assert row["wrist_age_ns"] == 66_666_666
+    assert row["wrist_stale_reason"] == "source_sample_stale"
 
 
 def test_default_recorder_control_age_accepts_observed_producer_jitter(
