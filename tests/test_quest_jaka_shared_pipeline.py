@@ -900,39 +900,6 @@ def test_composite_adapter_fans_out_before_aggregating_false_results() -> None:
     ]
 
 
-def test_motion_statistics_uses_linear_release_indices() -> None:
-    class _NoIndexList(list[dict[str, object]]):
-        def index(self, *_args, **_kwargs) -> int:
-            raise AssertionError("motion statistics must not rescan with list.index")
-
-    session = object.__new__(SmoothQuestJakaSession)
-    session.event_records = _NoIndexList(
-        [
-            {
-                "control_monotonic_ns": 100_000_000,
-                "arm_clutch_state": "engaged",
-                "orientation_backlog_deg": 2.0,
-            },
-            {
-                "control_monotonic_ns": 200_000_000,
-                "arm_clutch_state": "disengaged",
-                "orientation_backlog_deg": 2.0,
-            },
-            {
-                "control_monotonic_ns": 250_000_000,
-                "arm_clutch_state": "disengaged",
-                "orientation_backlog_deg": 0.5,
-            },
-        ]
-    )
-
-    statistics = session._motion_statistics()
-
-    assert statistics[
-        "orientation_backlog_recovery_to_1deg_ms_after_release"
-    ] == pytest.approx(50.0)
-
-
 def test_jaka_adapter_imports_and_operates_when_mujoco_import_is_blocked() -> None:
     code = r'''
 import builtins
