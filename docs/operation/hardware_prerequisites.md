@@ -57,7 +57,7 @@ identify payload, calibrate TCP, or change controller settings.
 4. 在控制器端确认状态、power/enable、急停、报警、碰撞状态、payload、安装方向、TCP
    和安全限制。
 5. 确认操作者理解位移/旋转范围、clutch、停止条件和 abort 流程。
-6. 只执行 read-only 和 no-motion 阶段，然后才考虑实际运动。，然后才考虑运动。
+6. 只执行 read-only 和 no-motion 阶段，然后才考虑实际运动。
 
 最近证据中的操作者记录值：
 

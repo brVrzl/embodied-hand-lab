@@ -9,8 +9,9 @@ Run commands from the repository root unless a linked guide says otherwise.
   2026-07-31 maintenance host without opening hardware.
 - **Repository recipe**: current source/build command, but not re-executed as
   part of this documentation-only check.
-- **Physical template — not executed**: requires a new, exact authorization
-  and all listed operator gates in the session where it is run.
+- **Physical template — not executed**: requires an operator-initiated run,
+  explicit device selection, and all listed runtime safety gates in the
+  session where it is run.
 
 ## Install and validate
 
@@ -116,9 +117,10 @@ These commands were **Help verified**:
 Do not remove `--help` or append device arguments merely to validate
 documentation. Any JAKA connection, enable, servo/EDG, or motion requires its
 separate physical gate. RH56 hand-only debugging is dry-run unless the
-operator explicitly supplies `--real --device ... --arm-session`; see the
+operator explicitly supplies `--real --device ...` and an operation mode; see the
 [RH56 session-debug entry](../operation/rh56_session_debug.md). Configuration
-writes, fault reset, and force calibration keep their separate approvals;
+writes, fault reset, and force calibration keep their separate operation modes
+and configuration/physical confirmations;
 combined JAKA/RH56 operation uses its complete explicit real-device command.
 See [real-hardware safety](../safety/REAL_HARDWARE_SAFETY.md),
 [RH56 operation](../operation/rh56_operation.md), and
@@ -169,7 +171,6 @@ timing faults, and actual liveness loss remain terminal.
   --robot-ip 192.168.71.50 \
   --edg-state-ip 192.168.71.19 \
   --duration-sec 30 \
-  --approval I_AUTHORIZE_ONE_POST_PAYLOAD_TELEOP_RERUN \
   --estop-accessible \
   --workspace-clear \
   --rh56-command-path-absent

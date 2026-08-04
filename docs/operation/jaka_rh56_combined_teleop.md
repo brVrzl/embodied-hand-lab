@@ -98,8 +98,8 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
   --log-dir logs
 ```
 
-Executing this complete real-device command is the operator authorization for
-the current process. The operator must still verify current IP addresses,
+Executing this complete real-device command starts an operator-initiated,
+bounded run for the current process. The operator must still verify current IP addresses,
 payload/TCP/installation status, controller safety state, E-stop, workspace,
 and the completed RH56 hand evidence before executing it. The wrapper
 also requires an explicitly verified native control CPU. CPU 6 is the measured

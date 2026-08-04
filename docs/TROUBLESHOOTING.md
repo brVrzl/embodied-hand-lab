@@ -311,8 +311,8 @@ compatibility must be revalidated.
 
 ## JAKA connection or command gate fails
 
-Inspect only help until a physical session explicitly authorizes a specific
-stage:
+Inspect only help until the operator has selected a specific stage and checked
+its runtime safety prerequisites:
 
 ```bash
 .venv/bin/python tools/quest_jaka_hardware.py --help
@@ -372,8 +372,8 @@ The preflight mode does not open serial:
   --preflight-only
 ```
 
-Serial-open read-only and command modes require their applicable in-process
-session arm or dedicated maintenance approval, plus the staged procedure in
+Serial-open read-only and command modes require their applicable explicit
+operation mode and runtime safety prerequisites, plus the staged procedure in
 [RH56 operation](operation/rh56_operation.md).
 
 ## RH56 timeout, checksum, protocol, or feedback fault
@@ -521,7 +521,7 @@ workers, bounded queues, and delayed/offline visualization.
 Do not enable swap as a substitute for meeting real-time latency, and do not
 assume TensorRT conversion is lossless or supported. Compare fixed replay
 outputs before/after export, measure peak memory and end-to-end latency, and
-only then consider a separately authorized hardware gate. The current
+only then consider a separately scheduled and operator-initiated hardware gate. The current
 repository has no validated Thor inference deployment.
 
 ## When to stop troubleshooting
@@ -529,7 +529,7 @@ repository has no validated Thor inference deployment.
 Stop and request new authority rather than continuing when resolution would
 require:
 
-- connecting to or commanding hardware not explicitly authorized for this
+- connecting to or commanding hardware not explicitly selected and gated for this
   session;
 - changing payload, TCP, installation, collision, or controller safety state;
 - widening a motion envelope or weakening a watchdog/safety threshold;

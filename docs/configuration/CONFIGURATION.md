@@ -1,9 +1,8 @@
 # Configuration
 
 This page is the authoritative configuration guide for maintained code.
-Configuration does not authorize hardware. Physical approval phrases and
-operator acknowledgements are command-line gate inputs, never reusable YAML
-defaults.
+Configuration never opens hardware. Runtime safety prerequisites and operator
+confirmations are command-line inputs, never reusable YAML defaults.
 
 ## Loading and precedence
 
@@ -24,8 +23,8 @@ Examples:
 
 - `embodied-lab sim smoke --config PATH --duration-sec SEC` selects a replay
   YAML and explicitly overrides smoke duration.
-- the physical Quest/JAKA wrappers require robot IP, duration, output bounds,
-  approvals, and safety acknowledgements on the command line;
+- the physical Quest/JAKA wrappers require robot IP, bounded duration, output
+  limits, and runtime safety confirmations on the command line;
 - `quest_rh56_hand_test.py --device PATH` owns the actual serial device even
   though the selected hand YAML describes protocol policy;
 - `embodied-lab benchmark CONFIG --seed N --output PATH` selects a versioned
@@ -117,7 +116,8 @@ remain raw rather than guessed.
 `rh56_pc_direct_teleop.yaml` contains a placeholder serial path. The actual
 stable device is always selected explicitly with `--device`. Speed/force
 values in YAML are software command policy, not permission to write runtime
-registers. Runtime configuration writes have a separate approval gate.
+registers. Runtime configuration writes have a separate explicit operation and
+configuration-write confirmation.
 
 ### Camera, perception, and collection preparation
 
