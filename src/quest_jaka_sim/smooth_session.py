@@ -772,6 +772,19 @@ class SmoothQuestJakaSession:
         attempted_continuation_fractions: list[float] = []
         output_feasibility_attempts: list[dict[str, Any]] = []
         continuation_attempt_timing_ms: list[dict[str, Any]] = []
+        candidate_timing_totals_ms = [0.0] * 9
+
+        def accumulate_candidate_timing(timing: Any) -> None:
+            candidate_timing_totals_ms[0] += timing.seed_fk_ms
+            candidate_timing_totals_ms[1] += timing.pre_ik_jacobian_ms
+            candidate_timing_totals_ms[2] += timing.ik_iterations_ms
+            candidate_timing_totals_ms[3] += timing.ik_final_fk_ms
+            candidate_timing_totals_ms[4] += timing.post_ik_jacobian_ms
+            candidate_timing_totals_ms[5] += timing.workspace_check_ms
+            candidate_timing_totals_ms[6] += timing.collision_check_ms
+            candidate_timing_totals_ms[7] += timing.output_feasibility_ms
+            candidate_timing_totals_ms[8] += timing.remaining_checks_ms
+
         if self.continuation_enabled:
             limits = self.config.feasibility
             # Stay just inside strict ``>`` gates without introducing a new
@@ -804,6 +817,7 @@ class SmoothQuestJakaSession:
             _output_feasibility_attempt(result, continuation_fraction)
         )
         continuation_attempt_timing_ms.append(asdict(result.timing))
+        accumulate_candidate_timing(result.timing)
         # A rejected trial never becomes authoritative.  Retry smaller points
         # on the same full-pose segment; all hard feasibility gates are run on
         # every trial and remain unchanged.
@@ -847,21 +861,12 @@ class SmoothQuestJakaSession:
                 _output_feasibility_attempt(result, continuation_fraction)
             )
             continuation_attempt_timing_ms.append(asdict(result.timing))
+            accumulate_candidate_timing(result.timing)
         ik_duration_ns = time.perf_counter_ns() - started
-        candidate_timing = asdict(result.timing)
         timing_values[_CONTROL_TIMING_INDEX["ik_duration_ns"]] = int(
             round(
                 1e6
-                * sum(
-                    float(candidate_timing.get(name, 0.0))
-                    for name in (
-                        "seed_fk_ms",
-                        "pre_ik_jacobian_ms",
-                        "ik_iterations_ms",
-                        "ik_final_fk_ms",
-                        "post_ik_jacobian_ms",
-                    )
-                )
+                * sum(candidate_timing_totals_ms[:5])
             )
         )
         timing_values[
@@ -869,19 +874,15 @@ class SmoothQuestJakaSession:
         ] = int(
             round(
                 1e6
-                * sum(
-                    float(candidate_timing.get(name, 0.0))
-                    for name in (
-                        "workspace_check_ms",
-                        "collision_check_ms",
-                        "remaining_checks_ms",
-                    )
+                * (
+                    sum(candidate_timing_totals_ms[5:7])
+                    + candidate_timing_totals_ms[8]
                 )
             )
         )
         timing_values[
             _CONTROL_TIMING_INDEX["output_feasibility_duration_ns"]
-        ] = int(round(float(candidate_timing.get("output_feasibility_ms", 0.0)) * 1e6))
+        ] = int(round(candidate_timing_totals_ms[7] * 1e6))
 
         def attach_control_timing() -> None:
             record["control_timing_ns"] = {
@@ -1216,6 +1217,11 @@ class SmoothQuestJakaSession:
 
     def finalize_control_timing(self, total_duration_ns: int) -> None:
         self._control_timing.set_last("control_total_duration_ns", total_duration_ns)
+        if (
+            self.control_compute_budget_ns is not None
+            and total_duration_ns >= self.control_compute_budget_ns
+        ):
+            self._control_timing.mark_last_over_budget()
 
     def control_timing_report(self) -> dict[str, Any]:
         return self._control_timing.report()

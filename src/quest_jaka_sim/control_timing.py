@@ -58,6 +58,8 @@ class ControlTimingRecorder:
         self._samples: deque[tuple[int, ...]] = deque(maxlen=self.capacity)
         self._budget_events: deque[dict[str, Any]] = deque(maxlen=self.capacity)
         self._last_budget_event: dict[str, Any] | None = None
+        self._last_timestamp_ns = 0
+        self._last_context: dict[str, Any] = {}
 
     @staticmethod
     def _account(values: list[int]) -> None:
@@ -81,17 +83,36 @@ class ControlTimingRecorder:
         sample = tuple(values)
         self._samples.append(sample)
         self._last_budget_event = None
+        self._last_timestamp_ns = int(timestamp_ns)
+        self._last_context = {} if context is None else dict(context)
         if over_budget:
             event = {
-                "timestamp_ns": int(timestamp_ns),
+                "timestamp_ns": self._last_timestamp_ns,
                 "durations_ns": {
                     name: sample[index]
                     for index, name in enumerate(CONTROL_TIMING_FIELDS)
                 },
-                **({} if context is None else dict(context)),
+                **self._last_context,
             }
             self._budget_events.append(event)
             self._last_budget_event = event
+
+    def mark_last_over_budget(self) -> None:
+        """Create an event after an outer producer extends the tick total."""
+
+        if not self._samples or self._last_budget_event is not None:
+            return
+        sample = self._samples[-1]
+        event = {
+            "timestamp_ns": self._last_timestamp_ns,
+            "durations_ns": {
+                name: sample[index]
+                for index, name in enumerate(CONTROL_TIMING_FIELDS)
+            },
+            **self._last_context,
+        }
+        self._budget_events.append(event)
+        self._last_budget_event = event
 
     def _replace_last(self, values: list[int]) -> None:
         self._account(values)
