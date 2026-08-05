@@ -513,7 +513,11 @@ class SmoothQuestJakaSession:
             )
         return replace(state, host_monotonic_ns=now_ns, right=right, left=left, head=head)
 
-    def control_tick(self, now_ns: int) -> ArmControlTickResult:
+    def control_tick(
+        self,
+        now_ns: int,
+        fresh_measured_joint_position_rad: Sequence[float] | None = None,
+    ) -> ArmControlTickResult:
         tick_started_ns = time.perf_counter_ns()
         timing_values = [0] * len(CONTROL_TIMING_FIELDS)
         self._active_rh56_command_duration_ns = 0
@@ -611,6 +615,24 @@ class SmoothQuestJakaSession:
         timing_values[_CONTROL_TIMING_INDEX["smooth_session_duration_ns"]] = (
             mapping_started_ns - clutch_finished_ns
         )
+        fresh_measured = None
+        if fresh_measured_joint_position_rad is not None:
+            fresh_measured = tuple(float(value) for value in fresh_measured_joint_position_rad)
+            if len(fresh_measured) != 6 or not all(math.isfinite(value) for value in fresh_measured):
+                raise ValueError("fresh measured arm state must contain six finite radians")
+        if arm_action is ClutchAction.CAPTURE_ARM_REFERENCE and fresh_measured is not None:
+            # A clutch re-engagement is a new continuation epoch.  Seed the
+            # shared IK state from the just-read JAKA position before capturing
+            # the TCP reference so no stale episode branch can survive.
+            self.target_generator.synchronize_authoritative_arm_joints(
+                list(fresh_measured)
+            )
+        if arm_action is ClutchAction.UPDATE:
+            self.target_generator.observe_episode_winding(
+                fresh_measured
+                if fresh_measured is not None
+                else tuple(float(value) for value in self.target_generator.last_safe_joint_target)
+            )
         desired = self._arm_target(state, arm_action, now_ns)
         mapping_finished_ns = time.perf_counter_ns()
         timing_values[_CONTROL_TIMING_INDEX["mapping_duration_ns"]] = (
@@ -810,6 +832,7 @@ class SmoothQuestJakaSession:
             dt_s=dt_s,
             generated_monotonic_ns=now_ns,
             compute_deadline_ns=compute_deadline_ns,
+            fresh_measured_joint_position_rad=fresh_measured,
         )
         attempted_reasons.append(result.reason.value)
         attempted_continuation_fractions.append(continuation_fraction)
@@ -854,6 +877,7 @@ class SmoothQuestJakaSession:
                 dt_s=dt_s,
                 generated_monotonic_ns=now_ns,
                 compute_deadline_ns=compute_deadline_ns,
+                fresh_measured_joint_position_rad=fresh_measured,
             )
             attempted_reasons.append(result.reason.value)
             attempted_continuation_fractions.append(continuation_fraction)
@@ -967,6 +991,14 @@ class SmoothQuestJakaSession:
         if result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED:
             self.control_compute_budget_exhausted_count += 1
         if not result.accepted:
+            if result.reason in {
+                FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
+                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
+            }:
+                # A branch/winding violation is a recoverable arm hold, but it
+                # must not be retried against the same stale reference.
+                self.arm_clutch.fault(now_ns, result.reason.value)
+                self.arm_mapper.clear()
             self._handle_rejection(now_ns, result.reason.value)
             if result.metrics.hard_stop_required:
                 self.arm_clutch.fault(now_ns, "HARD_SINGULARITY_AT_ACCEPTED_STATE")

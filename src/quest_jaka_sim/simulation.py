@@ -9,13 +9,18 @@ from enum import Enum
 import math
 from pathlib import Path
 import time
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
 
 from embodiment_core.config import load_yaml
+from embodiment_core.robot_limits import (
+    PERIODIC_JOINT_INDICES,
+    select_nearest_equivalent_joint_branch,
+    shortest_equivalent_delta_rad,
+)
 from jaka_driver_adapter.palm_target_ik import (
     MJCF_ARM_JOINT_NAMES,
     PalmTargetIkState,
@@ -76,6 +81,8 @@ class FeasibilityReason(str, Enum):
     ANGULAR_ACCELERATION_LIMIT = "ANGULAR_ACCELERATION_LIMIT"
     SELF_COLLISION = "SELF_COLLISION"
     ENVIRONMENT_COLLISION = "ENVIRONMENT_COLLISION"
+    JOINT_BRANCH_DISCONTINUITY = "JOINT_BRANCH_DISCONTINUITY"
+    EPISODE_WINDING_EXCEEDED = "EPISODE_WINDING_EXCEEDED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +327,10 @@ class CandidateMetrics:
     effective_ik_damping: float = 0.0
     current_hard_singularity: bool = False
     hard_stop_required: bool = False
+    branch_reference_rad: tuple[float, ...] = ()
+    branch_delta_rad: tuple[float, ...] = ()
+    branch_equivalent_offset: tuple[int, ...] = ()
+    episode_winding_rad: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -964,6 +975,22 @@ class SharedJakaTargetGenerator:
         self._require_contact_free_authoritative_state("configured initial state")
         self.accepted_metrics: list[CandidateMetrics] = []
         self._singularity_slowdown_latched = False
+        shared_target = config.raw.get("shared_target_generation", {})
+        self.maximum_periodic_joint_winding_rad = float(
+            shared_target.get("maximum_periodic_joint_winding_rad", 5.0)
+        )
+        if not (
+            math.isfinite(self.maximum_periodic_joint_winding_rad)
+            and self.maximum_periodic_joint_winding_rad > 0.0
+            and self.maximum_periodic_joint_winding_rad < 2.0 * math.pi
+        ):
+            raise ValueError(
+                "maximum_periodic_joint_winding_rad must be finite, positive, and below 2*pi"
+            )
+        self._episode_winding_reference_rad = self.last_safe_joint_target.copy()
+        self._episode_winding_last_rad = self.last_safe_joint_target.copy()
+        self._episode_winding_rad = np.zeros(6, dtype=np.float64)
+        self._episode_winding_fault = False
 
     def _required_id(self, kind: mujoco.mjtObj, name: str) -> int:
         value = mujoco.mj_name2id(self.model, kind, name)
@@ -1009,6 +1036,7 @@ class SharedJakaTargetGenerator:
         self.last_safe_joint_velocity[:] = 0.0
         self.output_feasibility.reset(joints)
         self._singularity_slowdown_latched = False
+        self.reset_episode_winding(joints.tolist())
 
     def capture_reference(self) -> Pose6D:
         """Capture the current authoritative FK pose and reset derivative history."""
@@ -1020,7 +1048,43 @@ class SharedJakaTargetGenerator:
         self.last_safe_joint_velocity[:] = 0.0
         self.output_feasibility.reset(self.last_safe_joint_target)
         self._singularity_slowdown_latched = False
+        self.reset_episode_winding(self.last_safe_joint_target.tolist())
         return current
+
+    @property
+    def episode_winding_rad(self) -> tuple[float, ...]:
+        return tuple(float(value) for value in self._episode_winding_rad)
+
+    def reset_episode_winding(self, joints_rad: list[float]) -> None:
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("episode winding reference must contain six finite radians")
+        self._episode_winding_reference_rad = joints.copy()
+        self._episode_winding_last_rad = joints.copy()
+        self._episode_winding_rad[:] = 0.0
+        self._episode_winding_fault = False
+
+    def observe_episode_winding(self, joints_rad: list[float] | tuple[float, ...]) -> bool:
+        """Accumulate shortest-angle motion since the latest fresh recapture."""
+
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("episode winding sample must contain six finite radians")
+        if self._episode_winding_fault:
+            return True
+        for index in PERIODIC_JOINT_INDICES:
+            delta = shortest_equivalent_delta_rad(
+                joints[index], self._episode_winding_last_rad[index]
+            )
+            self._episode_winding_rad[index] += abs(delta)
+        self._episode_winding_last_rad = joints.copy()
+        if any(
+            self._episode_winding_rad[index]
+            > self.maximum_periodic_joint_winding_rad
+            for index in PERIODIC_JOINT_INDICES
+        ):
+            self._episode_winding_fault = True
+        return self._episode_winding_fault
 
     def evaluate(
         self,
@@ -1029,6 +1093,7 @@ class SharedJakaTargetGenerator:
         dt_s: float,
         generated_monotonic_ns: int | None = None,
         compute_deadline_ns: int | None = None,
+        fresh_measured_joint_position_rad: Sequence[float] | None = None,
     ) -> FeasibilityResult:
         evaluate_started_ns = time.perf_counter_ns()
         if (
@@ -1044,6 +1109,29 @@ class SharedJakaTargetGenerator:
             )
         limits = self.config.feasibility
         dt = max(float(dt_s), 1e-6)
+        branch_reference = self.last_safe_joint_target.copy()
+        if fresh_measured_joint_position_rad is not None:
+            fresh_measured = np.asarray(
+                fresh_measured_joint_position_rad, dtype=np.float64
+            )
+            if fresh_measured.shape != (6,) or not np.all(np.isfinite(fresh_measured)):
+                raise ValueError(
+                    "fresh measured arm state must contain six finite radians"
+                )
+            branch_reference = fresh_measured.copy()
+        if self._episode_winding_fault:
+            return FeasibilityResult(
+                False,
+                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
+                None,
+                CandidateMetrics(
+                    branch_reference_rad=tuple(float(value) for value in branch_reference),
+                    episode_winding_rad=self.episode_winding_rad,
+                ),
+                CandidateComputationTiming(
+                    total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6
+                ),
+            )
         if generated_monotonic_ns is None:
             # Deterministic compatibility for direct IK/offline callers: model
             # an already aligned stationary target before their first trial.
@@ -1116,7 +1204,52 @@ class SharedJakaTargetGenerator:
                 ),
                 timing,
             )
-        candidate_q = self.ik.arm_joints_rad.copy()
+        raw_candidate_q = self.ik.arm_joints_rad.copy()
+        raw_joint_limit_limited = self.ik.joint_limit_limited
+        raw_limited_joint_indices = tuple(self.ik.limited_joint_indices_1_based)
+        selected_candidate, branch_offsets = select_nearest_equivalent_joint_branch(
+            raw_candidate_q.tolist(),
+            branch_reference.tolist(),
+        )
+        candidate_q = np.asarray(selected_candidate, dtype=np.float64)
+        self.ik.set_arm_joints_rad(candidate_q.tolist())
+        branch_delta = candidate_q - branch_reference
+        target_displacement_from_initial = float(
+            np.linalg.norm(
+                np.asarray(target.position_m)
+                - np.asarray(self.initial_tcp.position_m)
+            )
+        )
+        branch_discontinuous = target_displacement_from_initial <= limits.maximum_target_displacement_m and any(
+            abs(float(branch_delta[index]))
+            > limits.maximum_joint_target_jump_rad
+            for index in PERIODIC_JOINT_INDICES
+        )
+        if branch_discontinuous:
+            self.ik.set_arm_joints_rad(ik_seed.tolist())
+            timing = CandidateComputationTiming(
+                seed_fk_ms=seed_fk_ns / 1e6,
+                pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
+                ik_iterations_ms=self.ik.last_position_target_ik_iterations_ns / 1e6,
+                ik_final_fk_ms=self.ik.last_position_target_final_fk_ns / 1e6,
+                total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6,
+                ik_iterations_completed=self.ik.last_position_target_iterations_completed,
+            )
+            return FeasibilityResult(
+                False,
+                FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
+                None,
+                CandidateMetrics(
+                    ik_seed_rad=tuple(float(value) for value in ik_seed),
+                    ik_candidate_rad=tuple(float(value) for value in candidate_q),
+                    joint_delta_rad=tuple(float(value) for value in candidate_q - ik_seed),
+                    branch_reference_rad=tuple(float(value) for value in branch_reference),
+                    branch_delta_rad=tuple(float(value) for value in branch_delta),
+                    branch_equivalent_offset=branch_offsets,
+                    episode_winding_rad=self.episode_winding_rad,
+                ),
+                timing,
+            )
         joint_target_jump = candidate_q - ik_seed
         joint_velocity = joint_target_jump / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
@@ -1204,10 +1337,10 @@ class SharedJakaTargetGenerator:
         limit_blockers = joint_limit_margin_blockers(
             candidate_q, margin_rad=limits.joint_limit_margin_rad
         )
-        if self.ik.joint_limit_limited:
+        if raw_joint_limit_limited:
             limit_blockers.extend(
                 f"joint_{index}_clipped_to_safe_limit"
-                for index in self.ik.limited_joint_indices_1_based
+                for index in raw_limited_joint_indices
             )
         phase_started_ns = time.perf_counter_ns()
         output_prediction: JointOutputFeasibility = self.output_feasibility.preview(
@@ -1292,6 +1425,10 @@ class SharedJakaTargetGenerator:
             hard_stop_required=bool(
                 current_hard_singularity and singularity_direction != "AWAY"
             ),
+            branch_reference_rad=tuple(float(value) for value in branch_reference),
+            branch_delta_rad=tuple(float(value) for value in branch_delta),
+            branch_equivalent_offset=branch_offsets,
+            episode_winding_rad=self.episode_winding_rad,
         )
         hard_escape = current_hard_singularity and singularity_direction == "AWAY"
         if hard_singularity and not hard_escape:
@@ -1399,6 +1536,9 @@ class SharedJakaTargetGenerator:
                 ),
                 default=None,
             ),
+            "maximum_periodic_joint_winding_rad": self.maximum_periodic_joint_winding_rad,
+            "episode_winding_rad": self.episode_winding_rad,
+            "episode_winding_guard_tripped": self._episode_winding_fault,
         }
         if hasattr(self, "tracking_errors_m"):
             report["maximum_desired_to_simulated_tcp_error_m"] = max(

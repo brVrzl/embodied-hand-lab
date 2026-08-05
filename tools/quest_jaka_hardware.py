@@ -1362,7 +1362,14 @@ def main() -> int:
                             )
                         status_sync_ns = time.perf_counter_ns() - status_started_ns
                         session_started_ns = time.perf_counter_ns()
-                        tick = session.control_tick(now_ns)
+                        tick = session.control_tick(
+                            now_ns,
+                            fresh_measured_joint_position_rad=(
+                                None
+                                if status is None
+                                else tuple(status.joint_position_rad)
+                            ),
+                        )
                         session_control_tick_ns = (
                             time.perf_counter_ns() - session_started_ns
                         )

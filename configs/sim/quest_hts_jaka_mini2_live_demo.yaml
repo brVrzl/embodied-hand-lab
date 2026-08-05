@@ -114,6 +114,9 @@ shared_target_generation:
   # as the July 20 MuJoCo command-shaper acceleration setting; it is not a
   # published Mini2 hardware/controller acceleration maximum.
   maximum_output_joint_acceleration_rad_s2: 12.5663706144
+  # Healthy logs showed per-reference J4/J6 winding below 4.6/3.6 rad. Stop
+  # before a full revolution and require a fresh measured-state recapture.
+  maximum_periodic_joint_winding_rad: 5.0
 
 hand_retargeting:
   enabled: true
