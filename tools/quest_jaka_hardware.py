@@ -1201,7 +1201,11 @@ def main() -> int:
                         "physical_log_paths": {
                             "quest_capture": str(args.capture.resolve()),
                             "native_telemetry": str(args.native_telemetry.resolve()),
-                            "rh56_telemetry": str(args.rh56_log.resolve()),
+                            "rh56_telemetry": (
+                                None
+                                if args.rh56_log is None
+                                else str(args.rh56_log.resolve())
+                            ),
                             "combined_events": str(args.log.resolve()),
                         },
                     },
