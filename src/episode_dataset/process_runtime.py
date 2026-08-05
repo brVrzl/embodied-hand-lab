@@ -570,6 +570,7 @@ class ProcessCamera:
             self._stop = context.Event()
             self._references: deque[CameraFrameRef] = deque(maxlen=capacity)
             self._profile: dict[str, object] = {}
+            self._final_diagnostics: dict[str, object] | None = None
             self._error: str | None = None
             self._last_timestamp_ns = -1
             self._process = context.Process(
@@ -649,9 +650,10 @@ class ProcessCamera:
             },
         }
 
-    def stop(self, timeout_s: float = 3.0) -> None:
+    def stop(self, timeout_s: float = 3.0) -> dict[str, object]:
         if self._closed:
-            return
+            return dict(self._final_diagnostics or self._profile)
+        final_diagnostics: dict[str, object] = {}
         try:
             self._stop.set()
             if self._process.pid is not None:
@@ -663,11 +665,25 @@ class ProcessCamera:
                     self._process.kill()
                     self._process.join(timeout=timeout_s)
             self._poll_status()
+            final_diagnostics = {
+                **self._profile,
+                "role": self.role,
+                "process_alive": self._process.is_alive(),
+                "shared_ring": {
+                    "capacity": self._ring.capacity,
+                    "rgb_shape": self._ring.spec.rgb_shape,
+                    "depth_shape": self._ring.spec.depth_shape,
+                    "aligned_depth_shape": self._ring.spec.aligned_depth_shape,
+                    **self._ring.metrics(),
+                },
+            }
+            self._final_diagnostics = dict(final_diagnostics)
         finally:
             self._ring.close()
             self._descriptors.close()
             self._status.close()
             self._closed = True
+        return final_diagnostics
 
     def _drain_descriptors(self) -> None:
         while True:

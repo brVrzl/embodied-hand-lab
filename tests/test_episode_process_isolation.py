@@ -110,6 +110,54 @@ def _camera_startup_stall(*args) -> None:
         time.sleep(0.001)
 
 
+def _camera_lifecycle_worker(
+    role,
+    camera_config,
+    ring_spec,
+    descriptor_queue,
+    status_queue,
+    stop_event,
+    forbidden_cpu,
+) -> None:
+    ring = SharedMemoryCameraFrameRing.attach(ring_spec)
+    try:
+        sample = _camera_sample(role, 1_000_000, 0)
+        reference = ring.publish(sample, 0)
+        descriptor_queue.put(FrameReferenceDescriptor.from_reference(reference))
+        status_queue.put(
+            {
+                "kind": "ready",
+                "profile": {"synthetic": True},
+                "placement": process_placement(f"camera_{role}"),
+            }
+        )
+        while not stop_event.is_set():
+            time.sleep(0.001)
+        status_queue.put(
+            {
+                "kind": "stopped",
+                "received": 1,
+                "camera_publish_duration_ns": {
+                    "count": 1,
+                    "p50": 1,
+                    "p95": 1,
+                    "p99": 1,
+                    "max": 1,
+                },
+                "camera_interframe_interval_ns": {
+                    "count": 0,
+                    "p50": 0,
+                    "p95": 0,
+                    "p99": 0,
+                    "max": 0,
+                },
+                "placement": process_placement(f"camera_{role}"),
+            }
+        )
+    finally:
+        ring.close()
+
+
 def _affinity_worker(forbidden_cpu: int, result_queue) -> None:
     configure_non_realtime_affinity(forbidden_cpu)
     result_queue.put(process_placement("offline_worker"))
@@ -353,6 +401,44 @@ def test_camera_startup_timeout_cleans_ring_and_child(
     with pytest.raises(TimeoutError):
         camera.start(timeout_s=0.05)
     camera.stop(timeout_s=0.1)
+    _assert_shared_memory_absent(names)
+
+
+def test_camera_diagnostics_are_cached_before_stop_and_cleanup_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from episode_dataset import process_runtime
+
+    monkeypatch.setattr(process_runtime, "_camera_process_main", _camera_lifecycle_worker)
+    context = mp.get_context("fork")
+    camera = ProcessCamera(
+        "workspace",
+        {"width": 4, "height": 4, "align_depth_to_color": True},
+        capacity=2,
+        forbidden_cpu=None,
+        context=context,
+    )
+    names = [
+        camera.ring_spec.header_name,
+        camera.ring_spec.rgb_name,
+        camera.ring_spec.depth_name,
+        camera.ring_spec.aligned_depth_name,
+    ]
+    try:
+        camera.start(timeout_s=1.0)
+        live_profile = camera.profile_metadata()
+        reference, _ = camera.latest_after(-1)
+        assert live_profile["synthetic"] is True
+        assert reference is not None
+        assert reference.snapshot().ring_sequence == 0
+        final = camera.stop(timeout_s=1.0)
+        assert final["received"] == 1
+        assert final["camera_publish_duration_ns"]["count"] == 1
+        assert final["placement"]
+        assert not camera._process.is_alive()
+        assert camera.stop(timeout_s=0.1) == final
+    finally:
+        camera.stop(timeout_s=0.1)
     _assert_shared_memory_absent(names)
 
 
