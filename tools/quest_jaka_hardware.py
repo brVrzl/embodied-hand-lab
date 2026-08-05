@@ -630,8 +630,13 @@ def main() -> int:
         raise SystemExit("duration must be positive")
     if args.episode_root is not None and args.episode_data_config is None:
         raise SystemExit("--episode-root requires --episode-data-config")
-    if args.episode_data_config is not None and args.stage != "combined-normal-teleop":
-        raise SystemExit("physical episode capture is only available for combined-normal-teleop")
+    if args.episode_data_config is not None and args.stage not in {
+        "bounded-normal-teleop",
+        "combined-normal-teleop",
+    }:
+        raise SystemExit(
+            "physical episode capture is only available for arm-only or combined teleoperation"
+        )
     try:
         config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
         if args.stage == "combined-normal-teleop":
