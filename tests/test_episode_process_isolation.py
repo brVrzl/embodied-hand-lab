@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+from multiprocessing import shared_memory
 import json
 import os
 import queue
@@ -14,6 +15,7 @@ from episode_dataset.episode import ControlSample
 from episode_dataset.process_runtime import (
     FrameReferenceDescriptor,
     ProcessEpisodeRecorder,
+    ProcessCamera,
     SharedMemoryCameraFrameRing,
     _queue_put_latest,
     configure_non_realtime_affinity,
@@ -102,9 +104,29 @@ def _crash_worker() -> None:
     raise RuntimeError("synthetic child crash")
 
 
+def _camera_startup_stall(*args) -> None:
+    stop_event = args[5]
+    while not stop_event.is_set():
+        time.sleep(0.001)
+
+
 def _affinity_worker(forbidden_cpu: int, result_queue) -> None:
     configure_non_realtime_affinity(forbidden_cpu)
     result_queue.put(process_placement("offline_worker"))
+
+
+def _attach_and_close_ring(spec, result_queue) -> None:
+    ring = SharedMemoryCameraFrameRing.attach(spec)
+    result_queue.put(True)
+    ring.close()
+
+
+def _assert_shared_memory_absent(names: list[str | None]) -> None:
+    for name in names:
+        if name is None:
+            continue
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(name=name)
 
 
 def _ring_pair(context: mp.context.BaseContext):
@@ -248,6 +270,92 @@ def test_sequence_expiry_never_reads_newer_frame() -> None:
         ring.close()
 
 
+def test_shared_memory_owner_unlinks_only_after_child_attach_closes() -> None:
+    context = mp.get_context("spawn")
+    ring = SharedMemoryCameraFrameRing.create(
+        role="workspace",
+        capacity=2,
+        rgb_shape=(2, 2, 3),
+        depth_shape=(2, 2),
+        aligned_depth_shape=None,
+    )
+    names = [
+        ring.spec.header_name,
+        ring.spec.rgb_name,
+        ring.spec.depth_name,
+        ring.spec.aligned_depth_name,
+    ]
+    result_queue = context.Queue(maxsize=1)
+    child = context.Process(target=_attach_and_close_ring, args=(ring.spec, result_queue))
+    child.start()
+    try:
+        assert result_queue.get(timeout=2.0) is True
+        child.join(timeout=2.0)
+        assert not child.is_alive()
+        assert child.exitcode == 0
+        for name in names:
+            if name is not None:
+                handle = shared_memory.SharedMemory(name=name)
+                handle.close()
+    finally:
+        if child.is_alive():
+            child.terminate()
+            child.join(timeout=1.0)
+        ring.close()
+        result_queue.close()
+    _assert_shared_memory_absent(names)
+
+
+def test_repeated_ring_startup_uses_unique_names_and_cleans_up() -> None:
+    rings = [
+        SharedMemoryCameraFrameRing.create(
+            role="workspace",
+            capacity=2,
+            rgb_shape=(2, 2, 3),
+            depth_shape=(2, 2),
+            aligned_depth_shape=None,
+        ),
+        SharedMemoryCameraFrameRing.create(
+            role="workspace",
+            capacity=2,
+            rgb_shape=(2, 2, 3),
+            depth_shape=(2, 2),
+            aligned_depth_shape=None,
+        ),
+    ]
+    names = [
+        [ring.spec.header_name, ring.spec.rgb_name, ring.spec.depth_name]
+        for ring in rings
+    ]
+    try:
+        assert set(names[0]).isdisjoint(names[1])
+    finally:
+        for ring in rings:
+            ring.close()
+    _assert_shared_memory_absent(names[0] + names[1])
+
+
+def test_camera_startup_timeout_cleans_ring_and_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from episode_dataset import process_runtime
+
+    monkeypatch.setattr(process_runtime, "_camera_process_main", _camera_startup_stall)
+    context = mp.get_context("fork")
+    camera = ProcessCamera(
+        "workspace",
+        {"width": 2, "height": 2, "align_depth_to_color": False},
+        capacity=2,
+        forbidden_cpu=None,
+        context=context,
+    )
+    names = [camera.ring_spec.header_name, camera.ring_spec.rgb_name, camera.ring_spec.depth_name]
+    with pytest.raises(TimeoutError):
+        camera.start(timeout_s=0.05)
+    camera.stop(timeout_s=0.1)
+    _assert_shared_memory_absent(names)
+
+
 def test_preview_mailbox_is_latest_only() -> None:
     context = mp.get_context("spawn")
     mailbox = context.Queue(maxsize=1)
@@ -349,6 +457,10 @@ def test_recorder_process_materializes_reference_and_finalizes_bounded(tmp_path)
         payload = json.loads(validation.read_text())
         assert payload["valid"] is True
         assert payload["ring_reference_expired_count"] == 0
+        metadata = json.loads((collector.result / "metadata.json").read_text())
+        assert "canonical_metadata_duration_ns" in metadata
+        assert "frame_materialization_duration_ns" in metadata
+        assert "canonical_metadata_duration_ns" not in metadata["data_quality"]
     finally:
         if collector is not None:
             collector.finalize_pending()

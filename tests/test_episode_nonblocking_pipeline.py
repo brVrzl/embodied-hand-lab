@@ -17,6 +17,7 @@ from episode_dataset.collector import CaptureState, SingleEpisodeCollector
 from episode_dataset.episode import (
     CameraFrameUnavailable,
     CameraSample,
+    CanonicalEpisodeWriter,
     ControlSample,
 )
 from embodiment_core.types import CameraIntrinsics
@@ -295,6 +296,22 @@ def test_canonical_alignment_is_causal_and_does_not_wait_for_slow_source(tmp_pat
     assert row["timing"]["source_timestamps_ns"]["wrist"] == base
     assert row["timing"]["signed_offsets_ns"]["workspace"] == -8_333_333
     assert row["timing"]["signed_offsets_ns"]["wrist"] == -33_333_333
+
+
+def test_canonical_timing_fields_are_not_aliased(tmp_path: Path) -> None:
+    writer = CanonicalEpisodeWriter(tmp_path, task_name="offline", operator="test")
+    collector = SingleEpisodeCollector(
+        writer,
+        camera_max_age_ns=100_000_000,
+        control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+
+    data_quality = collector.diagnostics()["data_quality"]
+    assert "canonical_compute_duration_ns" in data_quality
+    assert "canonical_metadata_duration_ns" not in data_quality
+    assert writer.timing_diagnostics()["canonical_metadata_duration_ns"]["count"] == 0
 
 
 def test_wrist_stale_is_quality_fault_then_persistent_recording_fault(tmp_path: Path) -> None:

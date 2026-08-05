@@ -210,6 +210,7 @@ class SharedMemoryCameraFrameRing:
         self._expired_count = 0
         self._inconsistent_count = 0
         self._metadata: dict[int, FrameReferenceDescriptor] = {}
+        self._closed = False
 
     @classmethod
     def create(
@@ -415,6 +416,9 @@ class SharedMemoryCameraFrameRing:
         }
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         for block in (self._header, self._rgb, self._depth, self._aligned):
             if block is not None:
                 block.close()
@@ -559,43 +563,56 @@ class ProcessCamera:
             depth_shape=(height, width),
             aligned_depth_shape=(height, width) if aligned else None,
         )
-        self._descriptors = context.Queue(maxsize=capacity)
-        self._status = context.Queue(maxsize=16)
-        self._stop = context.Event()
-        self._references: deque[CameraFrameRef] = deque(maxlen=capacity)
-        self._profile: dict[str, object] = {}
-        self._error: str | None = None
-        self._last_timestamp_ns = -1
-        self._process = context.Process(
-            target=_camera_process_main,
-            args=(
-                role,
-                dict(camera_config),
-                self._ring.spec,
-                self._descriptors,
-                self._status,
-                self._stop,
-                forbidden_cpu,
-            ),
-            name=f"camera-{role}",
-        )
+        self._closed = False
+        try:
+            self._descriptors = context.Queue(maxsize=capacity)
+            self._status = context.Queue(maxsize=16)
+            self._stop = context.Event()
+            self._references: deque[CameraFrameRef] = deque(maxlen=capacity)
+            self._profile: dict[str, object] = {}
+            self._error: str | None = None
+            self._last_timestamp_ns = -1
+            self._process = context.Process(
+                target=_camera_process_main,
+                args=(
+                    role,
+                    dict(camera_config),
+                    self._ring.spec,
+                    self._descriptors,
+                    self._status,
+                    self._stop,
+                    forbidden_cpu,
+                ),
+                name=f"camera-{role}",
+            )
+        except BaseException:
+            self._ring.close()
+            raise
 
     @property
     def ring_spec(self) -> SharedCameraRingSpec:
         return self._ring.spec
 
     def start(self, timeout_s: float) -> None:
-        self._process.start()
-        deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
-            self._poll_status()
-            if self._profile:
-                return
-            if not self._process.is_alive() and self._error is None:
-                self._error = "camera process exited before first frame"
-                break
-            time.sleep(0.005)
-        raise TimeoutError(f"{self.role} camera process did not publish a frame before startup deadline")
+        if self._closed:
+            raise RuntimeError(f"{self.role} camera handle is closed")
+        try:
+            self._process.start()
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                self._poll_status()
+                if self._profile:
+                    return
+                if not self._process.is_alive() and self._error is None:
+                    self._error = "camera process exited before first frame"
+                    break
+                time.sleep(0.005)
+            raise TimeoutError(
+                f"{self.role} camera process did not publish a frame before startup deadline"
+            )
+        except BaseException:
+            self.stop()
+            raise
 
     @property
     def error(self) -> str | None:
@@ -633,15 +650,24 @@ class ProcessCamera:
         }
 
     def stop(self, timeout_s: float = 3.0) -> None:
-        self._stop.set()
-        self._process.join(timeout=timeout_s)
-        if self._process.is_alive():
-            self._process.terminate()
-            self._process.join(timeout=timeout_s)
-        self._poll_status()
-        self._ring.close()
-        self._descriptors.close()
-        self._status.close()
+        if self._closed:
+            return
+        try:
+            self._stop.set()
+            if self._process.pid is not None:
+                self._process.join(timeout=timeout_s)
+                if self._process.is_alive():
+                    self._process.terminate()
+                    self._process.join(timeout=timeout_s)
+                if self._process.is_alive():
+                    self._process.kill()
+                    self._process.join(timeout=timeout_s)
+            self._poll_status()
+        finally:
+            self._ring.close()
+            self._descriptors.close()
+            self._status.close()
+            self._closed = True
 
     def _drain_descriptors(self) -> None:
         while True:
@@ -880,6 +906,7 @@ class ProcessEpisodeRecorder:
             name="episode-recorder",
         )
         self._error: str | None = None
+        self._closed = False
         self._placement: dict[str, object] | None = None
         self._responses: dict[int, Mapping[str, object]] = {}
         self._next_request_id = 1
@@ -900,31 +927,38 @@ class ProcessEpisodeRecorder:
         return self._error
 
     def start(self, timeout_s: float) -> ProcessEpisodeCollectorProxy:
-        self._process.start()
-        deadline = time.monotonic() + timeout_s
-        ready: Mapping[str, object] | None = None
-        while time.monotonic() < deadline:
-            self.poll()
-            if self._responses:
-                pass
-            try:
-                message = self._status.get(timeout=0.01)
-            except queue.Empty:
-                message = None
-            if isinstance(message, Mapping) and message.get("kind") == "ready":
-                ready = message
-                break
-            if self.error is not None:
-                break
-        if ready is None:
+        if self._closed:
+            raise RuntimeError("recorder handle is closed")
+        try:
+            self._process.start()
+            deadline = time.monotonic() + timeout_s
+            ready: Mapping[str, object] | None = None
+            while time.monotonic() < deadline:
+                self.poll()
+                if self._responses:
+                    pass
+                try:
+                    message = self._status.get(timeout=0.01)
+                except queue.Empty:
+                    message = None
+                if isinstance(message, Mapping) and message.get("kind") == "ready":
+                    ready = message
+                    break
+                if self.error is not None:
+                    break
+            if ready is None:
+                raise TimeoutError(
+                    "recorder process did not become ready before startup deadline"
+                )
+            return ProcessEpisodeCollectorProxy(
+                self,
+                fps=int(self._config["dataset"].get("fps", 30)),
+                temporary_id=str(ready["temporary_id"]),
+                root=Path(str(ready["root"])),
+            )
+        except BaseException:
             self.stop()
-            raise TimeoutError("recorder process did not become ready before startup deadline")
-        return ProcessEpisodeCollectorProxy(
-            self,
-            fps=int(self._config["dataset"].get("fps", 30)),
-            temporary_id=str(ready["temporary_id"]),
-            root=Path(str(ready["root"])),
-        )
+            raise
 
     def send(self, kind: str, *payload: object) -> None:
         self.poll()
@@ -974,18 +1008,26 @@ class ProcessEpisodeRecorder:
                 self._error = str(message.get("error"))
 
     def stop(self, timeout_s: float = 5.0) -> None:
-        if self._process.is_alive():
-            try:
-                self._commands.put(("stop", (), None), timeout=timeout_s)
-            except queue.Full:
-                pass
-            self._process.join(timeout=timeout_s)
-        if self._process.is_alive():
-            self._process.terminate()
-            self._process.join(timeout=timeout_s)
-        self.poll()
-        self._commands.close()
-        self._status.close()
+        if self._closed:
+            return
+        try:
+            if self._process.pid is not None and self._process.is_alive():
+                try:
+                    self._commands.put(("stop", (), None), timeout=timeout_s)
+                except queue.Full:
+                    pass
+                self._process.join(timeout=timeout_s)
+            if self._process.pid is not None and self._process.is_alive():
+                self._process.terminate()
+                self._process.join(timeout=timeout_s)
+            if self._process.pid is not None and self._process.is_alive():
+                self._process.kill()
+                self._process.join(timeout=timeout_s)
+            self.poll()
+        finally:
+            self._commands.close()
+            self._status.close()
+            self._closed = True
 
 
 def _recorder_process_main(
@@ -995,7 +1037,18 @@ def _recorder_process_main(
     config: Mapping[str, Any],
 ) -> None:
     configure_non_realtime_affinity(config.get("forbidden_cpu"))
-    rings = {role: SharedMemoryCameraFrameRing.attach(spec) for role, spec in ring_specs.items()}
+    rings: dict[str, SharedMemoryCameraFrameRing] = {}
+    try:
+        for role, spec in ring_specs.items():
+            rings[role] = SharedMemoryCameraFrameRing.attach(spec)
+    except BaseException as exc:
+        for ring in rings.values():
+            ring.close()
+        _queue_put_latest(
+            status_queue,
+            {"kind": "error", "error": f"{type(exc).__name__}: {exc}"},
+        )
+        return
     dataset = dict(config["dataset"])
     writer = AsyncEpisodeWriter(
         CanonicalEpisodeWriter(
@@ -1032,13 +1085,21 @@ def _recorder_process_main(
         quality_min_valid_ratio=float(dataset.get("quality_min_valid_ratio", 1.0)),
         quality_max_invalid_run=int(dataset.get("quality_max_invalid_run", 0)),
     )
-    writer.set_final_metadata_provider(
-        lambda: {
+    def final_metadata() -> dict[str, object]:
+        writer_diagnostics = writer.diagnostics()
+        return {
             "camera_profiles": dict(config["camera_profiles"]),
             "process_placement": process_placement("episode_recorder"),
             **collector.diagnostics(),
+            "frame_materialization_duration_ns": writer_diagnostics[
+                "frame_materialization_duration_ns"
+            ],
+            "canonical_metadata_duration_ns": writer_diagnostics[
+                "canonical_metadata_duration_ns"
+            ],
         }
-    )
+
+    writer.set_final_metadata_provider(final_metadata)
     _queue_put_latest(
         status_queue,
         {
@@ -1136,8 +1197,12 @@ class ProcessPreview:
             name="episode-preview",
         )
         self._error: str | None = None
+        self._placement: dict[str, object] | None = None
+        self._closed = False
 
     def start(self) -> None:
+        if self._closed:
+            raise RuntimeError("preview handle is closed")
         self._process.start()
 
     def update(
@@ -1172,14 +1237,23 @@ class ProcessPreview:
                     self._placement = dict(placement)
 
     def stop(self, timeout_s: float = 2.0) -> None:
-        self._stop.set()
-        self._process.join(timeout=timeout_s)
-        if self._process.is_alive():
-            self._process.terminate()
-            self._process.join(timeout=timeout_s)
-        self.poll()
-        self._updates.close()
-        self._status.close()
+        if self._closed:
+            return
+        try:
+            self._stop.set()
+            if self._process.pid is not None:
+                self._process.join(timeout=timeout_s)
+                if self._process.is_alive():
+                    self._process.terminate()
+                    self._process.join(timeout=timeout_s)
+                if self._process.is_alive():
+                    self._process.kill()
+                    self._process.join(timeout=timeout_s)
+            self.poll()
+        finally:
+            self._updates.close()
+            self._status.close()
+            self._closed = True
 
 
 class _PreviewCameraSource:
@@ -1207,7 +1281,18 @@ def _preview_process_main(
     forbidden_cpu: int | None,
 ) -> None:
     configure_non_realtime_affinity(forbidden_cpu)
-    rings = {role: SharedMemoryCameraFrameRing.attach(spec) for role, spec in ring_specs.items()}
+    rings: dict[str, SharedMemoryCameraFrameRing] = {}
+    try:
+        for role, spec in ring_specs.items():
+            rings[role] = SharedMemoryCameraFrameRing.attach(spec)
+    except BaseException as exc:
+        for ring in rings.values():
+            ring.close()
+        _queue_put_latest(
+            status_queue,
+            {"kind": "error", "error": f"{type(exc).__name__}: {exc}"},
+        )
+        return
     try:
         require_preview_dependencies()
         renderer = DualCameraPreview()
