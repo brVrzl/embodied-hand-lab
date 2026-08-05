@@ -164,10 +164,14 @@ These values do not expose every passive finger joint, tactile contact, or
 slip. `CURRENT` and `FORCE_ACT` are not calibrated force limits in the current
 PC-direct controller.
 
-Grip release holds the last target by sending no new position writes; it does
-not automatically open the hand and is not a torque-off or vendor emergency
-stop. A serial, checksum, protocol, feedback-stale, nonzero-error, or worker
-fault enters `HAND_FAULT` and prevents new writes.
+Grip release normally holds the last target by sending no new position writes;
+it does not automatically open the hand and is not a torque-off or vendor
+emergency stop. If feedback-qualified contact detection observes a loaded
+channel while that held target remains active, the controller may issue one
+bounded opening relief target; this is the contact-safety exception and is
+recorded separately from ordinary grip commands. A serial, checksum, protocol,
+feedback-stale, nonzero-error, or worker fault enters `HAND_FAULT` and prevents
+new writes.
 
 In combined operation, a terminal arm fault stops new hand commands. A terminal
 hand fault invalidates the episode and requests the arm's safe terminal path.

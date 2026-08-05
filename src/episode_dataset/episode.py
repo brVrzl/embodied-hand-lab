@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections import deque
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
@@ -328,6 +329,8 @@ class CanonicalEpisodeWriter:
         self._raw_handles: dict[str, TextIO] = {}
         self._canonical_handle: TextIO | None = None
         self._bytes_written = 0
+        self._frame_materialization_durations_ns: deque[int] = deque(maxlen=4096)
+        self._canonical_metadata_durations_ns: deque[int] = deque(maxlen=4096)
 
     @property
     def sample_count(self) -> int:
@@ -340,6 +343,16 @@ class CanonicalEpisodeWriter:
     @property
     def bytes_written(self) -> int:
         return self._bytes_written
+
+    def timing_diagnostics(self) -> dict[str, dict[str, int]]:
+        return {
+            "frame_materialization_duration_ns": _duration_summary(
+                self._frame_materialization_durations_ns
+            ),
+            "canonical_metadata_duration_ns": _duration_summary(
+                self._canonical_metadata_durations_ns
+            ),
+        }
 
     def set_final_metadata_provider(
         self, provider: Callable[[], Mapping[str, Any]]
@@ -456,10 +469,16 @@ class CanonicalEpisodeWriter:
         if nominal_slot < sample.frame_index:
             raise ValueError("nominal_slot_index cannot precede frame_index")
         paths: dict[str, dict[str, str | None]] = {}
+        materialization_started_ns = time.perf_counter_ns()
         materialized = tuple(_materialize_camera(camera) for camera in (sample.workspace, sample.wrist))
+        self._frame_materialization_durations_ns.append(
+            time.perf_counter_ns() - materialization_started_ns
+        )
         for camera in materialized:
             paths[camera.role] = self._write_camera_sample(camera, sample.frame_index)
-        record = self._canonical_record(sample, paths)
+        metadata_started_ns = time.perf_counter_ns()
+        record = self._canonical_record(sample, paths, cameras=materialized)
+        self._canonical_metadata_durations_ns.append(time.perf_counter_ns() - metadata_started_ns)
         path = self.partial_dir / "canonical" / "samples.jsonl"
         if self._canonical_handle is None:
             self._canonical_handle = path.open("a", encoding="utf-8")
@@ -481,7 +500,11 @@ class CanonicalEpisodeWriter:
     def append_raw_camera(self, camera: CameraRecord) -> None:
         if not self._started or self._finalized:
             raise RuntimeError("no active episode")
+        materialization_started_ns = time.perf_counter_ns()
         camera = _materialize_camera(camera)
+        self._frame_materialization_durations_ns.append(
+            time.perf_counter_ns() - materialization_started_ns
+        )
         key = (
             camera.role,
             camera.rgb_frame_number,
@@ -705,8 +728,18 @@ class CanonicalEpisodeWriter:
         }
 
     def _canonical_record(
-        self, sample: CanonicalSample, paths: Mapping[str, Mapping[str, str | None]]
+        self,
+        sample: CanonicalSample,
+        paths: Mapping[str, Mapping[str, str | None]],
+        *,
+        cameras: tuple[CameraSample, CameraSample] | None = None,
     ) -> dict[str, Any]:
+        if cameras is None:
+            cameras = tuple(
+                _materialize_camera(camera)
+                for camera in (sample.workspace, sample.wrist)
+            )
+        workspace_camera, wrist_camera = cameras
         control = sample.control
         assert control.accepted_arm_q is not None
         assert control.arm_q_measured is not None
@@ -717,8 +750,8 @@ class CanonicalEpisodeWriter:
         source_timestamps = {
             **dict(control.source_timestamps_ns or {}),
             "control": control.host_monotonic_ns,
-            "workspace": sample.workspace.host_monotonic_ns,
-            "wrist": sample.wrist.host_monotonic_ns,
+            "workspace": workspace_camera.host_monotonic_ns,
+            "wrist": wrist_camera.host_monotonic_ns,
         }
         source_domains = {
             **dict(control.source_timestamp_domains or {}),
@@ -791,7 +824,7 @@ class CanonicalEpisodeWriter:
                     "depth_frame_number": camera.depth_frame_number,
                     "ring_sequence": camera.ring_sequence,
                 }
-                for role, camera in (("workspace", sample.workspace), ("wrist", sample.wrist))
+                for role, camera in (("workspace", workspace_camera), ("wrist", wrist_camera))
             },
         }
 
@@ -863,6 +896,20 @@ class CanonicalEpisodeWriter:
 
 def _materialize_camera(camera: CameraRecord) -> CameraSample:
     return camera if isinstance(camera, CameraSample) else camera.snapshot()
+
+
+def _duration_summary(values: deque[int]) -> dict[str, int]:
+    ordered = sorted(values)
+    if not ordered:
+        return {"count": 0, "p50": 0, "p95": 0, "p99": 0, "max": 0}
+    last = len(ordered) - 1
+    return {
+        "count": len(ordered),
+        "p50": ordered[round(last * 0.50)],
+        "p95": ordered[round(last * 0.95)],
+        "p99": ordered[round(last * 0.99)],
+        "max": ordered[-1],
+    }
 
 
 def file_sha256(path: str | Path) -> str:

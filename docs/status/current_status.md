@@ -45,7 +45,7 @@ absolute target through the 8 ms latest-destination/PWL worker.
 | Integrated arm + RH56 simulation | Validated as a six-arm-actuator plus six-hand-actuator approximation |
 | Physical combined operation | One bounded 60.105 s PASS; no 300 s PASS |
 | TCP calibration | Not complete |
-| Dual-camera physical dataset capture | Versioned-ring/non-blocking recorder architecture offline tested; not physically validated end to end |
+| Dual-camera physical dataset capture | Process-isolated camera/shared-memory-ring/recorder path offline tested; not physically validated end to end |
 | Policy training from physical episodes | Not validated |
 
 Offline, replay, and simulation results are not physical PASS evidence.
@@ -119,10 +119,11 @@ The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
 physical PASS from accepted-target replay or fake-worker results.
 
-The dual-D435 episode path now publishes preallocated ring references through a
-bounded non-blocking recorder queue. Canonical camera staleness is retained as
-invalid data-quality metadata; isolated stale frames, preview lag, ring
-overwrite, and recorder backpressure no longer stop healthy teleoperation.
+The dual-D435 episode path now uses one ordinary-scheduling producer process per
+camera, preallocated versioned shared-memory ring references, and a separate
+recorder process. Canonical camera staleness is retained as invalid data-quality
+metadata; isolated stale frames, preview lag, ring overwrite, and recorder
+backpressure no longer stop healthy teleoperation.
 Configured persistent acquisition failure stops recording separately from robot
 safety faults. This correction is covered by offline slow-writer, stale,
 overwrite, latest-preview, asynchronous-alignment, bounded-shutdown, and load

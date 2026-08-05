@@ -216,6 +216,37 @@ def test_delayed_ring_references_never_substitute_a_later_sequence() -> None:
     assert ring.inconsistent_read_count == 0
 
 
+def test_canonical_writer_materializes_ring_refs_before_metadata(tmp_path: Path) -> None:
+    """Canonical metadata must use the materialized sample, not the ref object."""
+
+    from episode_dataset.episode import CanonicalEpisodeWriter
+
+    workspace_ring = CameraFrameRing(2)
+    wrist_ring = CameraFrameRing(2)
+    base = 2_000_000_000
+    workspace_ref = workspace_ring.publish(_camera("workspace", base, 1))
+    wrist_ref = wrist_ring.publish(_camera("wrist", base, 1))
+    collector = SingleEpisodeCollector(
+        CanonicalEpisodeWriter(tmp_path, task_name="offline", operator="test"),
+        camera_max_age_ns=100_000_000,
+        control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+    )
+    collector.ingest_camera(workspace_ref)
+    collector.ingest_camera(wrist_ref)
+    collector.ingest_control(_control(base, trigger=True), reference_established=True)
+    collector.ingest_control(
+        _control(base + 10_000_000, trigger=False), reference_established=True
+    )
+
+    assert collector.result is not None
+    rows = (collector.result / "canonical" / "samples.jsonl").read_text().splitlines()
+    record = json.loads(rows[0])
+    assert record["camera"]["workspace"]["ring_sequence"] == workspace_ref.sequence
+    assert record["camera"]["wrist"]["ring_sequence"] == wrist_ref.sequence
+
+
 def test_latest_frame_mailbox_does_not_accumulate_preview_lag() -> None:
     source = _FastCamera()
     camera = AsyncRGBDCamera(

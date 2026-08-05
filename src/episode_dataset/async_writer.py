@@ -60,6 +60,7 @@ class AsyncEpisodeWriter:
         self._enqueued_by_method: dict[str, int] = {}
         self._written_by_method: dict[str, int] = {}
         self._write_durations_ns: deque[int] = deque(maxlen=4096)
+        self._enqueue_durations_ns: deque[int] = deque(maxlen=4096)
         self._batch_durations_ns: deque[int] = deque(maxlen=4096)
         self._flush_durations_ns: deque[int] = deque(maxlen=4096)
         self._writer_error_count = 0
@@ -190,6 +191,8 @@ class AsyncEpisodeWriter:
             enqueued_by_method = dict(self._enqueued_by_method)
             written_by_method = dict(self._written_by_method)
             writer_errors = self._writer_error_count
+        timing_getter = getattr(self._writer, "timing_diagnostics", None)
+        timing = timing_getter() if callable(timing_getter) else {}
         return {
             "queue_capacity": self._queue.maxsize,
             "queue_depth": self._queue.qsize(),
@@ -213,8 +216,10 @@ class AsyncEpisodeWriter:
             "enqueued_count": enqueued,
             "completed_count": completed,
             "writer_write_duration_ns": _summary(durations),
+            "recorder_enqueue_duration_ns": _summary(list(self._enqueue_durations_ns)),
             "writer_batch_duration_ns": _summary(batches),
             "writer_flush_duration_ns": _summary(flushes),
+            **timing,
             "writer_error_count": writer_errors,
             "writer_batch_size": self._batch_size,
             "writer_bytes_per_second": (
@@ -225,6 +230,7 @@ class AsyncEpisodeWriter:
         }
 
     def _enqueue(self, method: str, *args: Any) -> bool:
+        started_ns = time.perf_counter_ns()
         self._raise_if_failed()
         if self._closed:
             raise OSError("episode writer is closed")
@@ -237,6 +243,7 @@ class AsyncEpisodeWriter:
                 self._drop_by_method[method] = self._drop_by_method.get(method, 0) + 1
             return False
         with self._metrics_lock:
+            self._enqueue_durations_ns.append(time.perf_counter_ns() - started_ns)
             self._enqueued_count += 1
             self._enqueued_by_method[method] = self._enqueued_by_method.get(method, 0) + 1
             self._queue_max_depth = max(self._queue_max_depth, self._queue.qsize())

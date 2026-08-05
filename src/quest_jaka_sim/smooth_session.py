@@ -813,6 +813,22 @@ class SmoothQuestJakaSession:
                 _output_feasibility_attempt(result, continuation_fraction)
             )
             continuation_attempt_timing_ms.append(asdict(result.timing))
+        ik_duration_ns = time.perf_counter_ns() - started
+
+        def attach_control_timing() -> None:
+            timing = asdict(result.timing)
+            record["control_timing_ns"] = {
+                "quest_input_duration_ns": mapping_started_ns - tick_started_ns,
+                "target_mapping_duration_ns": mapping_finished_ns - mapping_started_ns,
+                "ik_duration_ns": ik_duration_ns,
+                "collision_safety_duration_ns": round(
+                    float(timing.get("collision_check_ms", 0.0)) * 1e6
+                ),
+                "output_feasibility_duration_ns": round(
+                    float(timing.get("output_feasibility_ms", 0.0)) * 1e6
+                ),
+                "control_total_duration_ns": time.perf_counter_ns() - tick_started_ns,
+            }
         backlog_m = float(
             np.linalg.norm(
                 np.asarray(desired.position_m)
@@ -883,6 +899,7 @@ class SmoothQuestJakaSession:
             if result.metrics.hard_stop_required:
                 self.arm_clutch.fault(now_ns, "HARD_SINGULARITY_AT_ACCEPTED_STATE")
                 self.arm_mapper.clear()
+                attach_control_timing()
                 record.update(
                     accepted=False,
                     reason=result.reason.value,
@@ -923,6 +940,7 @@ class SmoothQuestJakaSession:
             dispatch_started_ns = time.perf_counter_ns()
             heartbeat_applied = self.arm_output.heartbeat(heartbeat)
             adapter_dispatch_ms = (time.perf_counter_ns() - dispatch_started_ns) / 1e6
+            attach_control_timing()
             record.update(
                 accepted=False,
                 reason=result.reason.value,
@@ -1000,6 +1018,7 @@ class SmoothQuestJakaSession:
             if self.mujoco_plant is not None
             else self.target_generator.current_tcp_pose
         )
+        attach_control_timing()
         record.update(
             accepted=True,
             reason=FeasibilityReason.ACCEPTED.value,

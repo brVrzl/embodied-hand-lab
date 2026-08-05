@@ -682,6 +682,7 @@ class SingleEpisodeCollector:
                 "workspace_frame_age_ns": _summary(self._camera_age_ns["workspace"]),
                 "wrist_frame_age_ns": _summary(self._camera_age_ns["wrist"]),
                 "canonical_compute_duration_ns": _summary(self._canonical_durations_ns),
+                "canonical_metadata_duration_ns": _summary(self._canonical_durations_ns),
                 "canonical_missing_source_count": self._canonical_missing_source_count,
                 **{
                     f"{role}_{name}": value

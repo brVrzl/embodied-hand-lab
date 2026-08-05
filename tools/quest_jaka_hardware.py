@@ -1161,6 +1161,7 @@ def main() -> int:
                     ),
                     schema_version=PHYSICAL_SCHEMA_VERSION,
                     preview_enabled=args.episode_preview,
+                    forbidden_cpu=args.native_control_cpu,
                     metadata={
                         "units": {
                             "arm_q": "rad",
