@@ -157,7 +157,7 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --rh56-config "${RH56_CONFIG}"
   --rh56-scheduler-profile "${RH56_SCHEDULER_PROFILE}"
   --output-generator pwl-8ms
-  --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2
+  --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5
   --recover-output-acceleration-transition --no-auto-retry
   --estop-accessible --workspace-clear
   --log "${prefix}.events.jsonl" --summary "${prefix}.summary.json"

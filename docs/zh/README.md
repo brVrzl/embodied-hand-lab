@@ -30,6 +30,7 @@ authority. 每个当前主题都必须从下表进入对应权威页面，过程
 | JAKA 操作 | [`operation/jaka_arm_teleoperation.md`](../operation/jaka_arm_teleoperation.md) |
 | RH56 操作 | [`operation/rh56_operation.md`](../operation/rh56_operation.md) |
 | 双臂/手联合操作 | [`operation/jaka_rh56_combined_teleop.md`](../operation/jaka_rh56_combined_teleop.md) |
+| 数据采集入口 | [`data/DATA_COLLECTION.md`](../data/DATA_COLLECTION.md) |
 | 数据集规范 | [`data/DATASET_SCHEMA.md`](../data/DATASET_SCHEMA.md) |
 | 数据采集与质量 | [`data/COLLECTION_GUIDE.md`](../data/COLLECTION_GUIDE.md) |
 | 训练集成 | [`training/TRAINING_INTEGRATION.md`](../training/TRAINING_INTEGRATION.md) |

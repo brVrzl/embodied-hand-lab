@@ -528,7 +528,7 @@ class ReplayConfig:
                     "velocity": (math.pi,) * 6,
                 },
                 "baseline": {
-                    "velocity": (1.5, 1.5, 1.5, 1.2, 1.2, 1.2),
+                    "velocity": (1.5, 1.5, 1.5, 1.5, 1.5, 1.5),
                 },
                 "moderate": {
                     "velocity": (1.8, 1.8, 1.8, 1.8, 1.8, 1.8),

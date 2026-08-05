@@ -110,6 +110,9 @@ shared_target_generation:
   # Official generic ServoJ speed ceiling (180 deg/s), used as the shared outer
   # boundary. Launchers may select lower normal per-joint operating values.
   maximum_output_joint_velocity_rad_s: 3.141592653589793
+  # Default normal operating speed for every JAKA joint. The outer hard
+  # boundary above remains independent and is not a normal teleoperation speed.
+  maximum_output_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
   # Project-selected recoverable PWL transition boundary. This value originated
   # as the July 20 MuJoCo command-shaper acceleration setting; it is not a
   # published Mini2 hardware/controller acceleration maximum.
@@ -210,6 +213,7 @@ simulation:
   maximum_ik_target_velocity_rad_s: 14.0
   maximum_ik_target_acceleration_rad_s2: 1000.0
   command_maximum_joint_velocity_rad_s: 3.1415926536
+  command_maximum_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
   command_maximum_joint_acceleration_rad_s2: 12.5663706144
   command_maximum_joint_jerk_rad_s3: 62.8318530718
   command_position_tracking_frequency_rad_s: 10.0

@@ -62,7 +62,7 @@ Control semantics:
   stops/holds the arm. An arm terminal hard fault stops new hand commands.
 
 The entry uses the same normal production arm limits as
-`run_quest_jaka_bounded_teleop.sh`: J1--J3 1.5 rad/s and J4--J6 1.2 rad/s,
+`run_quest_jaka_bounded_teleop.sh`: J1--J6 1.5 rad/s,
 plus all shared/native position, workspace, velocity, acceleration, jerk,
 tracking, controller, collision, stale, timing, and cleanup boundaries. It
 does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
@@ -178,7 +178,7 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 - hand transport/feedback/device fault 会使 episode invalid 并让 arm 安全 hold/stop；arm
   terminal hard fault 会停止 hand 新命令。
 
-入口复用 arm normal production 的 J1--J3 1.5 rad/s、J4--J6 1.2 rad/s，以及所有关节/
+入口复用 arm normal production 的 J1--J6 1.5 rad/s，以及所有关节/
 workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/cleanup 安全边界；不使用
 post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
 0.05 delta、完整归一化 command domain、接触保持和全部

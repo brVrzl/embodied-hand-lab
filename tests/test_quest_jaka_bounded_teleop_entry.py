@@ -66,9 +66,9 @@ def _base_args(tmp_path: Path) -> list[str]:
         "1.5",
         "1.5",
         "1.5",
-        "1.2",
-        "1.2",
-        "1.2",
+        "1.5",
+        "1.5",
+        "1.5",
         "--log-dir",
         str(tmp_path / "logs"),
         "--worker",
@@ -149,13 +149,13 @@ def test_complete_plant_free_command_uses_pwl_and_zero_rh56(
         1.5,
         1.5,
         1.5,
-        1.2,
-        1.2,
-        1.2,
+        1.5,
+        1.5,
+        1.5,
     ]
     assert report["native_worker_velocity_limit_args"] == [
         "--maximum-output-joint-velocity-rad-s-per-joint",
-        "1.5,1.5,1.5,1.2,1.2,1.2",
+        "1.5,1.5,1.5,1.5,1.5,1.5",
     ]
     assert report["no_auto_retry"] is True
     assert not (tmp_path / "logs").exists()

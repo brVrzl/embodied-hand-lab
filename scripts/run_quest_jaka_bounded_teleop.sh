@@ -13,7 +13,7 @@ UDP_PORT="9000"
 ALLOWED_SENDER=""
 DURATION_SEC="30"
 OUTPUT_GENERATOR=""
-JOINT_VELOCITY_LIMITS=("1.5" "1.5" "1.5" "1.2" "1.2" "1.2")
+JOINT_VELOCITY_LIMITS=("1.5" "1.5" "1.5" "1.5" "1.5" "1.5")
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 WORKER="build/jaka_servo_worker/jaka_servo_worker"
 LOG_DIR="logs"
@@ -34,7 +34,7 @@ Usage / 用法:
   ./scripts/run_quest_jaka_bounded_teleop.sh \
     --robot-ip ROBOT_IPV4 \
     --output-generator pwl-8ms \
-    --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+    --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
     --no-auto-retry \
     --estop-accessible \
     --workspace-clear \
@@ -63,7 +63,7 @@ Options / 可选:
   --allowed-sender IPV4   Accept Quest packets only from this sender
   --duration-sec SEC      Positive duration, at most 60 (default: 30)
   --joint-velocity-limits-rad-s J1 J2 J3 J4 J5 J6
-                          J1-J3 default 1.5; J4-J6 default 1.2 rad/s
+                          J1-J6 default 1.5 rad/s
   --config PATH           Shared production live configuration
   --worker PATH           Native JAKA worker
   --output-joint-jerk-limit-rad-s3 VALUE
@@ -75,8 +75,7 @@ Options / 可选:
   -h, --help              Show this help without connecting to hardware
 
 Project-selected normal teleoperation run limits / 项目选定的正常遥操作参数:
-  J1-J3: 1.5 rad/s
-  J4-J6: 1.2 rad/s
+  J1-J6: 1.5 rad/s
 These are not official JAKA Mini2 maximum speeds.
 这些参数不是 JAKA Mini2 官方最大速度。
 

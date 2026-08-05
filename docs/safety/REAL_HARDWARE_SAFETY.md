@@ -67,7 +67,7 @@ continuous with that state. A newly captured Quest reference cannot legalize a
 joint jump.
 
 Normal combined operation currently requests the project-selected run limits
-of 1.5 rad/s for J1--J3 and 1.2 rad/s for J4--J6. These are not manufacturer
+of 1.5 rad/s for J1--J6. These are not manufacturer
 maximum-speed claims. Conservative position bounds, the software margin, shared
 output feasibility, native final boundaries, controller safety, and cleanup all
 remain active.

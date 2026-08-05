@@ -45,7 +45,9 @@ simulation:
   maximum_target_jump_m: 0.004
   maximum_tcp_velocity_m_s: 0.025
   maximum_tcp_angular_velocity_rad_s: 0.20
-  maximum_joint_velocity_rad_s: 1.2
+  maximum_joint_velocity_rad_s: 1.5
+  command_maximum_joint_velocity_rad_s: 1.5
+  command_maximum_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
   maximum_joint_acceleration_rad_s2: 20.0
   joint_limit_margin_deg: 5.0
   reject_action: disengage_and_hold_last_safe_simulated_target

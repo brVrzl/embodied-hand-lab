@@ -261,6 +261,7 @@ def test_recorded_circle_path_stays_on_bounded_wrist_branch(tmp_path: Path) -> N
         output_contract=replace(
             config.output_contract,
             maximum_acceleration_rad_s2=math.inf,
+            maximum_velocity_rad_s_per_joint=(math.pi,) * 6,
         ),
     )
     model = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")

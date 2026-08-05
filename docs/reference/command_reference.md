@@ -142,7 +142,7 @@ at most 300 seconds; no 300-second physical PASS exists.
   --edg-state-ip 192.168.71.19 \
   --duration-sec 30 \
   --output-generator pwl-8ms \
-  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
   --log-dir logs \
   --no-auto-retry \
   --estop-accessible \
@@ -153,7 +153,7 @@ at most 300 seconds; no 300-second physical PASS exists.
 The addresses are examples and must be verified locally. This wrapper performs
 one run, is bounded to at most 60 seconds, never commands RH56, and never
 writes payload, TCP, installation, collision, or controller safety settings.
-The 1.5/1.2 rad/s values are project-selected run limits, not vendor maximums.
+The 1.5 rad/s values are project-selected run limits, not vendor maximums.
 Its documented `--plant-free-no-network-check` mode validates argument and
 pipeline setup without opening sockets; it is still not physical evidence.
 

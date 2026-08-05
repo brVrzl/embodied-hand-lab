@@ -487,20 +487,20 @@ def test_per_joint_output_velocity_boundary_rejects_before_fake_sdk_call(
         tmp_path,
         [
             (0.0, 0, (0.0,) * 6),
-            (0.025, 20_000_000, (0.0, 0.0, 0.0, 0.026, 0.0, 0.0)),
+            (0.025, 20_000_000, (0.0, 0.0, 0.0, 0.038, 0.0, 0.0)),
         ],
         extra=(
             "--maximum-output-joint-velocity-rad-s-per-joint",
-            "1.5,1.5,1.5,1.2,1.2,1.2",
+            "1.5,1.5,1.5,1.5,1.5,1.5",
         ),
     )
     assert result.returncode == 2
     assert "internal output-feasibility contract violation" in metrics["outcome"]
     assert metrics["output_joint_velocity_boundary_rad_s_per_joint"] == pytest.approx(
-        [1.5, 1.5, 1.5, 1.2, 1.2, 1.2]
+        [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
     )
     assert metrics["output_speed_boundary_rejections"][3] == 1
-    assert all(row["joint_position_rad"][3] < 0.026 for row in points)
+    assert all(row["joint_position_rad"][3] < 0.038 for row in points)
 
 
 def test_recoverable_velocity_crossing_is_limited_progress_not_output_hold(

@@ -327,6 +327,7 @@ def test_wrist_local_roll_is_solved_predominantly_by_jaka_joint_6(
         output_contract=replace(
             config.output_contract,
             maximum_acceleration_rad_s2=math.inf,
+            maximum_velocity_rad_s_per_joint=(math.pi,) * 6,
         ),
     )
     model_path = build_viewer_mjcf(config.mjcf_path, tmp_path / "viewer.xml")

@@ -143,7 +143,11 @@ def test_failed_p4_candidate_backtracks_before_accepted_target_boundary() -> Non
     config = replace(
         base,
         output_contract=replace(
-            base.output_contract, maximum_acceleration_rad_s2=math.inf
+            base.output_contract,
+            maximum_acceleration_rad_s2=math.inf,
+            # Keep this continuation regression on the original scalar-hard
+            # boundary; the production default is tested separately at 1.5.
+            maximum_velocity_rad_s_per_joint=(math.pi,) * 6,
         ),
     )
     generator = SharedJakaTargetGenerator(config)
@@ -211,29 +215,29 @@ def test_per_joint_output_velocity_boundaries_preserve_scalar_hard_contract() ->
             1.5,
             1.5,
             1.5,
-            1.2,
-            1.2,
-            1.2,
+            1.5,
+            1.5,
+            1.5,
         ),
         maximum_acceleration_rad_s2=math.inf,
         servo_period_ns=PERIOD_NS,
     )
     tracker.reset((0.0,) * 6)
     exact = tracker.preview(
-        (0.012, 0.0, 0.0, 0.0096, 0.0, 0.0),
+        (0.012, 0.0, 0.0, 0.012, 0.0, 0.0),
         generated_monotonic_ns=1_000_000_000,
     )
     assert exact.feasible
     assert exact.predicted_velocity_rad_s == pytest.approx(
-        (1.5, 0.0, 0.0, 1.2, 0.0, 0.0)
+        (1.5, 0.0, 0.0, 1.5, 0.0, 0.0)
     )
     assert exact.boundary_rad_s == pytest.approx(math.pi)
     assert exact.boundary_rad_s_per_joint == pytest.approx(
-        (1.5, 1.5, 1.5, 1.2, 1.2, 1.2)
+        (1.5, 1.5, 1.5, 1.5, 1.5, 1.5)
     )
 
     wrist_above = tracker.preview(
-        (0.0, 0.0, 0.0, 0.009600_001, 0.0, 0.0),
+        (0.0, 0.0, 0.0, 0.012000_001, 0.0, 0.0),
         generated_monotonic_ns=1_000_000_000,
     )
     assert not wrist_above.feasible

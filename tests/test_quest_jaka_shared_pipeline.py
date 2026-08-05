@@ -167,6 +167,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "control_compute_budget_ms": 20.0,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
+        "maximum_output_joint_velocity_rad_s_per_joint": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
         "maximum_periodic_joint_winding_rad": 5.0,
     }

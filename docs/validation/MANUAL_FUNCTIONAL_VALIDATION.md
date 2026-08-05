@@ -271,7 +271,7 @@ readelf -d build/jaka_servo_worker/jaka_servo_worker
 ./scripts/run_quest_jaka_bounded_teleop.sh \
   --robot-ip 192.0.2.10 \
   --output-generator pwl-8ms \
-  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
   --no-auto-retry --estop-accessible --workspace-clear \
   --rh56-command-path-absent \
   --plant-free-no-network-check
@@ -575,7 +575,7 @@ required second step and produces no motion.
   --allowed-sender <QUEST_IPV4> \
   --duration-sec 30 \
   --output-generator pwl-8ms \
-  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.2 1.2 1.2 \
+  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
   --no-auto-retry --estop-accessible --workspace-clear \
   --rh56-command-path-absent
 ```

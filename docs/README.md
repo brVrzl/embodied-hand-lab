@@ -53,6 +53,7 @@ them or running `--help` does not authorize a device connection.
 
 ## Data and learning
 
+- [Dataset collection entry](data/DATA_COLLECTION.md)
 - [Canonical dataset schema](data/DATASET_SCHEMA.md)
 - [Collection and quality guide](data/COLLECTION_GUIDE.md)
 - [Policy-training integration](training/TRAINING_INTEGRATION.md)

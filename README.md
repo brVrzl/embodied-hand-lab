@@ -111,6 +111,7 @@ hardware SDK. See [simulation operation](docs/operation/simulation_demo.md) and
 
 Canonical schema, atomic completion, missing-frame semantics, collection
 limits, and framework adapters are documented in
+[the dataset collection entry](docs/data/DATA_COLLECTION.md),
 [dataset schema](docs/data/DATASET_SCHEMA.md),
 [collection guide](docs/data/COLLECTION_GUIDE.md), and
 [training integration](docs/training/TRAINING_INTEGRATION.md).

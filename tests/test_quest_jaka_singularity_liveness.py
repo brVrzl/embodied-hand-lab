@@ -37,6 +37,7 @@ def _singularity_config() -> ReplayConfig:
         output_contract=replace(
             config.output_contract,
             maximum_acceleration_rad_s2=math.inf,
+            maximum_velocity_rad_s_per_joint=(math.pi,) * 6,
         ),
     )
 
