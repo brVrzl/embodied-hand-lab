@@ -27,6 +27,7 @@ from .clutch import (
     HandClutchMachine,
     HandClutchState,
 )
+from .control_timing import CONTROL_TIMING_FIELDS, ControlTimingRecorder
 from .hand_retarget import (
     HandRetargetCalibration,
     InspireRetargetResult,
@@ -67,6 +68,9 @@ from .smooth_operator import Se3FilterProfile
 INPUT_RECOVERY_HOLD_REASON = "QUEST_INPUT_RECOVERY_HOLD"
 INPUT_RECOVERY_RECLUTCH_REASON = "QUEST_INPUT_RECOVERED_RECLUTCH_REQUIRED"
 INPUT_RECOVERY_TIMEOUT_REASON = "QUEST_INPUT_RECOVERY_TIMEOUT"
+_CONTROL_TIMING_INDEX = {
+    name: index for index, name in enumerate(CONTROL_TIMING_FIELDS)
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +238,8 @@ class SmoothQuestJakaSession:
         self.continuation_intervention_count = 0
         self.continuation_backtrack_count = 0
         self.control_compute_budget_exhausted_count = 0
+        self._control_timing = ControlTimingRecorder(capacity=512)
+        self._active_rh56_command_duration_ns = 0
         self.singularity_warning_count = 0
         self.maximum_requested_backlog_m = 0.0
         self.maximum_requested_backlog_rad = 0.0
@@ -509,6 +515,8 @@ class SmoothQuestJakaSession:
 
     def control_tick(self, now_ns: int) -> ArmControlTickResult:
         tick_started_ns = time.perf_counter_ns()
+        timing_values = [0] * len(CONTROL_TIMING_FIELDS)
+        self._active_rh56_command_duration_ns = 0
         self.control_timestamps_ns.append(now_ns)
         state = (
             self._shared_state_at(now_ns)
@@ -540,6 +548,8 @@ class SmoothQuestJakaSession:
                 self._input_recovery_started_ns = None
                 self.input_recovery_success_count += 1
 
+        quest_input_finished_ns = time.perf_counter_ns()
+
         if not self.left_controller_valid:
             if self.arm_clutch.state is not ArmClutchState.TRACKING_FAULT:
                 self.arm_clutch.fault(now_ns, "LEFT_CONTROLLER_STALE_OR_INVALID")
@@ -555,6 +565,7 @@ class SmoothQuestJakaSession:
             self.arm_clutch.fault(now_ns, "RIGHT_WRIST_TRACKING_LOST")
             self.arm_mapper.clear()
 
+        clutch_started_ns = quest_input_finished_ns
         arm_action = (
             self.arm_clutch.step(
                 self._index_sample,
@@ -578,6 +589,7 @@ class SmoothQuestJakaSession:
             controller_valid=self.left_controller_valid,
             skeleton_valid=True,
         )
+        clutch_finished_ns = time.perf_counter_ns()
         self._hand_updated_this_tick = False
         if hand_action is ClutchAction.START_HAND_REACQUISITION:
             if not self._capture_hand_reference(state, now_ns):
@@ -590,11 +602,24 @@ class SmoothQuestJakaSession:
                     self.normalized_hand_output.hold("grip_not_active")
                 self._clear_hand_reference()
         mapping_started_ns = time.perf_counter_ns()
+        timing_values[_CONTROL_TIMING_INDEX["quest_input_duration_ns"]] = (
+            quest_input_finished_ns - tick_started_ns
+        )
+        timing_values[_CONTROL_TIMING_INDEX["clutch_state_duration_ns"]] = (
+            clutch_finished_ns - clutch_started_ns
+        )
+        timing_values[_CONTROL_TIMING_INDEX["smooth_session_duration_ns"]] = (
+            mapping_started_ns - clutch_finished_ns
+        )
         desired = self._arm_target(state, arm_action, now_ns)
         mapping_finished_ns = time.perf_counter_ns()
+        timing_values[_CONTROL_TIMING_INDEX["mapping_duration_ns"]] = (
+            mapping_finished_ns - mapping_started_ns
+        )
         record_started_ns = time.perf_counter_ns()
         record = self._base_record(state, now_ns)
         record_finished_ns = time.perf_counter_ns()
+        event_diagnostic_duration_ns = record_finished_ns - record_started_ns
         record["arm_clutch_action"] = arm_action.value
         record["hand_clutch_action"] = hand_action.value
         record["arm_reference_capture"] = arm_action is ClutchAction.CAPTURE_ARM_REFERENCE
@@ -692,6 +717,7 @@ class SmoothQuestJakaSession:
                 if recovery_hold
                 else FeasibilityReason.DISENGAGED.value
             )
+            diagnostic_started_ns = time.perf_counter_ns()
             record.update(
                 accepted=False,
                 reason=reason,
@@ -708,6 +734,14 @@ class SmoothQuestJakaSession:
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
             self.event_records.append(record)
+            event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
+            self._finish_control_timing(
+                now_ns,
+                timing_values,
+                tick_started_ns,
+                event_diagnostic_duration_ns,
+                state=state,
+            )
             return ArmControlTickResult(
                 state.right.host_sequence_number,
                 state.right.wrist_pose if wrist_valid else None,
@@ -814,19 +848,56 @@ class SmoothQuestJakaSession:
             )
             continuation_attempt_timing_ms.append(asdict(result.timing))
         ik_duration_ns = time.perf_counter_ns() - started
+        candidate_timing = asdict(result.timing)
+        timing_values[_CONTROL_TIMING_INDEX["ik_duration_ns"]] = int(
+            round(
+                1e6
+                * sum(
+                    float(candidate_timing.get(name, 0.0))
+                    for name in (
+                        "seed_fk_ms",
+                        "pre_ik_jacobian_ms",
+                        "ik_iterations_ms",
+                        "ik_final_fk_ms",
+                        "post_ik_jacobian_ms",
+                    )
+                )
+            )
+        )
+        timing_values[
+            _CONTROL_TIMING_INDEX["collision_singularity_duration_ns"]
+        ] = int(
+            round(
+                1e6
+                * sum(
+                    float(candidate_timing.get(name, 0.0))
+                    for name in (
+                        "workspace_check_ms",
+                        "collision_check_ms",
+                        "remaining_checks_ms",
+                    )
+                )
+            )
+        )
+        timing_values[
+            _CONTROL_TIMING_INDEX["output_feasibility_duration_ns"]
+        ] = int(round(float(candidate_timing.get("output_feasibility_ms", 0.0)) * 1e6))
 
         def attach_control_timing() -> None:
-            timing = asdict(result.timing)
             record["control_timing_ns"] = {
-                "quest_input_duration_ns": mapping_started_ns - tick_started_ns,
-                "target_mapping_duration_ns": mapping_finished_ns - mapping_started_ns,
+                "quest_input_duration_ns": timing_values[
+                    _CONTROL_TIMING_INDEX["quest_input_duration_ns"]
+                ],
+                "target_mapping_duration_ns": timing_values[
+                    _CONTROL_TIMING_INDEX["mapping_duration_ns"]
+                ],
                 "ik_duration_ns": ik_duration_ns,
-                "collision_safety_duration_ns": round(
-                    float(timing.get("collision_check_ms", 0.0)) * 1e6
-                ),
-                "output_feasibility_duration_ns": round(
-                    float(timing.get("output_feasibility_ms", 0.0)) * 1e6
-                ),
+                "collision_safety_duration_ns": timing_values[
+                    _CONTROL_TIMING_INDEX["collision_singularity_duration_ns"]
+                ],
+                "output_feasibility_duration_ns": timing_values[
+                    _CONTROL_TIMING_INDEX["output_feasibility_duration_ns"]
+                ],
                 "control_total_duration_ns": time.perf_counter_ns() - tick_started_ns,
             }
         backlog_m = float(
@@ -900,6 +971,7 @@ class SmoothQuestJakaSession:
                 self.arm_clutch.fault(now_ns, "HARD_SINGULARITY_AT_ACCEPTED_STATE")
                 self.arm_mapper.clear()
                 attach_control_timing()
+                diagnostic_started_ns = time.perf_counter_ns()
                 record.update(
                     accepted=False,
                     reason=result.reason.value,
@@ -910,6 +982,14 @@ class SmoothQuestJakaSession:
                     control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
                 )
                 self.event_records.append(record)
+                event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
+                self._finish_control_timing(
+                    now_ns,
+                    timing_values,
+                    tick_started_ns,
+                    event_diagnostic_duration_ns,
+                    state=state,
+                )
                 return ArmControlTickResult(
                     state.right.host_sequence_number,
                     state.right.wrist_pose,
@@ -940,7 +1020,11 @@ class SmoothQuestJakaSession:
             dispatch_started_ns = time.perf_counter_ns()
             heartbeat_applied = self.arm_output.heartbeat(heartbeat)
             adapter_dispatch_ms = (time.perf_counter_ns() - dispatch_started_ns) / 1e6
+            timing_values[_CONTROL_TIMING_INDEX["target_encode_publish_duration_ns"]] = (
+                int(round(adapter_dispatch_ms * 1e6))
+            )
             attach_control_timing()
+            diagnostic_started_ns = time.perf_counter_ns()
             record.update(
                 accepted=False,
                 reason=result.reason.value,
@@ -957,6 +1041,14 @@ class SmoothQuestJakaSession:
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
             self.event_records.append(record)
+            event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
+            self._finish_control_timing(
+                now_ns,
+                timing_values,
+                tick_started_ns,
+                event_diagnostic_duration_ns,
+                state=state,
+            )
             return ArmControlTickResult(
                 state.right.host_sequence_number,
                 state.right.wrist_pose,
@@ -971,6 +1063,7 @@ class SmoothQuestJakaSession:
         assert result.joint_target_rad is not None
         assert state.right.host_sequence_number is not None
         input_receive_ns = int(state.right.host_receive_monotonic_ns or now_ns)
+        target_encode_started_ns = time.perf_counter_ns()
         self._accepted_sequence += 1
         accepted_target = AcceptedArmTarget(
             sequence_number=self._accepted_sequence,
@@ -1006,6 +1099,9 @@ class SmoothQuestJakaSession:
         output_applied = self.arm_output.apply(accepted_target)
         self.last_accepted_target = accepted_target
         adapter_dispatch_ms = (time.perf_counter_ns() - dispatch_started_ns) / 1e6
+        timing_values[_CONTROL_TIMING_INDEX["target_encode_publish_duration_ns"]] = (
+            time.perf_counter_ns() - target_encode_started_ns
+        )
         recovery_event = self._hold_rejected_started_ns is not None
         self._hold_rejected_started_ns = None
         self._last_accepted_generated_ns = now_ns
@@ -1019,6 +1115,7 @@ class SmoothQuestJakaSession:
             else self.target_generator.current_tcp_pose
         )
         attach_control_timing()
+        diagnostic_started_ns = time.perf_counter_ns()
         record.update(
             accepted=True,
             reason=FeasibilityReason.ACCEPTED.value,
@@ -1039,6 +1136,14 @@ class SmoothQuestJakaSession:
             control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
         )
         self.event_records.append(record)
+        event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
+        self._finish_control_timing(
+            now_ns,
+            timing_values,
+            tick_started_ns,
+            event_diagnostic_duration_ns,
+            state=state,
+        )
         return ArmControlTickResult(
             state.right.host_sequence_number,
             state.right.wrist_pose,
@@ -1050,6 +1155,70 @@ class SmoothQuestJakaSession:
             output_applied,
             FeasibilityReason.ACCEPTED.value,
         )
+
+    def _finish_control_timing(
+        self,
+        now_ns: int,
+        timing_values: list[int],
+        tick_started_ns: int,
+        event_diagnostic_duration_ns: int,
+        *,
+        state: CanonicalQuestState,
+    ) -> None:
+        timing_values[_CONTROL_TIMING_INDEX["rh56_command_duration_ns"]] = (
+            self._active_rh56_command_duration_ns
+        )
+        timing_values[_CONTROL_TIMING_INDEX["event_diagnostic_duration_ns"]] = (
+            max(0, int(event_diagnostic_duration_ns))
+        )
+        timing_values[_CONTROL_TIMING_INDEX["control_total_duration_ns"]] = (
+            time.perf_counter_ns() - tick_started_ns
+        )
+        over_budget = bool(
+            self.control_compute_budget_ns is not None
+            and timing_values[_CONTROL_TIMING_INDEX["control_total_duration_ns"]]
+            >= self.control_compute_budget_ns
+        )
+        context = {
+            "quest_age_ns": (
+                None
+                if state.right.stream_age_s is None
+                else int(max(0.0, state.right.stream_age_s) * 1e9)
+            ),
+            "hand_state": self.hand_clutch.state.value,
+            "arm_clutch_state": self.arm_clutch.state.value,
+            "rh56_command_write": bool(
+                timing_values[_CONTROL_TIMING_INDEX["rh56_command_duration_ns"]]
+            ),
+            "rh56_feedback_read": False,
+            "episode_metadata_published": False,
+            "event_log_enqueued": False,
+            "camera_health": "unknown",
+            "recorder_health": "unknown",
+        }
+        self._control_timing.record(
+            timestamp_ns=now_ns,
+            durations_ns=timing_values,
+            over_budget=over_budget,
+            context=context,
+        )
+
+    def add_control_timing(self, field: str, duration_ns: int) -> None:
+        """Add an outer-producer phase measured after ``control_tick``."""
+
+        self._control_timing.add_to_last(field, duration_ns)
+
+    def set_control_timing(self, field: str, duration_ns: int) -> None:
+        self._control_timing.set_last(field, duration_ns)
+
+    def update_control_timing_context(self, values: dict[str, Any]) -> None:
+        self._control_timing.update_last_context(values)
+
+    def finalize_control_timing(self, total_duration_ns: int) -> None:
+        self._control_timing.set_last("control_total_duration_ns", total_duration_ns)
+
+    def control_timing_report(self) -> dict[str, Any]:
+        return self._control_timing.report()
 
     def _arm_target(self, state: CanonicalQuestState, action: ClutchAction, now_ns: int):
         if action is ClutchAction.CAPTURE_ARM_REFERENCE:
@@ -1101,7 +1270,11 @@ class SmoothQuestJakaSession:
         self._thumb_close_feature_reference = float(features[4])
         self._thumb_lateral_feature_reference = float(features[5])
         if self.normalized_hand_output is not None:
+            command_started_ns = time.perf_counter_ns()
             measured = self.normalized_hand_output.activate_from_measured(now_ns)
+            self._active_rh56_command_duration_ns += (
+                time.perf_counter_ns() - command_started_ns
+            )
             # Session-internal order is lateral, close, index, middle, ring, pinky.
             measured_reference = np.asarray(
                 [measured[5], measured[4], *measured[:4]], dtype=np.float64
@@ -1350,7 +1523,11 @@ class SmoothQuestJakaSession:
             return
         if self.normalized_hand_output is not None:
             canonical_target = [*target[2:].tolist(), float(target[1]), float(target[0])]
+            command_started_ns = time.perf_counter_ns()
             self.normalized_hand_output.submit_target(canonical_target, now_ns)
+            self._active_rh56_command_duration_ns += (
+                time.perf_counter_ns() - command_started_ns
+            )
         else:
             order = ("thumb_lateral", "thumb_close", "index", "middle", "ring", "pinky")
             mapping = dict(zip(order, target.tolist(), strict=True))
@@ -1781,6 +1958,7 @@ class SmoothQuestJakaSession:
             "control_compute_budget_exhausted_count": (
                 self.control_compute_budget_exhausted_count
             ),
+            "control_timing": self.control_timing_report(),
             "input_recovery_timeout_s": self.config.input_recovery_timeout_s,
             "input_recovery_count": self.input_recovery_count,
             "input_recovery_success_count": self.input_recovery_success_count,

@@ -1151,6 +1151,7 @@ def main() -> int:
         episode_record_next_ns: int | None = None
         episode_record_period_ns = 1_000_000_000 // 30
         event_log_next_ns: int | None = None
+        rh56_full_diagnostics_next_ns: int | None = None
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
         try:
@@ -1463,6 +1464,19 @@ def main() -> int:
                             or dispatch_failed
                             or clutch_edge_reason is not None
                         )
+                        rh56_include_diagnostics = bool(
+                            rh56_control is not None
+                            and event_log_due
+                            and (
+                                rh56_full_diagnostics_next_ns is None
+                                or now_ns >= rh56_full_diagnostics_next_ns
+                            )
+                        )
+                        if rh56_include_diagnostics:
+                            rh56_full_diagnostics_next_ns = now_ns + 1_000_000_000
+                        outer_event_diagnostic_started_ns = time.perf_counter_ns()
+                        rh56_feedback_duration_ns = 0
+                        episode_metadata_duration_ns = 0
                         event = dict(session.event_records[-1])
                         operator_delta = event.get("operator_delta")
                         if operator_delta is not None:
@@ -1477,6 +1491,16 @@ def main() -> int:
                             minimum_continuation_fraction = min(
                                 minimum_continuation_fraction,
                                 float(event["continuation_fraction"]),
+                            )
+                        rh56_telemetry = None
+                        if rh56_control is not None:
+                            rh56_feedback_started_ns = time.perf_counter_ns()
+                            rh56_telemetry = rh56_control.episode_record(
+                                now_ns,
+                                include_diagnostics=rh56_include_diagnostics,
+                            )
+                            rh56_feedback_duration_ns += (
+                                time.perf_counter_ns() - rh56_feedback_started_ns
                             )
                         event.update(
                             physical_stage=args.stage,
@@ -1511,14 +1535,7 @@ def main() -> int:
                                 if dispatch_failed
                                 else clutch_edge_reason
                             ),
-                            rh56_telemetry=(
-                                None
-                                if rh56_control is None
-                                else rh56_control.episode_record(
-                                    now_ns,
-                                    include_diagnostics=event_log_due,
-                                )
-                            ),
+                            rh56_telemetry=rh56_telemetry,
                         )
                         record_episode_sample = (
                             episode_runtime is not None
@@ -1573,9 +1590,14 @@ def main() -> int:
                                     if rh56_control.last_command_normalized is None
                                     else rh56_control.last_command_normalized
                                 )
+                                rh56_feedback_started_ns = time.perf_counter_ns()
                                 rh56_record = rh56_control.episode_record(
                                     now_ns, include_diagnostics=False
                                 )
+                                rh56_feedback_duration_ns += (
+                                    time.perf_counter_ns() - rh56_feedback_started_ns
+                                )
+                                episode_metadata_started_ns = time.perf_counter_ns()
                                 episode_runtime.collector.ingest_control(
                                     ControlSample(
                                         host_monotonic_ns=now_ns,
@@ -1640,6 +1662,9 @@ def main() -> int:
                                     hand_grip=session.hand_clutch.state.value
                                     in {"reacquire", "engaged"},
                                 )
+                                episode_metadata_duration_ns += (
+                                    time.perf_counter_ns() - episode_metadata_started_ns
+                                )
                                 episode_record_next_ns = (
                                     now_ns + episode_record_period_ns
                                 )
@@ -1670,6 +1695,57 @@ def main() -> int:
                             write_ns = time.perf_counter_ns() - write_started_ns
                             if episode_runtime is not None:
                                 event_log_next_ns = now_ns + episode_record_period_ns
+                        receiver_ingest_duration_ns = (
+                            pending_receiver_drain_and_ingest_ns
+                        )
+                        outer_event_diagnostic_duration_ns = max(
+                            0,
+                            time.perf_counter_ns()
+                            - outer_event_diagnostic_started_ns
+                            - rh56_feedback_duration_ns
+                            - episode_metadata_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "quest_input_duration_ns",
+                            receiver_ingest_duration_ns + router_poll_ns,
+                        )
+                        session.add_control_timing(
+                            "rh56_feedback_duration_ns",
+                            rh56_feedback_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "episode_metadata_publish_duration_ns",
+                            episode_metadata_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "event_diagnostic_duration_ns",
+                            outer_event_diagnostic_duration_ns,
+                        )
+                        outer_control_total_ns = (
+                            time.perf_counter_ns() - outer_tick_started_ns
+                        )
+                        session.finalize_control_timing(outer_control_total_ns)
+                        session.update_control_timing_context(
+                            {
+                                "rh56_feedback_read": rh56_feedback_duration_ns > 0,
+                                "episode_metadata_published": episode_metadata_duration_ns > 0,
+                                "event_log_enqueued": bool(event_log_due),
+                                "camera_health": (
+                                    "disabled"
+                                    if episode_runtime is None
+                                    else "degraded"
+                                    if episode_capture_failed
+                                    else "healthy"
+                                ),
+                                "recorder_health": (
+                                    "disabled"
+                                    if episode_runtime is None
+                                    else "degraded"
+                                    if episode_capture_failed
+                                    else "healthy"
+                                ),
+                            }
+                        )
                         producer_timing_rows.append({
                             **event["producer_outer_timing_ms"],
                             "event_json_serialize": serialize_ns / 1e6,
@@ -2055,6 +2131,7 @@ def main() -> int:
         ),
         "ik_rejections": dict(sorted(session.rejections.items())),
         **_control_compute_budget_summary(session),
+        "control_timing": session.control_timing_report(),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
         "component_placement_snapshots": component_placement_snapshots,
         "native_worker_placement": metrics.get("worker_placement"),

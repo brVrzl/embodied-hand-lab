@@ -115,6 +115,9 @@ class RH56PcDirectWorker:
         self._io_busy_ns = 0
         self._first_io_start_ns: int | None = None
         self._last_io_end_ns: int | None = None
+        self._full_diagnostics_next_ns: int | None = None
+        self._last_record_build_duration_ns = 0
+        self._maximum_record_build_duration_ns = 0
         self._feedback_schedule: dict[str, dict[str, object]] = {}
         for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR"):
             self._feedback_schedule[name] = {
@@ -514,11 +517,25 @@ class RH56PcDirectWorker:
         self._update_feedback_ages(self._monotonic_ns())
         if self.record is not None and operation in {"COMMAND", "ANGLE", "CONTACT_RELIEF"}:
             record_now_ns = self._monotonic_ns()
-            full_diagnostics = operation == "ANGLE"
+            full_diagnostics = bool(
+                operation == "ANGLE"
+                and (
+                    self._full_diagnostics_next_ns is None
+                    or record_now_ns >= self._full_diagnostics_next_ns
+                )
+            )
+            if full_diagnostics:
+                self._full_diagnostics_next_ns = record_now_ns + 1_000_000_000
+            record_started_ns = self._monotonic_ns()
             row = self.control.episode_record(
                 record_now_ns,
                 None if target is None else target.values,
                 include_diagnostics=full_diagnostics,
+            )
+            self._last_record_build_duration_ns = self._monotonic_ns() - record_started_ns
+            self._maximum_record_build_duration_ns = max(
+                self._maximum_record_build_duration_ns,
+                self._last_record_build_duration_ns,
             )
             row["record_type"] = "rh56_telemetry"
             row["rh56_scheduled_operation"] = operation
@@ -607,6 +624,10 @@ class RH56PcDirectWorker:
                 None if not logging_failures else logging_failures[-1]
             ),
             "control": self.control.diagnostics_snapshot(),
+            "worker_record_build_duration_ns": {
+                "last": self._last_record_build_duration_ns,
+                "max": self._maximum_record_build_duration_ns,
+            },
             "serial_utilization_estimate": self._serial_utilization(),
             "telemetry_emission_policy": (
                 "compact_each_command_full_snapshot_each_angle_feedback"
