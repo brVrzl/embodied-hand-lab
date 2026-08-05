@@ -14,6 +14,7 @@ BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 ALLOWED_SENDER=""
 DURATION_SEC="300"
+DURATION_EXPLICIT="false"
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
 RH56_CONFIG="configs/hand/rh56_pc_direct_teleop.yaml"
 RH56_SCHEDULER_PROFILE="fast40"
@@ -26,6 +27,7 @@ NO_AUTO_RETRY="false"
 HAND_PREREQUISITES_COMPLETE="false"
 PLANT_FREE_NO_NETWORK_CHECK="false"
 ALLOW_DIRECT_CH341_DEVICE="false"
+RUNTIME_CONFIG=""
 NATIVE_CONTROL_CPU=""
 NATIVE_CONTROL_REALTIME_PRIORITY="10"
 EPISODE_DATA_CONFIG=""
@@ -72,6 +74,7 @@ Options:
   --worker PATH
   --log-dir PATH
   --python PATH
+  --runtime-config PATH  load stable host and collection values from YAML
   --episode-data-config PATH
                             enable canonical dual-camera physical episode capture
   --episode-root PATH       default data/episodes
@@ -91,7 +94,7 @@ while [[ $# -gt 0 ]]; do
     --bind) need_value "$@"; BIND_HOST="$2"; shift 2 ;;
     --port) need_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --allowed-sender) need_value "$@"; ALLOWED_SENDER="$2"; shift 2 ;;
-    --duration-sec) need_value "$@"; DURATION_SEC="$2"; shift 2 ;;
+    --duration-sec) need_value "$@"; DURATION_SEC="$2"; DURATION_EXPLICIT="true"; shift 2 ;;
     --config) need_value "$@"; CONFIG="$2"; shift 2 ;;
     --rh56-config) need_value "$@"; RH56_CONFIG="$2"; shift 2 ;;
     --rh56-scheduler-profile) need_value "$@"; RH56_SCHEDULER_PROFILE="$2"; shift 2 ;;
@@ -100,6 +103,7 @@ while [[ $# -gt 0 ]]; do
     --worker) need_value "$@"; WORKER="$2"; shift 2 ;;
     --log-dir) need_value "$@"; LOG_DIR="$2"; shift 2 ;;
     --python) need_value "$@"; PYTHON_BIN="$2"; shift 2 ;;
+    --runtime-config) need_value "$@"; RUNTIME_CONFIG="$2"; shift 2 ;;
     --episode-data-config) need_value "$@"; EPISODE_DATA_CONFIG="$2"; shift 2 ;;
     --episode-root) need_value "$@"; EPISODE_ROOT="$2"; shift 2 ;;
     --task-name) need_value "$@"; TASK_NAME="$2"; shift 2 ;;
@@ -115,25 +119,32 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -n "${ROBOT_IP}" ]] || { echo "--robot-ip is required" >&2; exit 2; }
-if [[ "${RH56_DEVICE}" == /dev/serial/by-id/* ]]; then
+CONFIG_MODE="false"
+if [[ -n "${RUNTIME_CONFIG}" ]]; then
+  CONFIG_MODE="true"
+  [[ -f "${RUNTIME_CONFIG}" ]] || { echo "runtime config not found: ${RUNTIME_CONFIG}" >&2; exit 2; }
+fi
+if [[ "${CONFIG_MODE}" != true ]]; then
+  [[ -n "${ROBOT_IP}" ]] || { echo "--robot-ip is required" >&2; exit 2; }
+fi
+if [[ "${CONFIG_MODE}" != true && "${RH56_DEVICE}" == /dev/serial/by-id/* ]]; then
   :
-elif [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true && "${RH56_DEVICE}" =~ ^/dev/ttyCH341USB[0-9]+$ ]]; then
+elif [[ "${CONFIG_MODE}" != true && "${ALLOW_DIRECT_CH341_DEVICE}" == true && "${RH56_DEVICE}" =~ ^/dev/ttyCH341USB[0-9]+$ ]]; then
   :
-else
+elif [[ "${CONFIG_MODE}" != true ]]; then
   echo "--rh56-device must be /dev/serial/by-id/...; direct tty requires --allow-direct-ch341-device and /dev/ttyCH341USB<N>" >&2
   exit 2
 fi
 [[ "${ESTOP_ACCESSIBLE}" == true && "${WORKSPACE_CLEAR}" == true && "${NO_AUTO_RETRY}" == true && "${HAND_PREREQUISITES_COMPLETE}" == true ]] || {
   echo "E-stop, workspace, no-retry, and completed hand prerequisites are required" >&2; exit 2;
 }
-[[ "${NATIVE_CONTROL_CPU}" =~ ^[0-9]+$ ]] || {
+if [[ "${CONFIG_MODE}" != true && ! "${NATIVE_CONTROL_CPU}" =~ ^[0-9]+$ ]]; then
   echo "--native-control-cpu is required and must be a nonnegative integer" >&2; exit 2;
-}
+fi
 awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 300) }' || { echo "duration must be >0 and <=300" >&2; exit 2; }
 [[ -x "${PYTHON_BIN}" ]] || { echo "Python is not executable: ${PYTHON_BIN}" >&2; exit 2; }
 [[ -x "${WORKER}" ]] || { echo "Native worker is not executable: ${WORKER}" >&2; exit 2; }
-if [[ "${EPISODE_PREVIEW}" == true && -z "${EPISODE_DATA_CONFIG}" ]]; then
+if [[ "${CONFIG_MODE}" != true && "${EPISODE_PREVIEW}" == true && -z "${EPISODE_DATA_CONFIG}" ]]; then
   echo "--episode-preview requires --episode-data-config" >&2
   exit 2
 fi
@@ -147,17 +158,15 @@ echo "QUEST_RECEIVERS=1 JAKA_SDK_SESSIONS=1 RH56_TRANSPORT=pc-direct-usb-rs485"
 echo "ARM_CLUTCH=left-index; release pauses and re-engage resumes"
 echo "HAND_CLUTCH=grip; release holds and re-engage resumes"
 echo "RH56_AUTOMATIC_CONFIG_WRITES=none"
-echo "DURATION_SEC=${DURATION_SEC} LOG_PREFIX=${prefix}"
+if [[ "${CONFIG_MODE}" == true ]]; then
+  echo "DURATION_SEC=runtime_config LOG_PREFIX=${prefix}"
+  echo "RUNTIME_CONFIG=${RUNTIME_CONFIG}"
+else
+  echo "DURATION_SEC=${DURATION_SEC} LOG_PREFIX=${prefix}"
+fi
 
 cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
-  --config "${CONFIG}" --worker "${WORKER}"
-  --robot-ip "${ROBOT_IP}" --edg-state-ip "${EDG_STATE_IP}"
-  --bind "${BIND_HOST}" --port "${UDP_PORT}" --duration-sec "${DURATION_SEC}"
-  --rh56-device "${RH56_DEVICE}"
-  --rh56-config "${RH56_CONFIG}"
-  --rh56-scheduler-profile "${RH56_SCHEDULER_PROFILE}"
   --output-generator pwl-8ms
-  --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5
   --recover-output-acceleration-transition --no-auto-retry
   --estop-accessible --workspace-clear
   --log "${prefix}.events.jsonl" --summary "${prefix}.summary.json"
@@ -165,11 +174,26 @@ cmd=("${PYTHON_BIN}" tools/quest_jaka_hardware.py combined-normal-teleop
   --native-telemetry "${prefix}.native_cycles.jsonl"
   --event-extract "${prefix}.event_extract.jsonl"
   --rh56-log "${prefix}.rh56.jsonl")
-if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"); fi
-cmd+=(--native-control-cpu "${NATIVE_CONTROL_CPU}")
-cmd+=(--native-control-realtime-priority "${NATIVE_CONTROL_REALTIME_PRIORITY}")
-if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
-if [[ -n "${EPISODE_DATA_CONFIG}" ]]; then
+if [[ "${CONFIG_MODE}" == true ]]; then
+  cmd+=(--runtime-config "${RUNTIME_CONFIG}")
+  if [[ "${DURATION_EXPLICIT}" == true ]]; then cmd+=(--duration-sec "${DURATION_SEC}"); fi
+else
+  cmd+=(
+    --worker "${WORKER}"
+    --config "${CONFIG}"
+    --robot-ip "${ROBOT_IP}" --edg-state-ip "${EDG_STATE_IP}"
+    --bind "${BIND_HOST}" --port "${UDP_PORT}" --duration-sec "${DURATION_SEC}"
+    --rh56-device "${RH56_DEVICE}"
+    --rh56-config "${RH56_CONFIG}"
+    --rh56-scheduler-profile "${RH56_SCHEDULER_PROFILE}"
+    --run-output-joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5
+    --native-control-cpu "${NATIVE_CONTROL_CPU}"
+    --native-control-realtime-priority "${NATIVE_CONTROL_REALTIME_PRIORITY}"
+  )
+  if [[ -n "${ALLOWED_SENDER}" ]]; then cmd+=(--allowed-sender "${ALLOWED_SENDER}"); fi
+  if [[ "${ALLOW_DIRECT_CH341_DEVICE}" == true ]]; then cmd+=(--allow-direct-ch341-device); fi
+fi
+if [[ "${CONFIG_MODE}" != true && -n "${EPISODE_DATA_CONFIG}" ]]; then
   cmd+=(--episode-data-config "${EPISODE_DATA_CONFIG}" --episode-root "${EPISODE_ROOT}")
   cmd+=(--task-name "${TASK_NAME}" --operator "${OPERATOR}")
 fi

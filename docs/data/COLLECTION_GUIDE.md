@@ -312,16 +312,10 @@ workspace, device identity, CPU isolation, and RH56 prerequisites are checked:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --robot-ip <ROBOT_IPV4> \
-  --rh56-device /dev/serial/by-id/<RH56_ADAPTER> \
+  --runtime-config data/local/physical_collection.yaml \
   --hand-prerequisites-complete --no-auto-retry \
   --estop-accessible --workspace-clear \
-  --native-control-cpu <VERIFIED_CPU> \
-  --duration-sec <BOUNDED_SECONDS> \
-  --episode-data-config data/local/dual_d435_episode.yaml \
-  --episode-root data/episodes \
-  --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
-  --operator <OPERATOR_ID>
+  --log-dir logs
 ```
 
 The first trial should be short. The combined command opens the separately
@@ -343,15 +337,9 @@ the whole run; the canonical action is then explicitly sourced as
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --robot-ip 192.168.71.50 --edg-state-ip 192.168.71.19 \
-  --rh56-device "$RH56_DEVICE" --allow-direct-ch341-device \
+  --runtime-config data/local/physical_collection.yaml \
   --duration-sec 10 --hand-prerequisites-complete --no-auto-retry \
-  --estop-accessible --workspace-clear --native-control-cpu 6 \
-  --rh56-scheduler-profile fast40 \
-  --episode-data-config data/local/dual_d435_episode.yaml \
-  --episode-root data/episodes \
-  --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
-  --operator <OPERATOR_ID> --log-dir logs
+  --estop-accessible --workspace-clear --log-dir logs
 ```
 
 For Phase B, use the identical command with `--duration-sec 60`. Perform one

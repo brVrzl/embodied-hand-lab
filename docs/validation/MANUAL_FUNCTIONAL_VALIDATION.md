@@ -261,9 +261,8 @@ the repository has no authoritative no-motion CLI for those controller-owned
 facts.
 
 ```bash
-export JAKA_IP=<CONFIRM_FROM_CURRENT_CONTROLLER>
-ip route get "$JAKA_IP"
-ping -c 3 -W 1 "$JAKA_IP"
+ip route get <CONFIRM_FROM_CURRENT_CONTROLLER>
+ping -c 3 -W 1 <CONFIRM_FROM_CURRENT_CONTROLLER>
 
 ldd build/jaka_servo_worker/jaka_servo_worker
 readelf -d build/jaka_servo_worker/jaka_servo_worker
@@ -287,13 +286,12 @@ Device identity without opening serial:
 
 ```bash
 ls -l /dev/serial/by-id/
-export RH56_DEVICE=/dev/serial/by-id/<CONFIRM_ADAPTER_ID>
-readlink -f "$RH56_DEVICE"
-udevadm info --query=property --name "$RH56_DEVICE"
-fuser -v "$RH56_DEVICE" || true
+readlink -f /dev/serial/by-id/<CONFIRM_ADAPTER_ID>
+udevadm info --query=property --name /dev/serial/by-id/<CONFIRM_ADAPTER_ID>
+fuser -v /dev/serial/by-id/<CONFIRM_ADAPTER_ID> || true
 
 ./scripts/run_quest_rh56_hand_test.sh \
-  --device "$RH56_DEVICE" \
+  --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --preflight-only \
   --summary logs/rh56_preflight.summary.json
 ```
@@ -303,7 +301,7 @@ register and produces no commanded motion):
 
 ```bash
 ./scripts/run_quest_rh56_hand_test.sh \
-  --device "$RH56_DEVICE" \
+  --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --read-only \
   --duration-sec 10 \
   --jsonl logs/rh56_read_only.jsonl \
@@ -390,19 +388,16 @@ a 2 s hold. Operator stands outside the hand/cable sweep with the adapter
 disconnect and E-stop accessible.
 
 ```bash
-export RH56_DEVICE=/dev/serial/by-id/<CONFIRM_ADAPTER_ID>
-export RH56_CHANNEL=<index|middle|ring|pinky|thumb_close|thumb_lateral>
-
 ./scripts/run_quest_rh56_hand_test.sh \
-  --device "$RH56_DEVICE" \
+  --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --bounded-command \
-  --channel "$RH56_CHANNEL" \
+  --channel index \
   --delta 0.03 \
   --duration-sec 2 \
   --hold-sec 2 \
   --manual-stop-accessible --workspace-clear --no-auto-retry \
-  --jsonl "logs/rh56_bounded_${RH56_CHANNEL}.jsonl" \
-  --summary "logs/rh56_bounded_${RH56_CHANNEL}.summary.json"
+  --jsonl "logs/rh56_bounded_index.jsonl" \
+  --summary "logs/rh56_bounded_index.summary.json"
 ```
 
 Run only one channel per run and inspect its summary before changing

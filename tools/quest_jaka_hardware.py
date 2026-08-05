@@ -354,14 +354,15 @@ def _parser() -> argparse.ArgumentParser:
             "research-thin-bounded",
         ),
     )
-    parser.add_argument("--config", type=Path, default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"))
-    parser.add_argument("--worker", type=Path, default=Path("build/jaka_servo_worker/jaka_servo_worker"))
-    parser.add_argument("--robot-ip", required=True)
-    parser.add_argument("--edg-state-ip", default="192.168.71.19")
-    parser.add_argument("--bind", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=9000)
+    parser.add_argument("--runtime-config", type=Path, help="host-specific runtime YAML for physical collection")
+    parser.add_argument("--config", type=Path)
+    parser.add_argument("--worker", type=Path)
+    parser.add_argument("--robot-ip")
+    parser.add_argument("--edg-state-ip")
+    parser.add_argument("--bind")
+    parser.add_argument("--port", type=int)
     parser.add_argument("--allowed-sender")
-    parser.add_argument("--duration-sec", type=float, default=60.0)
+    parser.add_argument("--duration-sec", type=float)
     parser.add_argument(
         "--native-control-cpu",
         type=int,
@@ -390,7 +391,7 @@ def _parser() -> argparse.ArgumentParser:
             "custom host driver creates no /dev/serial/by-id link"
         ),
     )
-    parser.add_argument("--rh56-config", type=Path, default=Path("configs/hand/rh56_pc_direct_teleop.yaml"))
+    parser.add_argument("--rh56-config", type=Path)
     parser.add_argument(
         "--rh56-scheduler-profile",
         choices=("baseline", "fast30", "fast40", "fast50"),
@@ -403,8 +404,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--capture", type=Path, required=True)
     parser.add_argument("--episode-data-config", type=Path)
     parser.add_argument("--episode-root", type=Path)
-    parser.add_argument("--task-name", default="fixed_bottle_pick_lift_10cm_hold_3s_replace")
-    parser.add_argument("--operator", default="unknown")
+    parser.add_argument("--task-name")
+    parser.add_argument("--operator")
     parser.add_argument("--episode-preview", action="store_true")
     parser.add_argument("--native-telemetry", type=Path)
     parser.add_argument("--event-extract", type=Path)
@@ -455,6 +456,98 @@ def _parser() -> argparse.ArgumentParser:
         help="validate the complete bounded command and exit before sockets or hardware",
     )
     return parser
+
+
+def _apply_runtime_config(args: argparse.Namespace) -> None:
+    """Resolve stable host/collection values from one explicit YAML file."""
+
+    defaults: dict[str, object] = {
+        "config": Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
+        "worker": Path("build/jaka_servo_worker/jaka_servo_worker"),
+        "edg_state_ip": "192.168.71.19",
+        "bind": "0.0.0.0",
+        "port": 9000,
+        "duration_sec": 60.0,
+        "rh56_config": Path("configs/hand/rh56_pc_direct_teleop.yaml"),
+        "task_name": "fixed_bottle_pick_lift_10cm_hold_3s_replace",
+        "operator": "unknown",
+    }
+    runtime: dict[str, object] = {}
+    if args.runtime_config is not None:
+        try:
+            document = load_yaml(args.runtime_config)
+        except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
+            raise SystemExit(
+                f"invalid runtime config before hardware I/O: {args.runtime_config}: {exc}"
+            ) from exc
+        candidate = document.get("runtime", document)
+        if not isinstance(candidate, dict):
+            raise SystemExit("runtime config must contain a mapping at root.runtime")
+        runtime = candidate
+
+    def resolve(name: str, key: str | None = None) -> object | None:
+        if getattr(args, name) is not None:
+            return getattr(args, name)
+        return runtime.get(key or name, defaults.get(name))
+
+    for name in (
+        "config",
+        "worker",
+        "robot_ip",
+        "edg_state_ip",
+        "bind",
+        "port",
+        "duration_sec",
+        "rh56_device",
+        "rh56_config",
+        "rh56_scheduler_profile",
+        "native_control_cpu",
+        "native_control_realtime_priority",
+        "allowed_sender",
+        "episode_data_config",
+        "episode_root",
+        "task_name",
+        "operator",
+        "output_generator",
+    ):
+        value = resolve(name)
+        if value is not None:
+            setattr(args, name, value)
+
+    velocity_limits = resolve(
+        "run_output_joint_velocity_limits_rad_s",
+        "run_output_joint_velocity_limits_rad_s",
+    )
+    if args.run_output_joint_velocity_limits_rad_s is None and velocity_limits is not None:
+        try:
+            args.run_output_joint_velocity_limits_rad_s = tuple(
+                float(value) for value in velocity_limits
+            )
+        except (TypeError, ValueError) as exc:
+            raise SystemExit(
+                "runtime config run_output_joint_velocity_limits_rad_s must contain six numbers"
+            ) from exc
+
+    if bool(runtime.get("allow_direct_ch341_device", False)):
+        args.allow_direct_ch341_device = True
+    if bool(runtime.get("episode_preview", False)):
+        args.episode_preview = True
+    if bool(runtime.get("recover_output_acceleration_transition", False)):
+        args.recover_output_acceleration_transition = True
+
+    if args.config is not None and not isinstance(args.config, Path):
+        args.config = Path(str(args.config))
+    if args.worker is not None and not isinstance(args.worker, Path):
+        args.worker = Path(str(args.worker))
+    if args.rh56_config is not None and not isinstance(args.rh56_config, Path):
+        args.rh56_config = Path(str(args.rh56_config))
+    for name in ("episode_data_config", "episode_root", "runtime_config"):
+        value = getattr(args, name)
+        if value is not None and not isinstance(value, Path):
+            setattr(args, name, Path(str(value)))
+
+    if args.robot_ip is None:
+        raise SystemExit("--robot-ip or --runtime-config with robot_ip is required")
 
 
 def _wait_status(runtime: ArmOnlyRuntime, native: NativeWorkerProcess, timeout_s: float = 8.0):
@@ -626,6 +719,7 @@ def _native_velocity_limit_args(config: ReplayConfig) -> tuple[str, str]:
 
 def main() -> int:
     args = _parser().parse_args()
+    _apply_runtime_config(args)
     if args.duration_sec <= 0.0:
         raise SystemExit("duration must be positive")
     if args.episode_root is not None and args.episode_data_config is None:
@@ -1997,6 +2091,9 @@ def main() -> int:
         "stage": args.stage,
         "requested_duration_sec": args.duration_sec,
         "shared_config": str(args.config),
+        "runtime_config": (
+            None if args.runtime_config is None else str(args.runtime_config)
+        ),
         "output_generator": (
             args.output_generator
             if args.output_generator is not None

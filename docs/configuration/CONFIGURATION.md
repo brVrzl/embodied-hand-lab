@@ -71,6 +71,7 @@ parse is not permission to open a device.
 | --- | --- |
 | `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Default headless/offline replay and unified simulation smoke |
 | `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Shared live Quest target-generation, MuJoCo, and native-adapter policy |
+| `configs/data_collection/physical_collection.example.yaml` | Host-specific physical collection runtime schema; copy to ignored `data/local/` |
 | `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
 | `configs/motion_input/quest_hts_right_hand.yaml` | Canonical HTS receiver/operator preparation settings |
 | `configs/benchmark/smoke.yaml` | Deterministic offline joint-reach/pre-shape smoke benchmark |

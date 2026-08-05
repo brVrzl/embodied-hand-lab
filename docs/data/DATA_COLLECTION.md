@@ -22,29 +22,35 @@ measured acquisition experiment justifies a documented change. The complete
 schema, staleness semantics, storage estimate, and camera preflight are in the
 [collection and quality guide](COLLECTION_GUIDE.md).
 
+The host runtime config is also kept outside Git:
+
+```bash
+cp configs/data_collection/physical_collection.example.yaml \
+  data/local/physical_collection.yaml
+```
+
+Configure host/device identity once in that YAML. Do not export robot, RH56,
+Quest, episode, or native-CPU values from `.bashrc`; the collection command
+reads them from `data/local/physical_collection.yaml`.
+
 ## Maintained combined collection entry
 
-Use the production wrapper below. Replace the three host/device placeholders
-with values verified for the current session:
+Use the production wrapper below. Host/device values and the verified native
+control CPU are stored once in the ignored local runtime config; the command
+does not require per-run substitution:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --robot-ip <JAKA_IP> \
-  --rh56-device /dev/serial/by-id/<RH56_ADAPTER> \
-  --native-control-cpu <VERIFIED_NATIVE_CONTROL_CPU> \
-  --duration-sec 300 \
-  --episode-data-config data/local/dual_d435_episode.yaml \
-  --episode-root data/episodes \
-  --task-name fixed_bottle_pick_lift_10cm_hold_3s_replace \
-  --operator 01 \
+  --runtime-config data/local/physical_collection.yaml \
   --hand-prerequisites-complete \
   --no-auto-retry \
   --estop-accessible \
   --workspace-clear
 ```
 
-The wrapper defaults to one bounded 300-second run, no automatic retry, and no
-preview. Add `--episode-preview` only when preview is intentionally needed;
+The runtime config sets the bounded 300-second run, operator `01`, camera
+episode config, robot/RH56 identity, native CPU, all-J1--J6 1.5 rad/s limits,
+and no preview. Add `--episode-preview` only when preview is intentionally needed;
 preview is not a required consumer. Normal J1--J6 run velocity is 1.5 rad/s.
 This is a project-selected operating value, not a manufacturer maximum, and
 all shared IK, collision, singularity, branch-continuity, joint-limit,

@@ -25,9 +25,9 @@ prefer the verified `/dev/serial/by-id/...` path.
 Read-only device inspection remains available without arming:
 
 ```bash
-export RH56_DEVICE=/dev/serial/by-id/REPLACE_WITH_ACTUAL_ADAPTER_ID
 ./scripts/run_quest_rh56_hand_test.sh \
-  --real --device "$RH56_DEVICE" --preflight-only \
+  --real --device /dev/serial/by-id/REPLACE_WITH_ACTUAL_ADAPTER_ID \
+  --preflight-only \
   --summary logs/rh56_preflight.summary.json
 ```
 
@@ -50,7 +50,8 @@ with the real hand:
 ```bash
 timestamp="$(date +%Y%m%d_%H%M%S)"
 ./scripts/run_quest_rh56_hand_test.sh \
-  --real --device "$RH56_DEVICE" --mapping-check \
+  --real --device /dev/serial/by-id/REPLACE_WITH_ACTUAL_ADAPTER_ID \
+  --mapping-check \
   --mapping-hold-sec 5 \
   --manual-stop-accessible --workspace-clear --no-auto-retry \
   --capture "logs/rh56_mapping_${timestamp}.hts.jsonl" \

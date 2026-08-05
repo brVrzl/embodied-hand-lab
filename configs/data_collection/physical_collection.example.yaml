@@ -1,0 +1,24 @@
+# Host-specific runtime values for the combined physical collection wrapper.
+# Copy this file to data/local/physical_collection.yaml once, then keep all
+# host/device edits in that ignored local file rather than in shell variables.
+runtime:
+  control_config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+  worker: build/jaka_servo_worker/jaka_servo_worker
+  robot_ip: REPLACE_WITH_JAKA_ROBOT_IP
+  edg_state_ip: REPLACE_WITH_EDG_STATE_IP
+  bind: 0.0.0.0
+  port: 9000
+  allowed_sender: null
+  duration_sec: 300
+  native_control_cpu: REPLACE_WITH_VERIFIED_CPU
+  native_control_realtime_priority: 10
+  rh56_device: /dev/serial/by-id/REPLACE_WITH_RH56_ADAPTER
+  allow_direct_ch341_device: false
+  rh56_config: configs/hand/rh56_pc_direct_teleop.yaml
+  rh56_scheduler_profile: fast40
+  run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  episode_data_config: data/local/dual_d435_episode.yaml
+  episode_root: data/episodes
+  task_name: fixed_bottle_pick_lift_10cm_hold_3s_replace
+  operator: "01"
+  episode_preview: false

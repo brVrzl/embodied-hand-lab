@@ -18,6 +18,7 @@ from tools.quest_jaka_hardware import (
     _native_terminal_reason_if_ready,
     _reconcile_terminal_transport_symptom,
     _require_realtime_priority_limit,
+    _apply_runtime_config,
     _resolve_output_jerk_limit,
     _synchronize_paused_stopped_reference,
 )
@@ -225,6 +226,54 @@ def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
     ]
     parsed = parser.parse_args([*common, "--output-joint-jerk-limit-rad-s3", "70"])
     assert parsed.output_joint_jerk_limit_rad_s3 == 70.0
+
+
+def test_runtime_config_resolves_host_and_collection_values(tmp_path: Path) -> None:
+    runtime_path = tmp_path / "physical_collection.yaml"
+    runtime_path.write_text(
+        """
+runtime:
+  control_config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+  robot_ip: 192.0.2.10
+  edg_state_ip: 192.0.2.11
+  bind: 0.0.0.0
+  port: 9000
+  duration_sec: 45
+  native_control_cpu: 6
+  native_control_realtime_priority: 10
+  rh56_device: /dev/serial/by-id/test-rh56
+  rh56_config: configs/hand/rh56_pc_direct_teleop.yaml
+  rh56_scheduler_profile: fast40
+  run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  episode_data_config: data/local/dual_d435_episode.yaml
+  episode_root: data/episodes
+  task_name: test_task
+  operator: "01"
+""",
+        encoding="utf-8",
+    )
+    args = _parser().parse_args(
+        [
+            "combined-normal-teleop",
+            "--runtime-config",
+            str(runtime_path),
+            "--log",
+            "log",
+            "--summary",
+            "summary",
+            "--metrics",
+            "metrics",
+            "--capture",
+            "capture",
+        ]
+    )
+    _apply_runtime_config(args)
+    assert args.robot_ip == "192.0.2.10"
+    assert args.native_control_cpu == 6
+    assert args.native_control_realtime_priority == 10
+    assert args.duration_sec == 45
+    assert args.operator == "01"
+    assert args.run_output_joint_velocity_limits_rad_s == (1.5,) * 6
 
 
 def test_output_generator_is_explicit_and_not_diagnostic_disguise(

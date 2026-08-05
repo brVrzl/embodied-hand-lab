@@ -83,29 +83,24 @@ formal entry without connecting:
 ./scripts/run_quest_jaka_rh56_teleop.sh --help
 ```
 
-Set `RH56_DEVICE` to the operator-confirmed path before a normal combined run.
-The explicit CH341 flag is harmless for a by-id path and required for the
+Store the operator-confirmed robot, RH56, native-CPU, and Quest transport values
+in the ignored `data/local/physical_collection.yaml` runtime config. The
+explicit CH341 setting is kept in that config when the host exposes only the
 identity-checked `/dev/ttyCH341USB<N>` fallback:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --robot-ip 192.168.71.50 \
-  --edg-state-ip 192.168.71.19 \
-  --rh56-device "$RH56_DEVICE" \
-  --allow-direct-ch341-device \
-  --duration-sec 300 \
+  --runtime-config data/local/physical_collection.yaml \
   --hand-prerequisites-complete \
   --no-auto-retry --estop-accessible --workspace-clear \
-  --native-control-cpu 6 \
-  --rh56-scheduler-profile fast40 \
   --log-dir logs
 ```
 
 Executing this complete real-device command starts an operator-initiated,
 bounded run for the current process. The operator must still verify current IP addresses,
 payload/TCP/installation status, controller safety state, E-stop, workspace,
-and the completed RH56 hand evidence before executing it. The wrapper
-also requires an explicitly verified native control CPU. CPU 6 is the measured
+and the completed RH56 hand evidence before executing it. The runtime config
+must contain an explicitly verified native control CPU. CPU 6 is the measured
 low-load choice for the recorded 14-CPU host; it is not a portable robot
 default and must be re-verified if the host or affinity set changes. The native
 worker pins only its control thread there and moves Python, Quest, RH56, and
