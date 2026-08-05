@@ -37,6 +37,16 @@ def _summary(values: list[int]) -> dict[str, int]:
     }
 
 
+def _process_rss_kb(pid: int) -> int:
+    try:
+        for line in open(f"/proc/{pid}/status", encoding="utf-8"):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1])
+    except (FileNotFoundError, OSError, ValueError):
+        return 0
+    return 0
+
+
 def _fake_producer(spec, control_queue, recorder_queue, stop, result_queue) -> None:
     ring = SharedMemoryCameraFrameRing.attach(spec)
     publish_durations: list[int] = []
@@ -184,6 +194,7 @@ def run_scenario(name: str, duration_s: float) -> dict[str, Any]:
         durations: list[int] = []
         budget_exhausted = 0
         started = time.perf_counter_ns()
+        rss_peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         deadline = time.monotonic() + duration_s
         next_tick = time.monotonic()
         while time.monotonic() < deadline:
@@ -203,6 +214,13 @@ def run_scenario(name: str, duration_s: float) -> dict[str, Any]:
             elapsed = time.perf_counter_ns() - tick_started
             durations.append(elapsed)
             budget_exhausted += int(elapsed > 20_000_000)
+            child_rss_kb = sum(_process_rss_kb(process.pid) for process in producers if process.pid)
+            if with_recorder and recorder is not None and recorder.pid is not None:
+                child_rss_kb += _process_rss_kb(recorder.pid)
+            rss_peak_kb = max(
+                rss_peak_kb,
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + child_rss_kb,
+            )
         shutdown_started = time.perf_counter_ns()
         stop.set()
         for producer in producers:
@@ -238,7 +256,7 @@ def run_scenario(name: str, duration_s: float) -> dict[str, Any]:
             "frame_materialization_duration_ns": (
                 recorder_results[0]["frame_materialization_duration_ns"] if recorder_results else None
             ),
-            "rss_kb": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+            "rss_kb_peak_sum": rss_peak_kb,
             "shutdown_time_ms": shutdown_time_ms,
             "producer_exitcodes": [producer.exitcode for producer in producers],
             "recorder_exitcode": None if not with_recorder else recorder.exitcode,
