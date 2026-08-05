@@ -115,6 +115,9 @@ class RH56PcDirectWorker:
         self._io_busy_ns = 0
         self._first_io_start_ns: int | None = None
         self._last_io_end_ns: int | None = None
+        self._full_diagnostics_next_ns: int | None = None
+        self._last_record_build_duration_ns = 0
+        self._maximum_record_build_duration_ns = 0
         self._feedback_schedule: dict[str, dict[str, object]] = {}
         for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR"):
             self._feedback_schedule[name] = {
@@ -327,33 +330,46 @@ class RH56PcDirectWorker:
             self.control.arm_terminal_stop(terminal_reason)
             return False
         now_ns = self._monotonic_ns()
+        contact_relief_values: tuple[float, ...] | None = None
         if not active:
             self.control.hold(hold_reason)
+            contact_relief_values = self.control.pop_contact_relief_target()
         elif self.control.state.value == "HAND_HOLD":
             self.control.activate(now_ns)
 
         target_requires_command = self._target_requires_command(target)
         command_due_ns = self._command_due_ns
+        contact_relief_operation = contact_relief_values is not None
         command_is_due = bool(
-            active
-            and target_requires_command
-            and (
-                force_write
-                or command_due_ns is None
-                or now_ns >= command_due_ns
+            contact_relief_operation
+            or (
+                active
+                and target_requires_command
+                and (
+                    force_write
+                    or command_due_ns is None
+                    or now_ns >= command_due_ns
+                )
             )
         )
         operation = "idle"
         if command_is_due:
-            assert target is not None
-            if force_write:
+            if not contact_relief_operation:
+                assert target is not None
+            if force_write and not contact_relief_operation:
                 with self._lock:
                     self._force_write_pending = False
-            operation = "COMMAND"
-            due_ns = now_ns if command_due_ns is None else command_due_ns
+            operation = "CONTACT_RELIEF" if contact_relief_operation else "COMMAND"
+            due_ns = (
+                now_ns
+                if contact_relief_operation or command_due_ns is None
+                else command_due_ns
+            )
             actual_start_ns = self._monotonic_ns()
-            command_age_ns = max(
-                0, actual_start_ns - target.submitted_monotonic_ns
+            command_age_ns = (
+                0
+                if contact_relief_operation
+                else max(0, actual_start_ns - target.submitted_monotonic_ns)
             )
             lateness_ms = max(0.0, (actual_start_ns - due_ns) / 1e6)
             self._last_command_due_ns = due_ns
@@ -364,6 +380,7 @@ class RH56PcDirectWorker:
             if (
                 self.stale_command_drop_enabled
                 and not force_write
+                and not contact_relief_operation
                 and command_age_ns > self.stale_command_max_age_ns
             ):
                 self._stale_drop_count += 1
@@ -371,8 +388,12 @@ class RH56PcDirectWorker:
                 self._evaluated_sequence = target.sequence
                 actual_end_ns = self._monotonic_ns()
             else:
-                command_values = target.values
-                if target.measured_activation:
+                command_values = (
+                    contact_relief_values
+                    if contact_relief_operation
+                    else target.values
+                )
+                if not contact_relief_operation and target.measured_activation:
                     # Activation is intentionally a forced write, but the
                     # hand can move a small amount between the producer's
                     # feedback snapshot and this worker cycle. Refresh the
@@ -390,18 +411,34 @@ class RH56PcDirectWorker:
                 written = self.control.command(
                     command_values,
                     actual_start_ns,
-                    submitted_monotonic_ns=target.submitted_monotonic_ns,
-                    target_sequence=target.sequence,
-                    force_write=force_write,
-                    measured_activation_write=target.measured_activation,
+                    submitted_monotonic_ns=(
+                        None
+                        if contact_relief_operation
+                        else target.submitted_monotonic_ns
+                    ),
+                    target_sequence=(
+                        None if contact_relief_operation else target.sequence
+                    ),
+                    force_write=True if contact_relief_operation else force_write,
+                    measured_activation_write=(
+                        False if contact_relief_operation else target.measured_activation
+                    ),
+                    contact_relief=contact_relief_operation,
                 )
                 actual_end_ns = self._monotonic_ns()
                 self._note_io(actual_start_ns, actual_end_ns)
                 if written:
-                    self._written_sequence = target.sequence
+                    if not contact_relief_operation:
+                        self._written_sequence = target.sequence
                     self._write_count += 1
                     submit_to_write_ms = max(
-                        0.0, (actual_end_ns - target.submitted_monotonic_ns) / 1e6
+                        0.0,
+                        (
+                            actual_end_ns - target.submitted_monotonic_ns
+                            if not contact_relief_operation
+                            else 0
+                        )
+                        / 1e6,
                     )
                     self._last_submit_to_write_ms = submit_to_write_ms
                     if self.diagnostics_enabled:
@@ -417,9 +454,17 @@ class RH56PcDirectWorker:
                     if self._first_write_ns is None:
                         self._first_write_ns = actual_start_ns
                     self._last_write_ns = actual_start_ns
-                if written or self.control.last_command_disposition == "exact_duplicate_suppressed":
+                if (
+                    not contact_relief_operation
+                    and (
+                        written
+                        or self.control.last_command_disposition
+                        == "exact_duplicate_suppressed"
+                    )
+                ):
                     self._evaluated_sequence = target.sequence
-            self._observed_sequence = max(self._observed_sequence, target.sequence)
+            if target is not None:
+                self._observed_sequence = max(self._observed_sequence, target.sequence)
             self._last_command_actual_end_ns = actual_end_ns
             if self.control.last_command_disposition == "rate_limited":
                 self._command_due_ns = self.control.next_command_monotonic_ns
@@ -470,16 +515,31 @@ class RH56PcDirectWorker:
                 if register == "ANGLE":
                     self._note_feedback(actual_end_ns)
         self._update_feedback_ages(self._monotonic_ns())
-        if self.record is not None and operation in {"COMMAND", "ANGLE"}:
+        if self.record is not None and operation in {"COMMAND", "ANGLE", "CONTACT_RELIEF"}:
             record_now_ns = self._monotonic_ns()
-            full_diagnostics = operation == "ANGLE"
+            full_diagnostics = bool(
+                operation == "ANGLE"
+                and (
+                    self._full_diagnostics_next_ns is None
+                    or record_now_ns >= self._full_diagnostics_next_ns
+                )
+            )
+            if full_diagnostics:
+                self._full_diagnostics_next_ns = record_now_ns + 1_000_000_000
+            record_started_ns = self._monotonic_ns()
             row = self.control.episode_record(
                 record_now_ns,
                 None if target is None else target.values,
                 include_diagnostics=full_diagnostics,
             )
+            self._last_record_build_duration_ns = self._monotonic_ns() - record_started_ns
+            self._maximum_record_build_duration_ns = max(
+                self._maximum_record_build_duration_ns,
+                self._last_record_build_duration_ns,
+            )
             row["record_type"] = "rh56_telemetry"
             row["rh56_scheduled_operation"] = operation
+            row["rh56_contact_relief"] = contact_relief_operation
             row["rh56_worker"] = (
                 self.diagnostics_snapshot(include_windows=True)
                 if self.diagnostics_enabled and full_diagnostics
@@ -564,6 +624,10 @@ class RH56PcDirectWorker:
                 None if not logging_failures else logging_failures[-1]
             ),
             "control": self.control.diagnostics_snapshot(),
+            "worker_record_build_duration_ns": {
+                "last": self._last_record_build_duration_ns,
+                "max": self._maximum_record_build_duration_ns,
+            },
             "serial_utilization_estimate": self._serial_utilization(),
             "telemetry_emission_policy": (
                 "compact_each_command_full_snapshot_each_angle_feedback"

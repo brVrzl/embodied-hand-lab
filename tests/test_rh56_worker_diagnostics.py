@@ -66,6 +66,24 @@ def _manual_worker(
     return worker, control, selected_backend, clock
 
 
+def _contact_worker_config() -> dict:
+    config = _config()
+    config["safety"]["max_close_strength"] = 1.0
+    config["safety"]["contact_stop"] = {
+        "enabled": True,
+        "require_fresh_force_before_closure_step": True,
+        "force_delta_onset": [250] * 6,
+        "force_delta_release": [100] * 6,
+        "minimum_closing_gap": 0.015,
+        "maximum_stall_progress": 0.005,
+        "consecutive_samples": 2,
+        "relief_margin": 0.01,
+        "release_open_delta": 0.02,
+        "baseline_alpha": 0.10,
+    }
+    return config
+
+
 def test_latest_only_mailbox_coalesces_unobserved_targets_and_writes_latest_sequence() -> None:
     worker, _control, backend, clock = _manual_worker()
     try:
@@ -80,6 +98,33 @@ def test_latest_only_mailbox_coalesces_unobserved_targets_and_writes_latest_sequ
         assert diagnostics["mailbox_capacity"] == 1
         assert diagnostics["coalesced_unobserved_target_count"] >= 1
         assert diagnostics["last_written_sequence"] == diagnostics["last_submitted_sequence"]
+    finally:
+        worker.cleanup()
+
+
+def test_worker_emits_one_contact_relief_write_after_hold_force_rise() -> None:
+    backend = FakeRH56PcDirectBackend()
+    clock = ManualClock()
+    control = RH56PcDirectControl(backend, _contact_worker_config())
+    worker = RH56PcDirectWorker(control, monotonic_ns=clock)
+    first = worker.start(HandOperation.COMBINED, run_in_thread=False)
+    try:
+        worker.activate_from_measured(first.monotonic_ns)
+        worker.submit_target([0.0, 0.5, 0.0, 0.0, 0.0, 0.0], clock())
+        assert worker.run_cycle()
+        backend.position[1] = 950.0
+        worker.hold("grip_released")
+        backend.load[1] = 500.0
+
+        for _ in range(12):
+            clock.advance_ms(70)
+            assert worker.run_cycle()
+            if control.contact_relief_write_count:
+                break
+
+        assert control.contact_relief_write_count == 1
+        assert backend.position_writes[-1][1] == 960
+        assert control.state.value == "HAND_HOLD"
     finally:
         worker.cleanup()
 

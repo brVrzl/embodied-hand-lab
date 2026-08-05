@@ -594,6 +594,8 @@ class RH56PcDirectControl:
         self.contact_detection_count = 0
         self.contact_activation_preserved_count = 0
         self.contact_activation_rebased_count = 0
+        self._contact_relief_pending = False
+        self.contact_relief_write_count = 0
         self._contact_last_activation_mode = "never_activated"
 
     def open(self, operation: HandOperation) -> None:
@@ -883,6 +885,7 @@ class RH56PcDirectControl:
         target_sequence: int | None = None,
         force_write: bool = False,
         measured_activation_write: bool = False,
+        contact_relief: bool = False,
     ) -> bool:
         self.command_evaluation_count += 1
         self.last_submitted_sequence = target_sequence
@@ -892,7 +895,9 @@ class RH56PcDirectControl:
         if not grip_fresh:
             self.hold("grip_stale")
             return False
-        if self.state is not HandControlState.ACTIVE:
+        if self.state is not HandControlState.ACTIVE and not (
+            contact_relief and self.state is HandControlState.HOLD
+        ):
             self.last_command_disposition = "inactive"
             return False
         self._require_fresh_feedback(monotonic_ns)
@@ -1074,6 +1079,8 @@ class RH56PcDirectControl:
         self.last_written_sequence = target_sequence
         self.last_command_age_ms = command_age_ms
         self.last_command_disposition = "serial_write_success"
+        if contact_relief:
+            self.contact_relief_write_count += 1
         closure_written = selected > previous + 1e-12
         if np.any(closure_written):
             self._contact_closure_since_force += np.maximum(
@@ -1352,6 +1359,38 @@ class RH56PcDirectControl:
             requested[index] = min(requested[index], hold)
         return requested
 
+    def pop_contact_relief_target(self) -> tuple[float, ...] | None:
+        """Consume one feedback-qualified opening target while hand is held.
+
+        Ordinary grip release remains a no-write hold. A pending target is
+        created only after the contact detector observes a qualified loaded
+        channel while the previous target is still being held; the one-shot
+        opening is the safety exception that relieves that contact before a
+        controller-side device error becomes terminal.
+        """
+
+        if (
+            not self._contact_relief_pending
+            or self.state is not HandControlState.HOLD
+            or self.last_command_normalized is None
+        ):
+            return None
+        active = self._contact_latched | (self._contact_candidate_count > 0)
+        if not np.any(active):
+            self._contact_relief_pending = False
+            return None
+        requested = np.asarray(self.last_command_normalized, dtype=np.float64)
+        relief = requested.copy()
+        for index in np.flatnonzero(active):
+            hold = float(self._contact_hold_target[index])
+            if math.isfinite(hold):
+                relief[index] = min(relief[index], max(0.0, hold))
+        if not np.any(relief < requested - 1e-12):
+            self._contact_relief_pending = False
+            return None
+        self._contact_relief_pending = False
+        return tuple(float(value) for value in relief)
+
     def _reset_contact_stop(self, feedback: PcDirectFeedback) -> None:
         self._contact_force_baseline = np.asarray(
             feedback.load_or_force_raw_count, dtype=np.float64
@@ -1367,6 +1406,7 @@ class RH56PcDirectControl:
         self._contact_hold_target.fill(math.nan)
         self._contact_latched.fill(False)
         self._contact_last_closing_request_ns.fill(-1)
+        self._contact_relief_pending = False
         self._contact_last_closure_force_generation = (
             self._contact_force_generation - 1
         )
@@ -1454,7 +1494,10 @@ class RH56PcDirectControl:
         )
         if (
             not self.contact_stop_enabled
-            or self.state is not HandControlState.ACTIVE
+            or self.state not in {
+                HandControlState.ACTIVE,
+                HandControlState.HOLD,
+            }
             or self.last_requested_target_normalized is None
             or self._contact_last_angle is None
             or self._contact_angle_generation
@@ -1517,6 +1560,8 @@ class RH56PcDirectControl:
                 ):
                     self._contact_latched[index] = True
                     self.contact_detection_count += 1
+                if self.state is HandControlState.HOLD:
+                    self._contact_relief_pending = True
             else:
                 self._contact_candidate_count[index] = 0
                 self._contact_hold_target[index] = math.nan
@@ -1535,6 +1580,8 @@ class RH56PcDirectControl:
             "activation_preserved_count": self.contact_activation_preserved_count,
             "activation_rebased_count": self.contact_activation_rebased_count,
             "last_activation_mode": self._contact_last_activation_mode,
+            "relief_pending": self._contact_relief_pending,
+            "relief_write_count": self.contact_relief_write_count,
             "latched": self._contact_latched.tolist(),
             "candidate_count": self._contact_candidate_count.tolist(),
             "hold_target_normalized": [

@@ -168,6 +168,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
+        "maximum_periodic_joint_winding_rad": 5.0,
     }
 
 
@@ -427,8 +428,16 @@ def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_pat
 
     session.ingest(_hand(2, 40_000_000, identity))
     _clutch(session, 1.0, 2, 40_000_000)
-    captured = session.control_tick(40_000_000)
+    fresh_capture_joints = session.target_generator.last_safe_joint_target.copy()
+    fresh_capture_joints[3] = 0.45
+    fresh_capture_joints[5] = -0.55
+    captured = session.control_tick(
+        40_000_000,
+        fresh_measured_joint_position_rad=tuple(fresh_capture_joints),
+    )
     assert captured.accepted_target is not None
+    assert captured.accepted_target.joint_position_rad[3] == pytest.approx(0.45)
+    assert captured.accepted_target.joint_position_rad[5] == pytest.approx(-0.55)
     assert captured.relative_hand_transform is not None
     assert captured.relative_hand_transform.position_m == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)
     captured_tcp = captured.accepted_target.filtered_tcp
@@ -451,8 +460,16 @@ def test_reference_clutch_release_reengage_and_latched_head_compensation(tmp_pat
     new_wrist = Pose6D((0.05, 0.0, 0.0), identity.orientation_xyzw)
     session.ingest(_hand(5, 100_000_000, new_wrist))
     _clutch(session, 1.0, 5, 100_000_000)
-    recaptured = session.control_tick(100_000_000)
+    fresh_recapture_joints = fresh_capture_joints.copy()
+    fresh_recapture_joints[3] = -0.65
+    fresh_recapture_joints[5] = 0.75
+    recaptured = session.control_tick(
+        100_000_000,
+        fresh_measured_joint_position_rad=tuple(fresh_recapture_joints),
+    )
     assert recaptured.accepted_target is not None
+    assert recaptured.accepted_target.joint_position_rad[3] == pytest.approx(-0.65)
+    assert recaptured.accepted_target.joint_position_rad[5] == pytest.approx(0.75)
     assert len(recorder.targets) == target_count + 1
     assert recaptured.relative_hand_transform is not None
     assert recaptured.relative_hand_transform.position_m == pytest.approx((0.0, 0.0, 0.0), abs=1e-12)

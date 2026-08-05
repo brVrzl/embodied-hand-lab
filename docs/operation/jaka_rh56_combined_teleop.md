@@ -46,8 +46,11 @@ Control semantics:
 - Index press: recapture wrist/head from current measured arm joints and resume
   continuously. Index release performs the existing bounded pause and
   `STOPPED_READY` synchronization; the process remains alive.
-- Grip released: hand holds the last target, sends no new target, and does not
-  open. Grip press captures fresh measured `ANGLE_ACT` and resumes continuously.
+- Grip released: hand normally holds the last target, sends no new target, and
+  does not open. If feedback-qualified contact detection observes a loaded
+  channel while that held target remains active, the safety path may issue one
+  bounded opening relief target; it is recorded as `CONTACT_RELIEF`. Grip press
+  captures fresh measured `ANGLE_ACT` and resumes continuously.
 - Index and grip are independent and may be active simultaneously. Arm pause
   does not reset or open the hand.
 - Invalid/stale Quest CTRL or wrist input immediately pauses the arm and holds
@@ -119,6 +122,25 @@ The combined wrapper default and explicit upper bound are both 300 seconds;
 arm-only and post-payload entries retain their existing shorter bounds. Every
 run remains single-shot and requires `--no-auto-retry`.
 
+When dual-D435 episode capture is enabled, the dataset runtime is process
+isolated. Quest/mapping/IK/safety and the native target path remain in the
+control process; each D435 has a producer process that writes only frames and
+metadata into a preallocated versioned shared-memory ring. Canonical sampling,
+frame materialization, and asynchronous writing run in the recorder process.
+Preview, when enabled, is a separate latest-only consumer. Camera, recorder,
+and preview children use ordinary scheduling and the verified non-native CPU
+set; none may include `--native-control-cpu`.
+
+This boundary is offline-tested only. Run the short software comparison with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/validation/benchmark_combined_process_isolation.py --duration-sec 3
+```
+
+Do not use `--paced-seconds` from the older benchmark tool for this validation
+and do not treat the software result as physical D435 evidence.
+
 ---
 
 # 中文版：JAKA Mini2 + RH56DFX 联合遥操作
@@ -146,8 +168,9 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
   不能让机械臂运动。
 - index 按下：从当前实测关节连续重捕获；释放时按现有 bounded pause/`STOPPED_READY`
   同步，联合程序不退出。
-- grip 未按/释放：hand 保持最后 target、不发新 target、不自动张开；新 grip press 从 fresh
-  measured `ANGLE_ACT` 连续恢复。
+- grip 未按/释放：hand 通常保持最后 target、不发新 target、不自动张开；如果反馈确认仍在
+  持物且保持 target 导致接触负载上升，安全路径最多发送一次有界开向 `CONTACT_RELIEF`，
+  并单独记录；新 grip press 从 fresh measured `ANGLE_ACT` 连续恢复。
 - index 与 grip 完全独立，可以同时 ACTIVE；arm pause 不重置或张开 hand。
 - Quest CTRL/wrist 失效时立即 pause arm 并 hold hand；仍存活的 producer 最多 10 秒只发
   无运动 heartbeat。数据恢复后先释放两个 trigger，再按下所需 clutch 重采 arm/hand
@@ -190,3 +213,20 @@ event extract、RH56 telemetry 和 combined summary。
 以及双相机原始流保留各自采样率，供离线对齐。
 combined wrapper 默认时长与显式上限均为 300 秒；arm-only 与 post-payload 入口保持原有
 较短上限。每段仍为 single-shot，且必须使用 `--no-auto-retry`。
+
+启用双 D435 episode 采集后，数据路径改为进程隔离：Quest/mapping/IK/safety 和
+native target 路径仍在 control process；每台 D435 各自运行 producer process，只把帧和
+metadata 写入预分配的 versioned shared-memory ring。canonical sampler、frame
+materialization 和异步写盘都在 recorder process；preview（若启用）是独立的
+latest-only consumer。camera、recorder、preview 只使用不包含
+`--native-control-cpu` 的普通调度 CPU 集合，不使用 `SCHED_FIFO`。
+
+该边界目前只完成离线验证。短时软件对照命令为：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
+  tools/validation/benchmark_combined_process_isolation.py --duration-sec 3
+```
+
+不要在本轮使用旧 benchmark 工具的 `--paced-seconds`，软件结果也不能当作双 D435
+真机证据。

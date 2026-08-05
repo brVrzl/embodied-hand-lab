@@ -630,8 +630,13 @@ def main() -> int:
         raise SystemExit("duration must be positive")
     if args.episode_root is not None and args.episode_data_config is None:
         raise SystemExit("--episode-root requires --episode-data-config")
-    if args.episode_data_config is not None and args.stage != "combined-normal-teleop":
-        raise SystemExit("physical episode capture is only available for combined-normal-teleop")
+    if args.episode_data_config is not None and args.stage not in {
+        "bounded-normal-teleop",
+        "combined-normal-teleop",
+    }:
+        raise SystemExit(
+            "physical episode capture is only available for arm-only or combined teleoperation"
+        )
     try:
         config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
         if args.stage == "combined-normal-teleop":
@@ -1146,6 +1151,7 @@ def main() -> int:
         episode_record_next_ns: int | None = None
         episode_record_period_ns = 1_000_000_000 // 30
         event_log_next_ns: int | None = None
+        rh56_full_diagnostics_next_ns: int | None = None
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
         try:
@@ -1161,6 +1167,7 @@ def main() -> int:
                     ),
                     schema_version=PHYSICAL_SCHEMA_VERSION,
                     preview_enabled=args.episode_preview,
+                    forbidden_cpu=args.native_control_cpu,
                     metadata={
                         "units": {
                             "arm_q": "rad",
@@ -1184,8 +1191,16 @@ def main() -> int:
                             "jaka_arm_q": "measured",
                             "jaka_arm_dq": "estimated_finite_difference",
                             "native_telemetry": "measured_external_native_log",
-                            "rh56_target": "commanded",
-                            "rh56_feedback": "measured_raw_registers",
+                            "rh56_target": (
+                                "unavailable"
+                                if args.rh56_log is None
+                                else "commanded"
+                            ),
+                            "rh56_feedback": (
+                                "unavailable"
+                                if args.rh56_log is None
+                                else "measured_raw_registers"
+                            ),
                             "workspace_rgbd": "measured",
                             "wrist_rgbd": "measured",
                             "fault_events": "measured",
@@ -1195,7 +1210,11 @@ def main() -> int:
                         "physical_log_paths": {
                             "quest_capture": str(args.capture.resolve()),
                             "native_telemetry": str(args.native_telemetry.resolve()),
-                            "rh56_telemetry": str(args.rh56_log.resolve()),
+                            "rh56_telemetry": (
+                                None
+                                if args.rh56_log is None
+                                else str(args.rh56_log.resolve())
+                            ),
                             "combined_events": str(args.log.resolve()),
                         },
                     },
@@ -1343,7 +1362,14 @@ def main() -> int:
                             )
                         status_sync_ns = time.perf_counter_ns() - status_started_ns
                         session_started_ns = time.perf_counter_ns()
-                        tick = session.control_tick(now_ns)
+                        tick = session.control_tick(
+                            now_ns,
+                            fresh_measured_joint_position_rad=(
+                                None
+                                if status is None
+                                else tuple(status.joint_position_rad)
+                            ),
+                        )
                         session_control_tick_ns = (
                             time.perf_counter_ns() - session_started_ns
                         )
@@ -1453,6 +1479,19 @@ def main() -> int:
                             or dispatch_failed
                             or clutch_edge_reason is not None
                         )
+                        rh56_include_diagnostics = bool(
+                            rh56_control is not None
+                            and event_log_due
+                            and (
+                                rh56_full_diagnostics_next_ns is None
+                                or now_ns >= rh56_full_diagnostics_next_ns
+                            )
+                        )
+                        if rh56_include_diagnostics:
+                            rh56_full_diagnostics_next_ns = now_ns + 1_000_000_000
+                        outer_event_diagnostic_started_ns = time.perf_counter_ns()
+                        rh56_feedback_duration_ns = 0
+                        episode_metadata_duration_ns = 0
                         event = dict(session.event_records[-1])
                         operator_delta = event.get("operator_delta")
                         if operator_delta is not None:
@@ -1467,6 +1506,16 @@ def main() -> int:
                             minimum_continuation_fraction = min(
                                 minimum_continuation_fraction,
                                 float(event["continuation_fraction"]),
+                            )
+                        rh56_telemetry = None
+                        if rh56_control is not None:
+                            rh56_feedback_started_ns = time.perf_counter_ns()
+                            rh56_telemetry = rh56_control.episode_record(
+                                now_ns,
+                                include_diagnostics=rh56_include_diagnostics,
+                            )
+                            rh56_feedback_duration_ns += (
+                                time.perf_counter_ns() - rh56_feedback_started_ns
                             )
                         event.update(
                             physical_stage=args.stage,
@@ -1501,14 +1550,7 @@ def main() -> int:
                                 if dispatch_failed
                                 else clutch_edge_reason
                             ),
-                            rh56_telemetry=(
-                                None
-                                if rh56_control is None
-                                else rh56_control.episode_record(
-                                    now_ns,
-                                    include_diagnostics=event_log_due,
-                                )
-                            ),
+                            rh56_telemetry=rh56_telemetry,
                         )
                         record_episode_sample = (
                             episode_runtime is not None
@@ -1522,117 +1564,138 @@ def main() -> int:
                             )
                         )
                         if record_episode_sample:
-                            assert rh56_control is not None
-                            feedback = rh56_control.last_feedback
+                            feedback = (
+                                None
+                                if rh56_control is None
+                                else rh56_control.last_feedback
+                            )
                             held_target = (
                                 tick.accepted_target
                                 if tick.accepted_target is not None
                                 else session.last_accepted_target
                             )
-                            if feedback is not None:
-                                measured_q = tuple(status.joint_position_rad)
-                                observation_ns = int(status.observation_monotonic_ns)
-                                if (
-                                    previous_episode_q is None
-                                    or previous_episode_observation_ns is None
-                                    or observation_ns <= previous_episode_observation_ns
-                                ):
-                                    measured_dq = (0.0,) * 6
-                                else:
-                                    dt = (observation_ns - previous_episode_observation_ns) / 1e9
-                                    measured_dq = tuple(
-                                        (value - previous) / dt
-                                        for value, previous in zip(
-                                            measured_q, previous_episode_q, strict=True
-                                        )
+                            measured_q = tuple(status.joint_position_rad)
+                            observation_ns = int(status.observation_monotonic_ns)
+                            if (
+                                previous_episode_q is None
+                                or previous_episode_observation_ns is None
+                                or observation_ns <= previous_episode_observation_ns
+                            ):
+                                measured_dq = (0.0,) * 6
+                            else:
+                                dt = (observation_ns - previous_episode_observation_ns) / 1e9
+                                measured_dq = tuple(
+                                    (value - previous) / dt
+                                    for value, previous in zip(
+                                        measured_q, previous_episode_q, strict=True
                                     )
-                                previous_episode_q = measured_q
-                                previous_episode_observation_ns = observation_ns
-                                if held_target is None:
-                                    arm_target = measured_q
-                                    tcp = target_generator.current_tcp_pose
-                                    arm_action_source = "measured_hold_reference"
-                                    accepted_target_sequence = None
-                                else:
-                                    arm_target = held_target.joint_position_rad
-                                    tcp = held_target.filtered_tcp
-                                    arm_action_source = "accepted_target"
-                                    accepted_target_sequence = held_target.sequence_number
+                                )
+                            previous_episode_q = measured_q
+                            previous_episode_observation_ns = observation_ns
+                            if held_target is None:
+                                arm_target = measured_q
+                                tcp = target_generator.current_tcp_pose
+                                arm_action_source = "measured_hold_reference"
+                                accepted_target_sequence = None
+                            else:
+                                arm_target = held_target.joint_position_rad
+                                tcp = held_target.filtered_tcp
+                                arm_action_source = "accepted_target"
+                                accepted_target_sequence = held_target.sequence_number
+                            raw_records = {
+                                "quest_decoded_control_event": event,
+                                "jaka_state": {
+                                    "read_host_monotonic_ns": observation_ns,
+                                    "record_host_monotonic_ns": now_ns,
+                                    "command_host_monotonic_ns": status.command_monotonic_ns,
+                                    "accepted_joint_target_rad": list(arm_target),
+                                    "joint_target_source": arm_action_source,
+                                    "measured_joint_position_rad": list(measured_q),
+                                    "estimated_joint_velocity_rad_s": list(measured_dq),
+                                    "commanded_tcp_pose_xyzw": [
+                                        *tcp.position_m,
+                                        *tcp.orientation_xyzw,
+                                    ],
+                                },
+                            }
+                            if feedback is None:
+                                hand_observation = (0.0,) * 6
+                                hand_target = hand_observation
+                                hand_source = "unavailable"
+                                hand_grip = False
+                            else:
+                                hand_observation = feedback.position_normalized
                                 hand_target = (
                                     feedback.position_normalized
                                     if rh56_control.last_command_normalized is None
                                     else rh56_control.last_command_normalized
                                 )
+                                hand_source = "measured"
+                                hand_grip = session.hand_clutch.state.value in {
+                                    "reacquire",
+                                    "engaged",
+                                }
+                                rh56_feedback_started_ns = time.perf_counter_ns()
                                 rh56_record = rh56_control.episode_record(
                                     now_ns, include_diagnostics=False
                                 )
-                                episode_runtime.collector.ingest_control(
-                                    ControlSample(
-                                        host_monotonic_ns=now_ns,
-                                        accepted_arm_q=arm_target,
-                                        arm_q_measured=measured_q,
-                                        arm_dq_measured=measured_dq,
-                                        arm_dq_source="estimated",
-                                        tcp_pose_xyzw=(
-                                            *tcp.position_m,
-                                            *tcp.orientation_xyzw,
-                                        ),
-                                        tcp_pose_source="commanded",
-                                        hand_observation=feedback.position_normalized,
-                                        hand_source="measured",
-                                        hand_target=hand_target,
-                                        arm_trigger=engaged,
-                                        hand_grip=session.hand_clutch.state.value
-                                        in {"reacquire", "engaged"},
-                                        arm_action_status=(
-                                            "held_rejected"
-                                            if event.get("control_state")
-                                            == "HOLD_REJECTED"
-                                            else "accepted"
-                                        ),
-                                        arm_action_source=arm_action_source,
-                                        accepted_target_sequence=accepted_target_sequence,
-                                        source_timestamps_ns={
-                                            "jaka_observation": observation_ns,
-                                            "jaka_command": status.command_monotonic_ns,
-                                            "rh56_angle_act": feedback.monotonic_ns,
-                                        },
-                                        source_timestamp_domains={
-                                            "jaka_observation": "host_monotonic_ns",
-                                            "jaka_command": "host_monotonic_ns",
-                                            "rh56_angle_act": "host_monotonic_ns",
-                                        },
-                                        control_heartbeat_valid=not dispatch_failed,
-                                        controller_fault=bool(status.error_code),
+                                rh56_feedback_duration_ns += (
+                                    time.perf_counter_ns() - rh56_feedback_started_ns
+                                )
+                                raw_records["rh56_feedback"] = rh56_record
+                            source_timestamps_ns = {
+                                "jaka_observation": observation_ns,
+                                "jaka_command": status.command_monotonic_ns,
+                            }
+                            source_timestamp_domains = {
+                                "jaka_observation": "host_monotonic_ns",
+                                "jaka_command": "host_monotonic_ns",
+                            }
+                            if feedback is not None:
+                                source_timestamps_ns["rh56_angle_act"] = feedback.monotonic_ns
+                                source_timestamp_domains["rh56_angle_act"] = "host_monotonic_ns"
+                            episode_metadata_started_ns = time.perf_counter_ns()
+                            episode_runtime.collector.ingest_control(
+                                ControlSample(
+                                    host_monotonic_ns=now_ns,
+                                    accepted_arm_q=arm_target,
+                                    arm_q_measured=measured_q,
+                                    arm_dq_measured=measured_dq,
+                                    arm_dq_source="estimated",
+                                    tcp_pose_xyzw=(
+                                        *tcp.position_m,
+                                        *tcp.orientation_xyzw,
                                     ),
-                                    reference_established=True,
-                                    capture_active=True,
-                                    raw_records={
-                                        "quest_decoded_control_event": event,
-                                        "jaka_state": {
-                                            "read_host_monotonic_ns": observation_ns,
-                                            "record_host_monotonic_ns": now_ns,
-                                            "command_host_monotonic_ns": status.command_monotonic_ns,
-                                            "accepted_joint_target_rad": list(arm_target),
-                                            "joint_target_source": arm_action_source,
-                                            "measured_joint_position_rad": list(measured_q),
-                                            "estimated_joint_velocity_rad_s": list(measured_dq),
-                                            "commanded_tcp_pose_xyzw": [
-                                                *tcp.position_m,
-                                                *tcp.orientation_xyzw,
-                                            ],
-                                        },
-                                        "rh56_feedback": rh56_record,
-                                    },
-                                )
-                                episode_runtime.update_preview(
+                                    tcp_pose_source="commanded",
+                                    hand_observation=hand_observation,
+                                    hand_source=hand_source,
+                                    hand_target=hand_target,
                                     arm_trigger=engaged,
-                                    hand_grip=session.hand_clutch.state.value
-                                    in {"reacquire", "engaged"},
-                                )
-                                episode_record_next_ns = (
-                                    now_ns + episode_record_period_ns
-                                )
+                                    hand_grip=hand_grip,
+                                    arm_action_status=(
+                                        "held_rejected"
+                                        if event.get("control_state") == "HOLD_REJECTED"
+                                        else "accepted"
+                                    ),
+                                    arm_action_source=arm_action_source,
+                                    accepted_target_sequence=accepted_target_sequence,
+                                    source_timestamps_ns=source_timestamps_ns,
+                                    source_timestamp_domains=source_timestamp_domains,
+                                    control_heartbeat_valid=not dispatch_failed,
+                                    controller_fault=bool(status.error_code),
+                                ),
+                                reference_established=True,
+                                capture_active=True,
+                                raw_records=raw_records,
+                            )
+                            episode_runtime.update_preview(
+                                arm_trigger=engaged,
+                                hand_grip=hand_grip,
+                            )
+                            episode_metadata_duration_ns += (
+                                time.perf_counter_ns() - episode_metadata_started_ns
+                            )
+                            episode_record_next_ns = now_ns + episode_record_period_ns
                         event["producer_outer_timing_ms"] = {
                             "receiver_drain_and_router_ingest": (
                                 pending_receiver_drain_and_ingest_ns / 1e6
@@ -1647,6 +1710,9 @@ def main() -> int:
                             )
                             / 1e6,
                         }
+                        receiver_ingest_duration_ns = (
+                            pending_receiver_drain_and_ingest_ns
+                        )
                         pending_receiver_drain_and_ingest_ns = 0
                         serialize_ns = 0
                         write_ns = 0
@@ -1660,6 +1726,54 @@ def main() -> int:
                             write_ns = time.perf_counter_ns() - write_started_ns
                             if episode_runtime is not None:
                                 event_log_next_ns = now_ns + episode_record_period_ns
+                        outer_event_diagnostic_duration_ns = max(
+                            0,
+                            time.perf_counter_ns()
+                            - outer_event_diagnostic_started_ns
+                            - rh56_feedback_duration_ns
+                            - episode_metadata_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "quest_input_duration_ns",
+                            receiver_ingest_duration_ns + router_poll_ns,
+                        )
+                        session.add_control_timing(
+                            "rh56_feedback_duration_ns",
+                            rh56_feedback_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "episode_metadata_publish_duration_ns",
+                            episode_metadata_duration_ns,
+                        )
+                        session.add_control_timing(
+                            "event_diagnostic_duration_ns",
+                            outer_event_diagnostic_duration_ns,
+                        )
+                        outer_control_total_ns = (
+                            time.perf_counter_ns() - outer_tick_started_ns
+                        )
+                        session.finalize_control_timing(outer_control_total_ns)
+                        session.update_control_timing_context(
+                            {
+                                "rh56_feedback_read": rh56_feedback_duration_ns > 0,
+                                "episode_metadata_published": episode_metadata_duration_ns > 0,
+                                "event_log_enqueued": bool(event_log_due),
+                                "camera_health": (
+                                    "disabled"
+                                    if episode_runtime is None
+                                    else "degraded"
+                                    if episode_capture_failed
+                                    else "healthy"
+                                ),
+                                "recorder_health": (
+                                    "disabled"
+                                    if episode_runtime is None
+                                    else "degraded"
+                                    if episode_capture_failed
+                                    else "healthy"
+                                ),
+                            }
+                        )
                         producer_timing_rows.append({
                             **event["producer_outer_timing_ms"],
                             "event_json_serialize": serialize_ns / 1e6,
@@ -2045,6 +2159,7 @@ def main() -> int:
         ),
         "ik_rejections": dict(sorted(session.rejections.items())),
         **_control_compute_budget_summary(session),
+        "control_timing": session.control_timing_report(),
         "producer_timing_ms": _producer_timing_summary(producer_timing_rows),
         "component_placement_snapshots": component_placement_snapshots,
         "native_worker_placement": metrics.get("worker_placement"),

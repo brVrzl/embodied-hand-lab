@@ -390,6 +390,40 @@ def test_loaded_reactivation_preserves_baseline_and_provisional_hold() -> None:
     assert control.contact_stop_snapshot()["candidate_count"][0] == 0
 
 
+def test_contact_relief_covers_force_rise_after_grip_release() -> None:
+    """A held object may load after grip release; issue one bounded relief write."""
+
+    backend = FakeRH56PcDirectBackend()
+    control = RH56PcDirectControl(backend, _contact_stop_config())
+    control.open(HandOperation.COMBINED)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+    assert control.command([0.0, 0.5, 0.0, 0.0, 0.0, 0.0], 1_000_000_000)
+
+    # The Quest grip is released while the hand remains on the held target.
+    backend.position[1] = 950.0
+    control.hold("grip_released")
+    control.poll_feedback_register("ANGLE", 1_040_000_000)
+    backend.load[1] = 500.0
+    control.poll_feedback_register("FORCE", 1_100_000_000)
+
+    snapshot = control.contact_stop_snapshot()
+    assert snapshot["candidate_count"][1] == 1
+    assert snapshot["relief_pending"] is True
+    relief = control.pop_contact_relief_target()
+    assert relief is not None
+    assert relief[1] == pytest.approx(0.04)
+    assert control.command(
+        relief,
+        1_100_000_000,
+        force_write=True,
+        contact_relief=True,
+    )
+    assert backend.position_writes[-1][1] == 960
+    assert control.state is HandControlState.HOLD
+    assert control.contact_stop_snapshot()["relief_write_count"] == 1
+
+
 def test_each_activation_rebases_first_target_on_fresh_measured_angle_act() -> None:
     control, backend = _opened_control()
     control.activate(1_000_000_000)
