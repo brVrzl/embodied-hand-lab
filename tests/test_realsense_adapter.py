@@ -212,6 +212,29 @@ def test_unaligned_depth_uses_depth_intrinsics(monkeypatch: pytest.MonkeyPatch) 
     assert frame.depth_aligned_to_color is False
 
 
+def test_rgb_only_capture_does_not_read_or_align_depth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "pyrealsense2", _fake_rs())
+    camera = RealSenseCamera(
+        {
+            "width": 3,
+            "height": 2,
+            "fps": 30,
+            "warmup_frames": 0,
+            "capture_depth": False,
+        }
+    )
+
+    frame = camera.capture()
+    camera.close()
+
+    assert frame.depth_enabled is False
+    assert frame.depth_frame_number == -1
+    assert frame.depth_raw_units is not None
+    assert frame.depth_raw_units.shape == (1, 1)
+    assert frame.timestamps_comparable is False
+    assert frame.intrinsics.frame_id == "camera_color_optical_frame"
+
+
 def test_capture_discards_frames_above_timestamp_skew_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "pyrealsense2", _fake_rs())
     camera = RealSenseCamera(

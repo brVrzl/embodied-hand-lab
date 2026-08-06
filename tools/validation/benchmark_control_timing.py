@@ -15,6 +15,7 @@ import argparse
 from collections import deque
 import json
 import math
+import resource
 import time
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,30 @@ def _summary(values: list[int]) -> dict[str, int]:
         "p95": ordered[round(last * 0.95)],
         "p99": ordered[round(last * 0.99)],
         "max": ordered[-1],
+    }
+
+
+def _stage_summaries_ms(report: dict[str, Any]) -> dict[str, dict[str, int]]:
+    durations = report["durations_ns"]
+    names = {
+        "quest_input": "quest_input_duration_ns",
+        "clutch": "clutch_state_duration_ns",
+        "hand_update": "hand_update_duration_ns",
+        "mapping": "mapping_duration_ns",
+        "IK": "ik_duration_ns",
+        "Jacobian": "jacobian_duration_ns",
+        "collision_singularity": "collision_singularity_duration_ns",
+        "output_prefilter": "output_feasibility_duration_ns",
+        "diagnostics": "event_diagnostic_duration_ns",
+        "unaccounted": "control_unaccounted_duration_ns",
+    }
+    return {
+        label: {
+            key: round(value / 1e6, 6) if key != "count" else value
+            for key, value in summary.items()
+        }
+        for label, field in names.items()
+        for summary in [durations[field]]
     }
 
 
@@ -195,12 +220,27 @@ def _run_scenario(name: str, duration_s: float) -> dict[str, Any]:
         tick_durations.append(elapsed_ns)
         budget_exhausted += int(elapsed_ns >= 20_000_000)
     report = session.control_timing_report()
+    detailed_records_retained = len(session.event_records)
+    shutdown_started_ns = time.perf_counter_ns()
+    session.event_records.clear()
+    shutdown_ns = time.perf_counter_ns() - shutdown_started_ns
+    max_rss_kib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return {
         "scenario": name,
         "duration_s": duration_s,
         "control_duration_ns": _summary(tick_durations),
         "budget_exhausted_count": budget_exhausted,
         "control_timing": report,
+        "stage_percentiles_ms": _stage_summaries_ms(report),
+        "continuation_retries_per_tick": report["continuation_retries"],
+        "ik_calls_per_tick": report["ik_calls"],
+        "diagnostic_record_proxy": {
+            "detailed_records_retained": detailed_records_retained,
+            "timing_samples_retained": report["sample_count"],
+            "capacity_bounded": True,
+        },
+        "max_rss_kib": max_rss_kib,
+        "shutdown_ms": shutdown_ns / 1e6,
         "metadata_queue_high_watermark": len(metadata.mailbox) if metadata else 0,
         "metadata_published": 0 if metadata is None else metadata.published,
         "fake_rh56_commands": 0 if fake_hand is None else fake_hand.command_count,

@@ -98,6 +98,8 @@ rates:
 # adapters consume the result of this policy; neither adapter may override it.
 shared_target_generation:
   continuation_enabled: true
+  # Preserve the remote continuation budget. A compute deadline still stops
+  # retries for the current tick and returns HOLD_REJECTED.
   maximum_backtracks: 5
   minimum_continuation_fraction: 0.03125
   # Keep producer compute near the 60 Hz period and well below the retained
@@ -206,10 +208,11 @@ simulation:
   maximum_target_jump_m: 0.04
   maximum_tcp_velocity_m_s: 1.0
   maximum_tcp_angular_velocity_rad_s: 5.0
-  # These two thresholds detect pathological unsmoothed IK candidates. They are
-  # not actuator/output limits; target-jump, joint-limit and branch continuity
-  # checks remain active. The shared target-generation contract above separately
-  # enforces the JAKA output boundary before AcceptedArmTarget construction.
+  # These thresholds detect pathological unsmoothed non-periodic IK candidates.
+  # They are not actuator/output limits; joint-limit, equivalent-branch,
+  # winding, and output checks remain active. Periodic J1/J4/J6 motion is
+  # governed by absolute joint range, winding, and output feasibility rather
+  # than a per-candidate angular travel cap.
   maximum_ik_target_velocity_rad_s: 14.0
   maximum_ik_target_acceleration_rad_s2: 1000.0
   command_maximum_joint_velocity_rad_s: 3.1415926536
@@ -220,8 +223,8 @@ simulation:
   joint_limit_margin_deg: 5.0
   ik_orientation_tolerance_deg: 3.0
   maximum_target_rotation_jump_deg: 8.0
-  # At 60 Hz this remains below the 14 rad/s IK-candidate guard (0.233 rad),
-  # while the actuator command is independently limited to pi rad/s.
+  # Retained for obvious non-periodic candidate jumps. It is not a J1/J4/J6
+  # travel or winding limit; native output limits remain independent.
   maximum_joint_target_jump_rad: 0.22
   # Used only when shared continuation/recovery is explicitly disabled. The
   # normal shared policy keeps rejected candidates non-authoritative while the
@@ -235,6 +238,17 @@ simulation:
 # Values below configure the thin output adapter and hard fault containment;
 # they do not alter a healthy accepted target.
 hardware_adapter:
+  # Keep the production default at the controller's 8 ms ServoJ cadence.
+  # Select jaka_62_5hz_step2 only for the explicitly experimental 16 ms mode;
+  # it is not a physical validation result or a new default.
+  transport_mode: jaka_125hz_step1
+  transport_modes:
+    jaka_125hz_step1:
+      jaka_transport_hz: 125.0
+      servo_step_num: 1
+    jaka_62_5hz_step2:
+      jaka_transport_hz: 62.5
+      servo_step_num: 2
   command_mode: edg_servo_j_absolute
   servo_period_ms: 8.0
   joint_order: [jaka_joint_1, jaka_joint_2, jaka_joint_3, jaka_joint_4, jaka_joint_5, jaka_joint_6]

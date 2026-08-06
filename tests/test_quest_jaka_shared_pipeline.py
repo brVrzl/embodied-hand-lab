@@ -156,6 +156,12 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert rates["target_generation_hz"] == rates["ik_hz"] == 60
     assert rates["jaka_transport_hz"] == 125
     assert hardware["servo_period_ms"] == pytest.approx(8.0)
+    assert hardware["transport_mode"] == "jaka_125hz_step1"
+    assert hardware["servo_step_num"] == 1
+    assert hardware["transport_modes"]["jaka_62_5hz_step2"] == {
+        "jaka_transport_hz": 62.5,
+        "servo_step_num": 2,
+    }
     assert hardware["joint_order"] == [f"jaka_joint_{index}" for index in range(1, 7)]
     assert hardware["joint_angle_unit"] == "rad"
     assert hardware["command_mode"] == "edg_servo_j_absolute"
@@ -171,6 +177,22 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
         "maximum_periodic_joint_winding_rad": 5.0,
     }
+
+
+def test_configured_step_two_selects_625_hz_transport(tmp_path: Path) -> None:
+    selected = tmp_path / "quest-625hz.yaml"
+    selected.write_text(
+        CONFIG.read_text(encoding="utf-8").replace(
+            "transport_mode: jaka_125hz_step1",
+            "transport_mode: jaka_62_5hz_step2",
+        ),
+        encoding="utf-8",
+    )
+    config = ReplayConfig.load(selected)
+    assert config.raw["rates"]["jaka_transport_hz"] == pytest.approx(62.5)
+    assert config.raw["hardware_adapter"]["servo_step_num"] == 2
+    assert config.raw["hardware_adapter"]["servo_period_ms"] == pytest.approx(16.0)
+    assert config.output_contract.servo_period_ns == 16_000_000
 
 
 def test_expired_control_compute_budget_never_commits_a_candidate() -> None:
@@ -1268,7 +1290,6 @@ def test_p4_entry_requires_operator_safety_gates_before_connection(tmp_path: Pat
             "--log", str(tmp_path / "log.jsonl"),
             "--summary", str(tmp_path / "summary.json"),
             "--metrics", str(tmp_path / "metrics.json"),
-            "--capture", str(tmp_path / "capture.jsonl"),
         ],
         text=True,
         capture_output=True,

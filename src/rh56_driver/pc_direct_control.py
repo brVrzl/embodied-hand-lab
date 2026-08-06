@@ -22,6 +22,7 @@ from .hand_schema import (
     normalize_raw,
     raw_to_canonical,
 )
+from .serial_backend import RH56SerialError
 
 RH56_PC_DIRECT_SCHEMA_VERSION = "rh56_pc_direct_episode.v1"
 RH56_SPEED_MIN = 0
@@ -561,6 +562,12 @@ class RH56PcDirectControl:
         self.successful_command_write_count = 0
         self.duplicate_suppressed_count = 0
         self.feedback_record_count = 0
+        self.feedback_transient_hold_count = 0
+        self.feedback_timeout_count = 0
+        self.feedback_timeout_by_register: dict[str, int] = {
+            name: 0 for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
+        }
+        self._feedback_transient_hold = False
         self._first_write_attempt_ns: int | None = None
         self._last_write_attempt_ns: int | None = None
         self._command_age_ms: deque[float] = deque(maxlen=self.diagnostics_window_size)
@@ -755,7 +762,28 @@ class RH56PcDirectControl:
                         ),
                     )
                 )
+            self._feedback_transient_hold = False
         except Exception as exc:
+            if self._is_transient_read_timeout(
+                exc, monotonic_ns=monotonic_ns, register=name
+            ):
+                # One timed-out read does not make the last complete snapshot
+                # unsafe.  Hold the next command for one worker cycle and
+                # retry; repeated failures age that snapshot out and are then
+                # handled by the normal fatal freshness boundary.
+                self.feedback_timeout_count += 1
+                self.feedback_transient_hold_count += 1
+                self.feedback_timeout_by_register[name] += 1
+                self._feedback_transient_hold = True
+                self.last_command_disposition = "feedback_timeout_hold"
+                self._capture_failure(
+                    "feedback_read_timeout_hold",
+                    exc,
+                    monotonic_ns,
+                    {"register": name, "previous_feedback_fresh": True},
+                )
+                assert self.last_feedback is not None
+                return self.last_feedback
             self._fault("serial_feedback_failure")
             self._capture_failure(
                 "feedback_register_poll",
@@ -903,6 +931,10 @@ class RH56PcDirectControl:
         self._require_fresh_feedback(monotonic_ns)
         if self.state is HandControlState.FAULT:
             self.last_command_disposition = "faulted"
+            return False
+        if self._feedback_transient_hold:
+            self._feedback_transient_hold = False
+            self.last_command_disposition = "feedback_timeout_hold"
             return False
         # A measured activation is the one safety-significant exception to the
         # ordinary command cadence: it must be written exactly once from fresh
@@ -1273,6 +1305,39 @@ class RH56PcDirectControl:
         if self.transport_state == "CLOSED" or self.state is HandControlState.DISABLED:
             raise RuntimeError("RH56 PC-direct transport is not open.")
 
+    def _is_transient_read_timeout(
+        self,
+        exc: BaseException,
+        *,
+        monotonic_ns: int,
+        register: str,
+    ) -> bool:
+        """Allow one typed read timeout while a complete snapshot is fresh."""
+
+        if (
+            self.last_feedback is None
+            or monotonic_ns - self.last_feedback.monotonic_ns
+            > self.feedback_stale_timeout_ns
+        ):
+            return False
+        if isinstance(exc, RH56SerialError):
+            register_aliases = {
+                "ANGLE": "ANGLE_ACT",
+                "CURRENT": "CURRENT",
+                "FORCE": "FORCE_ACT",
+                "STATUS": "STATUS",
+                "ERROR": "ERROR",
+            }
+            return (
+                exc.code == "timeout"
+                and exc.operation == "read_register"
+                and (
+                    exc.register is None
+                    or exc.register in {register, register_aliases.get(register)}
+                )
+            )
+        return isinstance(exc, TimeoutError)
+
     def _require_fresh_feedback(self, monotonic_ns: int) -> None:
         if self.mark_feedback_timeout(monotonic_ns):
             raise RuntimeError("RH56 feedback is stale or absent.")
@@ -1307,6 +1372,9 @@ class RH56PcDirectControl:
             "successful_serial_write_count": self.successful_command_write_count,
             "exact_duplicate_suppressed_count": self.duplicate_suppressed_count,
             "complete_feedback_record_count": self.feedback_record_count,
+            "feedback_timeout_count": self.feedback_timeout_count,
+            "feedback_transient_hold_count": self.feedback_transient_hold_count,
+            "feedback_timeout_by_register": dict(self.feedback_timeout_by_register),
             "last_target_sequence": self.last_submitted_sequence,
             "last_written_sequence": self.last_written_sequence,
             "last_command_age_ms": self.last_command_age_ms,

@@ -22,6 +22,7 @@ from .episode import (
 
 SUCCESS_LABELS = frozenset({"unlabeled", "success", "failure"})
 TRAINING_SUCCESS_LABELS = frozenset({"success", "failure"})
+RAW_EPISODE_FORMAT_VERSION = "raw_episode_v1"
 
 
 def load_canonical_rows(episode: str | Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -354,12 +355,269 @@ def _validate_schema_metadata(
         warnings.append("failed episode has no failure_stage")
 
 
+def _raw_video_frame_count(path: Path, errors: list[str]) -> int | None:
+    """Count decodable frames without trusting a container header alone."""
+
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        errors.append(f"{path.name}: OpenCV is required for deep raw-episode validation: {exc}")
+        return None
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        errors.append(f"{path.name}: video cannot be opened")
+        return None
+    count = 0
+    try:
+        while True:
+            ok, _ = capture.read()
+            if not ok:
+                break
+            count += 1
+    finally:
+        capture.release()
+    return count
+
+
+def _validate_raw_episode(
+    episode_dir: Path,
+    *,
+    deep: bool,
+) -> dict[str, Any]:
+    """Validate the compact physical RGB/Parquet episode format."""
+
+    errors: list[str] = []
+    warnings: list[str] = []
+    metadata = _json_object(episode_dir / "episode.json", "episode.json", errors)
+    if metadata.get("format_version") != RAW_EPISODE_FORMAT_VERSION:
+        errors.append(
+            "episode.json.format_version must be 'raw_episode_v1'"
+        )
+    episode_uuid = metadata.get("episode_uuid")
+    if not isinstance(episode_uuid, str):
+        errors.append("episode.json.episode_uuid must be a UUID string")
+    else:
+        try:
+            UUID(episode_uuid)
+        except ValueError:
+            errors.append("episode.json.episode_uuid must be a UUID string")
+    fps = metadata.get("fps")
+    if not isinstance(fps, int) or fps <= 0:
+        errors.append("episode.json.fps must be a positive integer")
+        fps = 0
+    status = metadata.get("completion_status")
+    if status not in {"completed", "aborted", "invalid"}:
+        errors.append(f"invalid completion_status: {status!r}")
+    if metadata.get("quest_recorded") is not False:
+        errors.append("raw_episode_v1 must not record Quest data")
+    if metadata.get("depth_recorded") is not False:
+        errors.append("raw_episode_v1 must not record depth data")
+    if metadata.get("tcp_recorded") is not False:
+        errors.append("raw_episode_v1 must not record TCP in the core table")
+    success_label = metadata.get("success_label")
+    if success_label not in SUCCESS_LABELS:
+        errors.append(
+            "episode.json.success_label must be 'unlabeled', 'success', or 'failure'"
+        )
+    elif success_label == "unlabeled":
+        warnings.append("episode success_label is 'unlabeled'; review is required")
+    frame_count = metadata.get("num_frames")
+    if not isinstance(frame_count, int) or frame_count < 0:
+        errors.append("episode.json.num_frames must be a non-negative integer")
+        frame_count = 0
+    files = metadata.get("files", {})
+    if not isinstance(files, dict):
+        errors.append("episode.json.files must be an object")
+        files = {}
+
+    frame_path: Path | None = None
+    video_paths: dict[str, Path | None] = {}
+    if frame_count > 0 or status == "completed":
+        frame_path = _inside_episode(episode_dir, files.get("frames"), "files.frames", errors)
+        for name in ("fixed_camera", "wrist_camera"):
+            video_paths[name] = _inside_episode(
+                episode_dir, files.get(name), f"files.{name}", errors
+            )
+    quality_path: Path | None = None
+    if files.get("quality") is not None:
+        quality_path = _inside_episode(episode_dir, files.get("quality"), "files.quality", errors)
+
+    row_count = 0
+    timing_invalid_count = 0
+    held_rejected_count = 0
+    previous_timestamp: int | None = None
+    timing_gap_count = 0
+    if frame_path is not None and frame_path.is_file():
+        if not deep:
+            row_count = frame_count
+        else:
+            try:
+                import pyarrow.parquet as parquet
+                table = parquet.read_table(frame_path)
+            except (ImportError, OSError, ValueError) as exc:
+                errors.append(f"frames.parquet: cannot read: {exc}")
+            else:
+                expected_columns = [
+                    "frame_index",
+                    "timestamp_ns",
+                    "observation.state",
+                    "action",
+                ]
+                if table.column_names != expected_columns:
+                    errors.append(
+                        "frames.parquet columns do not match the raw episode contract"
+                    )
+                row_count = table.num_rows
+                if row_count != frame_count:
+                    errors.append(
+                        f"episode.json.num_frames {frame_count} does not match "
+                        f"frames.parquet rows {row_count}"
+                    )
+                state_type = table.column("observation.state").type if "observation.state" in table.column_names else None
+                action_type = table.column("action").type if "action" in table.column_names else None
+                if getattr(state_type, "list_size", None) != 12:
+                    errors.append("frames.parquet observation.state must be a fixed list of 12")
+                if getattr(action_type, "list_size", None) != 12:
+                    errors.append("frames.parquet action must be a fixed list of 12")
+                if set(expected_columns).issubset(table.column_names):
+                    frame_indices = table.column("frame_index").to_pylist()
+                    timestamps = table.column("timestamp_ns").to_pylist()
+                    states = table.column("observation.state").to_pylist()
+                    actions = table.column("action").to_pylist()
+                    period_ns = round(1_000_000_000 / fps) if fps else 0
+                    for index, (frame_index, timestamp, state, action) in enumerate(
+                        zip(frame_indices, timestamps, states, actions, strict=True)
+                    ):
+                        label = f"frames.parquet row {index}"
+                        if frame_index != index:
+                            errors.append(f"{label}: frame_index is not contiguous")
+                        if not isinstance(timestamp, int):
+                            errors.append(f"{label}: timestamp_ns must be int")
+                        elif previous_timestamp is not None:
+                            delta = timestamp - previous_timestamp
+                            if delta <= 0:
+                                errors.append(f"{label}: timestamp_ns is not strictly increasing")
+                            elif period_ns and abs(delta - period_ns) > 2_000_000:
+                                warnings.append(
+                                    f"{label}: timestamp spacing differs from the nominal period"
+                                )
+                        if isinstance(timestamp, int):
+                            previous_timestamp = timestamp
+                        for name, values in (("observation.state", state), ("action", action)):
+                            finite = _finite_vector(values, length=12, label=f"{label}.{name}", errors=errors)
+                            if finite is None:
+                                continue
+                            for joint, (value, (lower, upper)) in enumerate(
+                                zip(finite[:6], JAKA_MINI2_JOINT_LIMITS_RAD, strict=True), 1
+                            ):
+                                if value < lower or value > upper:
+                                    errors.append(
+                                        f"{label}.{name}: J{joint} outside manufacturer boundary"
+                                    )
+                            if any(value < 0.0 or value > 1.0 for value in finite[6:]):
+                                errors.append(f"{label}.{name}: hand values must be in [0, 1]")
+    elif frame_count > 0 or status == "completed":
+        errors.append("frames.parquet is required for a non-empty/completed raw episode")
+
+    if deep:
+        for name, path in video_paths.items():
+            if path is None:
+                continue
+            actual = _raw_video_frame_count(path, errors)
+            if actual is not None and actual != row_count:
+                errors.append(
+                    f"{name}.mp4 has {actual} decodable frames, expected {row_count}"
+                )
+
+        if quality_path is not None and quality_path.is_file():
+            try:
+                import pyarrow.parquet as parquet
+                quality = parquet.read_table(quality_path)
+            except (ImportError, OSError, ValueError) as exc:
+                errors.append(f"quality.parquet: cannot read: {exc}")
+            else:
+                required = {
+                    "frame_index",
+                    "action_status",
+                    "timing_valid",
+                    "arm_trigger",
+                    "hand_grip",
+                    "nominal_slot_index",
+                    "missed_slots_before",
+                    "missed_slots_after",
+                }
+                if not required.issubset(quality.column_names):
+                    errors.append("quality.parquet is missing required quality columns")
+                if quality.num_rows != row_count:
+                    errors.append("quality.parquet row count does not match frames.parquet")
+                if "timing_valid" in quality.column_names:
+                    timing_valid = quality.column("timing_valid").to_pylist()
+                    timing_invalid_count = sum(value is False for value in timing_valid)
+                if "action_status" in quality.column_names:
+                    held_rejected_count = sum(
+                        value == "held_rejected"
+                        for value in quality.column("action_status").to_pylist()
+                    )
+                if "missed_slots_before" in quality.column_names:
+                    timing_gap_count += sum(
+                        int(value or 0)
+                        for value in quality.column("missed_slots_before").to_pylist()
+                    )
+                if "missed_slots_after" in quality.column_names:
+                    timing_gap_count += sum(
+                        int(value or 0)
+                        for value in quality.column("missed_slots_after").to_pylist()
+                    )
+    quality_metadata = metadata.get("quality", {})
+    if isinstance(quality_metadata, dict):
+        expected_timing_invalid = quality_metadata.get("timing_invalid_frame_count")
+        if isinstance(expected_timing_invalid, int) and expected_timing_invalid != timing_invalid_count:
+            errors.append("episode.json quality timing-invalid count does not match quality.parquet")
+        expected_held = quality_metadata.get("held_rejected_frame_count")
+        if isinstance(expected_held, int) and expected_held != held_rejected_count:
+            errors.append("episode.json quality held-rejected count does not match quality.parquet")
+    if frame_count != row_count and (deep or frame_count == 0):
+        errors.append("episode.json.num_frames does not match the table row count")
+    valid = not errors
+    training_eligible = bool(
+        valid
+        and status == "completed"
+        and success_label in TRAINING_SUCCESS_LABELS
+        and row_count > 0
+        and timing_invalid_count == 0
+        and held_rejected_count == 0
+        and timing_gap_count == 0
+    )
+    return {
+        "schema_version": RAW_EPISODE_FORMAT_VERSION,
+        "format_version": RAW_EPISODE_FORMAT_VERSION,
+        "episode": str(episode_dir),
+        "episode_uuid": metadata.get("episode_uuid"),
+        "completion_status": status,
+        "success_label": success_label,
+        "sample_count": row_count,
+        "valid": valid,
+        "training_eligible": training_eligible,
+        "deep_validation": deep,
+        "physically_validated": False,
+        "errors": errors,
+        "warnings": warnings,
+        "quality": {
+            "timing_invalid_frame_count": timing_invalid_count,
+            "held_rejected_frame_count": held_rejected_count,
+            "timing_gap_count": timing_gap_count,
+            "quest_recorded": False,
+            "depth_recorded": False,
+        },
+    }
+
+
 def validate_episode(
     episode: str | Path,
     *,
     deep: bool = True,
 ) -> dict[str, Any]:
-    """Validate one finalized canonical episode without touching hardware.
+    """Validate one finalized episode without touching hardware.
 
     ``valid`` means the archive is structurally readable. ``training_eligible``
     is stricter: it also requires a completed episode, an explicit
@@ -382,6 +640,11 @@ def validate_episode(
         }
     if episode_dir.name.endswith(".partial"):
         errors.append("partial episode is not finalized")
+
+    if (episode_dir / "episode.json").is_file() and not (
+        episode_dir / "metadata.json"
+    ).is_file():
+        return _validate_raw_episode(episode_dir, deep=deep)
 
     metadata = _json_object(episode_dir / "metadata.json", "metadata.json", errors)
     _validate_schema_metadata(metadata, errors, warnings)

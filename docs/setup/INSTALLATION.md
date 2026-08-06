@@ -73,7 +73,8 @@ Install only the role-specific extras needed on a machine:
 | `hardware` | pyserial for RH56 PC-direct communication |
 | `vision-teleop` | MediaPipe and OpenCV for the experimental camera hand path |
 | `realsense` | `pyrealsense2`; still requires a compatible OS/device stack |
-| `dataset-export` | HDF5, OpenCV, and LeRobot 0.6 export support |
+| `dataset-collection` | OpenCV and PyArrow for the compact RGB MP4/Parquet episode writer |
+| `dataset-export` | HDF5, OpenCV, PyArrow, and LeRobot 0.6 export support |
 | `motion-input-viz` | Matplotlib visualization |
 | `asset-tools` | COACD, image/video, OpenCV, pycolmap, SciPy, and trimesh tools |
 | `training` | HDF5 and PyTorch; distributed smoke only, not a model trainer |
@@ -84,6 +85,7 @@ Examples:
 ```bash
 .venv/bin/python -m pip install -e ".[simulation]"
 .venv/bin/python -m pip install -e ".[simulation,hardware,realsense]"
+.venv/bin/python -m pip install -e ".[dataset-collection]"
 .venv/bin/python -m pip install -e ".[dataset-export]"
 .venv/bin/python -m pip install -e ".[dev]"
 ```

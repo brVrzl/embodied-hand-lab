@@ -17,7 +17,6 @@ from teleoperation.accepted_target import (
 )
 from .production_resampler import (
     ProductionJointServoResampler,
-    SERVO_PERIOD_NS,
 )
 
 
@@ -150,7 +149,7 @@ class RecordingArmTargetAdapter:
 
 
 class JakaEquivalent125HzMujocoAdapter:
-    """Drive MuJoCo from the production 8 ms latest-destination PWL output."""
+    """Drive MuJoCo from the configured latest-destination PWL output."""
 
     def __init__(
         self,
@@ -160,7 +159,10 @@ class JakaEquivalent125HzMujocoAdapter:
         record_capacity: int = DEFAULT_EMITTED_RECORD_CAPACITY,
     ) -> None:
         self.simulation = simulation
-        self.resampler = ProductionJointServoResampler(library_path)
+        self._servo_period_ns = simulation.config.output_contract.servo_period_ns
+        self.resampler = ProductionJointServoResampler(
+            library_path, servo_period_ns=self._servo_period_ns
+        )
         self._time_origin_ns = 1
         self._next_emit_simulation_ns = 0
         self._last_emit_resampler_ns = self._time_origin_ns
@@ -215,8 +217,8 @@ class JakaEquivalent125HzMujocoAdapter:
         now_ns = int(round(float(simulation_time_s) * 1e9))
         if not self._clock_started:
             self._next_emit_simulation_ns = (
-                now_ns // SERVO_PERIOD_NS
-            ) * SERVO_PERIOD_NS
+                now_ns // self._servo_period_ns
+            ) * self._servo_period_ns
             self._clock_started = True
         while self._next_emit_simulation_ns <= now_ns:
             point = self.resampler.evaluate_and_commit(
@@ -267,7 +269,7 @@ class JakaEquivalent125HzMujocoAdapter:
             self._pending_destination_replacement = False
             self._last_q = q
             self._last_emit_resampler_ns = point.servo_time_ns
-            self._next_emit_simulation_ns += SERVO_PERIOD_NS
+            self._next_emit_simulation_ns += self._servo_period_ns
 
     def _reset_from_simulation(self) -> None:
         current = np.asarray(self.simulation.arm_joints_rad, dtype=float)
@@ -277,9 +279,12 @@ class JakaEquivalent125HzMujocoAdapter:
         self._pending_destination_replacement = False
 
     def report(self) -> dict[str, object]:
+        transport_hz = 1e9 / self._servo_period_ns
         return {
             "arm_output_mode": ArmOutputMode.JAKA_EQUIVALENT_125HZ.value,
-            "arm_emitted_rate_hz": 125.0,
+            "arm_emitted_rate_hz": transport_hz,
+            "servo_period_ns": self._servo_period_ns,
+            "servo_step_num": self._servo_period_ns // 8_000_000,
             "arm_emitted_time_domain": "simulation_monotonic",
             "arm_emitted_count": len(self.records),
             "arm_emitted_record_capacity": self.records.capacity,

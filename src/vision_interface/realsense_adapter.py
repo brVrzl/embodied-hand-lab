@@ -25,7 +25,10 @@ class RealSenseCamera(CameraInterface):
         self.width = _positive_int(self.config.get("width", 640), "width")
         self.height = _positive_int(self.config.get("height", 480), "height")
         self.fps = _positive_int(self.config.get("fps", 30), "fps")
+        self.depth_enabled = bool(self.config.get("capture_depth", True))
         self.align_depth_to_color = bool(self.config.get("align_depth_to_color", True))
+        if not self.depth_enabled:
+            self.align_depth_to_color = False
         self.serial = self.config.get("serial")
         self.allow_profile_fallback = bool(self.config.get("allow_profile_fallback", False))
         self.warmup_frames = max(int(self.config.get("warmup_frames", 5)), 0)
@@ -57,6 +60,7 @@ class RealSenseCamera(CameraInterface):
                 desired_width=self.width,
                 desired_height=self.height,
                 desired_fps=self.fps,
+                include_depth=self.depth_enabled,
             )
         pipeline_config.enable_stream(
             self.rs.stream.color,
@@ -65,19 +69,28 @@ class RealSenseCamera(CameraInterface):
             self.rs.format.rgb8,
             color_profile[2],
         )
-        pipeline_config.enable_stream(
-            self.rs.stream.depth,
-            depth_profile[0],
-            depth_profile[1],
-            self.rs.format.z16,
-            depth_profile[2],
-        )
+        if self.depth_enabled:
+            pipeline_config.enable_stream(
+                self.rs.stream.depth,
+                depth_profile[0],
+                depth_profile[1],
+                self.rs.format.z16,
+                depth_profile[2],
+            )
         self.profile = self.pipeline.start(pipeline_config)
         self.align = self.rs.align(self.rs.stream.color) if self.align_depth_to_color else None
-        self.depth_sensor = self.profile.get_device().first_depth_sensor()
-        _configure_depth_sensor(self.rs, self.depth_sensor, self.config)
-        self.depth_scale = _get_depth_scale(self.depth_sensor)
-        self.depth_filters = _build_depth_filters(self.rs, self.config.get("filters", {}))
+        self.depth_sensor = (
+            self.profile.get_device().first_depth_sensor()
+            if self.depth_enabled
+            else None
+        )
+        if self.depth_sensor is not None:
+            _configure_depth_sensor(self.rs, self.depth_sensor, self.config)
+            self.depth_scale = _get_depth_scale(self.depth_sensor)
+            self.depth_filters = _build_depth_filters(self.rs, self.config.get("filters", {}))
+        else:
+            self.depth_scale = None
+            self.depth_filters = []
         self._last_frame: RGBDFrame | None = None
         self._compat_frame: RGBDFrame | None = None
         self._closed = False
@@ -120,9 +133,37 @@ class RealSenseCamera(CameraInterface):
         host_monotonic_ns = time.monotonic_ns()
         host_wall_timestamp_ns = time.time_ns()
         raw_color_frame = frameset.get_color_frame()
+        if not raw_color_frame:
+            raise RuntimeError("RealSense frameset did not contain a color frame.")
+        if not self.depth_enabled:
+            rgb = np.asanyarray(raw_color_frame.get_data()).copy()
+            if rgb.ndim != 3 or rgb.shape[2] != 3:
+                raise RuntimeError(f"Unexpected RealSense RGB shape: {rgb.shape}.")
+            intrinsics = _get_frame_intrinsics(raw_color_frame, self.color_frame_id)
+            empty_depth = np.zeros((1, 1), dtype=np.uint16)
+            return RGBDFrame(
+                rgb=rgb,
+                depth_m=np.zeros((1, 1), dtype=np.float32),
+                intrinsics=intrinsics,
+                host_timestamp_s=host_wall_timestamp_ns / 1e9,
+                color_timestamp_ms=_frame_timestamp_ms(raw_color_frame),
+                depth_timestamp_ms=0.0,
+                color_timestamp_domain=_frame_timestamp_domain(raw_color_frame),
+                depth_timestamp_domain="unavailable",
+                color_frame_number=_frame_number(raw_color_frame),
+                depth_frame_number=-1,
+                depth_aligned_to_color=False,
+                host_monotonic_ns=host_monotonic_ns,
+                host_wall_timestamp_ns=host_wall_timestamp_ns,
+                depth_raw_units=empty_depth,
+                depth_aligned_to_color_units=None,
+                serial_number=str(self.serial) if self.serial else None,
+                depth_scale_m=None,
+                depth_enabled=False,
+            )
         raw_depth_frame = frameset.get_depth_frame()
-        if not raw_color_frame or not raw_depth_frame:
-            raise RuntimeError("RealSense frameset did not contain both color and depth frames.")
+        if not raw_depth_frame:
+            raise RuntimeError("RealSense frameset did not contain a depth frame.")
         depth_raw_units = np.asanyarray(raw_depth_frame.get_data()).copy()
         if depth_raw_units.dtype != np.uint16:
             raise RuntimeError(f"Unexpected RealSense raw depth dtype: {depth_raw_units.dtype}.")
@@ -181,6 +222,7 @@ class RealSenseCamera(CameraInterface):
             depth_aligned_to_color_units=depth_aligned_units,
             serial_number=str(self.serial) if self.serial else None,
             depth_scale_m=self.depth_scale,
+            depth_enabled=True,
         )
         return frame
 
@@ -189,27 +231,34 @@ class RealSenseCamera(CameraInterface):
 
         device = self.profile.get_device()
         color = self.profile.get_stream(self.rs.stream.color).as_video_stream_profile()
-        depth = self.profile.get_stream(self.rs.stream.depth).as_video_stream_profile()
         color_intrinsics = _intrinsics_dict(color.get_intrinsics())
-        depth_intrinsics = _intrinsics_dict(depth.get_intrinsics())
-        extrinsics = depth.get_extrinsics_to(color)
-        return {
+        metadata = {
             "serial_number": _device_info(device, self.rs.camera_info.serial_number),
             "name": _device_info(device, self.rs.camera_info.name),
             "firmware_version": _device_info(device, self.rs.camera_info.firmware_version),
             "usb_type": _device_info(device, self.rs.camera_info.usb_type_descriptor),
             "librealsense_python_version": _distribution_version("pyrealsense2"),
             "host_platform": platform.platform(),
+            "depth_enabled": self.depth_enabled,
             "depth_scale_m": self.depth_scale,
             "align_depth_to_color": self.align_depth_to_color,
-            "raw_depth_preserved": True,
+            "raw_depth_preserved": self.depth_enabled,
             "color": _video_profile_dict(color, color_intrinsics),
-            "depth_raw": _video_profile_dict(depth, depth_intrinsics),
-            "depth_to_color_extrinsics": {
-                "rotation_row_major": [float(value) for value in extrinsics.rotation],
-                "translation_m": [float(value) for value in extrinsics.translation],
-            },
         }
+        if self.depth_enabled:
+            depth = self.profile.get_stream(self.rs.stream.depth).as_video_stream_profile()
+            depth_intrinsics = _intrinsics_dict(depth.get_intrinsics())
+            extrinsics = depth.get_extrinsics_to(color)
+            metadata.update(
+                {
+                    "depth_raw": _video_profile_dict(depth, depth_intrinsics),
+                    "depth_to_color_extrinsics": {
+                        "rotation_row_major": [float(value) for value in extrinsics.rotation],
+                        "translation_m": [float(value) for value in extrinsics.translation],
+                    },
+                }
+            )
+        return metadata
 
     def close(self) -> None:
         if not getattr(self, "_closed", True):
@@ -441,7 +490,8 @@ def choose_closest_profile(
 
 
 def _select_device_profiles(
-    rs: ModuleType, *, serial: str, desired_width: int, desired_height: int, desired_fps: int
+    rs: ModuleType, *, serial: str, desired_width: int, desired_height: int, desired_fps: int,
+    include_depth: bool = True,
 ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
     devices = list(rs.context().query_devices())
     device = next(
@@ -471,8 +521,12 @@ def _select_device_profiles(
     color = choose_closest_profile(
         color_profiles, width=desired_width, height=desired_height, fps=desired_fps
     )
-    depth = choose_closest_profile(
-        depth_profiles, width=desired_width, height=desired_height, fps=desired_fps
+    depth = (
+        choose_closest_profile(
+            depth_profiles, width=desired_width, height=desired_height, fps=desired_fps
+        )
+        if include_depth
+        else (0, 0, 0)
     )
     return color, depth
 

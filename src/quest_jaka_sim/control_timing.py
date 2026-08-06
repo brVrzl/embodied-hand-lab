@@ -15,9 +15,10 @@ from typing import Any
 CONTROL_TIMING_FIELDS = (
     "quest_input_duration_ns",
     "clutch_state_duration_ns",
+    "hand_update_duration_ns",
     "mapping_duration_ns",
-    "smooth_session_duration_ns",
     "ik_duration_ns",
+    "jacobian_duration_ns",
     "collision_singularity_duration_ns",
     "output_feasibility_duration_ns",
     "target_encode_publish_duration_ns",
@@ -31,7 +32,7 @@ CONTROL_TIMING_FIELDS = (
 )
 
 _FIELD_INDEX = {name: index for index, name in enumerate(CONTROL_TIMING_FIELDS)}
-_ACCOUNTED_FIELDS = CONTROL_TIMING_FIELDS[:12]
+_ACCOUNTED_FIELDS = CONTROL_TIMING_FIELDS[:13]
 
 
 def _summary(values: Sequence[int]) -> dict[str, int]:
@@ -60,6 +61,8 @@ class ControlTimingRecorder:
         self._last_budget_event: dict[str, Any] | None = None
         self._last_timestamp_ns = 0
         self._last_context: dict[str, Any] = {}
+        self._continuation_retries: deque[int] = deque(maxlen=self.capacity)
+        self._ik_calls: deque[int] = deque(maxlen=self.capacity)
 
     @staticmethod
     def _account(values: list[int]) -> None:
@@ -74,6 +77,8 @@ class ControlTimingRecorder:
         timestamp_ns: int,
         durations_ns: Sequence[int],
         over_budget: bool,
+        continuation_retries: int = 0,
+        ik_calls: int = 0,
         context: Mapping[str, Any] | None = None,
     ) -> None:
         if len(durations_ns) != len(CONTROL_TIMING_FIELDS):
@@ -82,6 +87,8 @@ class ControlTimingRecorder:
         self._account(values)
         sample = tuple(values)
         self._samples.append(sample)
+        self._continuation_retries.append(max(0, int(continuation_retries)))
+        self._ik_calls.append(max(0, int(ik_calls)))
         self._last_budget_event = None
         self._last_timestamp_ns = int(timestamp_ns)
         self._last_context = {} if context is None else dict(context)
@@ -154,4 +161,6 @@ class ControlTimingRecorder:
             "budget_event_capacity": self.capacity,
             "budget_event_count": len(self._budget_events),
             "budget_exhausted_events": list(self._budget_events),
+            "continuation_retries": _summary(self._continuation_retries),
+            "ik_calls": _summary(self._ik_calls),
         }

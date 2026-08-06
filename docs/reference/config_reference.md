@@ -19,7 +19,7 @@ owning loader and current `--help`.
 
 | Configuration | Current role and boundary |
 | --- | --- |
-| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter, including the capped 10-second no-motion Quest input recovery window; also owns the maintained MuJoCo live-scene settings |
+| `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter, including the capped 10-second no-motion Quest input recovery window and persistent disengaged-hold behavior; also owns the maintained MuJoCo live-scene settings |
 | `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Recorded-input and headless/offline simulation policy; deliberately smaller and different from live policy |
 | `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
 | `configs/sim/jaka_collision_sweep_poses.yaml` | Offline digital-twin collision-sweep pose samples |

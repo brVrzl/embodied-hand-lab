@@ -18,7 +18,7 @@ class QuestDatagramReceiverWorker:
         bind: str,
         port: int,
         allowed_sender: str | None,
-        record: Callable[[ReceivedHtsDatagram], object],
+        record: Callable[[ReceivedHtsDatagram], object] | None = None,
         capacity: int = 256,
     ) -> None:
         if capacity < 1:
@@ -65,7 +65,8 @@ class QuestDatagramReceiverWorker:
                     datagram = receiver.receive(timeout_s=0.02)
                     if datagram is None:
                         continue
-                    self.record(datagram)
+                    if self.record is not None:
+                        self.record(datagram)
                     try:
                         self.queue.put_nowait(datagram)
                     except queue.Full:

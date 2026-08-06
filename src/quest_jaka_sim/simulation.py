@@ -39,7 +39,7 @@ from motion_input import (
 from motion_input.hts_transport import ReceivedHtsDatagram
 from teleoperation.output_feasibility import (
     JointOutputContractConfig,
-    JointOutputFeasibility,
+    JointOutputPrefilter,
     JointOutputFeasibilityTracker,
     PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
 )
@@ -286,6 +286,9 @@ class CandidateMetrics:
     ik_error_m: float = 0.0
     ik_orientation_error_rad: float = 0.0
     maximum_joint_target_jump_rad: float = 0.0
+    maximum_nonperiodic_joint_target_jump_rad: float = 0.0
+    maximum_nonperiodic_joint_velocity_rad_s: float = 0.0
+    maximum_nonperiodic_joint_acceleration_rad_s2: float = 0.0
     joint_limit_blockers: tuple[str, ...] = ()
     jacobian_condition: float = 1.0
     minimum_jacobian_singular_value: float = 1.0
@@ -354,6 +357,25 @@ def classify_candidate(
     *,
     check_singularity: bool = True,
 ) -> FeasibilityReason:
+    # Direct offline callers may construct only the aggregate legacy metrics;
+    # runtime candidates always carry the six-joint delta vector and the
+    # periodic-aware aggregates below.
+    has_joint_delta = bool(metrics.joint_delta_rad)
+    joint_target_jump = (
+        metrics.maximum_nonperiodic_joint_target_jump_rad
+        if has_joint_delta
+        else metrics.maximum_joint_target_jump_rad
+    )
+    joint_velocity = (
+        metrics.maximum_nonperiodic_joint_velocity_rad_s
+        if has_joint_delta
+        else metrics.maximum_joint_velocity_rad_s
+    )
+    joint_acceleration = (
+        metrics.maximum_nonperiodic_joint_acceleration_rad_s2
+        if has_joint_delta
+        else metrics.maximum_joint_acceleration_rad_s2
+    )
     if metrics.target_displacement_m > limits.maximum_target_displacement_m:
         return FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
     near_singularity = (
@@ -370,20 +392,26 @@ def classify_candidate(
     if (
         metrics.target_jump_m > limits.maximum_target_jump_m
         or metrics.target_rotation_jump_rad > limits.maximum_target_rotation_jump_rad
-        or metrics.maximum_joint_target_jump_rad > limits.maximum_joint_target_jump_rad
+        or (
+            joint_target_jump > limits.maximum_joint_target_jump_rad
+        )
     ):
         return FeasibilityReason.TARGET_JUMP
     if metrics.tcp_velocity_m_s > limits.maximum_tcp_velocity_m_s:
         return FeasibilityReason.LINEAR_VELOCITY_LIMIT
     if metrics.tcp_angular_velocity_rad_s > limits.maximum_tcp_angular_velocity_rad_s:
         return FeasibilityReason.ANGULAR_VELOCITY_LIMIT
-    if metrics.maximum_joint_velocity_rad_s > limits.maximum_joint_velocity_rad_s:
+    if (
+        joint_velocity > limits.maximum_joint_velocity_rad_s
+    ):
         return FeasibilityReason.IK_DISCONTINUITY
     if metrics.output_velocity_violating_joint_indices:
         return FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
     if metrics.output_acceleration_violating_joint_indices:
         return FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
-    if metrics.maximum_joint_acceleration_rad_s2 > limits.maximum_joint_acceleration_rad_s2:
+    if (
+        joint_acceleration > limits.maximum_joint_acceleration_rad_s2
+    ):
         return FeasibilityReason.LINEAR_ACCELERATION_LIMIT
     if metrics.ik_error_m > limits.ik_position_tolerance_m:
         return FeasibilityReason.IK_POSITION_FAILED
@@ -561,7 +589,7 @@ class ReplayConfig:
                     "velocity": (math.pi,) * 6,
                     # Diagnostic-only: evaluate a 60 Hz target replacement
                     # over its own interval.  The hardware/EDG contract stays
-                    # at the live 8 ms period.
+                    # at the configured live ServoJ period.
                     "feasibility_acceleration_hz": 60.0,
                 },
                 "root_cause_fix_plus_low_latency": {
@@ -605,6 +633,50 @@ class ReplayConfig:
             raw.setdefault("simulation", {})[
                 "command_maximum_joint_velocity_rad_s_per_joint"
             ] = list(profile["velocity"])
+        hardware_adapter = raw.get("hardware_adapter", {})
+        if not isinstance(hardware_adapter, dict):
+            raise ValueError("hardware_adapter must be a mapping")
+        transport_mode = hardware_adapter.get("transport_mode")
+        transport_modes = hardware_adapter.get("transport_modes", {})
+        if transport_mode is not None:
+            if not isinstance(transport_mode, str) or not isinstance(
+                transport_modes, dict
+            ):
+                raise ValueError(
+                    "hardware_adapter transport_mode and transport_modes are invalid"
+                )
+            try:
+                selected_transport = transport_modes[transport_mode]
+            except KeyError as exc:
+                raise ValueError(
+                    f"unknown JAKA transport mode {transport_mode!r}"
+                ) from exc
+            if not isinstance(selected_transport, dict):
+                raise ValueError(
+                    f"JAKA transport mode {transport_mode!r} must be a mapping"
+                )
+            try:
+                transport_hz = float(selected_transport["jaka_transport_hz"])
+                servo_step_num = int(selected_transport["servo_step_num"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"JAKA transport mode {transport_mode!r} is incomplete"
+                ) from exc
+            if not math.isfinite(transport_hz) or transport_hz <= 0.0:
+                raise ValueError("JAKA transport frequency must be finite and positive")
+            if servo_step_num < 1 or not math.isclose(
+                transport_hz,
+                125.0 / servo_step_num,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError(
+                    "JAKA transport mode frequency must equal 125/servo_step_num"
+                )
+            raw = copy.deepcopy(raw)
+            raw.setdefault("rates", {})["jaka_transport_hz"] = transport_hz
+            raw["hardware_adapter"]["servo_step_num"] = servo_step_num
+            raw["hardware_adapter"]["servo_period_ms"] = 1000.0 / transport_hz
         provisional = ProvisionalMappingConfig.from_mapping(raw["provisional_calibration"])
         simulation = raw["simulation"]
         shared_target = raw.get("shared_target_generation", {})
@@ -634,6 +706,13 @@ class ReplayConfig:
         servo_period_ns = int(
             round(1e9 / float(rates.get("jaka_transport_hz", 125.0)))
         )
+        configured_step_num = int(
+            raw.get("hardware_adapter", {}).get("servo_step_num", 1)
+        )
+        if configured_step_num < 1 or servo_period_ns != 8_000_000 * configured_step_num:
+            raise ValueError(
+                "JAKA servo period must equal 8 ms times servo_step_num"
+            )
         command_limits = CommandTrajectoryLimits.from_mapping(simulation)
         startup_timing_grace_cycles = int(
             raw.get("hardware_adapter", {}).get(
@@ -1207,25 +1286,15 @@ class SharedJakaTargetGenerator:
         raw_candidate_q = self.ik.arm_joints_rad.copy()
         raw_joint_limit_limited = self.ik.joint_limit_limited
         raw_limited_joint_indices = tuple(self.ik.limited_joint_indices_1_based)
-        selected_candidate, branch_offsets = select_nearest_equivalent_joint_branch(
-            raw_candidate_q.tolist(),
-            branch_reference.tolist(),
-        )
-        candidate_q = np.asarray(selected_candidate, dtype=np.float64)
-        self.ik.set_arm_joints_rad(candidate_q.tolist())
-        branch_delta = candidate_q - branch_reference
-        target_displacement_from_initial = float(
-            np.linalg.norm(
-                np.asarray(target.position_m)
-                - np.asarray(self.initial_tcp.position_m)
+        try:
+            selected_candidate, branch_offsets = select_nearest_equivalent_joint_branch(
+                raw_candidate_q.tolist(),
+                branch_reference.tolist(),
             )
-        )
-        branch_discontinuous = target_displacement_from_initial <= limits.maximum_target_displacement_m and any(
-            abs(float(branch_delta[index]))
-            > limits.maximum_joint_target_jump_rad
-            for index in PERIODIC_JOINT_INDICES
-        )
-        if branch_discontinuous:
+        except ValueError:
+            # No legal equivalent representation exists.  The command branch
+            # cannot be determined safely, so keep the terminal branch path;
+            # ordinary periodic motion never reaches this path.
             self.ik.set_arm_joints_rad(ik_seed.tolist())
             timing = CandidateComputationTiming(
                 seed_fk_ms=seed_fk_ns / 1e6,
@@ -1241,15 +1310,15 @@ class SharedJakaTargetGenerator:
                 None,
                 CandidateMetrics(
                     ik_seed_rad=tuple(float(value) for value in ik_seed),
-                    ik_candidate_rad=tuple(float(value) for value in candidate_q),
-                    joint_delta_rad=tuple(float(value) for value in candidate_q - ik_seed),
+                    ik_candidate_rad=tuple(float(value) for value in raw_candidate_q),
                     branch_reference_rad=tuple(float(value) for value in branch_reference),
-                    branch_delta_rad=tuple(float(value) for value in branch_delta),
-                    branch_equivalent_offset=branch_offsets,
                     episode_winding_rad=self.episode_winding_rad,
                 ),
                 timing,
             )
+        candidate_q = np.asarray(selected_candidate, dtype=np.float64)
+        self.ik.set_arm_joints_rad(candidate_q.tolist())
+        branch_delta = candidate_q - branch_reference
         joint_target_jump = candidate_q - ik_seed
         joint_velocity = joint_target_jump / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
@@ -1343,7 +1412,7 @@ class SharedJakaTargetGenerator:
                 for index in raw_limited_joint_indices
             )
         phase_started_ns = time.perf_counter_ns()
-        output_prediction: JointOutputFeasibility = self.output_feasibility.preview(
+        output_prediction: JointOutputPrefilter = self.output_feasibility.prefilter(
             candidate_q,
             generated_monotonic_ns=candidate_generated_ns,
         )
@@ -1363,6 +1432,27 @@ class SharedJakaTargetGenerator:
             ik_error_m=self.ik.target_error_m,
             ik_orientation_error_rad=float(self.ik.target_rotation_error_rad or 0.0),
             maximum_joint_target_jump_rad=float(np.max(np.abs(joint_target_jump))),
+            maximum_nonperiodic_joint_target_jump_rad=float(
+                max(
+                    abs(float(joint_target_jump[index]))
+                    for index in range(6)
+                    if index not in PERIODIC_JOINT_INDICES
+                )
+            ),
+            maximum_nonperiodic_joint_velocity_rad_s=float(
+                max(
+                    abs(float(joint_velocity[index]))
+                    for index in range(6)
+                    if index not in PERIODIC_JOINT_INDICES
+                )
+            ),
+            maximum_nonperiodic_joint_acceleration_rad_s2=float(
+                max(
+                    abs(float(joint_acceleration[index]))
+                    for index in range(6)
+                    if index not in PERIODIC_JOINT_INDICES
+                )
+            ),
             joint_limit_blockers=tuple(limit_blockers),
             jacobian_condition=condition,
             minimum_jacobian_singular_value=sigma_min,
@@ -1370,24 +1460,11 @@ class SharedJakaTargetGenerator:
             maximum_joint_velocity_rad_s=float(np.max(np.abs(joint_velocity))),
             maximum_joint_acceleration_rad_s2=float(np.max(np.abs(joint_acceleration))),
             output_feasibility_interval_s=output_prediction.interval_ns / 1e9,
-            output_feasibility_delta_rad=output_prediction.delta_rad,
-            predicted_output_joint_velocity_rad_s=(
-                output_prediction.predicted_velocity_rad_s
-            ),
             predicted_output_maximum_joint_velocity_rad_s=(
                 output_prediction.maximum_velocity_rad_s
             ),
             output_velocity_violating_joint_indices=(
                 output_prediction.violating_joint_indices
-            ),
-            output_velocity_boundary_rad_s_per_joint=(
-                output_prediction.boundary_rad_s_per_joint
-            ),
-            previous_emitted_output_joint_velocity_rad_s=(
-                output_prediction.previous_emitted_velocity_rad_s
-            ),
-            predicted_output_joint_acceleration_rad_s2=(
-                output_prediction.predicted_acceleration_rad_s2
             ),
             predicted_output_maximum_joint_acceleration_rad_s2=(
                 output_prediction.maximum_acceleration_rad_s2
@@ -1456,7 +1533,11 @@ class SharedJakaTargetGenerator:
                 reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
             self.ik.set_arm_joints_rad(ik_seed.tolist())
         if reason is FeasibilityReason.ACCEPTED:
-            self.output_feasibility.commit(output_prediction)
+            self.output_feasibility.commit_prefilter(
+                candidate_q,
+                generated_monotonic_ns=candidate_generated_ns,
+                prefilter=output_prediction,
+            )
             self.last_safe_joint_target = candidate_q
             self.last_safe_joint_velocity = joint_velocity
             self.last_safe_target = target

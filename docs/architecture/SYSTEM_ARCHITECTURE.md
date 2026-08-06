@@ -88,6 +88,28 @@ only in their own threads and accept it only when version and sequence match
 before and after the copy. The canonical sampler records an invalid quality row
 when a causal frame is missing/stale; it never waits for the next frame.
 
+## Hot-path ownership and lightweight telemetry
+
+The Python producer runs the Quest/CTRL validation and clutch boundary, mapping,
+one shared continuation IK attempt plus a small bounded number of retries, and
+candidate legality checks at the target-generation rate. Its output check is a
+coarse velocity/acceleration prefilter; it validates six finite joint values at
+that boundary but does not copy the native active segment or predict jerk.
+`AcceptedArmTarget` remains the immutable shared boundary.
+
+The native worker owns the actual 8 ms velocity/acceleration/jerk transition
+shaping, final hard output checks, watchdog, command publication, and cleanup.
+The JAKA controller remains an additional hardware protection layer. These
+layers are complementary: Python screens obviously impossible candidates, and
+native/JAKA checks remain authoritative for actual output and liveness.
+
+Normal Python ticks record fixed-width integer timing samples and a small
+current event record. Full pose/metrics/continuation-attempt dictionaries are
+sampled or emitted on reject/fault/reference/reacquisition events. Camera,
+recorder, preview, and event-log work is asynchronous and cannot block the
+native heartbeat. Episode recording keeps metadata-only invalid slots for
+isolated data loss; it does not turn data quality into a robot stop.
+
 The writer queue is bounded and non-blocking for producers. Queue overflow,
 ring overwrite, preview lag, or an isolated stale frame is data loss with an
 explicit counter, not a robot fault. Persistent acquisition failure stops

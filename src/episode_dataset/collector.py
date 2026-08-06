@@ -42,9 +42,11 @@ class SingleEpisodeCollector:
         maximum_start_delta_rad: float,
         maximum_hand_start_delta_rad: float,
         defer_finalization: bool = False,
+        retry_start_rejections: bool = False,
         camera_severe_stale_ns: int = 500_000_000,
         camera_consecutive_stale_limit: int = 15,
         camera_missing_timeout_ns: int = 1_000_000_000,
+        canonical_required_field_consecutive_limit: int = 15,
         quality_min_valid_ratio: float = 1.0,
         quality_max_invalid_run: int = 0,
     ) -> None:
@@ -54,10 +56,14 @@ class SingleEpisodeCollector:
         # this flag and finalizes during outer-session cleanup; offline callers
         # retain the original synchronous behavior.
         self.defer_finalization = bool(defer_finalization)
+        self.retry_start_rejections = bool(retry_start_rejections)
         self.camera_max_age_ns = int(camera_max_age_ns)
         self.camera_severe_stale_ns = int(camera_severe_stale_ns)
         self.camera_consecutive_stale_limit = int(camera_consecutive_stale_limit)
         self.camera_missing_timeout_ns = int(camera_missing_timeout_ns)
+        self.canonical_required_field_consecutive_limit = int(
+            canonical_required_field_consecutive_limit
+        )
         self.quality_min_valid_ratio = float(quality_min_valid_ratio)
         self.quality_max_invalid_run = int(quality_max_invalid_run)
         if not 0.0 <= self.quality_min_valid_ratio <= 1.0:
@@ -70,6 +76,10 @@ class SingleEpisodeCollector:
             raise ValueError("camera severe stale limit must not be below freshness limit")
         if self.camera_missing_timeout_ns < self.camera_severe_stale_ns:
             raise ValueError("camera missing timeout must not be below severe stale limit")
+        if self.canonical_required_field_consecutive_limit <= 0:
+            raise ValueError(
+                "canonical required field consecutive limit must be positive"
+            )
         self.maximum_start_delta_rad = float(maximum_start_delta_rad)
         self.maximum_hand_start_delta_rad = float(maximum_hand_start_delta_rad)
         for name, value in (
@@ -102,7 +112,10 @@ class SingleEpisodeCollector:
         self.completion_status: EpisodeStatus | None = None
         self._deferred_abort: tuple[str, bool, str | None] | None = None
         self._deferred_finish: tuple[str, int | None] | None = None
+        self._deferred_discard: str | None = None
         self._deferred_rejection: str | None = None
+        self._start_rejection_count = 0
+        self._last_start_rejection: str | None = None
         self._camera_consecutive_stale = {"workspace": 0, "wrist": 0}
         self._camera_stale_count = {"workspace": 0, "wrist": 0}
         self._camera_drop_count = {"workspace": 0, "wrist": 0}
@@ -120,6 +133,8 @@ class SingleEpisodeCollector:
         self._canonical_valid_all_sources = 0
         self._canonical_invalid_any_source = 0
         self._canonical_metadata_only_slots = 0
+        self._canonical_required_field_invalid_run = 0
+        self._canonical_required_field_invalid_total = 0
         self._pending_quality: deque[dict[str, Any]] = deque(maxlen=4096)
         self._quality_events_unpersisted = 0
 
@@ -330,6 +345,37 @@ class SingleEpisodeCollector:
         )
         self._set_state(CaptureState.DONE)
 
+    def discard_current(self, reason: str) -> None:
+        """Discard the active, not-yet-boundaried episode.
+
+        Physical staging uses this only for outer-session shutdown.  Episodes
+        already rotated by the explicit clutch boundary have already been
+        finalized and are never revisited.
+        """
+
+        if self.state is CaptureState.DONE:
+            return
+        if self.state in {CaptureState.IDLE, CaptureState.ARMING}:
+            if self.defer_finalization:
+                self._deferred_rejection = reason
+            else:
+                self.result = self.writer.discard_rejected_start(reason)
+            self.termination_reason = reason
+            self.completion_status = EpisodeStatus.INVALID
+            self._set_state(CaptureState.DONE)
+            return
+        if self.defer_finalization:
+            self._deferred_discard = reason
+            self.termination_reason = reason
+            self.completion_status = EpisodeStatus.INVALID
+            self._set_state(CaptureState.DONE)
+            return
+        self._set_state(CaptureState.FINALIZING)
+        self.result = self.writer.discard_rejected_start(reason)
+        self.termination_reason = reason
+        self.completion_status = EpisodeStatus.INVALID
+        self._set_state(CaptureState.DONE)
+
     def finalize_pending(self) -> None:
         """Finalize a deferred recorder abort outside the control loop."""
 
@@ -349,6 +395,13 @@ class SingleEpisodeCollector:
                 trigger_release_monotonic_ns=release_ns,
                 report=self.diagnostics(),
             )
+            self._set_state(CaptureState.DONE)
+            return
+        if self._deferred_discard is not None and self.result is None:
+            reason = self._deferred_discard
+            self._deferred_discard = None
+            self._set_state(CaptureState.FINALIZING)
+            self.result = self.writer.discard_rejected_start(reason)
             self._set_state(CaptureState.DONE)
             return
         pending = self._deferred_abort
@@ -414,7 +467,24 @@ class SingleEpisodeCollector:
             }
             self._set_state(CaptureState.REC)
             self._append_canonical(0, sample.host_monotonic_ns)
-        except (OSError, ValueError) as exc:
+        except ValueError as exc:
+            if self.retry_start_rejections:
+                # A fresh clutch capture can legitimately produce a small
+                # target/measured mismatch while the operator is still
+                # settling.  Keep ARMING and re-run the same safety gate on
+                # later fresh samples; never publish this candidate.
+                self._start_rejection_count += 1
+                self._last_start_rejection = str(exc)
+                return False
+            if self.defer_finalization:
+                self._deferred_rejection = str(exc)
+            else:
+                self.result = self.writer.discard_rejected_start(str(exc))
+            self.termination_reason = str(exc)
+            self.completion_status = EpisodeStatus.INVALID
+            self._set_state(CaptureState.DONE)
+            return False
+        except OSError as exc:
             if self.defer_finalization:
                 self._deferred_rejection = str(exc)
             else:
@@ -519,19 +589,41 @@ class SingleEpisodeCollector:
             self._camera_age_ns[role].append(age_ns)
         self._canonical_valid_all_sources += 1
         assert control.value is not None and workspace.value is not None and wrist.value is not None
-        if any(
-            value is None
-            for value in (
-                control.value.accepted_arm_q,
-                control.value.arm_q_measured,
-                control.value.arm_dq_measured,
-                control.value.tcp_pose_xyzw,
-                control.value.hand_observation,
-                control.value.hand_target,
+        required_fields = {
+            "accepted_arm_q": control.value.accepted_arm_q,
+            "arm_q_measured": control.value.arm_q_measured,
+            "arm_dq_measured": control.value.arm_dq_measured,
+            "tcp_pose_xyzw": control.value.tcp_pose_xyzw,
+            "hand_observation": control.value.hand_observation,
+            "hand_target": control.value.hand_target,
+        }
+        missing_fields = [name for name, value in required_fields.items() if value is None]
+        if missing_fields:
+            self._canonical_required_field_invalid_run += 1
+            self._canonical_required_field_invalid_total += 1
+            self._canonical_metadata_only_slots += 1
+            self._publish_quality(
+                {
+                    "record_type": "canonical_data_quality",
+                    "canonical_timestamp_ns": timestamp_ns,
+                    "nominal_slot_index": self.clock.last_nominal_slot_index,
+                    "metadata_only": True,
+                    "reason": "canonical_required_field_unavailable",
+                    "missing_fields": missing_fields,
+                    "control_host_monotonic_ns": control.value.host_monotonic_ns,
+                }
             )
-        ):
-            self.abort("canonical_required_field_unavailable", invalid=True)
+            if (
+                self._canonical_required_field_invalid_run
+                >= self.canonical_required_field_consecutive_limit
+            ):
+                self.abort(
+                    "persistent_canonical_required_field_loss:"
+                    + ",".join(missing_fields),
+                    invalid=True,
+                )
             return
+        self._canonical_required_field_invalid_run = 0
         try:
             canonical_sample = CanonicalSample(
                     frame_index=frame_index,
@@ -666,6 +758,11 @@ class SingleEpisodeCollector:
             "canonical_valid_all_sources": self._canonical_valid_all_sources,
             "canonical_invalid_any_source": self._canonical_invalid_any_source,
             "canonical_metadata_only_slots": self._canonical_metadata_only_slots,
+            "canonical_required_field_invalid_total": self._canonical_required_field_invalid_total,
+            "canonical_required_field_invalid_run": self._canonical_required_field_invalid_run,
+            "canonical_required_field_consecutive_limit": self.canonical_required_field_consecutive_limit,
+            "start_rejection_count": self._start_rejection_count,
+            "last_start_rejection": self._last_start_rejection,
             "recorder_enqueued_count": writer_metrics.get("recorder_enqueued_count", 0),
             "recorder_written_count": writer_metrics.get("recorder_written_count", 0),
             "recorder_dropped_count": writer_metrics.get("recorder_dropped_count", 0),

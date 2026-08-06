@@ -6,7 +6,7 @@
 
 任何真机运行都必须由操作者主动执行维护中的真机入口，并满足对应运行模式的全部安全前置条件，包括设备身份、工作区检查、停止装置可达、控制器状态、运行时长限制、命令边界以及确定性的退出和清理。
 
-碰撞、报警、急停、看门狗、SDK、时序或活性故障仍必须立即停止，不得绕过。
+碰撞、报警、急停、看门狗、SDK、时序、活性或清理不确定性故障仍必须立即停止，不得绕过。
 
 ## Runtime safety boundary
 
@@ -62,6 +62,23 @@ must not map frames, filter, recompute IK, select another branch, follow MuJoCo
 `qpos`, or modify the target. Native `joint-teleop` must make zero JAKA
 `kine_inverse` calls.
 
+Python is a candidate prefilter, not the final output authority. It retains
+the six-finite-joint, branch, hard-range, and obvious velocity/acceleration
+checks and rejects an infeasible candidate into bounded hold. It does not
+predict jerk or reproduce the native active segment. The native worker still
+performs the real 8 ms velocity/acceleration/jerk shaping and final hard
+checks; the JAKA controller remains an additional hardware protection layer.
+No output or watchdog limit was increased for this simplification.
+
+The `0.22 rad` candidate-jump setting is not a J1/J4/J6 travel or 360-degree
+limit. Periodic joints are allowed to progress through multiple candidates;
+their safety boundary is the selected legal absolute branch, the hard joint
+range, accumulated winding guard, Python output prefilter, and native 8 ms
+velocity/acceleration/jerk checks. The setting remains applicable to obvious
+non-periodic joint discontinuities. A candidate with zero equivalent-branch
+offset is never promoted to `JOINT_BRANCH_DISCONTINUITY` solely for exceeding
+that value.
+
 The measured post-EDG state is the startup authority. The first target must be
 continuous with that state. A newly captured Quest reference cannot legalize a
 joint jump.
@@ -85,10 +102,29 @@ remain active.
 Left-index release requests a bounded arm pause. The native worker brakes to a
 hold, reports `STOPPED_READY`, and permits a fresh release-before-press
 reference capture. Invalid or stale Quest clutch/wrist input also pauses
-immediately, but the live profile permits only a bounded 10-second no-motion
-recovery hold. During that window the producer emits heartbeat packets without
-new joint targets. Returning input still requires release-before-press and a
-fresh reference; the stale reference is never resumed.
+immediately. A transient outage has a bounded 10-second recovery window; after
+that deadline the Python session enters a persistent disengaged hold and keeps
+emitting no-motion heartbeats. It does not end the process. Returning input
+still requires a valid released sample, release-before-press, and a fresh
+measured-joint/reference capture; the stale reference is never resumed.
+
+The four runtime levels are intentionally separate:
+
+- `HARD_STOP`: measured or indeterminate robot/actuator danger, native
+  watchdog or hard timing/liveness fault, actual joint/output violation,
+  branch/winding fault, RH56 nonzero `ERROR`/fatal protocol/worker fault, or
+  cleanup uncertainty.
+- `BOUNDED_HOLD`: transient Quest loss, input recovery timeout, candidate
+  infeasibility, compute-budget exhaustion, RH56 ordinary rate/delta limiting,
+  or contact clamp. The last authoritative safe target is retained and
+  heartbeat stays fresh.
+- `RECORDING_DEGRADED`: camera stale/drop/ring expiry, a missing canonical
+  field, recorder queue drop, writer failure, or persistent camera acquisition
+  failure. The episode may be invalid/aborted, but healthy control is not
+  promoted to a robot hard stop.
+- `DIAGNOSTIC_ONLY`: preview failure, event-log drop, placement/`/proc` read
+  failure, latency/queue watermark, incomplete summary, or non-critical
+  provenance telemetry failure.
 
 The following are terminal hard-stop conditions:
 
@@ -98,18 +134,32 @@ The following are terminal hard-stop conditions:
 - SDK or command transport error;
 - final command illegality or tracking hard crossing;
 - hard command-loop timing failure;
-- Quest input loss beyond the configured 10-second recovery window;
 - actual producer heartbeat, IPC, or worker liveness loss;
+- native watchdog expiry or Python/IPC process death;
+- actual joint hard-limit, output velocity/acceleration/jerk, branch, or
+  winding violation;
+- RH56 nonzero `ERROR`, fatal serial/checksum/protocol fault, serial worker
+  death, or indeterminate actuator command state;
+- deterministic cleanup cannot be guaranteed;
 - operator stop or process interruption.
 
 A hard stop terminates new output and runs cleanup. It must never be converted
 to `HOLD_REJECTED`, retried automatically, or hidden by a later secondary
 transport symptom.
 
-The 10-second window does not change the native command-stream watchdog.
-Python/IPC death still removes producer heartbeats and stops in 100 ms. The
-window is capped by configuration validation and cannot be extended above
-10 seconds.
+The 60 Hz Python producer preserves the remote maximum of five continuation
+backtracks after its initial solve. A rejected trial is not committed; the last authoritative
+target remains in force and the producer publishes a bounded hold heartbeat.
+The per-tick timing ring stores retry and IK-call counts without constructing
+full attempt dictionaries on normal accepted ticks. Detailed diagnostics are
+sampled or emitted only for rejects, faults, clutch/reacquisition events, and
+bounded samples.
+
+The 10-second input-recovery window does not change the native command-stream
+watchdog. A live Python session emits bounded-hold heartbeats after the window;
+Python/IPC death emits none and the native watchdog still stops in 100 ms. The
+window is capped by configuration validation and cannot be extended above 10
+seconds.
 
 ## Native worker rules
 
@@ -169,9 +219,13 @@ it does not automatically open the hand and is not a torque-off or vendor
 emergency stop. If feedback-qualified contact detection observes a loaded
 channel while that held target remains active, the controller may issue one
 bounded opening relief target; this is the contact-safety exception and is
-recorded separately from ordinary grip commands. A serial, checksum, protocol,
-feedback-stale, nonzero-error, or worker fault enters `HAND_FAULT` and prevents
-new writes.
+recorded separately from ordinary grip commands. A single typed serial read
+timeout while the previous complete feedback snapshot is inside the freshness
+window holds the next hand command and retries. A repeated timeout or stale
+snapshot enters `HAND_FAULT`; checksum/protocol failure, nonzero `ERROR`, write
+failure, worker death, or unknown actuator command state remains terminal.
+Ordinary rate limiting and contact clamping are hand-local holds/diagnostics
+and do not become an arm hard stop.
 
 In combined operation, a terminal arm fault stops new hand commands. A terminal
 hand fault invalidates the episode and requests the arm's safe terminal path.

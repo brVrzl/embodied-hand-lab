@@ -720,8 +720,8 @@ def _start_episode_data_runtime(
             preview_enabled=args.episode_preview,
             metadata={
                 "raw_streams": {
-                    "quest_raw_datagram": "measured",
-                    "quest_decoded_input": "measured",
+                    "quest_raw_datagram": "unavailable",
+                    "quest_decoded_input": "unavailable",
                     "accepted_arm_target_60hz": "commanded",
                     "emitted_arm_command_125hz": (
                         "commanded"
@@ -972,7 +972,6 @@ def _live_6dof(args: argparse.Namespace) -> int:
                             control_sample,
                             reference_established=reference_established,
                             raw_records={
-                                "quest_decoded_control_event": event,
                                 "accepted_arm_target_60hz": {
                                     "host_monotonic_ns": control_now_ns,
                                     "accepted_target_sequence": event.get("accepted_target_sequence"),

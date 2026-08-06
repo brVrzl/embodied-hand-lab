@@ -2,8 +2,8 @@
 
 ## Current support boundary
 
-The repository has two producers using the same canonical writer and
-dual-D435 runtime. The simulation-backed producer is:
+The repository has two producers using the same dual-D435 runtime. The
+simulation-backed producer uses the older canonical writer:
 
 ```text
 real Quest HTS/CTRL input + real workspace/wrist D435 RGB-D
@@ -17,14 +17,16 @@ throughput, causal sampling, archive finalization, and offline export. The arm
 and hand data are simulated and metadata records `simulation_only=true` and
 `physically_validated=false`.
 
-The separately gated `combined-normal-teleop` path can additionally write v2
-episodes from the physical JAKA/RH56 data already present in that loop. It does
-not alter the accepted-target pipeline or native worker. The explicitly
-started bounded run is the episode boundary; collection starts after fresh
-camera/JAKA/RH56 state is ready and remains active across every arm/hand clutch
-change. Stable clutch-mode transitions receive automatic segment IDs without
-creating multiple episode directories. This integration is offline tested and
-has not yet been physically validated.
+The maintained physical collection path (`combined-normal-teleop` internally)
+writes review-first `lerobot_staging_v1` data from the physical JAKA/RH56 loop.
+It contains two feature-key RGB MP4s and an aligned
+`data/chunk-000/episode_<index>.jsonl` state/action table; the tracked
+configuration disables depth. Quest remains a live control input but is not
+recorded in the episode. Both valid clutches released for five seconds end
+the current episode and rotate to the next numbered episode; robot control
+continues and a new press starts from fresh state. Parquet is created only by
+the offline conversion command after human review. This integration is
+offline tested and has not yet been physically validated.
 
 This guide does not authorize a physical robot, hand, headset, or camera run.
 Physical use requires its own session and the exact gate required by the
@@ -76,8 +78,10 @@ The implemented config fields are:
 
 ```yaml
 dataset:
-  root: data/episodes
+  root: data/raw_episodes
+  format: lerobot_staging_v1
   fps: 30
+  video_codec: mp4v
   camera_max_age_ms: 100.0
   camera_severe_stale_limit_ms: 500.0
   camera_consecutive_stale_limit: 15
@@ -100,8 +104,9 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    capture_depth: false
     allow_profile_fallback: true
-    align_depth_to_color: true
+    align_depth_to_color: false
     warmup_frames: 5
     timeout_ms: 5000
     max_timestamp_skew_ms: 33.333334
@@ -184,9 +189,9 @@ Check:
 - the physical viewpoint matches the declared `workspace` or `wrist` role;
 - RGB is not BGR-swapped, rotated unexpectedly, frozen, or severely
   underexposed;
-- raw depth is present and the resolved profile includes depth scale,
-  intrinsics, distortion, extrinsics, firmware, serial, frame rate, and
-  resolution;
+- RGB is present and the resolved profile includes firmware, serial, frame
+  rate, and resolution; depth is intentionally disabled for the maintained
+  collection format;
 - the two cameras do not share a serial and do not exceed USB bandwidth;
 - mounting and calibration versions match the intended experiment.
 
@@ -196,12 +201,10 @@ or depth ndarrays. Odd/even slot versions and a second version check prevent a
 consumer from accepting a half-overwritten frame. A slow writer may lose an
 overwritten reference; that event is counted and does not backpressure capture.
 
-The example stores lossless RGB, raw depth, and aligned depth as NPY. At
-640×480×30 Hz with two cameras and aligned depth enabled, payload throughput is
-approximately 123 MiB/s, or about 7.2 GiB/minute, before filesystem overhead.
-Canonical hard links do not double that payload. Measure sustained write rate
-and free space on the actual destination; do not rely on the estimate for a
-long collection session.
+The maintained example writes RGB through OpenCV MP4 encoders and does not
+allocate or persist depth frames. Video encoding cost and file size depend on
+the selected codec and host; measure sustained write rate and free space on
+the actual destination before a long collection session.
 
 Bottle Pickup combined capture is raw-first and does not write a visual preset
 while starting the two camera workers. A target-host trial with full-rate disparity-domain spatial filtering
@@ -259,10 +262,12 @@ cannot enter a training split or be exported.
    prerequisites all pass.
 4. Once the capture is active, perform one coherent demonstration. Avoid
    combining multiple trials in one trigger hold.
-5. Release the arm trigger immediately at the intended episode boundary. The
-   last already-complete canonical sample is retained, no release tail is
-   fabricated, the archive finalizes, and the command exits.
-6. Review and label the semantic outcome with `dataset label`. Do not equate
+5. Release both valid clutches and keep them released for five seconds. The
+   last already-complete staging sample is retained, no release tail is
+   fabricated, the episode finalizes, and the recorder opens the next numbered
+   episode while the control process continues.
+6. Generate the local review page, approve/reject the staging episode, and
+   convert only approved data with `dataset convert-staging`. Do not equate
    `completed` with task success.
 
 Preview rendering uses the newest ring references at no more than
@@ -303,7 +308,7 @@ limits. Compare camera intervals, control p99/max, queue high-water, ring
 overwrites, sustained bytes/s, and shutdown completeness at every stage. A
 camera-only or offline result is not a physical teleoperation PASS.
 
-## Run one physical v2 episode
+## Run physical staging collection
 
 This is a physical motion gate. Executing the complete real-device command
 authorizes the current process. After camera identities, calibration snapshots,
@@ -344,64 +349,41 @@ the whole run; the canonical action is then explicitly sourced as
 
 For Phase B, use the identical command with `--duration-sec 60`. Perform one
 approach, grasp, approximately 10 cm lift, approximately 3 second hold,
-replace, and retreat. Do not use clutch edges as episode boundaries. Stop the
-bounded process after the task, then inspect and label its single result.
+replace, and retreat. Release both valid clutches for at least five seconds to
+rotate the completed episode, then press to begin the next one. Do not treat a
+Parquet file as available until the staging episode is reviewed and converted.
 
 For Phase C, repeat the Phase B process exactly three times. Reset the bottle
-before each process, preserve each printed `EPISODE_RESULT`, inspect and label
-it immediately, and do not proceed if deep validation is not both
-`valid=true` and `training_eligible=true`. Export all three individually to
-the ACT-layout HDF5 view and run the existing exporter regression before
-starting a larger collection.
+before each process, preserve each printed episode index, review each staging
+episode immediately, and convert only approved episodes before starting a
+larger collection.
 
-## Inspect and validate every episode
+## Inspect and validate every staging episode
 
-The command prints an `EPISODE_RESULT=<absolute path>` line. Preserve that path
-in the session log, then run deep validation:
+Generate a local review page and inspect both synchronized MP4s, the task
+metadata, row count, and the quality/audit JSONL files:
 
 ```bash
-.venv/bin/embodied-lab dataset validate \
-  data/episodes/episode-<uuid> \
-  --output data/reports/episode-<uuid>.validation.json
+.venv/bin/embodied-lab dataset review-staging \
+  data/raw_episodes episode_000000
+.venv/bin/embodied-lab dataset approve-staging \
+  data/raw_episodes episode_000000 --status approved \
+  --notes "reviewed first, middle, and last frames"
 ```
 
-Validation exit code is nonzero if structural integrity fails. The JSON fields
-have separate meanings:
+Before conversion, confirm that the episode metadata says `completed`, the
+JSONL is non-empty with strictly increasing `timestamp_ns`, and both MP4 frame
+counts equal the JSONL row count. A rejected or interrupted final staging
+episode is not converted. Then materialize the approved episode:
 
-- `valid=true` means the archive satisfies the offline structural contract.
-- `training_eligible=true` additionally means the episode completed, is
-  non-empty, has no canonical missed slots, and has an explicit `success` or
-  `failure` label.
-- `physically_validated` remains `false`.
+```bash
+.venv/bin/embodied-lab dataset convert-staging \
+  data/raw_episodes episode_000000 data/lerobot_dataset
+```
 
-Immediately after collection, `valid=true` with
-`training_eligible=false` is expected because the writer deliberately
-finalizes `success_label=unlabeled`. Use `dataset label` only after reviewing
-both camera views and task outcome, then run deep validation again.
-
-Review warnings instead of discarding them blindly:
-
-- `repeated_camera_selection_count` can be expected when source and canonical
-  rates differ, but a large value may indicate a stalled source;
-- `identical_rgb_payload_transition_count` can reflect a static scene or a
-  frozen camera and needs visual review;
-- `maximum_absolute_source_offset_ns` is useful only for sources in comparable
-  clock domains;
-- `image_shapes`, camera profile, and dropped-frame counters should remain
-  stable through the episode.
-
-Also inspect:
-
-- `metadata.json`: correct task/operator, serial-to-role mapping, calibration
-  snapshot, control-config hash, `simulation_only`, termination reason, and
-  sample count;
-- `canonical/samples.jsonl`: causal offsets, action status, provenance, and
-  camera frame-number progression;
-- representative first/middle/last RGB and raw depth arrays;
-- available disk space and a checksum-based copy after transfer.
-
-Deep validation reads every canonical NPY and all raw JSONL. `--fast` is useful
-for repeated catalog scans but is not the final acceptance check.
+The older `dataset validate`/`inspect` and canonical manifest commands remain
+available for canonical and `raw_episode_v1` archives; they are not the live
+staging acceptance gate.
 
 ## Build a versioned training selection
 
@@ -531,13 +513,15 @@ half-finalized namespace, but it is not a full crash-consistent storage system.
 
 ## Physical combined collection boundary
 
-The physical v2 producer is now integrated at the existing authoritative
-hardware loop after it produces the immutable `AcceptedArmTarget`. It reuses
+The physical `lerobot_staging_v1` producer is now integrated at the existing
+authoritative hardware loop after it produces the immutable `AcceptedArmTarget`.
+It reuses
 the same JAKA/RH56 session and does not create a second controller, follow
 MuJoCo `qpos`, or call JAKA inverse kinematics in the native joint worker.
-Measured JAKA state, accepted/held arm targets, successful final RH56 targets,
-and all five required RH56 feedback register groups are retained with their
-provenance and timestamps.
+The aligned core table retains measured JAKA/RH56 state and accepted arm/hand
+targets. Optional JAKA/RH56 audit records retain device provenance and
+timestamps. Quest packets, TCP, and depth are intentionally absent from this
+training view.
 
 This integration is offline tested, but a completed, training-eligible
 physical Bottle Pickup episode has not yet been recorded. The remaining gate

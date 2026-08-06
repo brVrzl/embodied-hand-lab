@@ -163,6 +163,8 @@ def quaternion_angle_rad(left: Iterable[float], right: Iterable[float]) -> float
         np.asarray(normalize_quaternion_xyzw(left)),
         np.asarray(normalize_quaternion_xyzw(right)),
     )))
+    if dot >= 1.0 - 1e-15:
+        return 0.0
     return 2.0 * math.acos(max(-1.0, min(1.0, dot)))
 
 

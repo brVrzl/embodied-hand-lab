@@ -9,7 +9,7 @@
 
 namespace jaka_servo {
 
-constexpr std::uint64_t kServoPeriodNs = 8'000'000;
+constexpr std::uint64_t kControllerServoPeriodNs = 8'000'000;
 constexpr std::array<double, 6> kJointLower{-6.28, -2.09, -2.27, -6.28, -2.09, -6.28};
 constexpr std::array<double, 6> kJointUpper{6.28, 2.09, 2.27, 6.28, 2.09, 6.28};
 
@@ -21,6 +21,17 @@ constexpr std::array<double, 6> kJointUpper{6.28, 2.09, 2.27, 6.28, 2.09, 6.28};
 // native worker and the simulation-facing resampler C ABI.
 constexpr double kOutputJerkHardBoundaryToleranceAbsoluteRadS3 = 1e-6;
 constexpr double kOutputJerkHardBoundaryToleranceRelative = 2.5e-7;
+
+// The final output assertion below remains at the configured project limit.
+// This smaller internal target is only for the transition shaper, so the
+// finite-difference jerk of a shaped point has deterministic room below the
+// final assertion instead of repeatedly landing on it through round-off.
+constexpr double kOutputJerkTransitionHeadroomFraction = 0.005;
+
+inline double output_jerk_transition_target(double limit_rad_s3) {
+  return std::abs(limit_rad_s3) *
+      (1.0 - kOutputJerkTransitionHeadroomFraction);
+}
 
 inline double output_jerk_hard_boundary_tolerance(double limit_rad_s3) {
   return kOutputJerkHardBoundaryToleranceAbsoluteRadS3 +
@@ -76,9 +87,10 @@ inline ResampledServoPoint transition_limited_point(
     throw std::runtime_error("output transition limits are invalid");
   const double acceleration_boundary = acceleration_boundary_rad_s2 -
       std::max(1e-9, acceleration_boundary_rad_s2 * 1e-9);
-  const double jerk_boundary = jerk_boundary_rad_s3 * (1.0 - 1e-9);
+  const double jerk_boundary =
+      output_jerk_transition_target(jerk_boundary_rad_s3);
   const double transition_frequency =
-      jerk_boundary_rad_s3 / acceleration_boundary_rad_s2;
+      jerk_boundary / acceleration_boundary;
   ResampledServoPoint limited = proposed;
   limited.endpoint = false;
   for (std::size_t joint = 0; joint < limited.position.size(); ++joint) {
@@ -111,6 +123,15 @@ inline ResampledServoPoint transition_limited_point(
 // defines segment duration; a replacement starts at the last emitted point.
 class JointServoResampler {
  public:
+  explicit JointServoResampler(
+      std::uint64_t servo_period_ns = kControllerServoPeriodNs)
+      : servo_period_ns_(servo_period_ns) {
+    if (servo_period_ns_ == 0 ||
+        servo_period_ns_ % kControllerServoPeriodNs != 0)
+      throw std::invalid_argument(
+          "servo period must be a positive multiple of 8 ms");
+  }
+
   void initialize(const std::array<double, 6>& measured,
                   std::uint64_t servo_time_ns) {
     validate_manufacturer_joint_position_limits(measured);
@@ -155,8 +176,8 @@ class JointServoResampler {
       start_ = emitted_;
       destination_ = destination;
       segment_start_ns_ = last_servo_time_ns_;
-      segment_end_ns_ = segment_start_ns_ + kServoPeriodNs;
-      maximum_segment_duration_ns_ = kServoPeriodNs;
+      segment_end_ns_ = segment_start_ns_ + servo_period_ns_;
+      maximum_segment_duration_ns_ = servo_period_ns_;
       has_accepted_ = true;
       active_ = true;
       return;
@@ -173,9 +194,9 @@ class JointServoResampler {
       start_ = emitted_;
       destination_ = destination;
       segment_start_ns_ = last_servo_time_ns_;
-      segment_end_ns_ = segment_start_ns_ + kServoPeriodNs;
+      segment_end_ns_ = segment_start_ns_ + servo_period_ns_;
       maximum_segment_duration_ns_ =
-          std::max(maximum_segment_duration_ns_, kServoPeriodNs);
+          std::max(maximum_segment_duration_ns_, servo_period_ns_);
       internal_hold_ = false;
       active_ = true;
       return;
@@ -253,11 +274,11 @@ class JointServoResampler {
     commit_emitted(point);
     start_ = emitted_;
     segment_start_ns_ = last_servo_time_ns_;
-    if (kServoPeriodNs >
+    if (servo_period_ns_ >
         std::numeric_limits<std::uint64_t>::max() - segment_start_ns_)
       throw std::runtime_error(
           "transition-limited segment duration overflows servo time");
-    segment_end_ns_ = segment_start_ns_ + kServoPeriodNs;
+    segment_end_ns_ = segment_start_ns_ + servo_period_ns_;
     from_sequence_ = to_sequence_;
     from_accepted_ns_ = to_accepted_ns_;
     active_ = true;
@@ -293,6 +314,7 @@ class JointServoResampler {
   }
 
   std::array<double, 6> emitted_{}, start_{}, destination_{};
+  std::uint64_t servo_period_ns_ = kControllerServoPeriodNs;
   std::uint64_t last_servo_time_ns_ = 0;
   std::uint64_t segment_start_ns_ = 0, segment_end_ns_ = 0;
   std::uint64_t last_accepted_ns_ = 0;

@@ -12,6 +12,10 @@ namespace {
 thread_local std::string last_error;
 
 struct ResamplerHandle {
+  explicit ResamplerHandle(
+      uint64_t servo_period_ns = jaka_servo::kControllerServoPeriodNs)
+      : resampler(servo_period_ns) {}
+
   jaka_servo::JointServoResampler resampler;
   std::array<double, 6> maximum_velocity{};
   std::array<double, 6> previous_position{};
@@ -139,9 +143,14 @@ void copy_point(const jaka_servo::ResampledServoPoint& result,
 }  // namespace
 
 extern "C" void* jaka_resampler_create(void) {
+  return jaka_resampler_create_with_period(
+      jaka_servo::kControllerServoPeriodNs);
+}
+
+extern "C" void* jaka_resampler_create_with_period(uint64_t servo_period_ns) {
   try {
     last_error.clear();
-    return new ResamplerHandle();
+    return new ResamplerHandle(servo_period_ns);
   } catch (const std::exception& error) {
     last_error = error.what();
     return nullptr;

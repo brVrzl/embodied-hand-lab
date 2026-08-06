@@ -29,6 +29,33 @@ does not follow MuJoCo `qpos`, remap, filter, or recompute IK. Current native
 `joint-teleop` makes zero JAKA `kine_inverse` calls and sends the accepted
 absolute target through the 8 ms latest-destination/PWL worker.
 
+The Python hot path now uses a coarse output prefilter: the candidate boundary
+retains six-finite-joint, branch-continuity, hard-range, and obvious
+velocity/acceleration checks, while the native worker remains responsible for
+actual 8 ms velocity/acceleration/jerk shaping and final hard assertions. It
+does not predict jerk or reproduce the native active segment. Continuation
+preserves the remote maximum of five backtracks; reaching the existing
+20 ms Python budget returns `HOLD_REJECTED` and keeps a fresh heartbeat.
+
+The `0.22 rad` candidate-jump setting is not a periodic-joint travel limit.
+J1/J4/J6 are not rejected merely because one candidate step exceeds it. Their
+continuous motion is governed by nearest-equivalent branch selection, absolute
+joint hard range, accumulated winding protection, Python output prefilter, and
+the native 8 ms dynamic hard checks. The candidate-jump setting remains for
+non-periodic joint discontinuities. The 2026-08-05/06 event records that
+previously ended with `shared_hard_stop:JOINT_BRANCH_DISCONTINUITY` had zero
+equivalent-branch offsets and are therefore candidate/dynamic holds, not
+branch faults.
+
+Normal ticks use fixed-width timing samples and a small current event record.
+Full metrics, pose serialization, attempt dictionaries, and timing `asdict`
+objects are retained only for rejects/faults, reference or hand reacquisition,
+and bounded diagnostic samples. The control timing report separately exposes
+Quest input, clutch, hand update, mapping, IK, Jacobian,
+collision/singularity, output prefilter, diagnostic, and unaccounted p50/p95/
+p99/max values. These measurements are offline software benchmark evidence,
+not physical validation.
+
 ## Validation summary
 
 | Capability | Current status |
@@ -37,6 +64,7 @@ absolute target through the 8 ms latest-destination/PWL worker.
 | Release-before-press arm/hand clutching | Implemented and simulation validated; partially physically exercised |
 | Mapping, filters, continuation IK, branch/singularity/limit checks | Implemented and offline/simulation tested |
 | Shared output velocity and acceleration feasibility | Implemented and offline tested; latest acceleration correction lacks a bounded post-fix physical validation |
+| Python output prefilter/native responsibility split | Implemented and offline benchmarked; not physically validated |
 | `HOLD_REJECTED` recovery | Implemented and offline/simulation tested |
 | MuJoCo accepted-target output | Simulation validated |
 | Native 8 ms PWL/latest destination and zero-IK joint mode | Fake-worker/offline tested; partially physically exercised |
@@ -110,10 +138,12 @@ with `producer_liveness_loss`; this is useful partial evidence but not a
 The shared session now has an offline-tested distinction between a transient
 Quest CTRL/wrist outage and actual producer death. The transient path
 immediately pauses/holds, emits no-motion heartbeats for at most 10 seconds,
-and requires release-before-press reference recapture after data returns.
-Timeout is terminal. The native producer watchdog remains 100 ms, so Python or
-IPC death is not masked. This new recovery behavior is not yet physically
-validated.
+and requires release-before-press reference recapture after data returns. At
+the 10-second input-recovery deadline it remains in persistent disengaged hold
+and continues fresh heartbeats; it does not terminate the process. Producer,
+Python-process, IPC, and native-watchdog liveness failures remain terminal, so
+heartbeat is not fabricated after actual process death. This recovery behavior
+is offline tested but not yet physically validated.
 
 The latest shared output-acceleration correction is offline tested but has not
 received its required bounded post-fix physical validation. Do not infer a
@@ -121,11 +151,19 @@ physical PASS from accepted-target replay or fake-worker results.
 
 The dual-D435 episode path now uses one ordinary-scheduling producer process per
 camera, preallocated versioned shared-memory ring references, and a separate
-recorder process. Canonical camera staleness is retained as invalid data-quality
-metadata; isolated stale frames, preview lag, ring overwrite, and recorder
-backpressure no longer stop healthy teleoperation.
-Configured persistent acquisition failure stops recording separately from robot
-safety faults. This correction is covered by offline slow-writer, stale,
+recorder process. The maintained physical configuration writes a review-first
+`lerobot_staging_v1` tree: low-dimensional robot rows are appended to
+`data/chunk-000/episode_<index>.jsonl`, and the two RGB streams are written to
+LeRobot feature-key MP4 paths. Parquet is not created during collection. After
+human review, `dataset approve-staging` records the decision and
+`dataset convert-staging` creates the Parquet shard. Depth, TCP, and Quest
+packets/events are not recorded; Quest remains a live control input.
+Canonical camera staleness is retained as invalid data-quality metadata;
+isolated stale frames, preview lag, ring overwrite, and recorder backpressure
+no longer stop healthy teleoperation.
+An isolated missing canonical required field also becomes a metadata-only
+invalid slot; persistent field loss or acquisition failure stops recording
+separately from robot safety faults. This correction is covered by offline slow-writer, stale,
 overwrite, latest-preview, asynchronous-alignment, bounded-shutdown, and load
 tests. It has not been validated with two physical D435 cameras, Jetson Thor
 scheduling, or the target NVMe.
@@ -148,6 +186,12 @@ Current feedback meanings are deliberately limited:
 
 These are not complete passive-joint state, tactile, slip, or calibrated
 contact-force signals.
+
+The runtime now treats one typed serial read timeout as a hand-local retry/hold
+when the previous complete feedback snapshot is still fresh. Consecutive stale
+feedback, worker death, checksum/protocol failure, write failure, or nonzero
+`ERROR` remains a terminal RH56 fault. Ordinary rate limiting and contact
+clamping remain hand-local and do not stop a healthy arm.
 
 Quest hand-only PC-direct operation and short combined sessions have physical
 evidence, including the 60.105-second combined PASS above. Complete
@@ -185,7 +229,8 @@ the worker failure; JAKA was not connected. The operator clarified that the
 water-bottle grasp itself had no observed problem.
 
 The first combined run with v2 thumb-pregrasp calibration on 2026-08-03 ran
-for 234.32 seconds before the shared input-recovery timeout hard stop. Native
+for 234.32 seconds before the shared input-recovery timeout behavior in the
+pre-audit implementation ended the run. Native
 JAKA metrics recorded 10,035 accepted targets, zero rejected targets, zero
 controller alarm/collision/E-stop events, and zero cleanup error. RH56 loaded
 `quest_rh56dfx_real_20260803_v2`, reached 11 contact-stop detections at peak
@@ -232,9 +277,9 @@ The live viewer/plant injects a provisional table and mounting members.
 part of shared pre-acceptance collision authority. The scene must not be used
 as proof of physical workspace clearance or collision safety.
 
-## Current physical entry
+## Current physical collection entry
 
-The maintained combined wrapper is:
+The one maintained normal physical entry is the combined collection wrapper:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh --help
@@ -251,7 +296,8 @@ rejected before hardware I/O. The fixed native control priority is
 `SCHED_FIFO` 10, and inherited `RLIMIT_RTPRIO >= 10` is also required before
 hardware I/O.
 
-The arm-only isolation and RH56 staged inspection entries are:
+The arm-only isolation and RH56 staged inspection commands are diagnostic
+tools, not additional normal collection entries:
 
 ```bash
 ./scripts/run_quest_jaka_bounded_teleop.sh --help
@@ -273,8 +319,9 @@ Inspecting help or running plant-free tests does not open or command hardware.
    relabelled as a 300-second PASS.
 5. Complete physical RH56 target/feedback characterization and the staged
    Quest-driven hand validation.
-6. Physically validate integrated dual-D435 v2 capture and calibrate
-   camera/robot time and geometry before treating it as a training dataset.
+6. Physically validate integrated dual-D435 staging capture and calibrate
+   camera/robot time and geometry before treating reviewed conversions as a
+   training dataset.
 7. Validate dataset quality and framework adapters before claiming ACT,
    Diffusion Policy, or OpenPI training support.
 

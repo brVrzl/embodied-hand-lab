@@ -86,7 +86,7 @@ def test_winding_guard_rejects_and_holds_before_a_full_turn() -> None:
     assert result.metrics.episode_winding_rad[3] > 5.0
 
 
-def test_branch_jump_guard_rejects_even_when_candidate_is_not_a_wrap() -> None:
+def test_large_periodic_candidate_step_is_recoverable_hold() -> None:
     generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
     seed = generator.last_safe_joint_target.copy()
     candidate = seed.copy()
@@ -103,8 +103,62 @@ def test_branch_jump_guard_rejects_even_when_candidate_is_not_a_wrap() -> None:
         fresh_measured_joint_position_rad=seed.tolist(),
     )
     assert not result.accepted
-    assert result.reason is FeasibilityReason.JOINT_BRANCH_DISCONTINUITY
+    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
     assert result.joint_target_rad is None
+
+
+def test_wrist_sized_j6_step_is_not_a_branch_hard_stop() -> None:
+    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+    seed = generator.last_safe_joint_target.copy()
+    candidate = seed.copy()
+    candidate[5] += 0.24
+
+    def fake_ik(**_: object) -> bool:
+        generator.ik.set_arm_joints_rad(candidate.tolist())
+        return True
+
+    generator.ik.apply_position_target = fake_ik  # type: ignore[method-assign]
+    result = generator.evaluate(
+        generator.current_tcp_pose,
+        dt_s=1.0 / 60.0,
+        fresh_measured_joint_position_rad=seed.tolist(),
+    )
+    assert not result.accepted
+    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
+    assert result.metrics.branch_equivalent_offset == (0, 0, 0, 0, 0, 0)
+
+
+def test_equivalent_branch_selection_does_not_make_wrist_motion_hard() -> None:
+    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+    seed = generator.last_safe_joint_target.copy()
+    # The solver returned a representation one revolution away from the
+    # measured branch.  The nearest legal representation is used; dynamic
+    # output feasibility then decides whether this candidate can be held.
+    candidate = seed.copy()
+    candidate[3] += 5.5
+
+    def fake_ik(**_: object) -> bool:
+        generator.ik.set_arm_joints_rad(candidate.tolist())
+        return True
+
+    generator.ik.apply_position_target = fake_ik  # type: ignore[method-assign]
+    result = generator.evaluate(
+        generator.current_tcp_pose,
+        dt_s=1.0 / 60.0,
+        fresh_measured_joint_position_rad=seed.tolist(),
+    )
+    assert not result.accepted
+    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
+    assert result.joint_target_rad is None
+    assert result.metrics.branch_equivalent_offset[3] != 0
+
+
+def test_no_legal_equivalent_branch_is_terminal() -> None:
+    with pytest.raises(ValueError, match="no equivalent representation"):
+        select_nearest_equivalent_joint_branch(
+            _joints(j4=20.0),
+            _joints(),
+        )
 
 
 def test_periodic_joint_scope_matches_jaka_full_range_axes() -> None:

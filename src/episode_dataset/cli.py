@@ -8,6 +8,11 @@ from pathlib import Path
 
 from .exporters import export_act_hdf5, export_lerobot_v3
 from .inspection import inspect_episode, play_episode, write_inspection_plot
+from .lerobot_staging import (
+    materialize_staging_episode,
+    set_staging_review,
+    stage_review_html,
+)
 from .manifest import build_dataset_manifest, compute_train_statistics
 from .validation import validate_episode, validation_exit_code
 
@@ -83,6 +88,28 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     lerobot = formats.add_parser("lerobot-v3")
     lerobot.add_argument("output", type=Path)
     lerobot.add_argument("--repo-id", required=True)
+
+    review_staging = commands.add_parser(
+        "review-staging", help="write a local HTML review page for a staging episode"
+    )
+    review_staging.add_argument("dataset_root", type=Path)
+    review_staging.add_argument("episode")
+    review_staging.add_argument("--output", type=Path)
+
+    approve_staging = commands.add_parser(
+        "approve-staging", help="record the human review decision for staging data"
+    )
+    approve_staging.add_argument("dataset_root", type=Path)
+    approve_staging.add_argument("episode")
+    approve_staging.add_argument("--status", choices=("approved", "rejected"), required=True)
+    approve_staging.add_argument("--notes", default="")
+
+    convert_staging = commands.add_parser(
+        "convert-staging", help="convert an approved staging episode to Parquet"
+    )
+    convert_staging.add_argument("dataset_root", type=Path)
+    convert_staging.add_argument("episode")
+    convert_staging.add_argument("output_root", type=Path)
     return parser
 
 
@@ -145,6 +172,27 @@ def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             success=args.success,
             failure_stage=args.failure_stage,
             notes=args.notes,
+        )
+        print(result)
+        return 0
+    if args.command == "review-staging":
+        result = stage_review_html(
+            args.dataset_root, args.episode, output=args.output
+        )
+        print(result)
+        return 0
+    if args.command == "approve-staging":
+        result = set_staging_review(
+            args.dataset_root,
+            args.episode,
+            status=args.status,
+            notes=args.notes,
+        )
+        print(result)
+        return 0
+    if args.command == "convert-staging":
+        result = materialize_staging_episode(
+            args.dataset_root, args.episode, args.output_root
         )
         print(result)
         return 0

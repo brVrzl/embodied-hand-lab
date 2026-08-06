@@ -8,7 +8,7 @@ outputs remain frozen and fail disengaged.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import asdict, dataclass, replace
 import math
 import time
@@ -142,6 +142,10 @@ class SmoothQuestJakaSession:
             config.input_recovery_timeout_s * 1e9
         )
         self._input_recovery_started_ns: int | None = None
+        # A recovery deadline is a persistent disengaged hold.  It is not a
+        # robot fault: the native heartbeat remains live while the clutch
+        # waits for a released sample and a fresh reference capture.
+        self._input_recovery_persistent_hold = False
         self._input_recovery_hard_stop_reason: str | None = None
         self.input_recovery_count = 0
         self.input_recovery_success_count = 0
@@ -227,7 +231,13 @@ class SmoothQuestJakaSession:
         self.hand_retarget_durations_ns: list[int] = []
         self.arm_engagement_latencies_ns: list[int] = []
         self.hand_engagement_latencies_ns: list[int] = []
-        self.event_records: list[dict[str, Any]] = []
+        # Detailed records are sampled or emitted for rejects/faults only.
+        # The hardware wrapper reads latest_event_record for its one current
+        # dispatch decision, so normal ticks do not grow an event history.
+        self.event_records: deque[dict[str, Any]] = deque(maxlen=128)
+        self.latest_event_record: dict[str, Any] = {}
+        self._control_tick_count = 0
+        self._diagnostic_sample_period = 30
         self.accepted_targets = 0
         self._accepted_sequence = 0
         self._last_accepted_generated_ns: int | None = None
@@ -240,6 +250,8 @@ class SmoothQuestJakaSession:
         self.control_compute_budget_exhausted_count = 0
         self._control_timing = ControlTimingRecorder(capacity=512)
         self._active_rh56_command_duration_ns = 0
+        self._active_continuation_retries = 0
+        self._active_ik_calls = 0
         self.singularity_warning_count = 0
         self.maximum_requested_backlog_m = 0.0
         self.maximum_requested_backlog_rad = 0.0
@@ -520,7 +532,10 @@ class SmoothQuestJakaSession:
     ) -> ArmControlTickResult:
         tick_started_ns = time.perf_counter_ns()
         timing_values = [0] * len(CONTROL_TIMING_FIELDS)
+        self._control_tick_count += 1
         self._active_rh56_command_duration_ns = 0
+        self._active_continuation_retries = 0
+        self._active_ik_calls = 0
         self.control_timestamps_ns.append(now_ns)
         state = (
             self._shared_state_at(now_ns)
@@ -542,7 +557,7 @@ class SmoothQuestJakaSession:
         if (
             self.arm_input_enabled
             and self.reference_generation > 0
-            and self._input_recovery_hard_stop_reason is None
+            and not self._input_recovery_persistent_hold
         ):
             if not arm_stream_valid:
                 if self._input_recovery_started_ns is None:
@@ -580,20 +595,26 @@ class SmoothQuestJakaSession:
             )
             if (
                 self.arm_input_enabled
-                and self._input_recovery_hard_stop_reason is None
             )
             else ClutchAction.FREEZE
         )
+        if (
+            self._input_recovery_persistent_hold
+            and self.arm_clutch.state is ArmClutchState.DISENGAGED
+        ):
+            # The timeout hold ends only after a valid released sample.  A
+            # later press will then capture from fresh measured joints.
+            self._input_recovery_persistent_hold = False
         # The hand state machine receives grip only. Skeleton validity is
         # checked at capture below; during hold a transient landmark loss must
         # freeze the hand target rather than fault arm or hand state.
+        hand_started_ns = time.perf_counter_ns()
         hand_action = self.hand_clutch.step(
             self._grip_sample,
             now_ns=now_ns,
             controller_valid=self.left_controller_valid,
             skeleton_valid=True,
         )
-        clutch_finished_ns = time.perf_counter_ns()
         self._hand_updated_this_tick = False
         if hand_action is ClutchAction.START_HAND_REACQUISITION:
             if not self._capture_hand_reference(state, now_ns):
@@ -610,10 +631,10 @@ class SmoothQuestJakaSession:
             quest_input_finished_ns - tick_started_ns
         )
         timing_values[_CONTROL_TIMING_INDEX["clutch_state_duration_ns"]] = (
-            clutch_finished_ns - clutch_started_ns
+            hand_started_ns - clutch_started_ns
         )
-        timing_values[_CONTROL_TIMING_INDEX["smooth_session_duration_ns"]] = (
-            mapping_started_ns - clutch_finished_ns
+        timing_values[_CONTROL_TIMING_INDEX["hand_update_duration_ns"]] = (
+            mapping_started_ns - hand_started_ns
         )
         fresh_measured = None
         if fresh_measured_joint_position_rad is not None:
@@ -639,22 +660,33 @@ class SmoothQuestJakaSession:
             mapping_finished_ns - mapping_started_ns
         )
         record_started_ns = time.perf_counter_ns()
-        record = self._base_record(state, now_ns)
-        record_finished_ns = time.perf_counter_ns()
-        event_diagnostic_duration_ns = record_finished_ns - record_started_ns
-        record["arm_clutch_action"] = arm_action.value
-        record["hand_clutch_action"] = hand_action.value
-        record["arm_reference_capture"] = arm_action is ClutchAction.CAPTURE_ARM_REFERENCE
-        record["hand_reference_capture"] = hand_action is ClutchAction.START_HAND_REACQUISITION
-        record["raw_quest_wrist"] = _pose_dict(raw_quest_wrist)
-        record["interpolated_wrist"] = _pose_dict(right.wrist_pose)
-        record["filtered_mapped_tcp"] = _pose_dict(self.arm_mapper.filtered_mapped_target)
-        record["control_stage_timing_ms"] = {
-            "quest_input_clutch_and_hand": (mapping_started_ns - tick_started_ns) / 1e6,
-            "target_mapping": (mapping_finished_ns - mapping_started_ns) / 1e6,
-            "event_record_allocation": (record_finished_ns - record_started_ns) / 1e6,
-        }
+        record = self._minimal_record(
+            state,
+            now_ns,
+            arm_action=arm_action,
+            hand_action=hand_action,
+            raw_quest_wrist=raw_quest_wrist,
+            interpolated_wrist=right.wrist_pose,
+        )
+        event_diagnostic_duration_ns = time.perf_counter_ns() - record_started_ns
+        detailed_record = False
+
+        def ensure_detailed_record() -> None:
+            nonlocal record, detailed_record, event_diagnostic_duration_ns
+            if detailed_record:
+                return
+            record_started_ns = time.perf_counter_ns()
+            detailed = self._base_record(state, now_ns)
+            detailed.update(record)
+            detailed["filtered_mapped_tcp"] = _pose_dict(
+                self.arm_mapper.filtered_mapped_target
+            )
+            record = detailed
+            detailed_record = True
+            event_diagnostic_duration_ns += time.perf_counter_ns() - record_started_ns
+
         if desired is None:
+            ensure_detailed_record()
             self._hold_rejected_started_ns = None
             heartbeat_applied = False
             recovery_elapsed_ns = (
@@ -667,16 +699,12 @@ class SmoothQuestJakaSession:
                 and self.input_recovery_timeout_ns > 0
                 and recovery_elapsed_ns > self.input_recovery_timeout_ns
             )
-            if (
-                recovery_timed_out
-                and self._input_recovery_hard_stop_reason is None
-            ):
-                self._input_recovery_hard_stop_reason = (
-                    INPUT_RECOVERY_TIMEOUT_REASON
-                )
+            if recovery_timed_out and not self._input_recovery_persistent_hold:
+                self._input_recovery_persistent_hold = True
                 self.input_recovery_timeout_count += 1
                 self.arm_clutch.fault(now_ns, INPUT_RECOVERY_TIMEOUT_REASON)
                 self.arm_mapper.clear()
+                self._input_recovery_started_ns = None
             recovery_hold = bool(
                 self.arm_input_enabled
                 and self.arm_clutch.state is ArmClutchState.TRACKING_FAULT
@@ -684,11 +712,11 @@ class SmoothQuestJakaSession:
                 and self.arm_clutch.cycle_count > 0
                 and self.last_input_sequence is not None
                 and self.last_input_receive_ns is not None
-                and self.input_recovery_timeout_ns > 0
-                and self._input_recovery_hard_stop_reason is None
             )
             recovery_reason = (
-                INPUT_RECOVERY_HOLD_REASON
+                INPUT_RECOVERY_TIMEOUT_REASON
+                if self._input_recovery_persistent_hold
+                else INPUT_RECOVERY_HOLD_REASON
                 if self._input_recovery_started_ns is not None
                 else INPUT_RECOVERY_RECLUTCH_REASON
             )
@@ -755,7 +783,7 @@ class SmoothQuestJakaSession:
                 control_compute_budget_exhausted=False,
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
-            self.event_records.append(record)
+            self._publish_event_record(record, detailed=True)
             event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
             self._finish_control_timing(
                 now_ns,
@@ -790,10 +818,7 @@ class SmoothQuestJakaSession:
         evaluated_target = desired
         continuation_fraction = 1.0
         continuation_backtracks = 0
-        attempted_reasons: list[str] = []
-        attempted_continuation_fractions: list[float] = []
-        output_feasibility_attempts: list[dict[str, Any]] = []
-        continuation_attempt_timing_ms: list[dict[str, Any]] = []
+        candidate_attempts: list[tuple[FeasibilityResult, float]] = []
         candidate_timing_totals_ms = [0.0] * 9
 
         def accumulate_candidate_timing(timing: Any) -> None:
@@ -834,12 +859,7 @@ class SmoothQuestJakaSession:
             compute_deadline_ns=compute_deadline_ns,
             fresh_measured_joint_position_rad=fresh_measured,
         )
-        attempted_reasons.append(result.reason.value)
-        attempted_continuation_fractions.append(continuation_fraction)
-        output_feasibility_attempts.append(
-            _output_feasibility_attempt(result, continuation_fraction)
-        )
-        continuation_attempt_timing_ms.append(asdict(result.timing))
+        candidate_attempts.append((result, continuation_fraction))
         accumulate_candidate_timing(result.timing)
         # A rejected trial never becomes authoritative.  Retry smaller points
         # on the same full-pose segment; all hard feasibility gates are run on
@@ -879,18 +899,28 @@ class SmoothQuestJakaSession:
                 compute_deadline_ns=compute_deadline_ns,
                 fresh_measured_joint_position_rad=fresh_measured,
             )
-            attempted_reasons.append(result.reason.value)
-            attempted_continuation_fractions.append(continuation_fraction)
-            output_feasibility_attempts.append(
-                _output_feasibility_attempt(result, continuation_fraction)
-            )
-            continuation_attempt_timing_ms.append(asdict(result.timing))
+            candidate_attempts.append((result, continuation_fraction))
             accumulate_candidate_timing(result.timing)
         ik_duration_ns = time.perf_counter_ns() - started
+        self._active_continuation_retries = continuation_backtracks
+        self._active_ik_calls = len(candidate_attempts)
         timing_values[_CONTROL_TIMING_INDEX["ik_duration_ns"]] = int(
             round(
                 1e6
-                * sum(candidate_timing_totals_ms[:5])
+                * (
+                    candidate_timing_totals_ms[0]
+                    + candidate_timing_totals_ms[2]
+                    + candidate_timing_totals_ms[3]
+                )
+            )
+        )
+        timing_values[_CONTROL_TIMING_INDEX["jacobian_duration_ns"]] = int(
+            round(
+                1e6
+                * (
+                    candidate_timing_totals_ms[1]
+                    + candidate_timing_totals_ms[4]
+                )
             )
         )
         timing_values[
@@ -909,6 +939,8 @@ class SmoothQuestJakaSession:
         ] = int(round(candidate_timing_totals_ms[7] * 1e6))
 
         def attach_control_timing() -> None:
+            if not detailed_record:
+                return
             record["control_timing_ns"] = {
                 "quest_input_duration_ns": timing_values[
                     _CONTROL_TIMING_INDEX["quest_input_duration_ns"]
@@ -953,55 +985,92 @@ class SmoothQuestJakaSession:
         )
         if singularity_warning:
             self.singularity_warning_count += 1
+        attempted_reasons = tuple(item.reason.value for item, _ in candidate_attempts)
+        attempted_continuation_fractions = tuple(
+            fraction for _, fraction in candidate_attempts
+        )
+        if (
+            not result.accepted
+            or continuation_backtracks > 0
+            or arm_action is ClutchAction.CAPTURE_ARM_REFERENCE
+            or hand_action is ClutchAction.START_HAND_REACQUISITION
+            or self._hand_updated_this_tick
+            or self._hold_rejected_started_ns is not None
+            or self._control_tick_count == 1
+            or self._control_tick_count % self._diagnostic_sample_period == 0
+        ):
+            ensure_detailed_record()
         record.update(
-            desired_tcp=_pose_dict(desired),
-            mapped_tcp_target=_pose_dict(desired),
-            filtered_tcp_target=_pose_dict(evaluated_target),
             continuation_enabled=self.continuation_enabled,
             continuation_fraction=continuation_fraction,
             continuation_backtracks=continuation_backtracks,
-            continuation_attempt_reasons=attempted_reasons,
-            continuation_attempt_fractions=attempted_continuation_fractions,
-            output_feasibility_attempts=output_feasibility_attempts,
-            continuation_attempt_timing_ms=continuation_attempt_timing_ms,
             requested_backlog_m=backlog_m,
             requested_backlog_deg=math.degrees(backlog_rad),
             singularity_warning=singularity_warning,
-            metrics=asdict(result.metrics),
             previous_accepted_target_sequence=self._accepted_sequence,
             candidate_source_sequence=state.right.source_sequence_number,
             output_velocity_boundary_rad_s=(
                 self.config.output_contract.maximum_velocity_rad_s
             ),
-            output_velocity_boundary_rad_s_per_joint=list(
-                self.config.output_contract.velocity_boundaries_rad_s
-            ),
             output_acceleration_boundary_rad_s2=(
                 self.config.output_contract.maximum_acceleration_rad_s2
             ),
-            ik_solution_rad=result.joint_target_rad,
             ik_rejection_reason=None if result.accepted else result.reason.value,
             hold_last=not result.accepted,
-            ik_computation_ms=(time.perf_counter_ns() - started) / 1e6,
             control_compute_budget_ms=self.control_compute_budget_ms,
             control_compute_budget_exhausted=(
                 result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
             ),
         )
+        if detailed_record:
+            record.update(
+                desired_tcp=_pose_dict(desired),
+                mapped_tcp_target=_pose_dict(desired),
+                filtered_tcp_target=_pose_dict(evaluated_target),
+                continuation_attempt_reasons=list(attempted_reasons),
+                continuation_attempt_fractions=list(
+                    attempted_continuation_fractions
+                ),
+                output_feasibility_attempts=[
+                    _output_feasibility_attempt(item, fraction)
+                    for item, fraction in candidate_attempts
+                ],
+                continuation_attempt_timing_ms=[
+                    asdict(item.timing) for item, _ in candidate_attempts
+                ],
+                metrics=asdict(result.metrics),
+                output_velocity_boundary_rad_s_per_joint=list(
+                    self.config.output_contract.velocity_boundaries_rad_s
+                ),
+                ik_solution_rad=result.joint_target_rad,
+                ik_computation_ms=(time.perf_counter_ns() - started) / 1e6,
+            )
         if result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED:
             self.control_compute_budget_exhausted_count += 1
         if not result.accepted:
+            branch_or_winding_hard_stop = result.reason in {
+                FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
+                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
+            }
             if result.reason in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
                 FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }:
-                # A branch/winding violation is a recoverable arm hold, but it
-                # must not be retried against the same stale reference.
+                # A branch/winding violation means the command state is no
+                # longer safely determinate.  Keep the continuity and winding
+                # guards fail-closed and let the wrapper perform terminal
+                # cleanup; a fresh clutch cannot be used to conceal it.
                 self.arm_clutch.fault(now_ns, result.reason.value)
                 self.arm_mapper.clear()
             self._handle_rejection(now_ns, result.reason.value)
-            if result.metrics.hard_stop_required:
-                self.arm_clutch.fault(now_ns, "HARD_SINGULARITY_AT_ACCEPTED_STATE")
+            if result.metrics.hard_stop_required or branch_or_winding_hard_stop:
+                hard_stop_reason = (
+                    "HARD_SINGULARITY_AT_ACCEPTED_STATE"
+                    if result.metrics.hard_stop_required
+                    else result.reason.value
+                )
+                if result.metrics.hard_stop_required:
+                    self.arm_clutch.fault(now_ns, hard_stop_reason)
                 self.arm_mapper.clear()
                 attach_control_timing()
                 diagnostic_started_ns = time.perf_counter_ns()
@@ -1010,11 +1079,11 @@ class SmoothQuestJakaSession:
                     reason=result.reason.value,
                     control_state=ArmControlState.HARD_STOP.value,
                     heartbeat_applied=False,
-                    hard_stop_reason="HARD_SINGULARITY_AT_ACCEPTED_STATE",
+                    hard_stop_reason=hard_stop_reason,
                     adapter_dispatch_ms=0.0,
                     control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
                 )
-                self.event_records.append(record)
+                self._publish_event_record(record, detailed=True)
                 event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
                 self._finish_control_timing(
                     now_ns,
@@ -1073,7 +1142,7 @@ class SmoothQuestJakaSession:
                 adapter_dispatch_ms=adapter_dispatch_ms,
                 control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
             )
-            self.event_records.append(record)
+            self._publish_event_record(record, detailed=True)
             event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
             self._finish_control_timing(
                 now_ns,
@@ -1152,15 +1221,11 @@ class SmoothQuestJakaSession:
         record.update(
             accepted=True,
             reason=FeasibilityReason.ACCEPTED.value,
-            position_error_m=float(np.linalg.norm(np.asarray(evaluated_target.position_m) - np.asarray(current.position_m))),
-            orientation_error_deg=math.degrees(quaternion_angle_rad(evaluated_target.orientation_xyzw, current.orientation_xyzw)),
-            accepted_joint_target_rad=list(accepted_target.joint_position_rad),
             accepted_target_sequence=accepted_target.sequence_number,
             accepted_source_sequence=accepted_target.source_sequence_number,
             accepted_source_timestamp_ns=accepted_target.source_timestamp_ns,
             accepted_reference_generation=accepted_target.reference_generation,
             accepted_clutch_generation=accepted_target.clutch_generation,
-            accepted_diagnostics=asdict(accepted_target.diagnostics),
             output_applied=output_applied,
             control_state=ArmControlState.ACTIVE.value,
             recovery_event=recovery_event,
@@ -1168,7 +1233,23 @@ class SmoothQuestJakaSession:
             adapter_dispatch_ms=adapter_dispatch_ms,
             control_tick_wall_ms=(time.perf_counter_ns() - tick_started_ns) / 1e6,
         )
-        self.event_records.append(record)
+        if detailed_record:
+            record.update(
+                position_error_m=float(
+                    np.linalg.norm(
+                        np.asarray(evaluated_target.position_m)
+                        - np.asarray(current.position_m)
+                    )
+                ),
+                orientation_error_deg=math.degrees(
+                    quaternion_angle_rad(
+                        evaluated_target.orientation_xyzw, current.orientation_xyzw
+                    )
+                ),
+                accepted_joint_target_rad=list(accepted_target.joint_position_rad),
+                accepted_diagnostics=asdict(accepted_target.diagnostics),
+            )
+        self._publish_event_record(record, detailed=detailed_record)
         event_diagnostic_duration_ns += time.perf_counter_ns() - diagnostic_started_ns
         self._finish_control_timing(
             now_ns,
@@ -1233,6 +1314,8 @@ class SmoothQuestJakaSession:
             timestamp_ns=now_ns,
             durations_ns=timing_values,
             over_budget=over_budget,
+            continuation_retries=self._active_continuation_retries,
+            ik_calls=self._active_ik_calls,
             context=context,
         )
 
@@ -1682,6 +1765,74 @@ class SmoothQuestJakaSession:
             raise ValueError("hand joint and actuator ranges do not overlap")
         return joint_range, ctrl_range, valid_range
 
+    def _publish_event_record(
+        self, record: dict[str, Any], *, detailed: bool
+    ) -> None:
+        """Publish one current record; retain only useful detailed history."""
+
+        self.latest_event_record = record
+        if detailed:
+            self.event_records.append(record)
+
+    def _minimal_record(
+        self,
+        state: CanonicalQuestState,
+        now_ns: int,
+        *,
+        arm_action: ClutchAction,
+        hand_action: ClutchAction,
+        raw_quest_wrist: Any,
+        interpolated_wrist: Any,
+    ) -> dict[str, Any]:
+        """Build only fields needed by the live wrapper and small samples."""
+
+        mapping = self.arm_mapper.last_telemetry
+        return {
+            "control_monotonic_ns": now_ns,
+            "input_sequence": state.right.host_sequence_number,
+            "source_sequence": state.right.source_sequence_number,
+            "source_timestamp_ns": state.right.source_timestamp_ns,
+            "right_wrist_valid": bool(
+                state.right.tracking_valid and state.right.wrist_pose is not None
+            ),
+            "right_wrist_age_s": state.right.stream_age_s,
+            "hand_skeleton_valid": bool(
+                state.right.tracking_valid and len(state.right.joints) == 21
+            ),
+            "hand_skeleton_age_s": state.right.stream_age_s,
+            "index_trigger_value": self._index_sample.value,
+            "index_trigger_age_s": max(
+                0.0, (now_ns - self._index_sample.host_receive_monotonic_ns) / 1e9
+            ),
+            "grip_trigger_value": self._grip_sample.value,
+            "grip_trigger_age_s": max(
+                0.0, (now_ns - self._grip_sample.host_receive_monotonic_ns) / 1e9
+            ),
+            "arm_clutch_state": self.arm_clutch.state.value,
+            "hand_clutch_state": self.hand_clutch.state.value,
+            "arm_clutch_action": arm_action.value,
+            "hand_clutch_action": hand_action.value,
+            "arm_reference_capture": arm_action is ClutchAction.CAPTURE_ARM_REFERENCE,
+            "hand_reference_capture": hand_action is ClutchAction.START_HAND_REACQUISITION,
+            "raw_quest_wrist": _pose_dict(raw_quest_wrist),
+            "interpolated_wrist": _pose_dict(interpolated_wrist),
+            "operator_delta": None
+            if mapping is None
+            else {
+                "translation_m": mapping.horizontal_delta.position_m,
+                "orientation_xyzw": mapping.horizontal_delta.orientation_xyzw,
+            },
+            "hand_command_updated": self._hand_updated_this_tick,
+            "input_recovery_active": self._input_recovery_started_ns is not None,
+            "input_recovery_persistent_hold": self._input_recovery_persistent_hold,
+            "active_arm_fault": None
+            if self.arm_clutch.active_fault is None
+            else self.arm_clutch.active_fault.reason,
+            "active_hand_fault": None
+            if self.hand_clutch.active_fault is None
+            else self.hand_clutch.active_fault.reason,
+        }
+
     def _base_record(self, state: CanonicalQuestState, now_ns: int) -> dict[str, Any]:
         mapping = self.arm_mapper.last_telemetry
         plant = self.mujoco_plant
@@ -1790,6 +1941,7 @@ class SmoothQuestJakaSession:
                 else max(0.0, (now_ns - self._input_recovery_started_ns) / 1e9)
             ),
             "input_recovery_timeout_s": self.config.input_recovery_timeout_s,
+            "input_recovery_persistent_hold": self._input_recovery_persistent_hold,
             "input_recovery_hard_stop_reason": (
                 self._input_recovery_hard_stop_reason
             ),
@@ -1942,15 +2094,10 @@ class SmoothQuestJakaSession:
         self.rejections[reason] += 1
         self.last_reason = reason
         self.consecutive_rejections += 1
-        if self.continuation_enabled:
-            # Candidate rejection already holds the last safe joint target.
-            # Keeping the clutch engaged lets the same absolute relative-pose
-            # mapping recover as soon as the operator retreats.  Tracking and
-            # controller faults are handled earlier and still fault instantly.
-            return
-        if self.consecutive_rejections > self.isolated_rejection_hold_count:
-            self.arm_clutch.fault(timestamp_ns, reason)
-            self.arm_mapper.clear()
+        # Candidate infeasibility is bounded hold irrespective of how many
+        # consecutive candidates fail.  The native heartbeat remains live and
+        # the operator can retreat; only measured/native safety faults take the
+        # process through the terminal path.
 
     def report(self, replay_source: str) -> dict[str, Any]:
         metrics = self.target_generator.metrics_report()
@@ -1998,6 +2145,7 @@ class SmoothQuestJakaSession:
             ),
             "control_timing": self.control_timing_report(),
             "input_recovery_timeout_s": self.config.input_recovery_timeout_s,
+            "input_recovery_persistent_hold": self._input_recovery_persistent_hold,
             "input_recovery_count": self.input_recovery_count,
             "input_recovery_success_count": self.input_recovery_success_count,
             "input_recovery_timeout_count": self.input_recovery_timeout_count,

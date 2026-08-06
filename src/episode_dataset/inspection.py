@@ -97,6 +97,28 @@ def inspect_episode(episode: str | Path) -> dict[str, Any]:
     """Return a human-review-oriented summary after full payload validation."""
 
     episode_dir = Path(episode).resolve()
+    if (episode_dir / "episode.json").is_file() and not (
+        episode_dir / "metadata.json"
+    ).is_file():
+        metadata = json.loads((episode_dir / "episode.json").read_text(encoding="utf-8"))
+        validation = validate_episode(episode_dir, deep=True)
+        return {
+            "schema_version": INSPECTION_SCHEMA_VERSION,
+            "format_version": metadata.get("format_version"),
+            "episode": str(episode_dir),
+            "validation": validation,
+            "physically_validated": False,
+            "inspection_available": False,
+            "reason": (
+                "raw_episode_v1 is summarized by episode.json and frames.parquet; "
+                "canonical plotting/playback is not applicable"
+            ),
+            "num_frames": metadata.get("num_frames"),
+            "files": metadata.get("files", {}),
+            "quest_recorded": metadata.get("quest_recorded"),
+            "depth_recorded": metadata.get("depth_recorded"),
+            "tcp_recorded": metadata.get("tcp_recorded"),
+        }
     metadata = json.loads((episode_dir / "metadata.json").read_text(encoding="utf-8"))
     validation = validate_episode(episode_dir, deep=True)
     report: dict[str, Any] = {

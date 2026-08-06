@@ -141,7 +141,6 @@ at most 300 seconds; no 300-second physical PASS exists.
   --robot-ip 192.168.71.50 \
   --edg-state-ip 192.168.71.19 \
   --duration-sec 30 \
-  --output-generator pwl-8ms \
   --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
   --log-dir logs \
   --no-auto-retry \

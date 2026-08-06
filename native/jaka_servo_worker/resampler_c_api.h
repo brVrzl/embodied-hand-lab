@@ -24,6 +24,7 @@ typedef struct jaka_resampler_point_v1 {
 } jaka_resampler_point_v1;
 
 void* jaka_resampler_create(void);
+void* jaka_resampler_create_with_period(uint64_t servo_period_ns);
 void jaka_resampler_destroy(void* handle);
 int jaka_resampler_initialize(void* handle, const double position_rad[6],
                               uint64_t servo_time_ns);

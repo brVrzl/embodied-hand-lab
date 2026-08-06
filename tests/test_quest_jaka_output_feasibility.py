@@ -12,7 +12,10 @@ from jaka_driver_adapter.palm_target_ik import JAKA_MINI2_JOINT_LIMITS_RAD
 from quest_jaka_sim import ReplayConfig, SharedJakaTargetGenerator
 from quest_jaka_sim.se3 import bounded_pose_step, quaternion_angle_rad
 from quest_jaka_sim.simulation import FeasibilityReason
-from teleoperation.output_feasibility import JointOutputFeasibilityTracker
+from teleoperation.output_feasibility import (
+    JointOutputFeasibilityTracker,
+    JointOutputPrefilter,
+)
 
 
 CONFIG = "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
@@ -87,6 +90,67 @@ def _establish_zero_baseline(tracker: JointOutputFeasibilityTracker) -> None:
     tracker.commit(
         tracker.preview((0.0,) * 6, generated_monotonic_ns=1_000_000_000)
     )
+
+
+def test_control_tick_uses_coarse_prefilter_without_native_segment_or_jerk() -> None:
+    tracker = _tracker()
+    tracker.reset((0.0,) * 6)
+    baseline = tracker.prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert isinstance(baseline, JointOutputPrefilter)
+    tracker.commit_prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+        prefilter=baseline,
+    )
+    candidate = tracker.prefilter(
+        (math.pi * 0.016 * 1.01, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_016_000_000,
+    )
+    assert candidate.violating_joint_indices == (0,)
+    assert not hasattr(candidate, "predicted_jerk_rad_s3")
+
+
+def test_default_prefilter_uses_producer_interval_for_acceleration() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=math.pi,
+        maximum_acceleration_rad_s2=4.0 * math.pi,
+        servo_period_ns=PERIOD_NS,
+    )
+    tracker.reset((0.0,) * 6)
+    baseline = tracker.prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    assert baseline.feasible
+    tracker.commit_prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+        prefilter=baseline,
+    )
+
+    baseline = tracker.prefilter(
+        (0.02, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_050_000_000,
+    )
+    assert baseline.feasible
+    tracker.commit_prefilter(
+        (0.02, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_050_000_000,
+        prefilter=baseline,
+    )
+
+    # A 50 ms producer replacement has a modest 0.2 rad/s velocity change.
+    # Treating it as an 8 ms native transition would report 25 rad/s^2 and
+    # incorrectly hold the target before native shaping gets to act.
+    candidate = tracker.prefilter(
+        (0.03, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_100_000_000,
+    )
+    assert candidate.feasible
+    assert candidate.maximum_acceleration_rad_s2 == pytest.approx(4.0)
 
 
 def test_below_and_exact_output_velocity_boundary_are_accepted() -> None:

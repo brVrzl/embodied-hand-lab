@@ -31,10 +31,12 @@ not claimed as a Mini2 hardware maximum and is not a replacement for the
 final velocity, acceleration, timing, tracking, controller, or SDK hard-stop
 checks.
 
-The configured continuation allows at most five backtracks and a minimum
-fraction of 1/32. The output boundaries are currently π rad/s velocity and
-4π rad/s² acceleration. These are shared policy values, not native
-post-processing conveniences.
+The configured continuation preserves the remote maximum of five backtracks and a minimum
+fraction of 1/32. Each retry starts from the last authoritative branch and
+reuses the same safety gates; reaching the compute budget immediately returns
+`CONTROL_COMPUTE_BUDGET_EXHAUSTED` and holds the last target. The output
+boundaries are currently π rad/s velocity and 4π rad/s² acceleration. These
+are shared policy values, not native post-processing conveniences.
 
 ## Rejection and liveness
 
@@ -44,7 +46,7 @@ Candidate feasibility and liveness are deliberately separate:
 - The session emits a fresh `ArmControlHeartbeat` in `HOLD_REJECTED`.
 - The native worker holds the last safe emitted destination; a rejected target
   is not queued for later replay.
-- Actual producer/input/IPC timeout or another hard fault safely stops.
+- Actual producer/process/IPC liveness loss or another hard fault safely stops.
 
 The next feasible input can recover without restarting the control session.
 This behavior is protected by shared-pipeline, singularity, output-feasibility,
@@ -55,7 +57,8 @@ dead command producer. Invalid/stale CTRL or wrist data immediately disengages
 the clutches and requests `HOLD_CURRENT`; for at most 10 seconds the still-live
 Python producer may send only no-motion heartbeats. Returning input must observe
 both controls released and then capture a fresh reference before motion can
-resume. Exceeding the window is `QUEST_INPUT_RECOVERY_TIMEOUT` and is terminal.
+resume. Exceeding the window is `QUEST_INPUT_RECOVERY_TIMEOUT` and enters a
+persistent disengaged hold; it does not end the process or reuse the old reference.
 If the Python producer or IPC path itself dies, no heartbeat exists and the
 unchanged native 100 ms watchdog still stops.
 
@@ -94,7 +97,8 @@ continuation，并让 `SharedJakaTargetGenerator` 计算候选。候选只有通
 - 已接受输出的关节速度；
 - 已接受输出的关节加速度，包括第一个 8 ms 输出点以及替换活动插值段的情况。
 
-当前 continuation 最多回退五次，最小比例为 1/32。共享输出边界为速度 π rad/s、加速度
+当前 continuation 保持远程的最多五次回退，最小比例为 1/32。达到 compute budget 后立即进入
+`HOLD_REJECTED`，不再为了更小步长耗尽当前周期。共享输出边界为速度 π rad/s、加速度
 4π rad/s²；它们属于共享策略，不是 native 后处理参数。
 
 ## 拒绝与活性分离
@@ -102,7 +106,7 @@ continuation，并让 `SharedJakaTargetGenerator` 计算候选。候选只有通
 - 可恢复候选被拒绝时不产生新的 `AcceptedArmTarget`。
 - session 在 `HOLD_REJECTED` 中继续发布新鲜 `ArmControlHeartbeat`。
 - native worker 保持最后一个安全输出目标，不会排队以后重放被拒绝的目标。
-- 只有真正的 producer/input/IPC 超时或硬故障才停止。
+- 只有真正的 producer/process/IPC 活性丢失或硬故障才停止。
 
 新的可行输入可以在不重启控制进程的情况下恢复。共享管线、奇异性、输出可行性和 native
 worker 测试覆盖了这一行为。
@@ -110,8 +114,9 @@ worker 测试覆盖了这一行为。
 live profile 会区分“Quest 数据短时失效”和“命令 producer 真正死亡”。CTRL 或 wrist
 失效时立即 disengage 并请求 `HOLD_CURRENT`；仍存活的 Python producer 最多 10 秒只发送
 无运动 heartbeat。数据恢复后必须先观察到两个 trigger 均释放，再重新按下采集新参考，
-不会沿用旧参考跳回。超过窗口以 `QUEST_INPUT_RECOVERY_TIMEOUT` 终止。Python/IPC 真正
-死亡时无法发送 heartbeat，native 原有 100 ms watchdog 保持不变。
+不会沿用旧参考跳回。超过窗口以 `QUEST_INPUT_RECOVERY_TIMEOUT` 进入 persistent
+disengaged hold；进程不退出，也不会沿用旧参考。Python/IPC 真正死亡时无法发送
+heartbeat，native 原有 100 ms watchdog 保持不变。
 
 ## 奇异性策略
 

@@ -213,6 +213,20 @@ def test_60_hz_targets_become_continuous_exact_8ms_grid_and_reach_endpoint(tmp_p
     assert metrics["ik_calls"] == 0
 
 
+def test_step_two_targets_use_a_16ms_servoj_grid(tmp_path) -> None:
+    samples = _stream_samples([16_666_667] * 3, [0.0, 0.012, 0.024, 0.036])
+    result, metrics, points = _run_stream(
+        tmp_path, samples, extra=("--servo-step-num", "2")
+    )
+    assert result.returncode == 0, result.stderr
+    assert metrics["requested_period_ns"] == 16_000_000
+    assert metrics["edg_step_num"] == 2
+    servo_times = [row["servo_time_ns"] for row in points]
+    intervals = [right - left for left, right in zip(servo_times, servo_times[1:])]
+    assert all(interval > 8_000_000 for interval in intervals)
+    assert points[-1]["joint_position_rad"] == pytest.approx(samples[-1][2], abs=1e-15)
+
+
 def test_e1_post_edg_state_is_atomic_q_hold_with_no_startup_convergence(tmp_path) -> None:
     initial = (0.2, -0.3, 0.4, -0.5, 0.6, -0.7)
     offset = (1e-5, -2e-5, 3e-5, -4e-5, 5e-5, -6e-5)
@@ -467,7 +481,7 @@ def test_fake_sdk_gets_j1_to_j6_radians_exactly_and_native_does_no_ik(tmp_path) 
     assert points[-1]["joint_position_rad"] == pytest.approx(final, abs=1e-15)
     assert metrics["ik_calls"] == 0
     source = (ROOT / "native/jaka_servo_worker/main.cpp").read_text()
-    assert "edg_servo_j(&value, ABS, 1)" in source
+    assert "edg_servo_j(&value, ABS, servo_step_num)" in source
     assert "mujoco" not in source.lower()
 
 
@@ -527,6 +541,15 @@ def test_recoverable_velocity_crossing_is_limited_progress_not_output_hold(
     )
     assert metrics["output_joint_jerk_tolerance_relative"] == pytest.approx(
         2.5e-7
+    )
+    assert metrics["output_joint_jerk_transition_headroom_fraction"] == pytest.approx(
+        0.005
+    )
+    assert metrics["output_joint_jerk_transition_target_rad_s3"] == pytest.approx(
+        metrics["output_joint_jerk_hard_boundary_rad_s3"] * 0.995
+    )
+    assert metrics["output_joint_jerk_hard_boundary_rad_s3"] == pytest.approx(
+        20.0 * math.pi
     )
     assert metrics["output_joint_jerk_hard_boundary_with_tolerance_rad_s3"] > (
         metrics["output_joint_jerk_hard_boundary_rad_s3"]

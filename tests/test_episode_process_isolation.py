@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 from multiprocessing import shared_memory
+from dataclasses import replace
 import json
 import os
 import queue
@@ -549,6 +550,104 @@ def test_recorder_process_materializes_reference_and_finalizes_bounded(tmp_path)
         assert "canonical_metadata_duration_ns" not in metadata["data_quality"]
     finally:
         if collector is not None:
+            collector.finalize_pending()
+        recorder.stop()
+        for ring in rings.values():
+            ring.close()
+
+
+def test_recorder_startup_failure_reports_child_error(tmp_path) -> None:
+    context = mp.get_context("spawn")
+    recorder = ProcessEpisodeRecorder(
+        context=context,
+        ring_specs={},
+        episode_root=tmp_path,
+        task_name="offline_process_recorder_failure",
+        operator="test",
+        control_config_path=tmp_path / "control.yaml",
+        maximum_start_delta_rad=0.02,
+        metadata={},
+        dataset={"format": "unsupported_for_test"},
+        camera_profiles={},
+        forbidden_cpu=None,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="unsupported episode dataset format"):
+            recorder.start(timeout_s=3.0)
+    finally:
+        recorder.stop()
+
+
+def test_staging_recorder_rotation_finalizes_previous_episode(tmp_path) -> None:
+    context = mp.get_context("spawn")
+    rings = {
+        role: SharedMemoryCameraFrameRing.create(
+            role=role,
+            capacity=4,
+            rgb_shape=(8, 32, 3),
+            depth_shape=(8, 32),
+            aligned_depth_shape=(8, 32),
+        )
+        for role in ("workspace", "wrist")
+    }
+    recorder = ProcessEpisodeRecorder(
+        context=context,
+        ring_specs={role: ring.spec for role, ring in rings.items()},
+        episode_root=tmp_path,
+        task_name="offline_staging_rotation",
+        operator="test",
+        control_config_path=tmp_path / "control.yaml",
+        maximum_start_delta_rad=0.02,
+        metadata={"physically_validated": False},
+        dataset={
+            "format": "lerobot_staging_v1",
+            "fps": 30,
+            "video_codec": "mp4v",
+            "camera_ring_capacity": 4,
+            "recorder_queue_capacity": 4,
+            "writer_batch_size": 2,
+            "writer_flush_interval_s": 0.05,
+            "writer_shutdown_timeout_s": 1.0,
+            "camera_max_age_ms": 100.0,
+            "control_max_age_ms": 40.0,
+            "hand_start_tolerance_rad": 0.05,
+            "quality_min_valid_ratio": 1.0,
+            "quality_max_invalid_run": 0,
+        },
+        camera_profiles={},
+        forbidden_cpu=None,
+    )
+    (tmp_path / "control.yaml").write_text("offline: true\n")
+    collector = None
+    try:
+        collector = recorder.start(timeout_s=3.0)
+        base = 1_000_000_000
+        for role, ring in rings.items():
+            sample = replace(
+                _camera_sample(role, base, 0),
+                rgb=np.zeros((8, 32, 3), dtype=np.uint8),
+                depth_raw=np.zeros((8, 32), dtype=np.uint16),
+                depth_aligned_to_rgb=np.zeros((8, 32), dtype=np.uint16),
+            )
+            collector.ingest_camera(ring.publish(sample, 0))
+        collector.ingest_control(
+            _control(base, True), reference_established=True, capture_active=True
+        )
+        collector.rotate_episode("both_clutches_released_5s", release_ns=base)
+        deadline = time.monotonic() + 3.0
+        while collector.writer.temporary_id != "episode_000001" and time.monotonic() < deadline:
+            collector.diagnostics()
+            time.sleep(0.01)
+        assert collector.writer.temporary_id == "episode_000001"
+        index = tmp_path / "meta" / "episodes.jsonl"
+        rows = [json.loads(line) for line in index.read_text().splitlines()]
+        assert rows[0]["episode_name"] == "episode_000000"
+        assert rows[0]["length"] == 1
+        assert (tmp_path / "data/chunk-000/episode_000000.jsonl").is_file()
+        assert not (tmp_path / "data/chunk-000/episode_000001.jsonl").exists()
+    finally:
+        if collector is not None:
+            collector.shutdown("offline_test_complete")
             collector.finalize_pending()
         recorder.stop()
         for ring in rings.values():

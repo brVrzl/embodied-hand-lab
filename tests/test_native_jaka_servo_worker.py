@@ -229,6 +229,15 @@ def test_native_worker_startup_shutdown_and_timing(tmp_path) -> None:
     assert metrics["statistics"]["actual_cycle_period"]["count"] > 10
 
 
+def test_native_worker_supports_configured_step_two_period(tmp_path) -> None:
+    result, metrics = run_dry(tmp_path, "--servo-step-num", "2")
+    assert result.returncode == 0
+    assert metrics["requested_period_ns"] == 16_000_000
+    assert metrics["edg_step_num"] == 2
+    assert metrics["transport_hz"] == pytest.approx(62.5)
+    assert metrics["statistics"]["actual_cycle_period"]["count"] > 5
+
+
 def test_native_worker_failure_injection_cleans_up(tmp_path) -> None:
     result, metrics = run_dry(tmp_path, "--fake-fail-after", "4")
     assert result.returncode == 2

@@ -6,9 +6,10 @@ single-channel diagnostic restrictions. All production safety limits remain
 active. The maintained command below is the same command used for the latest
 combined run on 2026-08-03: it loaded the real RH56 calibration, accepted
 10,035 arm targets, and stopped fail-closed after 234.32 seconds when Quest
-input did not recover within the 10-second window. No arm/controller/RH56
-transport fault occurred. This is operational evidence from one bounded physical run. 
-It does not replace longer-duration validation or task-specific evidence.
+input did not recover within the 10-second window in the pre-audit implementation.
+No arm/controller/RH56 transport fault occurred. This is operational evidence
+from one bounded physical run, not evidence for the current post-audit recovery
+behavior. It does not replace longer-duration validation or task-specific evidence.
 parcel-box and tissue extraction outcomes were not completed in that run.
 
 The first combined attempt on 2026-07-29 ran for 27.34 seconds and then exposed
@@ -56,8 +57,9 @@ Control semantics:
 - Invalid/stale Quest CTRL or wrist input immediately pauses the arm and holds
   the hand. The live producer sends no-motion heartbeat for at most 10 seconds.
   If data returns, release both triggers and press again to capture fresh arm
-  and hand references; if it does not, the session terminates. The native
-  producer-death watchdog remains 100 ms.
+  and hand references; if it does not, the session remains in persistent
+  disengaged hold. Producer/process/IPC death still provides no heartbeat and
+  the native producer-death watchdog remains 100 ms.
 - Hand transport/feedback/device fault makes the combined episode invalid and
   stops/holds the arm. An arm terminal hard fault stops new hand commands.
 
@@ -92,8 +94,7 @@ identity-checked `/dev/ttyCH341USB<N>` fallback:
 ./scripts/run_quest_jaka_rh56_teleop.sh \
   --runtime-config data/local/physical_collection.yaml \
   --hand-prerequisites-complete \
-  --no-auto-retry --estop-accessible --workspace-clear \
-  --log-dir logs
+  --no-auto-retry --estop-accessible --workspace-clear
 ```
 
 Executing this complete real-device command starts an operator-initiated,
@@ -169,7 +170,8 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 - index 与 grip 完全独立，可以同时 ACTIVE；arm pause 不重置或张开 hand。
 - Quest CTRL/wrist 失效时立即 pause arm 并 hold hand；仍存活的 producer 最多 10 秒只发
   无运动 heartbeat。数据恢复后先释放两个 trigger，再按下所需 clutch 重采 arm/hand
-  参考；超过窗口则终止。native producer-death watchdog 仍为 100 ms。
+  参考；超过窗口进入 persistent disengaged hold，不复用旧参考。producer/process/IPC
+  真正死亡时 native producer-death watchdog 仍为 100 ms。
 - hand transport/feedback/device fault 会使 episode invalid 并让 arm 安全 hold/stop；arm
   terminal hard fault 会停止 hand 新命令。
 

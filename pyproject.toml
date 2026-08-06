@@ -47,6 +47,11 @@ dataset-export = [
   "h5py>=3.10",
   "lerobot[dataset]>=0.6,<0.7",
   "opencv-contrib-python>=4.10",
+  "pyarrow>=15.0",
+]
+dataset-collection = [
+  "opencv-contrib-python>=4.10",
+  "pyarrow>=15.0",
 ]
 motion-input-viz = [
   "matplotlib>=3.8",

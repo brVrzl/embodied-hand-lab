@@ -28,7 +28,6 @@ import tempfile
 import threading
 import time
 
-from motion_input.hts_transport import HtsRawRecordingWriter
 from quest_jaka_sim import (
     ReplayConfig,
     SharedJakaTargetGenerator,
@@ -68,6 +67,7 @@ from rh56_driver.telemetry import BoundedJsonlRecorder
 
 
 PWL_OUTPUT_GENERATOR = "pwl-8ms"
+PWL_STEP2_OUTPUT_GENERATOR = "pwl-16ms"
 CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
 COMBINED_CONTROL_REALTIME_PRIORITY = 10
 RECOVERABLE_CLUTCH_STAGES = frozenset((
@@ -87,20 +87,35 @@ class _AsyncEventLog:
         self.drop_count = 0
         self.error_count = 0
         self._file = None
+        self._started = False
         self._thread = threading.Thread(target=self._run, name="teleop-event-log", daemon=True)
 
     def __enter__(self) -> "_AsyncEventLog":
-        self._file = self.path.open("x", encoding="utf-8")
-        self._thread.start()
+        try:
+            self._file = self.path.open("x", encoding="utf-8")
+            self._thread.start()
+            self._started = True
+        except BaseException:
+            self.error_count += 1
+            if self._file is not None:
+                try:
+                    self._file.close()
+                except BaseException:
+                    self.error_count += 1
+            self._file = None
         return self
 
     def write(self, record: dict[str, object]) -> None:
+        if not self._started:
+            return
         try:
             self._queue.put_nowait(dict(record))
         except queue.Full:
             self.drop_count += 1
 
     def __exit__(self, *_: object) -> None:
+        if not self._started:
+            return
         try:
             self._queue.put(None, timeout=1.0)
         except queue.Full:
@@ -109,8 +124,12 @@ class _AsyncEventLog:
         if self._thread.is_alive():
             self.error_count += 1
         if self._file is not None:
-            self._file.close()
-            self._file = None
+            try:
+                self._file.close()
+            except BaseException:
+                self.error_count += 1
+            finally:
+                self._file = None
 
     def _run(self) -> None:
         assert self._file is not None
@@ -398,10 +417,9 @@ def _parser() -> argparse.ArgumentParser:
         help="Override the RH56 command/feedback scheduler profile.",
     )
     parser.add_argument("--rh56-log", type=Path)
-    parser.add_argument("--log", type=Path, required=True)
-    parser.add_argument("--summary", type=Path, required=True)
-    parser.add_argument("--metrics", type=Path, required=True)
-    parser.add_argument("--capture", type=Path, required=True)
+    parser.add_argument("--log", type=Path)
+    parser.add_argument("--summary", type=Path)
+    parser.add_argument("--metrics", type=Path)
     parser.add_argument("--episode-data-config", type=Path)
     parser.add_argument("--episode-root", type=Path)
     parser.add_argument("--task-name")
@@ -442,7 +460,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-generator",
-        choices=(PWL_OUTPUT_GENERATOR, CPP_REFERENCE_OUTPUT_GENERATOR),
+        choices=(
+            PWL_OUTPUT_GENERATOR,
+            PWL_STEP2_OUTPUT_GENERATOR,
+            CPP_REFERENCE_OUTPUT_GENERATOR,
+        ),
         help="hardware transport output generator",
     )
     parser.add_argument(
@@ -509,6 +531,12 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         "task_name",
         "operator",
         "output_generator",
+        "log",
+        "summary",
+        "metrics",
+        "native_telemetry",
+        "event_extract",
+        "rh56_log",
     ):
         value = resolve(name)
         if value is not None:
@@ -541,10 +569,35 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         args.worker = Path(str(args.worker))
     if args.rh56_config is not None and not isinstance(args.rh56_config, Path):
         args.rh56_config = Path(str(args.rh56_config))
-    for name in ("episode_data_config", "episode_root", "runtime_config"):
+    for name in (
+        "episode_data_config",
+        "episode_root",
+        "runtime_config",
+        "log",
+        "summary",
+        "metrics",
+        "native_telemetry",
+        "event_extract",
+        "rh56_log",
+    ):
         value = getattr(args, name)
         if value is not None and not isinstance(value, Path):
             setattr(args, name, Path(str(value)))
+
+    log_dir = Path(str(runtime.get("log_dir", "logs")))
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    prefix = log_dir / f"quest_jaka_{args.stage}_{stamp}_{os.getpid()}"
+    generated_outputs = {
+        "log": f"{prefix}.events.jsonl",
+        "summary": f"{prefix}.summary.json",
+        "metrics": f"{prefix}.native_metrics.json",
+        "native_telemetry": f"{prefix}.native_cycles.jsonl",
+        "event_extract": f"{prefix}.event_extract.jsonl",
+        "rh56_log": f"{prefix}.rh56.jsonl",
+    }
+    for name, path in generated_outputs.items():
+        if getattr(args, name) is None:
+            setattr(args, name, Path(path))
 
     if args.robot_ip is None:
         raise SystemExit("--robot-ip or --runtime-config with robot_ip is required")
@@ -717,6 +770,13 @@ def _native_velocity_limit_args(config: ReplayConfig) -> tuple[str, str]:
     )
 
 
+def _configured_pwl_output_generator(config: ReplayConfig) -> str:
+    """Return the operator label matching the configured ServoJ period."""
+
+    period_ms = config.output_contract.servo_period_ns / 1e6
+    return f"pwl-{period_ms:g}ms"
+
+
 def main() -> int:
     args = _parser().parse_args()
     _apply_runtime_config(args)
@@ -773,6 +833,16 @@ def main() -> int:
             ),
         )
     hardware = config.raw["hardware_adapter"]
+    servo_step_num = int(hardware.get("servo_step_num", 1))
+    configured_output_generator = _configured_pwl_output_generator(config)
+    if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}:
+        if args.output_generator is None:
+            args.output_generator = configured_output_generator
+        elif args.output_generator != configured_output_generator:
+            raise SystemExit(
+                "configured JAKA transport mode requires output generator "
+                f"{configured_output_generator}"
+            )
     live = args.stage in (
         "e2-isolated",
         "p4-live",
@@ -818,10 +888,10 @@ def main() -> int:
                 "bounded normal teleoperation requires six per-joint "
                 "run output velocity limits"
             )
-        if args.output_generator != PWL_OUTPUT_GENERATOR:
+        if args.output_generator != configured_output_generator:
             raise SystemExit(
                 f"bounded normal teleoperation requires --output-generator "
-                f"{PWL_OUTPUT_GENERATOR}"
+                f"{configured_output_generator}"
             )
         if not args.no_auto_retry:
             raise SystemExit(
@@ -920,7 +990,13 @@ def main() -> int:
         if args.stage in RECOVERABLE_CLUTCH_STAGES
         else "release left-index to stop"
     )
-    print(f"STAGE={args.stage} STOP=Ctrl+C; ARM_CLUTCH={clutch_behavior}")
+    if args.stage == "combined-normal-teleop" and args.episode_data_config is not None:
+        print(
+            "ENTRY=physical-collection CONTROL=combined-arm-rh56 "
+            f"STOP=Ctrl+C; CLUTCH={clutch_behavior}"
+        )
+    else:
+        print(f"STAGE={args.stage} STOP=Ctrl+C; CLUTCH={clutch_behavior}")
 
     rates = config.raw["rates"]
     target_hz = float(rates["target_generation_hz"])
@@ -1000,7 +1076,11 @@ def main() -> int:
                     "native_mode": "joint-teleop",
                     "native_ik_calls": 0,
                     "servo_period_ms": float(hardware["servo_period_ms"]),
-                    "step_num": 1,
+                    "step_num": servo_step_num,
+                    "transport_hz": float(config.raw["rates"]["jaka_transport_hz"]),
+                    "transport_mode": hardware.get(
+                        "transport_mode", "jaka_125hz_step1"
+                    ),
                     "run_output_joint_velocity_limits_rad_s": list(
                         config.output_contract.velocity_boundaries_rad_s
                     ),
@@ -1055,7 +1135,6 @@ def main() -> int:
         return 0
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
-    args.capture.parent.mkdir(parents=True, exist_ok=True)
     if args.native_telemetry is not None:
         args.native_telemetry.parent.mkdir(parents=True, exist_ok=True)
     if args.event_extract is not None:
@@ -1145,6 +1224,7 @@ def main() -> int:
                 "--cycle-telemetry-file", str(args.native_telemetry),
                 "--expected-tool-id", str(hardware["expected_tool_id"]),
                 "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
+                "--servo-step-num", str(servo_step_num),
                 "--expected-payload-mass-kg", "0.8",
                 "--expected-payload-com-mm", "9.289,12.427,36.961",
                 "--maximum-output-joint-velocity-rad-s-per-joint",
@@ -1165,6 +1245,7 @@ def main() -> int:
             "--metrics-file", str(args.metrics),
             "--expected-tool-id", str(hardware["expected_tool_id"]),
             "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
+            "--servo-step-num", str(servo_step_num),
             "--warning-ms", str(hardware["command_stream_warning_ms"]),
             "--hold-ms", str(hardware["command_stream_timeout_ms"]),
             "--controlled-stop-ms", str(hardware["controlled_stop_timeout_ms"]),
@@ -1244,10 +1325,22 @@ def main() -> int:
         event_log_diagnostics: dict[str, int] = {"drop_count": 0, "error_count": 0}
         episode_record_next_ns: int | None = None
         episode_record_period_ns = 1_000_000_000 // 30
+        episode_capture_active = True
+        episode_idle_started_ns: int | None = None
+        episode_rotation_in_flight = False
+        episode_rotation_count = 0
+        episode_boundary_release_ns = 5_000_000_000
         event_log_next_ns: int | None = None
         rh56_full_diagnostics_next_ns: int | None = None
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
+
+        def mark_episode_capture_failed(reason: str) -> None:
+            nonlocal episode_capture_failed, episode_capture_abort_reason
+            if not episode_capture_failed:
+                episode_capture_failed = True
+                episode_capture_abort_reason = reason
+
         try:
             if args.episode_data_config is not None:
                 episode_runtime = EpisodeDataRuntime.start(
@@ -1278,8 +1371,8 @@ def main() -> int:
                             "timestamp": "host_monotonic_ns",
                         },
                         "raw_streams": {
-                            "quest_raw_datagram": "measured_external_capture",
-                            "quest_decoded_input": "measured",
+                            "quest_raw_datagram": "unavailable",
+                            "quest_decoded_input": "unavailable",
                             "accepted_arm_target_60hz": "commanded",
                             "emitted_arm_command_125hz": "measured_external_native_log",
                             "jaka_arm_q": "measured",
@@ -1302,7 +1395,6 @@ def main() -> int:
                         "simulation_only": False,
                         "physically_validated": False,
                         "physical_log_paths": {
-                            "quest_capture": str(args.capture.resolve()),
                             "native_telemetry": str(args.native_telemetry.resolve()),
                             "rh56_telemetry": (
                                 None
@@ -1337,15 +1429,11 @@ def main() -> int:
                     tuple(status.joint_position_rad)
                 )
             target_generator.synchronize_authoritative_arm_joints(list(status.joint_position_rad))
-            with HtsRawRecordingWriter(
-                args.capture,
-                metadata={"stage": args.stage, "hardware_commands": live},
-            ) as capture, _AsyncEventLog(args.log) as log:
+            with _AsyncEventLog(args.log) as log:
                 receiver = QuestDatagramReceiverWorker(
                     bind=args.bind,
                     port=args.port,
                     allowed_sender=args.allowed_sender,
-                    record=capture.write,
                 )
                 receiver.start()
                 component_placement_snapshots.append(
@@ -1403,21 +1491,28 @@ def main() -> int:
                             time.sleep(min(0.001, next_tick - now))
                             continue
                         now_ns = time.monotonic_ns()
-                        if episode_runtime is not None:
-                            episode_runtime.ingest_cameras()
-                            collector = episode_runtime.collector
-                            if (
-                                collector.state is CaptureState.DONE
-                                and collector.completion_status is not EpisodeStatus.COMPLETED
-                                and not episode_capture_failed
-                            ):
-                                # A recorder fault ends only the episode.  Do
-                                # not stop a healthy teleop session or turn a
-                                # camera/write jitter into a robot fault.
-                                episode_capture_failed = True
-                                episode_capture_abort_reason = (
-                                    collector.termination_reason
-                                    or "episode_capture_failure"
+                        if (
+                            episode_runtime is not None
+                            and not episode_capture_failed
+                            and not episode_rotation_in_flight
+                        ):
+                            try:
+                                episode_runtime.ingest_cameras()
+                                collector = episode_runtime.collector
+                                if (
+                                    collector.state is CaptureState.DONE
+                                    and collector.completion_status is not EpisodeStatus.COMPLETED
+                                ):
+                                    mark_episode_capture_failed(
+                                        collector.termination_reason
+                                        or "episode_capture_failure"
+                                    )
+                            except BaseException as exc:
+                                # Camera/recorder infrastructure is outside
+                                # the native heartbeat and cannot turn a
+                                # healthy robot into a control fault.
+                                mark_episode_capture_failed(
+                                    f"recording_runtime_failure:{type(exc).__name__}:{exc}"
                                 )
                         outer_tick_started_ns = time.perf_counter_ns()
                         poll_started_ns = time.perf_counter_ns()
@@ -1472,7 +1567,7 @@ def main() -> int:
                             output_applied=tick.output_applied,
                         )
                         if dispatch_failed:
-                            control_state = session.event_records[-1].get(
+                            control_state = session.latest_event_record.get(
                                 "control_state"
                             )
                             native_return_code = (
@@ -1586,7 +1681,74 @@ def main() -> int:
                         outer_event_diagnostic_started_ns = time.perf_counter_ns()
                         rh56_feedback_duration_ns = 0
                         episode_metadata_duration_ns = 0
-                        event = dict(session.event_records[-1])
+                        event = dict(session.latest_event_record)
+                        arm_released = (
+                            session.arm_clutch.state.value == "disengaged"
+                        )
+                        hand_released = (
+                            session.hand_clutch.state.value == "disengaged"
+                        )
+                        release_inputs_valid = bool(
+                            event.get("right_wrist_valid")
+                            and event.get("hand_skeleton_valid")
+                            and not event.get("input_recovery_active")
+                            and not dispatch_failed
+                        )
+                        both_clutches_released = (
+                            arm_released and hand_released and release_inputs_valid
+                        )
+                        if (
+                            episode_runtime is not None
+                            and episode_runtime.dataset_format == "lerobot_staging_v1"
+                            and not episode_capture_failed
+                        ):
+                            collector = episode_runtime.collector
+                            has_recorded_samples = collector.writer.sample_count > 0
+                            if both_clutches_released and has_recorded_samples:
+                                if episode_idle_started_ns is None:
+                                    episode_idle_started_ns = now_ns
+                                    episode_capture_active = False
+                                elif (
+                                    not episode_rotation_in_flight
+                                    and now_ns - episode_idle_started_ns
+                                    >= episode_boundary_release_ns
+                                ):
+                                    episode_runtime.collector.rotate_episode(
+                                        "both_clutches_released_5s",
+                                        release_ns=episode_idle_started_ns,
+                                    )
+                                    episode_rotation_in_flight = True
+                                    episode_rotation_count += 1
+                                    episode_idle_started_ns = None
+                                    episode_capture_active = False
+                            elif (
+                                both_clutches_released
+                                and collector.state is CaptureState.ARMING
+                            ):
+                                # A staging start candidate failed a safety
+                                # gate.  Do not feed release samples into the
+                                # collector's trigger state; wait for the
+                                # operator's next valid press and retry the
+                                # same gate from fresh measured state.
+                                episode_capture_active = False
+                            elif not both_clutches_released:
+                                episode_idle_started_ns = None
+                                if not episode_rotation_in_flight:
+                                    episode_capture_active = True
+                            if episode_rotation_in_flight:
+                                # The recorder child finalizes the previous
+                                # episode asynchronously.  Once its status
+                                # exposes a new temporary id, the next valid
+                                # clutch press may start a fresh episode.
+                                if (
+                                    collector.writer.sample_count == 0
+                                    and collector.writer.temporary_id.startswith(
+                                        "episode_"
+                                    )
+                                    and not both_clutches_released
+                                ):
+                                    episode_rotation_in_flight = False
+                                    episode_capture_active = True
                         operator_delta = event.get("operator_delta")
                         if operator_delta is not None:
                             maximum_quest_displacement_m = max(
@@ -1652,6 +1814,7 @@ def main() -> int:
                             and not episode_capture_failed
                             and episode_runtime.collector.state
                             is not CaptureState.DONE
+                            and episode_capture_active
                             and (
                                 episode_record_next_ns is None
                                 or now_ns >= episode_record_next_ns
@@ -1697,7 +1860,6 @@ def main() -> int:
                                 arm_action_source = "accepted_target"
                                 accepted_target_sequence = held_target.sequence_number
                             raw_records = {
-                                "quest_decoded_control_event": event,
                                 "jaka_state": {
                                     "read_host_monotonic_ns": observation_ns,
                                     "record_host_monotonic_ns": now_ns,
@@ -1749,47 +1911,52 @@ def main() -> int:
                                 source_timestamps_ns["rh56_angle_act"] = feedback.monotonic_ns
                                 source_timestamp_domains["rh56_angle_act"] = "host_monotonic_ns"
                             episode_metadata_started_ns = time.perf_counter_ns()
-                            episode_runtime.collector.ingest_control(
-                                ControlSample(
-                                    host_monotonic_ns=now_ns,
-                                    accepted_arm_q=arm_target,
-                                    arm_q_measured=measured_q,
-                                    arm_dq_measured=measured_dq,
-                                    arm_dq_source="estimated",
-                                    tcp_pose_xyzw=(
-                                        *tcp.position_m,
-                                        *tcp.orientation_xyzw,
+                            try:
+                                episode_runtime.collector.ingest_control(
+                                    ControlSample(
+                                        host_monotonic_ns=now_ns,
+                                        accepted_arm_q=arm_target,
+                                        arm_q_measured=measured_q,
+                                        arm_dq_measured=measured_dq,
+                                        arm_dq_source="estimated",
+                                        tcp_pose_xyzw=(
+                                            *tcp.position_m,
+                                            *tcp.orientation_xyzw,
+                                        ),
+                                        tcp_pose_source="commanded",
+                                        hand_observation=hand_observation,
+                                        hand_source=hand_source,
+                                        hand_target=hand_target,
+                                        arm_trigger=engaged,
+                                        hand_grip=hand_grip,
+                                        arm_action_status=(
+                                            "held_rejected"
+                                            if event.get("control_state") == "HOLD_REJECTED"
+                                            else "accepted"
+                                        ),
+                                        arm_action_source=arm_action_source,
+                                        accepted_target_sequence=accepted_target_sequence,
+                                        source_timestamps_ns=source_timestamps_ns,
+                                        source_timestamp_domains=source_timestamp_domains,
+                                        control_heartbeat_valid=not dispatch_failed,
+                                        controller_fault=bool(status.error_code),
                                     ),
-                                    tcp_pose_source="commanded",
-                                    hand_observation=hand_observation,
-                                    hand_source=hand_source,
-                                    hand_target=hand_target,
+                                    reference_established=True,
+                                    capture_active=episode_capture_active,
+                                    raw_records=raw_records,
+                                )
+                                episode_runtime.update_preview(
                                     arm_trigger=engaged,
                                     hand_grip=hand_grip,
-                                    arm_action_status=(
-                                        "held_rejected"
-                                        if event.get("control_state") == "HOLD_REJECTED"
-                                        else "accepted"
-                                    ),
-                                    arm_action_source=arm_action_source,
-                                    accepted_target_sequence=accepted_target_sequence,
-                                    source_timestamps_ns=source_timestamps_ns,
-                                    source_timestamp_domains=source_timestamp_domains,
-                                    control_heartbeat_valid=not dispatch_failed,
-                                    controller_fault=bool(status.error_code),
-                                ),
-                                reference_established=True,
-                                capture_active=True,
-                                raw_records=raw_records,
-                            )
-                            episode_runtime.update_preview(
-                                arm_trigger=engaged,
-                                hand_grip=hand_grip,
-                            )
+                                )
+                                episode_record_next_ns = now_ns + episode_record_period_ns
+                            except BaseException as exc:
+                                mark_episode_capture_failed(
+                                    f"recording_runtime_failure:{type(exc).__name__}:{exc}"
+                                )
                             episode_metadata_duration_ns += (
                                 time.perf_counter_ns() - episode_metadata_started_ns
                             )
-                            episode_record_next_ns = now_ns + episode_record_period_ns
                         event["producer_outer_timing_ms"] = {
                             "receiver_drain_and_router_ingest": (
                                 pending_receiver_drain_and_ingest_ns / 1e6
@@ -1945,45 +2112,69 @@ def main() -> int:
             if rh56_log is not None:
                 rh56_log.close()
             if episode_runtime is not None:
-                if episode_runtime.collector.state is CaptureState.REC:
-                    if abort_reason is None and stop_reason in {
-                        "duration_complete",
-                        "operator_keyboard_stop",
-                    }:
-                        episode_runtime.collector.finish(stop_reason)
+                try:
+                    if episode_runtime.collector.state is CaptureState.REC:
+                        if (
+                            abort_reason is None
+                            and stop_reason in {"duration_complete", "operator_keyboard_stop"}
+                            and episode_runtime.dataset_format == "lerobot_staging_v1"
+                        ):
+                            episode_runtime.collector.discard_current(
+                                "outer_session_ended_before_episode_boundary"
+                            )
+                        elif abort_reason is None and stop_reason in {
+                            "duration_complete",
+                            "operator_keyboard_stop",
+                        }:
+                            episode_runtime.collector.finish(stop_reason)
+                        else:
+                            episode_runtime.collector.abort(
+                                abort_reason or stop_reason
+                            )
                     else:
-                        episode_runtime.collector.abort(
+                        episode_runtime.collector.shutdown(
                             abort_reason or stop_reason
                         )
-                else:
-                    episode_runtime.collector.shutdown(
-                        abort_reason or stop_reason
+                    # Hardware/control cleanup is complete before this
+                    # bounded recorder drain.  Recorder finalization errors
+                    # are recording-only and must not replace a robot fault.
+                    episode_runtime.collector.finalize_pending()
+                    episode_recorder_diagnostics = (
+                        episode_runtime.collector.writer.diagnostics()
                     )
-                # Hardware/control cleanup is complete before this bounded
-                # recorder drain.  Deferred finalization must run for both a
-                # normal trigger release and a recorder-only fault; otherwise
-                # the writer would leave an unclassified .partial episode.
-                episode_runtime.collector.finalize_pending()
-                episode_recorder_diagnostics = (
-                    episode_runtime.collector.writer.diagnostics()
-                )
-                episode_camera_diagnostics = {
-                    role: camera.profile_metadata()
-                    for role, camera in episode_runtime.cameras.items()
-                }
-                episode_quality_diagnostics = (
-                    episode_runtime.collector.diagnostics()
-                )
-                episode_preview_diagnostics = (
-                    None
-                    if episode_runtime.preview is None
-                    else episode_runtime.preview.diagnostics()
-                )
-                print(
-                    f"EPISODE_RESULT={episode_runtime.collector.result}",
-                    flush=True,
-                )
-                episode_runtime.close()
+                    episode_camera_diagnostics = {
+                        role: camera.profile_metadata()
+                        for role, camera in episode_runtime.cameras.items()
+                    }
+                    episode_quality_diagnostics = (
+                        episode_runtime.collector.diagnostics()
+                    )
+                    episode_preview_diagnostics = (
+                        None
+                        if episode_runtime.preview is None
+                        else episode_runtime.preview.diagnostics()
+                    )
+                    if episode_runtime.preview_failure_reason is not None:
+                        if episode_preview_diagnostics is None:
+                            episode_preview_diagnostics = {}
+                        episode_preview_diagnostics["failure_reason"] = (
+                            episode_runtime.preview_failure_reason
+                        )
+                    print(
+                        f"EPISODE_RESULT={episode_runtime.collector.result}",
+                        flush=True,
+                    )
+                except BaseException as exc:
+                    mark_episode_capture_failed(
+                        f"recording_cleanup_failure:{type(exc).__name__}:{exc}"
+                    )
+                finally:
+                    try:
+                        episode_runtime.close()
+                    except BaseException as exc:
+                        mark_episode_capture_failed(
+                            f"recording_close_failure:{type(exc).__name__}:{exc}"
+                        )
 
     metrics = json.loads(args.metrics.read_text(encoding="utf-8"))
     abort_reason, transport_symptom_reason = (
@@ -2097,8 +2288,12 @@ def main() -> int:
         "output_generator": (
             args.output_generator
             if args.output_generator is not None
-            else PWL_OUTPUT_GENERATOR
+            else configured_output_generator
         ),
+        "transport_mode": hardware.get("transport_mode", "jaka_125hz_step1"),
+        "transport_hz": float(config.raw["rates"]["jaka_transport_hz"]),
+        "servo_period_ms": float(hardware["servo_period_ms"]),
+        "servo_step_num": servo_step_num,
         "run_output_joint_velocity_limits_rad_s": list(
             config.output_contract.velocity_boundaries_rad_s
         ),
@@ -2170,6 +2365,7 @@ def main() -> int:
         "stop_reason": stop_reason,
         "abort_reason": abort_reason,
         "episode_capture_failed": episode_capture_failed,
+        "episode_rotation_count": episode_rotation_count,
         "episode_capture_abort_reason": episode_capture_abort_reason,
         "episode_recorder_diagnostics": episode_recorder_diagnostics,
         "episode_camera_diagnostics": episode_camera_diagnostics,

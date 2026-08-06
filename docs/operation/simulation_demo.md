@@ -266,7 +266,8 @@ write any controller speed setting.
 - Translation and orientation follow the documented frame mapping.
 - Release holds/stops the session as documented.
 - Recoverable infeasibility holds safely and retreat can recover.
-- Input loss or timeout stops rather than replaying stale motion.
+- Input loss or recovery timeout enters a no-motion disengaged hold rather than
+  replaying stale motion; actual producer/IPC death remains a hard stop.
 
 Current validation level: both arm output modes and joint arm/RH56 replay are
 offline tested, and the Quest/MuJoCo path is simulation validated. A fresh

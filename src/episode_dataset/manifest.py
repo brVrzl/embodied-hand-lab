@@ -139,11 +139,6 @@ def build_dataset_manifest(
                 ).get("version")
                 if isinstance(metadata.get("calibration_snapshot"), dict)
                 else None,
-                "control_config_sha256": metadata.get("control_config", {}).get(
-                    "sha256"
-                )
-                if isinstance(metadata.get("control_config"), dict)
-                else None,
                 "metadata_sha256": (
                     file_sha256(metadata_path) if metadata_path.is_file() else None
                 ),

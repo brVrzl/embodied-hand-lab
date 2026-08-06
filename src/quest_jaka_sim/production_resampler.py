@@ -62,9 +62,17 @@ def default_resampler_library(repository_root: Path | None = None) -> Path:
 
 
 class ProductionJointServoResampler:
-    """Owned instance of the exact resampler compiled into the native worker."""
+    """Owned instance of the native resampler at a configured ServoJ period."""
 
-    def __init__(self, library_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        library_path: Path | None = None,
+        *,
+        servo_period_ns: int = SERVO_PERIOD_NS,
+    ) -> None:
+        if servo_period_ns <= 0 or servo_period_ns % SERVO_PERIOD_NS != 0:
+            raise ValueError("servo_period_ns must be a positive multiple of 8 ms")
+        self.servo_period_ns = int(servo_period_ns)
         self.library_path = default_resampler_library() if library_path is None else Path(library_path)
         if not self.library_path.is_file():
             raise FileNotFoundError(
@@ -74,7 +82,9 @@ class ProductionJointServoResampler:
             )
         self._library = ctypes.CDLL(str(self.library_path))
         self._configure()
-        self._handle = self._library.jaka_resampler_create()
+        self._handle = self._library.jaka_resampler_create_with_period(
+            self.servo_period_ns
+        )
         if not self._handle:
             raise RuntimeError(self._error())
 
@@ -82,6 +92,8 @@ class ProductionJointServoResampler:
         library = self._library
         pointer = ctypes.POINTER(ctypes.c_double)
         library.jaka_resampler_create.restype = ctypes.c_void_p
+        library.jaka_resampler_create_with_period.argtypes = [ctypes.c_uint64]
+        library.jaka_resampler_create_with_period.restype = ctypes.c_void_p
         library.jaka_resampler_destroy.argtypes = [ctypes.c_void_p]
         library.jaka_resampler_initialize.argtypes = [ctypes.c_void_p, pointer, ctypes.c_uint64]
         library.jaka_resampler_initialize.restype = ctypes.c_int

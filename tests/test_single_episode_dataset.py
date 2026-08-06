@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 import shutil
 import sys
@@ -16,8 +17,10 @@ from episode_dataset.async_writer import AsyncEpisodeWriter
 from episode_dataset.cli import build_parser as build_dataset_parser
 from episode_dataset.episode import (
     CameraSample,
+    CanonicalSample,
     CanonicalEpisodeWriter,
     ControlSample,
+    EpisodeStatus,
     PHYSICAL_SCHEMA_VERSION,
     StartPrerequisites,
 )
@@ -28,6 +31,13 @@ from episode_dataset.exporters import (
 )
 from episode_dataset.manifest import build_dataset_manifest, compute_train_statistics
 from episode_dataset.inspection import inspect_episode, write_inspection_plot
+from episode_dataset.lerobot_staging import (
+    LeRobotStagingWriter,
+    materialize_staging_episode,
+    set_staging_review,
+    stage_review_html,
+)
+from episode_dataset.raw_episode import RawEpisodeWriter
 from episode_dataset.timeline import CanonicalClock, CausalTimeline, TimestampRegression
 from episode_dataset.validation import load_data_quality_rows, validate_episode
 from vision_interface.realsense_adapter import choose_closest_profile
@@ -49,6 +59,134 @@ def test_lerobot_export_rejects_video_width_that_hangs_default_encoder() -> None
     _validate_lerobot_video_shape(
         "workspace", np.zeros((8, 32, 3), dtype=np.uint8)
     )
+
+
+def test_raw_episode_writer_aligns_two_videos_with_parquet_rows(tmp_path: Path) -> None:
+    pytest.importorskip("pyarrow")
+    writer = RawEpisodeWriter(
+        tmp_path,
+        task_name="pick",
+        operator="tester",
+        dataset_fps=30,
+    )
+    timestamp_ns = 1_000_000_000
+    workspace = _camera("workspace", timestamp_ns, 1, width=12)
+    wrist = _camera("wrist", timestamp_ns, 1, width=12)
+    control = _control(timestamp_ns, trigger=True)
+    writer.begin(
+        StartPrerequisites(
+            trigger_press_monotonic_ns=timestamp_ns,
+            reference_established=True,
+            accepted=control,
+            workspace=workspace,
+            wrist=wrist,
+            maximum_start_delta_rad=0.2,
+            maximum_hand_start_delta_rad=0.2,
+        ),
+        camera_max_age_ns=100_000_000,
+    )
+    for index in range(3):
+        current_ns = timestamp_ns + index * 33_333_333
+        current_workspace = _camera("workspace", current_ns, index + 1, width=12)
+        current_wrist = _camera("wrist", current_ns, index + 1, width=12)
+        current_control = replace(control, host_monotonic_ns=current_ns)
+        writer.append_raw_camera(current_workspace)
+        writer.append_raw_camera(current_wrist)
+        writer.append_sample(
+            CanonicalSample(
+                frame_index=index,
+                timestamp_ns=current_ns,
+                control=current_control,
+                workspace=current_workspace,
+                wrist=current_wrist,
+                source_offsets_ns={},
+                synchronization_valid=True,
+                nominal_slot_index=index,
+            )
+        )
+    episode = writer.finalize(
+        EpisodeStatus.COMPLETED,
+        termination_reason="test_complete",
+        trigger_release_monotonic_ns=timestamp_ns + 100_000_000,
+    )
+    import pyarrow.parquet as parquet
+
+    table = parquet.read_table(episode / "frames.parquet")
+    assert table.num_rows == 3
+    assert table.column_names == [
+        "frame_index",
+        "timestamp_ns",
+        "observation.state",
+        "action",
+    ]
+    assert table.column("observation.state").type.list_size == 12
+    assert table.column("action").type.list_size == 12
+    assert (episode / "fixed_camera.mp4").is_file()
+    assert (episode / "wrist_camera.mp4").is_file()
+    assert json.loads((episode / "episode.json").read_text())["num_frames"] == 3
+    validation = validate_episode(episode, deep=True)
+    assert validation["valid"] is True
+    assert validation["training_eligible"] is False
+    assert validation["quality"]["quest_recorded"] is False
+    assert validation["quality"]["depth_recorded"] is False
+
+
+def test_lerobot_staging_requires_review_before_parquet_materialization(
+    tmp_path: Path,
+) -> None:
+    writer = LeRobotStagingWriter(
+        tmp_path / "staging",
+        episode_index=0,
+        task_name="pick",
+        operator="tester",
+        dataset_fps=30,
+    )
+    timestamp_ns = 1_000_000_000
+    control = _control(timestamp_ns, trigger=True)
+    writer.begin(
+        StartPrerequisites(
+            trigger_press_monotonic_ns=timestamp_ns,
+            reference_established=True,
+            accepted=control,
+            workspace=_camera("workspace", timestamp_ns, 1, width=32),
+            wrist=_camera("wrist", timestamp_ns, 1, width=32),
+            maximum_start_delta_rad=0.2,
+            maximum_hand_start_delta_rad=0.2,
+        ),
+        camera_max_age_ns=100_000_000,
+    )
+    for index in range(3):
+        current_ns = timestamp_ns + index * 33_333_333
+        writer.append_sample(
+            CanonicalSample(
+                frame_index=index,
+                timestamp_ns=current_ns,
+                control=replace(control, host_monotonic_ns=current_ns),
+                workspace=_camera("workspace", current_ns, index + 1, width=32),
+                wrist=_camera("wrist", current_ns, index + 1, width=32),
+                source_offsets_ns={},
+                synchronization_valid=True,
+            )
+        )
+    writer.finalize(
+        EpisodeStatus.COMPLETED,
+        termination_reason="test_complete",
+        trigger_release_monotonic_ns=timestamp_ns + 100_000_000,
+    )
+    staging = tmp_path / "staging"
+    assert (staging / "data/chunk-000/episode_000000.jsonl").is_file()
+    assert not list(staging.rglob("*.parquet"))
+    assert stage_review_html(staging, 0).is_file()
+    with pytest.raises(ValueError, match="human-approved"):
+        materialize_staging_episode(staging, 0, tmp_path / "final")
+    set_staging_review(staging, 0, status="approved", notes="looks usable")
+    output = materialize_staging_episode(staging, 0, tmp_path / "final")
+    import pyarrow.parquet as parquet
+
+    table = parquet.read_table(output)
+    assert table.num_rows == 3
+    assert table.column("observation.state").type.list_size == 12
+    assert table.column("action").type.list_size == 12
 
 
 def _camera(
@@ -619,6 +757,42 @@ def test_metadata_only_quality_slot_round_trips_without_an_image_row(tmp_path: P
     report = validate_episode(collector.result)
     assert report["valid"]
     assert report["training_eligible"] is False
+
+
+def test_single_canonical_required_field_loss_is_metadata_only(tmp_path: Path) -> None:
+    writer = CanonicalEpisodeWriter(tmp_path, task_name="quality", operator="tester")
+    collector = SingleEpisodeCollector(
+        writer,
+        camera_max_age_ns=40_000_000,
+        control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
+        maximum_hand_start_delta_rad=0.02,
+        canonical_required_field_consecutive_limit=2,
+    )
+    base = 2_416_000_000
+    collector.ingest_camera(_camera("workspace", base, 1))
+    collector.ingest_camera(_camera("wrist", base, 1))
+    collector.ingest_control(_control(base, trigger=True), reference_established=True)
+
+    slot = base + collector.clock.period_ns
+    missing = replace(_control(slot, trigger=True), hand_target=None)
+    collector.ingest_camera(_camera("workspace", slot, 2))
+    collector.ingest_camera(_camera("wrist", slot, 2))
+    collector.ingest_control(missing, reference_established=True)
+    assert collector.state is CaptureState.REC
+    assert collector.diagnostics()["canonical_required_field_invalid_total"] == 1
+
+    collector.ingest_control(
+        _control(base + 67_000_000, trigger=False), reference_established=True
+    )
+    assert collector.result is not None
+    quality, errors = load_data_quality_rows(collector.result)
+    assert errors == []
+    assert any(
+        row.get("reason") == "canonical_required_field_unavailable"
+        and row.get("missing_fields") == ["hand_target"]
+        for row in quality
+    )
 
 
 def test_manifest_excludes_every_duplicate_uuid_occurrence(tmp_path: Path) -> None:

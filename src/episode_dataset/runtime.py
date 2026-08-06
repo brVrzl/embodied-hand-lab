@@ -12,7 +12,7 @@ from embodiment_core.config import load_yaml
 from vision_interface.realsense_adapter import resolve_realsense_config
 
 from .collector import CaptureState
-from .episode import SCHEMA_VERSION, file_sha256
+from .episode import SCHEMA_VERSION
 from .process_runtime import (
     FrameReferenceDescriptor,
     ProcessCamera,
@@ -20,7 +20,32 @@ from .process_runtime import (
     ProcessEpisodeRecorder,
     ProcessPreview,
 )
-from .preview import PreviewStatus, require_preview_dependencies
+from .preview import PreviewStatus
+
+
+def _next_staging_episode_index(root: str | Path) -> int:
+    """Return the first unused LeRobot-style episode number.
+
+    This is startup-only bookkeeping.  The control tick never scans the
+    dataset root and never chooses an episode name.
+    """
+
+    root_path = Path(root)
+    candidates = set()
+    for pattern in (
+        "meta/episodes/chunk-000/episode_*.json",
+        "meta/episodes/chunk-000/episode_*.json.partial",
+        "data/chunk-000/episode_*.jsonl",
+        "data/chunk-000/episode_*.jsonl.partial",
+    ):
+        for path in root_path.glob(pattern):
+            name = path.name.split(".", 1)[0]
+            if name.startswith("episode_"):
+                try:
+                    candidates.add(int(name.removeprefix("episode_")))
+                except ValueError:
+                    continue
+    return 0 if not candidates else max(candidates) + 1
 
 
 @dataclass(slots=True)
@@ -28,8 +53,10 @@ class EpisodeDataRuntime:
     collector: ProcessEpisodeCollectorProxy
     cameras: dict[str, ProcessCamera]
     preview: ProcessPreview | None
+    preview_failure_reason: str | None
     recorder: ProcessEpisodeRecorder
     last_camera_timestamp_ns: dict[str, int]
+    dataset_format: str
 
     @classmethod
     def start(
@@ -46,8 +73,6 @@ class EpisodeDataRuntime:
         preview_enabled: bool = False,
         forbidden_cpu: int | None = None,
     ) -> "EpisodeDataRuntime":
-        if preview_enabled:
-            require_preview_dependencies()
         config_path = Path(config_path)
         data_config = load_yaml(config_path)
         cameras_config = data_config.get("cameras")
@@ -71,6 +96,14 @@ class EpisodeDataRuntime:
         dataset = data_config.get("dataset", {})
         if not isinstance(dataset, dict):
             raise ValueError("episode data config dataset must be a mapping")
+        resolved_episode_root = Path(
+            episode_root or dataset.get("root", "data/episodes")
+        )
+        episode_index = (
+            _next_staging_episode_index(resolved_episode_root)
+            if str(dataset.get("format", "canonical_v2")) == "lerobot_staging_v1"
+            else 0
+        )
         ring_capacity = int(dataset.get("camera_ring_capacity", 16))
         context = mp.get_context("spawn")
         workers = {
@@ -85,6 +118,7 @@ class EpisodeDataRuntime:
         }
         recorder: ProcessEpisodeRecorder | None = None
         preview: ProcessPreview | None = None
+        preview_failure_reason: str | None = None
         try:
             camera_timeout_s = max(
                 float(resolved[role].get("timeout_ms", 5000)) / 1000.0 + 2.0
@@ -116,13 +150,13 @@ class EpisodeDataRuntime:
                     },
                     "control_config": {
                         "path": str(control_config_path.resolve()),
-                        "sha256": file_sha256(control_config_path),
                     },
                     **dict(metadata),
                 },
                 dataset=dataset,
                 camera_profiles={role: workers[role].profile_metadata() for role in workers},
                 forbidden_cpu=forbidden_cpu,
+                episode_index=episode_index,
                 schema_version=schema_version,
             )
             collector = recorder.start(timeout_s=8.0)
@@ -133,13 +167,23 @@ class EpisodeDataRuntime:
                     refresh_hz=float(dataset.get("preview_max_fps", 10.0)),
                     forbidden_cpu=forbidden_cpu,
                 )
-                preview.start()
+                try:
+                    preview.start()
+                except BaseException as exc:
+                    # Preview is an optional diagnostic surface.  A GUI or
+                    # process-start failure must not prevent recording/control.
+                    preview = None
+                    preview_failure_reason = (
+                        f"preview_start_failure:{type(exc).__name__}:{exc}"
+                    )
             return cls(
                 collector=collector,
                 cameras=workers,
                 preview=preview,
+                preview_failure_reason=preview_failure_reason,
                 recorder=recorder,
                 last_camera_timestamp_ns={"workspace": -1, "wrist": -1},
+                dataset_format=str(dataset.get("format", "canonical_v2")),
             )
         except BaseException:
             if preview is not None:
@@ -167,18 +211,27 @@ class EpisodeDataRuntime:
             return
         workspace = self.cameras["workspace"].latest
         wrist = self.cameras["wrist"].latest
-        self.preview.update(
-            None if workspace is None else FrameReferenceDescriptor.from_reference(workspace),
-            None if wrist is None else FrameReferenceDescriptor.from_reference(wrist),
-            PreviewStatus(
-                state=self.collector.state,
-                temporary_id=self.collector.writer.temporary_id,
-                episode_start_ns=None,
-                arm_trigger=arm_trigger,
-                hand_grip=hand_grip,
-                recording_frame_count=self.collector.writer.sample_count,
-            ),
-        )
+        try:
+            self.preview.update(
+                None if workspace is None else FrameReferenceDescriptor.from_reference(workspace),
+                None if wrist is None else FrameReferenceDescriptor.from_reference(wrist),
+                PreviewStatus(
+                    state=self.collector.state,
+                    temporary_id=self.collector.writer.temporary_id,
+                    episode_start_ns=None,
+                    arm_trigger=arm_trigger,
+                    hand_grip=hand_grip,
+                    recording_frame_count=self.collector.writer.sample_count,
+                ),
+            )
+            if self.preview.error is not None and self.preview_failure_reason is None:
+                self.preview_failure_reason = (
+                    f"preview_process_failure:{self.preview.error}"
+                )
+        except BaseException as exc:
+            self.preview_failure_reason = (
+                f"preview_update_failure:{type(exc).__name__}:{exc}"
+            )
 
     def close(self) -> None:
         if self.preview is not None:

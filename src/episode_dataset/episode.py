@@ -413,7 +413,6 @@ class CanonicalEpisodeWriter:
                 {
                     "path": destination.relative_to(self.partial_dir).as_posix(),
                     "source_name": source.name,
-                    "sha256": file_sha256(destination),
                 }
             )
         metadata["calibration_snapshot"] = {
@@ -685,7 +684,7 @@ class CanonicalEpisodeWriter:
             "camera_serials": {"workspace": None, "wrist": None},
             "camera_profiles": {"workspace": None, "wrist": None},
             "calibration_snapshot": {"files": [], "version": None},
-            "control_config": {"path": None, "sha256": None},
+            "control_config": {"path": None},
             "raw_streams": {
                 "quest_raw_datagram": "unavailable",
                 "quest_decoded_input": "unavailable",

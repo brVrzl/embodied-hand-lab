@@ -37,6 +37,8 @@ from .episode import (
     SCHEMA_VERSION,
     StartPrerequisites,
 )
+from .lerobot_staging import LeRobotStagingWriter
+from .raw_episode import RawEpisodeWriter
 from .preview import DualCameraPreview, PreviewStatus, require_preview_dependencies
 
 
@@ -554,13 +556,16 @@ class ProcessCamera:
         height = int(camera_config.get("height", 480))
         if width <= 0 or height <= 0:
             raise ValueError("camera width and height must be positive")
-        aligned = bool(camera_config.get("align_depth_to_color", False))
+        depth_enabled = bool(camera_config.get("capture_depth", True))
+        aligned = depth_enabled and bool(camera_config.get("align_depth_to_color", False))
         self.role = role
         self._ring = SharedMemoryCameraFrameRing.create(
             role=role,
             capacity=capacity,
             rgb_shape=(height, width, 3),
-            depth_shape=(height, width),
+            # Keep a one-pixel compatibility slot for the legacy CameraSample
+            # contract.  RGB-only mode never reads or persists this value.
+            depth_shape=(height, width) if depth_enabled else (1, 1),
             aligned_depth_shape=(height, width) if aligned else None,
         )
         self._closed = False
@@ -640,6 +645,7 @@ class ProcessCamera:
         return {
             **self._profile,
             "role": self.role,
+            "depth_enabled": bool(self._ring.spec.depth_shape != (1, 1)),
             "process_alive": self._process.is_alive(),
             "shared_ring": {
                 "capacity": self._ring.capacity,
@@ -668,6 +674,7 @@ class ProcessCamera:
             final_diagnostics = {
                 **self._profile,
                 "role": self.role,
+                "depth_enabled": bool(self._ring.spec.depth_shape != (1, 1)),
                 "process_alive": self._process.is_alive(),
                 "shared_ring": {
                     "capacity": self._ring.capacity,
@@ -823,6 +830,13 @@ class ProcessEpisodeCollectorProxy:
             except OSError:
                 pass
 
+    def discard_current(self, reason: str) -> None:
+        if self._recorder.error is None:
+            try:
+                self._recorder.send("discard_current", reason)
+            except OSError:
+                pass
+
     def shutdown(self, reason: str) -> None:
         if self.state is not CaptureState.DONE:
             self.state = CaptureState.DONE
@@ -841,6 +855,16 @@ class ProcessEpisodeCollectorProxy:
             self._mark_failed(str(exc))
             return
         self._apply_status(response)
+
+    def rotate_episode(self, reason: str, *, release_ns: int | None = None) -> None:
+        """Finalize the current episode and open the next one in the recorder child."""
+
+        if self._recorder.error is not None:
+            return
+        try:
+            self._recorder.send("rotate", reason, release_ns)
+        except OSError as exc:
+            self._mark_failed(str(exc))
 
     def diagnostics(self) -> dict[str, object]:
         self._recorder.poll()
@@ -870,6 +894,14 @@ class ProcessEpisodeCollectorProxy:
         result = message.get("result")
         if result is not None:
             self._result = Path(str(result))
+        temporary_id = message.get("temporary_id")
+        root = message.get("root")
+        if temporary_id is not None and root is not None:
+            if (
+                self.writer.temporary_id != str(temporary_id)
+                or self.writer.root != Path(str(root))
+            ):
+                self.writer = _WriterProxy(str(temporary_id), Path(str(root)))
         self.writer.sample_count = int(message.get("sample_count", self.writer.sample_count))
         diagnostics = message.get("diagnostics")
         if isinstance(diagnostics, Mapping):
@@ -896,6 +928,7 @@ class ProcessEpisodeRecorder:
         dataset: Mapping[str, Any],
         camera_profiles: Mapping[str, Any],
         forbidden_cpu: int | None,
+        episode_index: int = 0,
         schema_version: str = SCHEMA_VERSION,
     ) -> None:
         self._commands = context.Queue(maxsize=max(8, int(dataset.get("recorder_queue_capacity", 16))))
@@ -917,6 +950,7 @@ class ProcessEpisodeRecorder:
                     "camera_profiles": dict(camera_profiles),
                     "schema_version": schema_version,
                     "forbidden_cpu": forbidden_cpu,
+                    "episode_index": int(episode_index),
                 },
             ),
             name="episode-recorder",
@@ -960,9 +994,18 @@ class ProcessEpisodeRecorder:
                 if isinstance(message, Mapping) and message.get("kind") == "ready":
                     ready = message
                     break
+                if isinstance(message, Mapping) and message.get("kind") == "error":
+                    self._error = str(message.get("error"))
+                    break
                 if self.error is not None:
                     break
             if ready is None:
+                startup_error = self.error
+                if startup_error is not None:
+                    raise RuntimeError(
+                        "recorder process failed during startup: "
+                        f"{startup_error}"
+                    )
                 raise TimeoutError(
                     "recorder process did not become ready before startup deadline"
                 )
@@ -1052,6 +1095,22 @@ def _recorder_process_main(
     status_queue: Any,
     config: Mapping[str, Any],
 ) -> None:
+    """Report child startup failures instead of turning them into a timeout."""
+    try:
+        _recorder_process_main_impl(ring_specs, commands, status_queue, config)
+    except BaseException as exc:
+        _queue_put_latest(
+            status_queue,
+            {"kind": "error", "error": f"{type(exc).__name__}: {exc}"},
+        )
+
+
+def _recorder_process_main_impl(
+    ring_specs: Mapping[str, SharedCameraRingSpec],
+    commands: Any,
+    status_queue: Any,
+    config: Mapping[str, Any],
+) -> None:
     configure_non_realtime_affinity(config.get("forbidden_cpu"))
     rings: dict[str, SharedMemoryCameraFrameRing] = {}
     try:
@@ -1066,53 +1125,92 @@ def _recorder_process_main(
         )
         return
     dataset = dict(config["dataset"])
-    writer = AsyncEpisodeWriter(
-        CanonicalEpisodeWriter(
-            config["episode_root"],
-            task_name=str(config["task_name"]),
-            operator=str(config["operator"]),
-            dataset_fps=int(dataset.get("fps", 30)),
-            schema_version=str(config.get("schema_version", SCHEMA_VERSION)),
-            metadata={
-                **dict(config["metadata"]),
-                "camera_profiles": dict(config["camera_profiles"]),
-                "process_placement": process_placement("episode_recorder"),
-            },
-        ),
-        capacity=min(
-            int(dataset.get("recorder_queue_capacity", 16)),
-            int(dataset.get("camera_ring_capacity", 16)),
-        ),
-        batch_size=int(dataset.get("writer_batch_size", 8)),
-        flush_interval_s=float(dataset.get("writer_flush_interval_s", 1.0)),
-        shutdown_timeout_s=float(dataset.get("writer_shutdown_timeout_s", 5.0)),
-        require_frame_references=True,
-    )
-    collector = SingleEpisodeCollector(
-        writer,
-        camera_max_age_ns=round(float(dataset.get("camera_max_age_ms", 100.0)) * 1e6),
-        control_max_age_ns=round(float(dataset.get("control_max_age_ms", 40.0)) * 1e6),
-        maximum_start_delta_rad=float(config["maximum_start_delta_rad"]),
-        maximum_hand_start_delta_rad=float(dataset.get("hand_start_tolerance_rad", 0.05)),
-        defer_finalization=True,
-        camera_severe_stale_ns=round(float(dataset.get("camera_severe_stale_limit_ms", 500.0)) * 1e6),
-        camera_consecutive_stale_limit=int(dataset.get("camera_consecutive_stale_limit", 15)),
-        camera_missing_timeout_ns=round(float(dataset.get("camera_missing_timeout_ms", 1000.0)) * 1e6),
-        quality_min_valid_ratio=float(dataset.get("quality_min_valid_ratio", 1.0)),
-        quality_max_invalid_run=int(dataset.get("quality_max_invalid_run", 0)),
-    )
+    writer_format = str(dataset.get("format", "canonical_v2"))
+    writer_metadata = {
+        **dict(config["metadata"]),
+        "camera_profiles": dict(config["camera_profiles"]),
+        "process_placement": process_placement("episode_recorder"),
+    }
+
+    def create_episode(index: int) -> tuple[Any, SingleEpisodeCollector]:
+        if writer_format == "lerobot_staging_v1":
+            episode_writer: Any = LeRobotStagingWriter(
+                config["episode_root"],
+                episode_index=index,
+                task_name=str(config["task_name"]),
+                operator=str(config["operator"]),
+                dataset_fps=int(dataset.get("fps", 30)),
+                metadata=writer_metadata,
+                video_codec=str(dataset.get("video_codec", "mp4v")),
+            )
+        elif writer_format == "raw_episode_v1":
+            episode_writer = RawEpisodeWriter(
+                config["episode_root"],
+                task_name=str(config["task_name"]),
+                operator=str(config["operator"]),
+                dataset_fps=int(dataset.get("fps", 30)),
+                metadata=writer_metadata,
+                video_codec=str(dataset.get("video_codec", "mp4v")),
+            )
+        elif writer_format in {"canonical_v1", "canonical_v2"}:
+            episode_writer = CanonicalEpisodeWriter(
+                config["episode_root"],
+                task_name=str(config["task_name"]),
+                operator=str(config["operator"]),
+                dataset_fps=int(dataset.get("fps", 30)),
+                schema_version=str(config.get("schema_version", SCHEMA_VERSION)),
+                metadata=writer_metadata,
+            )
+        else:
+            raise ValueError(
+                "unsupported episode dataset format: "
+                f"{writer_format!r}; expected lerobot_staging_v1, raw_episode_v1, "
+                "canonical_v1, or canonical_v2"
+            )
+        async_writer = AsyncEpisodeWriter(
+            episode_writer,
+            capacity=min(
+                int(dataset.get("recorder_queue_capacity", 16)),
+                int(dataset.get("camera_ring_capacity", 16)),
+            ),
+            batch_size=int(dataset.get("writer_batch_size", 8)),
+            flush_interval_s=float(dataset.get("writer_flush_interval_s", 1.0)),
+            shutdown_timeout_s=float(dataset.get("writer_shutdown_timeout_s", 5.0)),
+            require_frame_references=True,
+        )
+        current_collector = SingleEpisodeCollector(
+            async_writer,
+            camera_max_age_ns=round(float(dataset.get("camera_max_age_ms", 100.0)) * 1e6),
+            control_max_age_ns=round(float(dataset.get("control_max_age_ms", 40.0)) * 1e6),
+            maximum_start_delta_rad=float(config["maximum_start_delta_rad"]),
+            maximum_hand_start_delta_rad=float(dataset.get("hand_start_tolerance_rad", 0.05)),
+            defer_finalization=True,
+            camera_severe_stale_ns=round(float(dataset.get("camera_severe_stale_limit_ms", 500.0)) * 1e6),
+            camera_consecutive_stale_limit=int(dataset.get("camera_consecutive_stale_limit", 15)),
+            camera_missing_timeout_ns=round(float(dataset.get("camera_missing_timeout_ms", 1000.0)) * 1e6),
+            canonical_required_field_consecutive_limit=int(
+                dataset.get("canonical_required_field_consecutive_limit", 15)
+            ),
+            retry_start_rejections=(writer_format == "lerobot_staging_v1"),
+            quality_min_valid_ratio=float(dataset.get("quality_min_valid_ratio", 1.0)),
+            quality_max_invalid_run=int(dataset.get("quality_max_invalid_run", 0)),
+        )
+        return async_writer, current_collector
+
+    episode_index = int(config.get("episode_index", 0))
+    writer, collector = create_episode(episode_index)
     def final_metadata() -> dict[str, object]:
         writer_diagnostics = writer.diagnostics()
         return {
             "camera_profiles": dict(config["camera_profiles"]),
             "process_placement": process_placement("episode_recorder"),
             **collector.diagnostics(),
-            "frame_materialization_duration_ns": writer_diagnostics[
-                "frame_materialization_duration_ns"
-            ],
-            "canonical_metadata_duration_ns": writer_diagnostics[
-                "canonical_metadata_duration_ns"
-            ],
+            "frame_materialization_duration_ns": writer_diagnostics.get(
+                "frame_materialization_duration_ns", 0
+            ),
+            "canonical_metadata_duration_ns": writer_diagnostics.get(
+                "canonical_metadata_duration_ns", 0
+            ),
         }
 
     writer.set_final_metadata_provider(final_metadata)
@@ -1122,6 +1220,7 @@ def _recorder_process_main(
             "kind": "ready",
             "temporary_id": writer.temporary_id,
             "root": str(writer.root),
+            "episode_index": episode_index,
             "placement": process_placement("episode_recorder"),
         },
     )
@@ -1134,6 +1233,9 @@ def _recorder_process_main(
             "termination_reason": collector.termination_reason,
             "result": None if collector.result is None else str(collector.result),
             "sample_count": writer.sample_count,
+            "temporary_id": writer.temporary_id,
+            "root": str(writer.root),
+            "episode_index": episode_index,
             "diagnostics": collector.diagnostics(),
             "writer_diagnostics": writer.diagnostics(),
         }
@@ -1166,10 +1268,25 @@ def _recorder_process_main(
                 elif kind == "abort":
                     reason, invalid, detail = payload
                     collector.abort(str(reason), invalid=bool(invalid), detail=detail)
+                elif kind == "discard_current":
+                    collector.discard_current(str(payload[0]))
+                    collector.finalize_pending()
                 elif kind == "shutdown":
                     collector.shutdown(str(payload[0]))
                 elif kind == "finalize_pending":
                     collector.finalize_pending()
+                elif kind == "rotate":
+                    reason, release_ns = payload
+                    if collector.state is CaptureState.REC:
+                        collector.finish(str(reason), release_ns=release_ns)
+                        collector.finalize_pending()
+                    elif collector.state is CaptureState.IDLE:
+                        writer.close()
+                    else:
+                        collector.finalize_pending()
+                    episode_index += 1
+                    writer, collector = create_episode(episode_index)
+                    writer.set_final_metadata_provider(final_metadata)
                 elif kind == "stop":
                     break
                 else:

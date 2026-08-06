@@ -151,7 +151,6 @@ CMD=(
   --log "${LOG_PREFIX}.jsonl"
   --summary "${LOG_PREFIX}_summary.json"
   --metrics "${LOG_PREFIX}_worker.json"
-  --capture "${LOG_PREFIX}_capture.jsonl"
   --native-telemetry "${LOG_PREFIX}_native.jsonl"
   --event-extract "${LOG_PREFIX}_events.jsonl"
 )

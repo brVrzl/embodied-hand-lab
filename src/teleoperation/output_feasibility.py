@@ -14,7 +14,8 @@ import math
 from typing import Sequence
 
 
-OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S = 1e-12
+OUTPUT_FEASIBILITY_VELOCITY_TOLERANCE_RAD_S = 1e-12
+OUTPUT_FEASIBILITY_ACCELERATION_TOLERANCE_RAD_S2 = 1e-12
 # Project policy defaults for the production 8 ms transition shaper.  This is
 # deliberately not presented as a Mini2 hardware jerk maximum.
 PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3 = 20.0 * math.pi
@@ -29,11 +30,13 @@ class JointOutputContractConfig:
     servo_period_ns: int
     maximum_acceleration_rad_s2: float = math.inf
     maximum_jerk_rad_s3: float = PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3
-    numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S
+    velocity_tolerance_rad_s: float = OUTPUT_FEASIBILITY_VELOCITY_TOLERANCE_RAD_S
+    acceleration_tolerance_rad_s2: float = OUTPUT_FEASIBILITY_ACCELERATION_TOLERANCE_RAD_S2
     maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
-    # Simulation diagnostic only: the interval over which a 60 Hz target
-    # replacement changes predicted acceleration.  The transport servo period
-    # remains ``servo_period_ns``.
+    # Optional simulation-only period for comparing target replacements at a
+    # fixed producer rate.  When omitted, the hot-path prefilter uses the
+    # actual producer interval.  The transport servo period remains
+    # ``servo_period_ns`` and is owned by native shaping.
     feasibility_acceleration_period_ns: int | None = None
 
     def __post_init__(self) -> None:
@@ -58,8 +61,15 @@ class JointOutputContractConfig:
                 f"than the native defensive parsing bound "
                 f"{NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3:g} rad/s^3"
             )
-        if not math.isfinite(self.numeric_tolerance_rad_s) or self.numeric_tolerance_rad_s < 0.0:
-            raise ValueError("output feasibility tolerance must be finite and non-negative")
+        if (
+            not math.isfinite(self.velocity_tolerance_rad_s)
+            or self.velocity_tolerance_rad_s < 0.0
+            or not math.isfinite(self.acceleration_tolerance_rad_s2)
+            or self.acceleration_tolerance_rad_s2 < 0.0
+        ):
+            raise ValueError(
+                "output velocity/acceleration tolerances must be finite and non-negative"
+            )
         if self.maximum_velocity_rad_s_per_joint is not None:
             boundaries = tuple(
                 float(value) for value in self.maximum_velocity_rad_s_per_joint
@@ -125,6 +135,27 @@ class JointOutputFeasibility:
         return not self.violating_joint_indices and not self.acceleration_violating_joint_indices
 
 
+@dataclass(frozen=True, slots=True)
+class JointOutputPrefilter:
+    """Small Python-side screen before the native 8 ms shaper.
+
+    It deliberately does not model the native transition segment or jerk.
+    Native owns 8 ms velocity/acceleration/jerk shaping and final hard checks;
+    this screen only rejects an obviously impossible candidate.
+    """
+
+    generated_monotonic_ns: int
+    interval_ns: int
+    maximum_velocity_rad_s: float
+    maximum_acceleration_rad_s2: float
+    violating_joint_indices: tuple[int, ...]
+    acceleration_violating_joint_indices: tuple[int, ...]
+
+    @property
+    def feasible(self) -> bool:
+        return not self.violating_joint_indices and not self.acceleration_violating_joint_indices
+
+
 class JointOutputFeasibilityTracker:
     """Bounded virtual copy of the native 8 ms latest-segment resampler.
 
@@ -139,18 +170,27 @@ class JointOutputFeasibilityTracker:
         maximum_velocity_rad_s: float,
         servo_period_ns: int,
         maximum_acceleration_rad_s2: float = math.inf,
-        numeric_tolerance_rad_s: float = OUTPUT_FEASIBILITY_NUMERIC_TOLERANCE_RAD_S,
+        velocity_tolerance_rad_s: float = OUTPUT_FEASIBILITY_VELOCITY_TOLERANCE_RAD_S,
+        acceleration_tolerance_rad_s2: float = OUTPUT_FEASIBILITY_ACCELERATION_TOLERANCE_RAD_S2,
         maximum_velocity_rad_s_per_joint: Sequence[float] | None = None,
         feasibility_acceleration_period_ns: int | None = None,
     ) -> None:
         boundary = float(maximum_velocity_rad_s)
-        tolerance = float(numeric_tolerance_rad_s)
+        velocity_tolerance = float(velocity_tolerance_rad_s)
+        acceleration_tolerance = float(acceleration_tolerance_rad_s2)
         if not math.isfinite(boundary) or boundary <= 0.0:
             raise ValueError("output velocity boundary must be finite and positive")
         if not isinstance(servo_period_ns, int) or servo_period_ns <= 0:
             raise ValueError("servo period must be a positive integer nanosecond count")
-        if not math.isfinite(tolerance) or tolerance < 0.0:
-            raise ValueError("output feasibility tolerance must be finite and non-negative")
+        if (
+            not math.isfinite(velocity_tolerance)
+            or velocity_tolerance < 0.0
+            or not math.isfinite(acceleration_tolerance)
+            or acceleration_tolerance < 0.0
+        ):
+            raise ValueError(
+                "output velocity/acceleration tolerances must be finite and non-negative"
+            )
         self.maximum_velocity_rad_s = boundary
         if maximum_velocity_rad_s_per_joint is None:
             self.maximum_velocity_rad_s_per_joint = (boundary,) * 6
@@ -172,13 +212,17 @@ class JointOutputFeasibilityTracker:
             raise ValueError("output acceleration boundary must be positive")
         self.servo_period_ns = servo_period_ns
         self.feasibility_acceleration_period_ns = feasibility_acceleration_period_ns
-        self.numeric_tolerance_rad_s = tolerance
+        self.velocity_tolerance_rad_s = velocity_tolerance
+        self.acceleration_tolerance_rad_s2 = acceleration_tolerance
         self._initial_rad: tuple[float, ...] | None = None
         self._last_accepted_ns: int | None = None
         self._segment_start_rad: tuple[float, ...] | None = None
         self._segment_destination_rad: tuple[float, ...] | None = None
         self._segment_duration_ns = servo_period_ns
         self._segment_entry_velocity_rad_s: tuple[float, ...] = (0.0,) * 6
+        self._coarse_position_rad: tuple[float, ...] | None = None
+        self._coarse_velocity_rad_s: tuple[float, ...] = (0.0,) * 6
+        self._coarse_timestamp_ns: int | None = None
 
     @classmethod
     def from_config(cls, config: JointOutputContractConfig) -> "JointOutputFeasibilityTracker":
@@ -186,7 +230,8 @@ class JointOutputFeasibilityTracker:
             maximum_velocity_rad_s=config.maximum_velocity_rad_s,
             servo_period_ns=config.servo_period_ns,
             maximum_acceleration_rad_s2=config.maximum_acceleration_rad_s2,
-            numeric_tolerance_rad_s=config.numeric_tolerance_rad_s,
+            velocity_tolerance_rad_s=config.velocity_tolerance_rad_s,
+            acceleration_tolerance_rad_s2=config.acceleration_tolerance_rad_s2,
             maximum_velocity_rad_s_per_joint=(
                 config.maximum_velocity_rad_s_per_joint
             ),
@@ -207,6 +252,103 @@ class JointOutputFeasibilityTracker:
         self._segment_destination_rad = values
         self._segment_duration_ns = self.servo_period_ns
         self._segment_entry_velocity_rad_s = (0.0,) * len(values)
+        self._coarse_position_rad = values
+        self._coarse_velocity_rad_s = (0.0,) * len(values)
+        self._coarse_timestamp_ns = None
+
+    def prefilter(
+        self,
+        joint_position_rad: Sequence[float],
+        *,
+        generated_monotonic_ns: int,
+    ) -> JointOutputPrefilter:
+        """Run the bounded, non-jerk Python screen used in the control tick."""
+
+        candidate = self._validated_joints(joint_position_rad)
+        timestamp = int(generated_monotonic_ns)
+        if timestamp <= 0:
+            raise ValueError("output feasibility timestamp must be positive")
+        if self._coarse_position_rad is None:
+            raise RuntimeError("output feasibility tracker has no authoritative initial state")
+        if self._coarse_timestamp_ns is None:
+            interval_ns = self.servo_period_ns
+        else:
+            interval_ns = timestamp - self._coarse_timestamp_ns
+            if interval_ns <= 0:
+                raise ValueError("accepted-target generation timestamps must be strictly monotonic")
+        # Use the producer interval as a coarse plausibility screen. Native
+        # remains authoritative for the finer 8 ms transition behavior.
+        interval_s = interval_ns / 1e9
+        velocity = tuple(
+            (value - previous) / interval_s
+            for value, previous in zip(candidate, self._coarse_position_rad, strict=True)
+        )
+        # This is intentionally a coarse producer-side screen.  Using the
+        # native 8 ms period here would require the Python path to predict a
+        # native transition it does not own, and would reject ordinary 60 Hz
+        # replacements whenever the previous candidate was moving.  Native
+        # remains authoritative for the actual 8 ms acceleration/jerk path.
+        acceleration_period_s = (
+            self.feasibility_acceleration_period_ns / 1e9
+            if self.feasibility_acceleration_period_ns is not None
+            else interval_s
+        )
+        acceleration = tuple(
+            (value - previous) / acceleration_period_s
+            for value, previous in zip(velocity, self._coarse_velocity_rad_s, strict=True)
+        )
+        return JointOutputPrefilter(
+            generated_monotonic_ns=timestamp,
+            interval_ns=interval_ns,
+            maximum_velocity_rad_s=max(map(abs, velocity), default=0.0),
+            maximum_acceleration_rad_s2=max(map(abs, acceleration), default=0.0),
+            violating_joint_indices=tuple(
+                index
+                for index, (value, boundary) in enumerate(
+                    zip(velocity, self.maximum_velocity_rad_s_per_joint, strict=True)
+                )
+                if abs(value) > boundary + self.velocity_tolerance_rad_s
+            ),
+            acceleration_violating_joint_indices=tuple(
+                index
+                for index, value in enumerate(acceleration)
+                if abs(value)
+                > self.maximum_acceleration_rad_s2 + self.acceleration_tolerance_rad_s2
+            ),
+        )
+
+    def commit_prefilter(
+        self,
+        joint_position_rad: Sequence[float],
+        *,
+        generated_monotonic_ns: int,
+        prefilter: JointOutputPrefilter,
+    ) -> None:
+        """Advance the coarse screen only after an accepted target."""
+
+        if not prefilter.feasible:
+            raise ValueError("an infeasible joint target cannot enter the accepted contract")
+        # ``prefilter`` is the boundary that validates the six finite joints;
+        # commit consumes that same trusted candidate without repeating the
+        # numerical scan on the hot path.
+        candidate = tuple(float(value) for value in joint_position_rad)
+        if len(candidate) != 6:
+            raise ValueError("output feasibility requires six joint radians")
+        timestamp = int(generated_monotonic_ns)
+        if timestamp != prefilter.generated_monotonic_ns:
+            raise ValueError("prefilter timestamp does not match candidate timestamp")
+        if self._coarse_timestamp_ns is not None and timestamp <= self._coarse_timestamp_ns:
+            raise ValueError("accepted-target generation timestamps must be strictly monotonic")
+        if self._coarse_position_rad is None:
+            raise RuntimeError("output feasibility tracker has no authoritative initial state")
+        interval_s = prefilter.interval_ns / 1e9
+        velocity = tuple(
+            (value - previous) / interval_s
+            for value, previous in zip(candidate, self._coarse_position_rad, strict=True)
+        )
+        self._coarse_position_rad = candidate
+        self._coarse_velocity_rad_s = velocity
+        self._coarse_timestamp_ns = timestamp
 
     def preview(
         self,
@@ -256,12 +398,13 @@ class JointOutputFeasibilityTracker:
                 )
             )
             if abs(value)
-            > boundary + self.numeric_tolerance_rad_s
+            > boundary + self.velocity_tolerance_rad_s
         )
         acceleration_violating = tuple(
             index
             for index, value in enumerate(acceleration)
-            if abs(value) > self.maximum_acceleration_rad_s2 + self.numeric_tolerance_rad_s
+            if abs(value)
+            > self.maximum_acceleration_rad_s2 + self.acceleration_tolerance_rad_s2
         )
         return JointOutputFeasibility(
             generated_monotonic_ns=timestamp,
@@ -293,6 +436,9 @@ class JointOutputFeasibilityTracker:
         self._segment_duration_ns = prediction.interval_ns
         self._segment_entry_velocity_rad_s = prediction.previous_emitted_velocity_rad_s
         self._last_accepted_ns = prediction.generated_monotonic_ns
+        self._coarse_position_rad = prediction.candidate_rad
+        self._coarse_velocity_rad_s = prediction.predicted_velocity_rad_s
+        self._coarse_timestamp_ns = prediction.generated_monotonic_ns
 
     def _emitted_state_before_replacement(
         self, elapsed_ns: int

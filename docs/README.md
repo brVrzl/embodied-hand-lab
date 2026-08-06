@@ -17,6 +17,7 @@ operator pages.
 - [Command reference](reference/command_reference.md)
 - [Current validation matrix](status/validation_matrix.md)
 - [Maintenance policy](maintenance/README.md)
+- [Runtime stop-condition audit](maintenance/runtime_stop_condition_audit.md)
 
 ## Architecture and safety
 

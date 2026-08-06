@@ -9,6 +9,8 @@ from .episode import (
     StartPrerequisites,
 )
 from .async_writer import AsyncEpisodeWriter
+from .raw_episode import RawEpisodeWriter
+from .lerobot_staging import LeRobotStagingWriter
 from .timeline import CausalTimeline, SourceSelection, TimestampRegression
 from .validation import load_data_quality_rows, validate_episode
 from .manifest import build_dataset_manifest, compute_train_statistics
@@ -19,6 +21,8 @@ __all__ = [
     "AsyncEpisodeWriter",
     "CanonicalEpisodeWriter",
     "CanonicalSample",
+    "RawEpisodeWriter",
+    "LeRobotStagingWriter",
     "CausalTimeline",
     "ControlSample",
     "EpisodeStatus",

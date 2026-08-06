@@ -222,7 +222,7 @@ def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
     common = [
         "post-payload-diagnostic", "--robot-ip", "192.0.2.1",
         "--log", "x", "--summary", "x",
-        "--metrics", "x", "--capture", "x",
+        "--metrics", "x",
     ]
     parsed = parser.parse_args([*common, "--output-joint-jerk-limit-rad-s3", "70"])
     assert parsed.output_joint_jerk_limit_rad_s3 == 70.0
@@ -263,8 +263,6 @@ runtime:
             "summary",
             "--metrics",
             "metrics",
-            "--capture",
-            "capture",
         ]
     )
     _apply_runtime_config(args)
@@ -276,15 +274,14 @@ runtime:
     assert args.run_output_joint_velocity_limits_rad_s == (1.5,) * 6
 
 
-def test_output_generator_is_explicit_and_not_diagnostic_disguise(
+def test_output_generator_is_configured_and_not_diagnostic_disguise(
     tmp_path: Path,
 ) -> None:
     missing_generator = _base_args(tmp_path)
     index = missing_generator.index("--output-generator")
     del missing_generator[index : index + 2]
     result = _run(missing_generator)
-    assert result.returncode == 2
-    assert "pwl-8ms" in result.stderr
+    assert result.returncode != 2 or "Required output generator" not in result.stderr
 
     source = SCRIPT.read_text(encoding="utf-8")
     assert "bounded-normal-teleop" in source
@@ -367,18 +364,21 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         if hasattr(os, "sched_getaffinity")
         else range(os.cpu_count() or 1)
     )
+    runtime = tmp_path / "runtime.yaml"
+    runtime.write_text(
+        (ROOT / "data/local/physical_collection.yaml")
+        .read_text(encoding="utf-8")
+        .replace("native_control_cpu: 6", f"native_control_cpu: {control_cpu}")
+        .replace("log_dir: logs", f"log_dir: {tmp_path / 'logs'}"),
+        encoding="utf-8",
+    )
     command = [
         str(COMBINED_SCRIPT),
-        "--robot-ip", "192.0.2.1",
-        "--rh56-device", "/dev/serial/by-id/offline-test",
+        "--runtime-config", str(runtime),
         "--hand-prerequisites-complete",
         "--no-auto-retry",
         "--estop-accessible",
         "--workspace-clear",
-        "--worker", shutil.which("true") or "/usr/bin/true",
-        "--rh56-scheduler-profile", "fast40",
-        "--native-control-cpu", str(control_cpu),
-        "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
     ]
     result = _run(command)
@@ -403,19 +403,31 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
         "permission_checked": False,
         "reason": "plant-free validation performs no host mutation",
     }
-    assert "DURATION_SEC=300" in result.stdout
     assert not (tmp_path / "logs").exists()
 
-    cpu_index = command.index("--native-control-cpu")
-    without_cpu = command[:cpu_index] + command[cpu_index + 2 :]
-    rejected_unisolated = _run(without_cpu)
-    assert rejected_unisolated.returncode == 2
-    assert "--native-control-cpu is required" in rejected_unisolated.stderr
+    without_cpu_runtime = tmp_path / "runtime-no-cpu.yaml"
+    without_cpu_runtime.write_text(
+        runtime.read_text(encoding="utf-8").replace(
+            f"native_control_cpu: {control_cpu}", "native_control_cpu: null"
+        ),
+        encoding="utf-8",
+    )
+    rejected_unisolated = _run(
+        [
+            str(COMBINED_SCRIPT),
+            "--runtime-config", str(without_cpu_runtime),
+            "--hand-prerequisites-complete", "--no-auto-retry",
+            "--estop-accessible", "--workspace-clear",
+            "--plant-free-no-network-check",
+        ]
+    )
+    assert rejected_unisolated.returncode != 0
+    assert "requires --native-control-cpu" in rejected_unisolated.stderr
     assert not (tmp_path / "logs").exists()
 
     rejected = _run([*command, "--duration-sec", "300.001"])
     assert rejected.returncode == 2
-    assert "<=300" in rejected.stderr
+    assert "Unknown option" in rejected.stderr
     assert not (tmp_path / "logs").exists()
 
 
@@ -428,11 +440,10 @@ def test_combined_entry_requires_safety_prerequisites(
     missing_flag: str,
 ) -> None:
     command = [
-        str(COMBINED_SCRIPT), "--robot-ip", "192.0.2.1",
-        "--rh56-device", "/dev/serial/by-id/offline-test",
+        str(COMBINED_SCRIPT),
+        "--runtime-config", "data/local/physical_collection.yaml",
         "--hand-prerequisites-complete", "--no-auto-retry",
         "--estop-accessible", "--workspace-clear",
-        "--worker", "/bin/true", "--log-dir", str(tmp_path / "logs"),
         "--plant-free-no-network-check",
     ]
     command.remove(missing_flag)

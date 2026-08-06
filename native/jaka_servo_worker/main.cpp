@@ -42,7 +42,7 @@ using jaka_servo::validate_manufacturer_joint_position_limits;
 constexpr std::uint32_t kTargetMagic = 0x4A544754;
 constexpr std::uint32_t kStatusMagic = 0x4A535441;
 constexpr std::uint16_t kWireVersion = 1;
-constexpr std::uint64_t kPeriodNs = 8'000'000;
+constexpr std::uint64_t kControllerServoPeriodNs = 8'000'000;
 constexpr std::size_t kMaximumSamples = 250'000;
 constexpr int kMaximumControlRealtimePriority = 10;
 constexpr double kProbeMaximumVelocityRadS = 0.005;
@@ -150,6 +150,8 @@ struct Options {
   std::string emitted_points_file;
   std::string cycle_telemetry_file;
   double duration_s = 5.0;
+  std::uint32_t servo_step_num = 1;
+  std::uint64_t servo_period_ns = kControllerServoPeriodNs;
   int expected_tool_id = 0;
   int expected_user_frame_id = 0;
   int probe_joint = 0;
@@ -305,6 +307,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--emitted-points-file") o.emitted_points_file = value_after(i, argc, argv);
     else if (a == "--cycle-telemetry-file") o.cycle_telemetry_file = value_after(i, argc, argv);
     else if (a == "--duration-s") o.duration_s = std::stod(value_after(i, argc, argv));
+    else if (a == "--servo-step-num") o.servo_step_num = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--expected-tool-id") o.expected_tool_id = std::stoi(value_after(i, argc, argv));
     else if (a == "--expected-user-frame-id") o.expected_user_frame_id = std::stoi(value_after(i, argc, argv));
     else if (a == "--probe-joint") o.probe_joint = std::stoi(value_after(i, argc, argv));
@@ -365,6 +368,7 @@ Options parse_options(int argc, char** argv) {
       std::cout << "  --maximum-output-joint-velocity-rad-s VALUE (legacy scalar)\n";
       std::cout << "  --maximum-output-joint-velocity-rad-s-per-joint J1,J2,J3,J4,J5,J6\n";
       std::cout << "  --output-joint-jerk-limit-rad-s3 VALUE (project-selected transition shaper)\n";
+      std::cout << "  --servo-step-num N (JAKA ServoJ period is N*8 ms; default 1)\n";
       std::cout << "  --recover-output-acceleration-transition\n";
       std::cout << "  --diagnostic-joint-acceleration-boundary-rad-s2 VALUE (shared recoverable boundary)\n";
       std::cout << "  --maximum-output-joint-acceleration-rad-s2 VALUE (native final hard boundary)\n";
@@ -374,6 +378,12 @@ Options parse_options(int argc, char** argv) {
     } else throw std::runtime_error("unknown option: " + a);
   }
   if (!(o.duration_s > 0.0 && o.duration_s <= 2000.0)) throw std::runtime_error("duration must be in (0, 2000] s");
+  if (o.servo_step_num < 1 || o.servo_step_num > 16)
+    throw std::runtime_error("servo step number must be in [1, 16]");
+  if (o.servo_step_num >
+      std::numeric_limits<std::uint64_t>::max() / kControllerServoPeriodNs)
+    throw std::runtime_error("servo step number overflows servo period");
+  o.servo_period_ns = kControllerServoPeriodNs * o.servo_step_num;
   if (o.control_cpu < -1 || o.control_cpu >= CPU_SETSIZE)
     throw std::runtime_error("control CPU must be -1 (disabled) or a valid CPU index");
   if (o.control_realtime_priority != -1 &&
@@ -1541,7 +1551,8 @@ class Backend {
                         std::array<double, 6>& solution) = 0;
   virtual double validate_kinematics(const CartesianState& target,
                                      const std::array<double, 6>& solution) = 0;
-  virtual void command(const std::array<double, 6>& joints) = 0;
+  virtual void command(const std::array<double, 6>& joints,
+                       std::uint32_t servo_step_num) = 0;
   virtual bool edg_active() const noexcept = 0;
   virtual void cleanup() noexcept = 0;
   virtual int cleanup_error_code() const noexcept = 0;
@@ -1580,7 +1591,8 @@ class FakeBackend final : public Backend {
   double validate_kinematics(const CartesianState&, const std::array<double, 6>&) override {
     return 1.0;
   }
-  void command(const std::array<double, 6>& joints) override { delay(options_.fake_write_delay_ns); fail(); if (!edg_) throw std::runtime_error("fake EDG inactive"); joints_ = joints; }
+  void command(const std::array<double, 6>& joints,
+               std::uint32_t) override { delay(options_.fake_write_delay_ns); fail(); if (!edg_) throw std::runtime_error("fake EDG inactive"); joints_ = joints; }
   bool edg_active() const noexcept override { return edg_; }
   void cleanup() noexcept override { edg_ = false; connected_ = false; }
   int cleanup_error_code() const noexcept override { return 0; }
@@ -1765,10 +1777,11 @@ class RealBackend final : public Backend {
       throw std::runtime_error("numerical Jacobian condition exceeds configured limit");
     return condition;
   }
-  void command(const std::array<double, 6>& joints) override {
+  void command(const std::array<double, 6>& joints,
+               std::uint32_t servo_step_num) override {
     JointValue value{};
     for (std::size_t i = 0; i < joints.size(); ++i) value.jVal[i] = joints[i];
-    require_sdk(robot_.edg_servo_j(&value, ABS, 1), "edg_servo_j");
+    require_sdk(robot_.edg_servo_j(&value, ABS, servo_step_num), "edg_servo_j");
   }
   bool edg_active() const noexcept override { return edg_; }
   void cleanup() noexcept override {
@@ -1879,7 +1892,7 @@ class JerkBoundedJointTracker {
   }
   const std::array<double, 6>& update(const std::array<double, 6>& target) {
     if (!initialized_) throw std::runtime_error("joint tracker is not initialized");
-    constexpr double dt = static_cast<double>(kPeriodNs) / 1e9;
+    const double dt = static_cast<double>(options_.servo_period_ns) / 1e9;
     const double frequency = std::min(4.0, options_.joint_acceleration_limit_rad_s2 /
                                            options_.joint_velocity_limit_rad_s);
     for (std::size_t joint = 0; joint < 6; ++joint) {
@@ -2121,7 +2134,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"outcome\":\"" << outcome << "\",\n"
       << "  \"stop_classification\":\""
       << stop_classification(outcome, error_code) << "\",\n"
-      << "  \"requested_period_ns\":" << kPeriodNs << ",\n"
+      << "  \"requested_period_ns\":" << o.servo_period_ns << ",\n"
       << "  \"configured_control_cpu\":" << o.control_cpu << ",\n"
       << "  \"configured_control_realtime_priority\":"
       << o.control_realtime_priority << ",\n"
@@ -2162,7 +2175,9 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"joint_specific_servo_alarm_code_available\":" << (teleop.joint_specific_servo_alarm_code_available ? "true" : "false") << ",\n"
       << "  \"controller_alarm_history_available\":false,\n"
       << "  \"initial_joint_position_rad\":[" << initial_joint_position_rad[0] << ',' << initial_joint_position_rad[1] << ',' << initial_joint_position_rad[2] << ',' << initial_joint_position_rad[3] << ',' << initial_joint_position_rad[4] << ',' << initial_joint_position_rad[5] << "],\n"
-      << "  \"edg_step_num\":1,\n"
+      << "  \"edg_step_num\":" << o.servo_step_num << ",\n"
+      << "  \"transport_hz\":"
+      << (1e9 / static_cast<double>(o.servo_period_ns)) << ",\n"
       << "  \"resampler_timestamp_domain\":\"AcceptedArmTarget.generated_monotonic_ns/CLOCK_MONOTONIC\",\n"
       << "  \"resampler_emitted_points\":" << resampler.emitted_points() << ",\n"
       << "  \"resampler_repeated_points\":" << resampler.repeated_points() << ",\n"
@@ -2185,9 +2200,10 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"official_servoj_joint_speed_ceiling_rad_s\":" << M_PI << ",\n"
       << "  \"official_servoj_joint_speed_ceiling_provenance\":\"JAKA ServoJ documentation\",\n"
       << "  \"startup_timing_grace_cycles\":" << o.startup_timing_grace_cycles << ",\n"
-      << "  \"completion_warning_lateness_ns\":" << kPeriodNs << ",\n"
-      << "  \"completion_hard_lateness_ns\":12000000,\n"
-      << "  \"timing_policy_provenance\":\"project-selected bounded 8 ms policy; not a JAKA acceleration/latency maximum\",\n"
+      << "  \"completion_warning_lateness_ns\":" << o.servo_period_ns << ",\n"
+      << "  \"completion_hard_lateness_ns\":"
+      << (o.servo_period_ns + o.servo_period_ns / 2) << ",\n"
+      << "  \"timing_policy_provenance\":\"project-selected bounded ServoJ-period policy; not a JAKA acceleration/latency maximum\",\n"
       << "  \"recoverable_output_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"diagnostic_joint_acceleration_boundary_rad_s2\":" << o.diagnostic_joint_acceleration_boundary_rad_s2 << ",\n"
       << "  \"native_output_joint_acceleration_hard_boundary_rad_s2\":" << o.maximum_output_joint_acceleration_rad_s2 << ",\n"
@@ -2197,6 +2213,11 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << jaka_servo::kOutputJerkHardBoundaryToleranceAbsoluteRadS3 << ",\n"
       << "  \"output_joint_jerk_tolerance_relative\":"
       << jaka_servo::kOutputJerkHardBoundaryToleranceRelative << ",\n"
+      << "  \"output_joint_jerk_transition_headroom_fraction\":"
+      << jaka_servo::kOutputJerkTransitionHeadroomFraction << ",\n"
+      << "  \"output_joint_jerk_transition_target_rad_s3\":"
+      << jaka_servo::output_jerk_transition_target(
+             o.output_joint_jerk_limit_rad_s3) << ",\n"
       << "  \"output_joint_jerk_hard_boundary_with_tolerance_rad_s3\":"
       << jaka_servo::output_jerk_hard_boundary_with_tolerance(
              o.output_joint_jerk_limit_rad_s3) << ",\n"
@@ -2416,20 +2437,22 @@ int run(const Options& o) {
   // calling control thread after backend setup so both the observer and any
   // SDK threads created by connect/EDG setup inherit the non-real-time mask.
   // Pinning before backend setup would also pin those future SDK threads to
-  // the reserved CPU and make them contend with the 8 ms control loop.
+  // the reserved CPU and make them contend with the configured ServoJ loop.
   BoundarySystemObserver system_observer(!o.metrics_file.empty());
   PlacementEvidence placement;
   auto samples_storage = std::make_unique<Samples>();
   Samples& samples = *samples_storage;
   JerkBoundedJointTracker tracker(o);
-  JointServoResampler joint_resampler;
+  JointServoResampler joint_resampler(o.servo_period_ns);
   OutputMotionDiagnostics output_diagnostics(o);
   OutputNoProgressHoldTracker output_hold(o);
   std::vector<RecordedServoPoint> recorded_servo_points;
   if (!o.emitted_points_file.empty()) recorded_servo_points.reserve(4096);
   std::vector<CycleTelemetry> cycle_telemetry;
   if (!o.cycle_telemetry_file.empty())
-    cycle_telemetry.reserve(static_cast<std::size_t>(o.duration_s * 125.0) + 16);
+    cycle_telemetry.reserve(
+        static_cast<std::size_t>(
+            o.duration_s * (1e9 / static_cast<double>(o.servo_period_ns))) + 16);
   TeleopMetrics teleop{};
   TargetPacket latest{}; bool ever_received = false;
   std::uint64_t accepted = 0, rejected = 0, last_sequence = 0, last_dispatch = 0, last_target_dispatch = 0, consecutive_overruns = 0;
@@ -2534,7 +2557,7 @@ int run(const Options& o) {
     system_observer.request(SystemSnapshotTrigger::WorkerStart,
                             placement_start_ns, placement_start_cpu);
     // Connection, verification, and initial state reads are setup work, not an
-    // 8 ms command-stream cycle. Start deadline monitoring only after setup so
+    // Configured ServoJ-period command-stream cycle. Start deadline monitoring only after setup so
     // normal SDK/network startup latency cannot cause a false first-cycle abort.
     start = now_ns();
     previous = start;
@@ -2542,7 +2565,7 @@ int run(const Options& o) {
     bool fake_start_delay_injected = false;
     bool fake_pre_command_delay_injected = false;
     while (!g_stop.load(std::memory_order_relaxed) && samples.count < kMaximumSamples) {
-      deadline += kPeriodNs;
+      deadline += o.servo_period_ns;
       timespec wake{static_cast<time_t>(deadline / 1'000'000'000), static_cast<long>(deadline % 1'000'000'000)};
       while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wake, nullptr) == EINTR && !g_stop.load()) {}
       if (!fake_start_delay_injected && o.fake_start_delay_once_ns > 0) {
@@ -2585,11 +2608,11 @@ int run(const Options& o) {
       bool timing_rearmed_after_edg = false;
       if (is_stream_mode(o.mode)) {
         // A single sub-period scheduler delay is recoverable by re-aligning the
-        // absolute deadline. Fault only after a full 8 ms wake is missed, a
-        // complete 16 ms start interval is exceeded, or warnings repeat.
+        // absolute deadline. Fault only after a full configured-period wake is
+        // missed, a complete two-period start interval is exceeded, or warnings repeat.
         const bool startup_grace = startup_timing_grace_active && !ever_received;
-        if (start_period > 16'000'000 ||
-            (wake_lateness >= kPeriodNs && !startup_grace)) {
+        if (start_period > 2 * o.servo_period_ns ||
+            (wake_lateness >= o.servo_period_ns && !startup_grace)) {
           const std::size_t row = samples.count++;
           samples.periods[row] = start_period;
           samples.wakes[row] = wake_lateness;
@@ -2610,7 +2633,9 @@ int run(const Options& o) {
           outcome = "hard_start_timing_miss";
           break;
         }
-        const bool warning = start_period > 8'800'000 || wake_lateness > 2'000'000;
+        const bool warning =
+            start_period > o.servo_period_ns + 800'000 ||
+            wake_lateness > 2'000'000;
         if (warning) {
           ++samples.timing_warnings;
           ++consecutive_timing_warnings;
@@ -2725,7 +2750,8 @@ int run(const Options& o) {
               teleop.kinematics_validation_max_ns, validation_duration);
           teleop.maximum_jacobian_condition = std::max(
               teleop.maximum_jacobian_condition, condition);
-          if (now_ns() > deadline + 12'000'000) {
+          if (now_ns() >
+              deadline + o.servo_period_ns + o.servo_period_ns / 2) {
             ++samples.hard_timing_misses;
             throw std::runtime_error("target generation exceeded hard completion boundary before command");
           }
@@ -2778,7 +2804,7 @@ int run(const Options& o) {
             if (startup_delta > o.startup_alignment_tolerance_rad)
               throw std::runtime_error("first Quest joint target lost alignment while entering EDG");
             // EDG activation is a one-time explicitly gated setup operation,
-            // not part of an 8 ms repeat-latest command cycle. Re-arm timing
+            // not part of a configured-period repeat-latest command cycle. Re-arm timing
             // only after activation and the second startup-alignment check.
             previous = now_ns();
             deadline = previous;
@@ -2798,7 +2824,7 @@ int run(const Options& o) {
             throw std::runtime_error("producer heartbeat contract mismatch");
           // Liveness advances independently of target validity.  Deliberately
           // do not call resampler.accept(): the last safe endpoint remains the
-          // exact 8 ms command while the shared generator evaluates retreat.
+          // exact configured-period command while the shared generator evaluates retreat.
           state = State::Holding;
         }
       }
@@ -2872,10 +2898,10 @@ int run(const Options& o) {
           throw std::runtime_error("persistent dynamic joint tracking boundary crossed");
         for (std::size_t joint = 0; joint < 6; ++joint)
           maximum_command_delta_rad = std::max(maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
-        const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
+        const auto write_start = now_ns(); backend->command(target, o.servo_step_num); command_time = now_ns(); write_duration = command_time - write_start;
       } else if ((is_joint_teleop_mode(o.mode) || is_joint_zero_motion_mode(o.mode)) &&
                  backend->edg_active() && has_ik_target) {
-        // Normal trajectory evaluation stays on the exact 8 ms deadline grid.
+        // Normal trajectory evaluation stays on the configured ServoJ deadline grid.
         // A recovered late wake evaluates once at current time and re-arms;
         // expired historical ticks are never emitted in a catch-up burst.
         const std::uint64_t servo_evaluation_time = timing_rearmed_after_edg
@@ -2962,7 +2988,7 @@ int run(const Options& o) {
         }
         if (consecutive_tracking_crossings >= o.excessive_tracking_error_consecutive_cycles)
           throw std::runtime_error("clearly excessive measured joint tracking error");
-        backend->command(target);
+        backend->command(target, o.servo_step_num);
         command_time = now_ns();
         write_duration = command_time - command_start;
         output_diagnostics.commit(servo_point, motion_sample);
@@ -3061,7 +3087,7 @@ int run(const Options& o) {
         }
         for (std::size_t joint = 0; joint < 6; ++joint)
           maximum_command_delta_rad = std::max(maximum_command_delta_rad, std::abs(target[joint] - initial[joint]));
-        const auto write_start = now_ns(); backend->command(target); command_time = now_ns(); write_duration = command_time - write_start;
+        const auto write_start = now_ns(); backend->command(target, o.servo_step_num); command_time = now_ns(); write_duration = command_time - write_start;
       }
       const auto cycle_end = now_ns();
       const int completion_cpu = sched_getcpu();
@@ -3095,7 +3121,7 @@ int run(const Options& o) {
       samples.accepted_target_ages[i] = last_target_dispatch
           ? cycle_start - std::min(cycle_start, last_target_dispatch) : 0;
       samples.command_ages[i] = command_time && last_dispatch ? command_time - std::min(command_time, last_dispatch) : 0;
-      if (cycle_end > deadline + kPeriodNs) {
+      if (cycle_end > deadline + o.servo_period_ns) {
         ++samples.missed;
         if (is_stream_mode(o.mode)) {
           ++samples.timing_warnings;
@@ -3112,7 +3138,8 @@ int run(const Options& o) {
           }
           samples.maximum_consecutive = std::max(samples.maximum_consecutive, consecutive_completion_misses);
           const bool startup_grace = startup_timing_grace_active && !ever_received;
-          if (cycle_end > deadline + 12'000'000 ||
+          if (cycle_end >
+                  deadline + o.servo_period_ns + o.servo_period_ns / 2 ||
               (!startup_grace && consecutive_completion_misses >= 2)) {
             ++samples.hard_timing_misses;
             samples.terminal_timing_fault_phase = "cycle_completion";
@@ -3192,7 +3219,7 @@ int run(const Options& o) {
     fault_outcome = std::string("fault: ") + e.what();
     outcome = fault_outcome.c_str();
   }
-  // Realtime priority is scoped strictly to the 8 ms command loop. Cleanup
+  // Realtime priority is scoped strictly to the configured ServoJ command loop. Cleanup
   // and JSON serialization return to the inherited normal scheduling class.
   restore_control_scheduler();
   // Make terminal state visible to the non-blocking producer before SDK

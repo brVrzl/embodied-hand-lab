@@ -1,9 +1,14 @@
-# Canonical episode dataset schema
+# Canonical and compact physical episode dataset schemas
 
 ## Scope and authority
 
 This page documents the dataset code that currently exists in
-`src/episode_dataset/`. It is the contract for
+`src/episode_dataset/`. The maintained physical collection entry uses the
+review-first `lerobot_staging_v1` contract; its JSONL/MP4 tree and approval
+workflow are documented in [DATA_COLLECTION.md](DATA_COLLECTION.md). The
+compact `raw_episode_v1` contract below is retained for offline compatibility.
+The remainder of this page documents the older canonical contracts for
+simulation and offline compatibility:
 `embodied_lab.single_episode.v1` and the physical-hand extension
 `embodied_lab.single_episode.v2`; examples or historical reports do not
 override the source schema.
@@ -22,6 +27,50 @@ camera payloads, causal clock, vector ordering, and lifecycle while declaring
 physical RH56 normalized actuator units and retaining raw register telemetry.
 The physical producer is wired only into the separately authorized combined
 JAKA/RH56 gate. Implementation and offline tests are not a physical PASS.
+
+## Compact physical `raw_episode_v1`
+
+The tracked dual-D435 physical collection configuration writes this smaller
+view so the control process does not spend storage and recorder bandwidth on
+fields that are not currently consumed:
+
+```text
+episode-<uuid>/
+  fixed_camera.mp4
+  wrist_camera.mp4
+  frames.parquet
+  episode.json
+  quality.parquet       # optional, only if a slot is abnormal
+  audit/
+    jaka_state.jsonl    # optional
+    rh56_feedback.jsonl # optional
+    data_quality.jsonl  # optional
+```
+
+`frames.parquet` has exactly four columns: `frame_index`, `timestamp_ns`,
+`observation.state`, and `action`. The two vector columns are fixed-size lists
+of 12 float32 values. The state/action ordering is:
+
+| Slice | Meaning | Units |
+| --- | --- | --- |
+| `observation.state[0:6]` | measured JAKA `J1..J6` | radians |
+| `observation.state[6:12]` | measured RH56 `H1..H6` | normalized 0..1 |
+| `action[0:6]` | accepted arm target `J1..J6` | radians |
+| `action[6:12]` | accepted hand target `H1..H6` | normalized 0..1 |
+
+Decoded frame `i` from each MP4 aligns with Parquet row `i`; `timestamp_ns`
+is the host monotonic timestamp for that row. TCP, Quest packets/events, and
+depth are not stored in this core table. TCP remains derivable offline from
+the measured arm state and reviewed calibration. `episode.json` explicitly
+declares `quest_recorded=false`, `depth_recorded=false`, and
+`tcp_recorded=false`. The maintained physical control flow has no Quest
+recording sink; Quest is still used as the live control input.
+
+`quality.parquet` is created only when at least one row is held/rejected or has
+invalid timing. It is a review sidecar, not an extra action/state stream.
+JAKA/RH56 audit JSONL is optional and does not replace the aligned table.
+`dataset validate` checks both this format and the canonical formats; physical
+validation remains false until a separately authorized bounded hardware gate.
 
 ## Episode directory
 
@@ -136,8 +185,8 @@ are implemented.
 | `arm_initial_measured_q_rad` | six floats | Initial arm position used by the start gate. |
 | `hand_initial_state`, `hand_initial_state_source` | six floats, provenance | Initial six-channel hand view and whether it was measured, commanded, estimated, or unavailable. |
 | `camera_serials`, `camera_profiles` | object | Role-to-device identity and resolved stream/profile metadata. |
-| `calibration_snapshot` | object | Version plus copied calibration files and SHA-256 values. |
-| `control_config` | object | Control config path and SHA-256 at collection time. |
+| `calibration_snapshot` | object | Version plus copied calibration files. Formal dataset manifests may hash published artifacts. |
+| `control_config` | object | Control config path and snapshot metadata; local control ticks do not hash it. |
 | `raw_streams` | object | Availability/provenance declaration for expected raw streams. |
 | `action_order`, `observation_state_order` | string arrays | Exact vector ordering defined below. |
 | `units` | object | Arm radians, arm radians/second, TCP metres and XYZW quaternion, hand radians, raw depth device units, host monotonic nanoseconds. |

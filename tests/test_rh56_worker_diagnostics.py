@@ -362,6 +362,42 @@ def test_feedback_timeout_and_protocol_decode_error_have_structured_context() ->
     assert protocol.value.as_dict()["register"] == "ANGLE_ACT"
 
 
+def test_one_fresh_feedback_read_timeout_holds_once_before_stale_fault() -> None:
+    class OneTimeoutBackend(FakeRH56PcDirectBackend):
+        fail_status = False
+
+        def read_register(self, address: int, length: int) -> list[int]:
+            if self.fail_status and address == self.REG["STATUS"]:
+                self.fail_status = False
+                raise RH56SerialError(
+                    "one offline status timeout",
+                    code="timeout",
+                    operation="read_register",
+                    address=address,
+                    register="STATUS",
+                )
+            return super().read_register(address, length)
+
+    backend = OneTimeoutBackend()
+    control = RH56PcDirectControl(backend, _config())
+    control.open(HandOperation.COMBINED)
+    control.poll_feedback(1_000_000_000)
+    control.activate(1_000_000_000)
+
+    backend.fail_status = True
+    cached = control.poll_feedback_register("STATUS", 1_100_000_000)
+    assert cached.monotonic_ns == 1_000_000_000
+    assert control.fault_reason is None
+    assert control.feedback_transient_hold_count == 1
+    assert control.command([0.1] * 6, 1_100_000_000) is False
+    assert control.last_command_disposition == "feedback_timeout_hold"
+
+    backend.fail_status = True
+    with pytest.raises(RH56SerialError):
+        control.poll_feedback_register("STATUS", 1_500_000_001)
+    assert control.fault_reason == "serial_feedback_failure"
+
+
 def test_command_write_error_is_structured_in_control_failure() -> None:
     class FailingWriteBackend(FakeRH56PcDirectBackend):
         def set_canonical_angles(self, values: list[int]) -> bool:

@@ -1,6 +1,8 @@
 dataset:
-  root: data/episodes
+  root: data/raw_episodes
+  format: lerobot_staging_v1
   fps: 30
+  video_codec: mp4v
   # Canonical selection is causal. A measured ~83 ms producer stall can leave
   # a healthy 30 Hz frame about 75 ms behind the next slot; 100 ms keeps that
   # recorder snapshot usable while longer camera stalls still abort capture.
@@ -36,8 +38,9 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    capture_depth: false
     allow_profile_fallback: true
-    align_depth_to_color: true
+    align_depth_to_color: false
     warmup_frames: 5
     timeout_ms: 5000
     max_timestamp_skew_ms: 33.333334
@@ -54,8 +57,9 @@ cameras:
     width: 640
     height: 480
     fps: 30
+    capture_depth: false
     allow_profile_fallback: true
-    align_depth_to_color: true
+    align_depth_to_color: false
     warmup_frames: 5
     timeout_ms: 5000
     max_timestamp_skew_ms: 33.333334

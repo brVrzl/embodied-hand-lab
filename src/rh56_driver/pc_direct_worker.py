@@ -495,13 +495,22 @@ class RH56PcDirectWorker:
                     raise
                 actual_end_ns = self._monotonic_ns()
                 self._note_io(actual_start_ns, actual_end_ns)
+                transient_timeout_hold = (
+                    self.control.last_command_disposition
+                    == "feedback_timeout_hold"
+                )
                 previous_success_ns = schedule["last_success_ns"]
-                schedule["last_success_ns"] = actual_end_ns
-                schedule["success_count"] = int(schedule["success_count"]) + 1
+                if transient_timeout_hold:
+                    schedule["failure_count"] = int(schedule["failure_count"]) + 1
+                    schedule["warning_active"] = True
+                else:
+                    schedule["last_success_ns"] = actual_end_ns
+                    schedule["success_count"] = int(schedule["success_count"]) + 1
                 intervals = schedule["interval_ms"]
                 assert isinstance(intervals, deque)
                 if (
                     self.diagnostics_enabled
+                    and not transient_timeout_hold
                     and isinstance(previous_success_ns, int)
                     and actual_end_ns > previous_success_ns
                 ):
@@ -509,7 +518,8 @@ class RH56PcDirectWorker:
                 schedule["next_due_ns"] = self._advance_deadline(
                     due_ns, int(schedule["period_ns"]), actual_end_ns
                 )
-                schedule["warning_active"] = False
+                if not transient_timeout_hold:
+                    schedule["warning_active"] = False
                 with self._lock:
                     self._feedback = feedback
                 if register == "ANGLE":

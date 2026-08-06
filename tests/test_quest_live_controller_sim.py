@@ -228,7 +228,7 @@ def test_live_ctrl_engages_real_sim_session_and_stale_faults_arm(tmp_path: Path)
     assert session._input_recovery_hard_stop_reason is None
 
 
-def test_input_recovery_timeout_latches_hard_stop(tmp_path: Path) -> None:
+def test_input_recovery_timeout_enters_persistent_hold(tmp_path: Path) -> None:
     session = _session(tmp_path, input_recovery_timeout_s=0.05)
     router = LiveQuestControllerRouter(stale_after_s=0.15)
     router.ingest(_hand(1, 1), session)
@@ -252,19 +252,32 @@ def test_input_recovery_timeout_latches_hard_stop(tmp_path: Path) -> None:
     router.poll(250_000_001, session)
     tick = session.control_tick(250_000_001)
     assert tick.reason == "QUEST_INPUT_RECOVERY_TIMEOUT"
-    assert tick.output_applied is False
-    assert session.event_records[-1]["control_state"] == "HARD_STOP"
+    assert tick.output_applied is True
+    assert session.event_records[-1]["control_state"] == "DISENGAGED"
+    assert session.event_records[-1]["heartbeat_applied"] is True
     assert session.input_recovery_timeout_count == 1
+    assert session._input_recovery_persistent_hold is True
+    assert session._input_recovery_hard_stop_reason is None
 
-    # Fresh input after a terminal timeout cannot clear the hard-stop latch.
+    # Fresh input after the deadline still requires a release before press.
     timestamp_ns = 270_000_000
     router.ingest(_hand(3, timestamp_ns), session)
     router.ingest(_head(2, timestamp_ns), session)
     router.ingest(_ctrl(3, timestamp_ns), session)
     router.poll(timestamp_ns, session)
     tick = session.control_tick(timestamp_ns)
-    assert tick.reason == "QUEST_INPUT_RECOVERY_TIMEOUT"
-    assert tick.output_applied is False
+    assert tick.reason == "DISENGAGED"
+    assert tick.output_applied is True
+    assert session._input_recovery_persistent_hold is False
+
+    timestamp_ns = 300_000_000
+    router.ingest(_hand(4, timestamp_ns), session)
+    router.ingest(_head(3, timestamp_ns), session)
+    router.ingest(_ctrl(4, timestamp_ns, index=1.0), session)
+    router.poll(timestamp_ns, session)
+    tick = session.control_tick(timestamp_ns)
+    assert tick.accepted_target is not None
+    assert tick.accepted_target.reference_generation == 2
 
 
 def test_hand_tracking_without_controller_cannot_authorize_motion(tmp_path: Path) -> None:

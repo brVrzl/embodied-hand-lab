@@ -35,10 +35,11 @@ class RGBDFrame:
     depth_aligned_to_color_units: np.ndarray | None = None
     serial_number: str | None = None
     depth_scale_m: float | None = None
+    depth_enabled: bool = True
 
     @property
     def timestamps_comparable(self) -> bool:
-        return self.color_timestamp_domain == self.depth_timestamp_domain
+        return self.depth_enabled and self.color_timestamp_domain == self.depth_timestamp_domain
 
     @property
     def timestamp_skew_ms(self) -> float:
@@ -62,6 +63,8 @@ class CameraInterface(ABC):
         if frame is None:
             frame = self.capture()
         self._compat_frame = None
+        if not frame.depth_enabled:
+            raise RuntimeError("this camera is configured for RGB-only capture")
         return frame.depth_m.copy()
 
     def get_intrinsics(self) -> CameraIntrinsics:

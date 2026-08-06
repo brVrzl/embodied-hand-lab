@@ -25,7 +25,6 @@ PLANT_FREE_NO_NETWORK_CHECK="false"
 OUTPUT_JERK_LIMIT_RAD_S3=""
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 
-EXPECTED_OUTPUT_GENERATOR="pwl-8ms"
 PROJECT_SHARED_HARD_VELOCITY_RAD_S="3.141592653589793"
 
 usage() {
@@ -33,7 +32,6 @@ usage() {
 Usage / 用法:
   ./scripts/run_quest_jaka_bounded_teleop.sh \
     --robot-ip ROBOT_IPV4 \
-    --output-generator pwl-8ms \
     --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
     --no-auto-retry \
     --estop-accessible \
@@ -42,15 +40,14 @@ Usage / 用法:
     [options]
 
 Runs one bounded normal-speed Quest/JAKA arm-only teleoperation attempt through
-the production AcceptedArmTarget + 8 ms PWL path. Releasing left index pauses
+the production AcceptedArmTarget + configured PWL path. Releasing left index pauses
 the arm; pressing it again captures a fresh reference and resumes. It never
 commands RH56.
-通过 production AcceptedArmTarget + 8 ms PWL 路径执行一次有界正常速度机械臂遥操作，
+通过 production AcceptedArmTarget + config 配置的 PWL 路径执行一次有界正常速度机械臂遥操作，
 不会命令 RH56。
 
 Required / 必填:
   --robot-ip IPV4
-  --output-generator pwl-8ms
   --no-auto-retry
   --estop-accessible
   --workspace-clear
@@ -62,6 +59,7 @@ Options / 可选:
   --port PORT             Quest/CTRL UDP port (default: 9000)
   --allowed-sender IPV4   Accept Quest packets only from this sender
   --duration-sec SEC      Positive duration, at most 60 (default: 30)
+  --output-generator VALUE Optional override; normally derived from config
   --joint-velocity-limits-rad-s J1 J2 J3 J4 J5 J6
                           J1-J6 default 1.5 rad/s
   --config PATH           Shared production live configuration
@@ -140,10 +138,6 @@ if [[ -z "${ROBOT_IP}" ]]; then
   echo "--robot-ip is required / 必须提供 --robot-ip" >&2
   exit 2
 fi
-if [[ "${OUTPUT_GENERATOR}" != "${EXPECTED_OUTPUT_GENERATOR}" ]]; then
-  echo "Required output generator / 必须使用输出生成器: ${EXPECTED_OUTPUT_GENERATOR}" >&2
-  exit 2
-fi
 if [[ "${NO_AUTO_RETRY}" != "true" ]]; then
   echo "--no-auto-retry is required / 必须提供 --no-auto-retry" >&2
   exit 2
@@ -188,7 +182,7 @@ if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" != "true" ]]; then
 fi
 
 echo "PHYSICAL_GATE=bounded-normal-teleop"
-echo "OUTPUT_GENERATOR=${OUTPUT_GENERATOR}"
+echo "OUTPUT_GENERATOR=${OUTPUT_GENERATOR:-from-config}"
 echo "JOINT_VELOCITY_LIMITS_RAD_S=${JOINT_VELOCITY_LIMITS[*]}"
 echo "DURATION_SEC=${DURATION_SEC}"
 echo "LOG_PREFIX=${LOG_PREFIX}"
@@ -207,7 +201,6 @@ CMD=(
   --bind "${BIND_HOST}"
   --port "${UDP_PORT}"
   --duration-sec "${DURATION_SEC}"
-  --output-generator "${OUTPUT_GENERATOR}"
   --run-output-joint-velocity-limits-rad-s "${JOINT_VELOCITY_LIMITS[@]}"
   --no-auto-retry
   --estop-accessible
@@ -217,11 +210,11 @@ CMD=(
   --log "${LOG_PREFIX}.jsonl"
   --summary "${LOG_PREFIX}_summary.json"
   --metrics "${LOG_PREFIX}_worker.json"
-  --capture "${LOG_PREFIX}_capture.jsonl"
   --native-telemetry "${LOG_PREFIX}_native.jsonl"
   --event-extract "${LOG_PREFIX}_events.jsonl"
 )
 [[ -n "${ALLOWED_SENDER}" ]] && CMD+=(--allowed-sender "${ALLOWED_SENDER}")
+[[ -n "${OUTPUT_GENERATOR}" ]] && CMD+=(--output-generator "${OUTPUT_GENERATOR}")
 [[ -n "${OUTPUT_JERK_LIMIT_RAD_S3}" ]] && CMD+=(--output-joint-jerk-limit-rad-s3 "${OUTPUT_JERK_LIMIT_RAD_S3}")
 if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == "true" ]]; then
   CMD+=(--plant-free-no-network-check)
