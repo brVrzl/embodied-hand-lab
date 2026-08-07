@@ -78,6 +78,62 @@ def test_native_final_joint_limits_match_python_contract() -> None:
     )
 
 
+def test_authoritative_measured_state_is_not_soft_clipped_at_startup() -> None:
+    measured = (
+        1.5624361730255556,
+        -0.12716468713111112,
+        -0.9298765030155555,
+        -6.208851628425556,
+        -1.05620343212,
+        6.192044108015556,
+    )
+    generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+
+    generator.synchronize_authoritative_arm_joints(list(measured))
+    assert generator.last_safe_joint_target == pytest.approx(measured)
+    assert generator.ik.arm_joints_rad == pytest.approx(measured)
+
+    result = generator.evaluate(
+        generator.capture_reference(),
+        dt_s=1.0 / 60.0,
+        generated_monotonic_ns=1_000_000_000,
+        fresh_measured_joint_position_rad=measured,
+    )
+    assert result.accepted
+    assert result.joint_target_rad == pytest.approx(measured)
+    assert result.metrics.joint_limit_blockers == ()
+    assert generator.ik.last_position_target_iterations_completed == 0
+
+    invalid = list(measured)
+    invalid[3] = -6.281
+    with pytest.raises(ValueError, match="manufacturer limits"):
+        generator.synchronize_authoritative_arm_joints(invalid)
+
+    def evaluate_wrist_motion(delta_j4: float):
+        trial = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
+        trial.synchronize_authoritative_arm_joints(list(measured))
+        trial.capture_reference()
+        target_q = list(measured)
+        target_q[3] += delta_j4
+        trial.ik.set_authoritative_arm_joints_rad(target_q)
+        target_pose = trial.current_tcp_pose
+        trial.ik.set_authoritative_arm_joints_rad(list(measured))
+        return trial.evaluate(
+            target_pose,
+            dt_s=1.0 / 60.0,
+            generated_monotonic_ns=1_000_000_000,
+            fresh_measured_joint_position_rad=measured,
+        )
+
+    retreat = evaluate_wrist_motion(0.001)
+    assert retreat.accepted
+    assert retreat.joint_target_rad[3] > measured[3]
+
+    toward_hard_limit = evaluate_wrist_motion(-0.001)
+    assert not toward_hard_limit.accepted
+    assert "joint_4_below_safe_limit" in toward_hard_limit.metrics.joint_limit_blockers
+
+
 def _tracker() -> JointOutputFeasibilityTracker:
     return JointOutputFeasibilityTracker(
         maximum_velocity_rad_s=math.pi,

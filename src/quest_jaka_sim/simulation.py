@@ -24,7 +24,6 @@ from embodiment_core.robot_limits import (
 from jaka_driver_adapter.palm_target_ik import (
     MJCF_ARM_JOINT_NAMES,
     PalmTargetIkState,
-    joint_limit_margin_blockers,
     safe_joint_limits_rad,
 )
 from motion_input import (
@@ -393,6 +392,34 @@ def classify_candidate(
     if metrics.environment_collision:
         return FeasibilityReason.ENVIRONMENT_COLLISION
     return FeasibilityReason.ACCEPTED
+
+
+def _joint_margin_blockers_allowing_retreat(
+    candidate_q: np.ndarray,
+    reference_q: np.ndarray,
+    margin_rad: float,
+) -> list[str]:
+    """Keep soft-margin rejection directional when measured state is nearby.
+
+    A measured joint may already be inside the conservative margin.  Holding
+    that exact state and moving back toward the safe interior are allowed; a
+    new candidate that moves farther toward the hard limit remains blocked.
+    """
+
+    blockers: list[str] = []
+    for index, (value, reference, (lower, upper)) in enumerate(
+        zip(
+            candidate_q,
+            reference_q,
+            safe_joint_limits_rad(margin_rad),
+            strict=True,
+        )
+    ):
+        if value < lower and not (reference < lower and value >= reference - 1e-9):
+            blockers.append(f"joint_{index + 1}_below_safe_limit")
+        elif value > upper and not (reference > upper and value <= reference + 1e-9):
+            blockers.append(f"joint_{index + 1}_above_safe_limit")
+    return blockers
 
 
 def _singularity_risk(
@@ -860,13 +887,13 @@ class SharedJakaTargetGenerator:
         if joints.shape != (6,) or not np.all(np.isfinite(joints)):
             raise ValueError("authoritative arm state must contain six finite radians")
         previous_joints = self.ik.arm_joints_rad.copy()
-        self.ik.set_arm_joints_rad(joints.tolist())
+        self.ik.set_authoritative_arm_joints_rad(joints.tolist())
         try:
             self._require_contact_free_authoritative_state(
                 "authoritative synchronization state"
             )
         except ValueError:
-            self.ik.set_arm_joints_rad(previous_joints.tolist())
+            self.ik.set_authoritative_arm_joints_rad(previous_joints.tolist())
             raise
         current = self._kinematic_tcp_pose
         self.initial_tcp = current
@@ -1014,7 +1041,7 @@ class SharedJakaTargetGenerator:
         ik_seed = self.last_safe_joint_target.copy()
         previous_target = self.last_safe_target
         phase_started_ns = time.perf_counter_ns()
-        self.ik.set_arm_joints_rad(ik_seed.tolist())
+        self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
         seed_fk_ns = time.perf_counter_ns() - phase_started_ns
         phase_started_ns = time.perf_counter_ns()
         current_condition, current_sigma, _ = self._jacobian_quality()
@@ -1040,7 +1067,7 @@ class SharedJakaTargetGenerator:
             # A partially computed candidate is never observable as the shared
             # authoritative state. Restore the last accepted seed before
             # returning the ordinary HOLD_REJECTED path to the output adapter.
-            self.ik.set_arm_joints_rad(ik_seed.tolist())
+            self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
             timing = CandidateComputationTiming(
                 seed_fk_ms=seed_fk_ns / 1e6,
                 pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
@@ -1076,7 +1103,7 @@ class SharedJakaTargetGenerator:
             # No legal equivalent representation exists.  The command branch
             # cannot be determined safely, so keep the terminal branch path;
             # ordinary periodic motion never reaches this path.
-            self.ik.set_arm_joints_rad(ik_seed.tolist())
+            self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
             timing = CandidateComputationTiming(
                 seed_fk_ms=seed_fk_ns / 1e6,
                 pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
@@ -1188,8 +1215,10 @@ class SharedJakaTargetGenerator:
             if self._contact_pair(self.ik.data, index) in new_contacts
         ]
         collision_check_ns = time.perf_counter_ns() - phase_started_ns
-        limit_blockers = joint_limit_margin_blockers(
-            candidate_q, margin_rad=limits.joint_limit_margin_rad
+        limit_blockers = _joint_margin_blockers_allowing_retreat(
+            candidate_q,
+            branch_reference,
+            limits.joint_limit_margin_rad,
         )
         if raw_joint_limit_limited:
             limit_blockers.extend(
@@ -1311,7 +1340,7 @@ class SharedJakaTargetGenerator:
             # producer deadline.
             if not metrics.hard_stop_required:
                 reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
-            self.ik.set_arm_joints_rad(ik_seed.tolist())
+            self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
         if reason is FeasibilityReason.ACCEPTED:
             self.output_feasibility.commit_prefilter(
                 candidate_q,

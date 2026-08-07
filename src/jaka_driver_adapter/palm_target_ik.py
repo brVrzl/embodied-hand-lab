@@ -260,10 +260,28 @@ class PalmTargetIkState:
         )
         self._clip_target_workspace()
         self.arm_joints_rad[5] += float(wrist_roll_velocity_rad_s) * dt
-        self._clip_arm_joints()
         self.last_position_target_ik_iterations_ns = 0
         self.last_position_target_final_fk_ns = 0
         self.last_position_target_iterations_completed = 0
+        self._forward()
+        position_error = self.target_palm_position_m - self.current_palm_position_m
+        if self.target_palm_quaternion_wxyz is None or self.orientation_ik_weight <= 0.0:
+            target_error_norm = float(np.linalg.norm(position_error))
+        else:
+            rot_delta = _quat_multiply_wxyz(
+                self.target_palm_quaternion_wxyz,
+                _quat_conjugate_wxyz(self.current_palm_quaternion_wxyz),
+            )
+            rot_error = _quat_to_rotvec_wxyz(rot_delta)
+            target_error_norm = float(
+                np.linalg.norm(
+                    np.concatenate(
+                        (position_error, self.orientation_ik_weight * rot_error)
+                    )
+                )
+            )
+        if target_error_norm < 1e-5:
+            return True
         for _ in range(self.ik_iterations):
             if (
                 compute_deadline_ns is not None
@@ -293,6 +311,26 @@ class PalmTargetIkState:
         self._clip_arm_joints()
         self._forward()
 
+    def set_authoritative_arm_joints_rad(self, joints: list[float]) -> None:
+        """Set an observed plant state without rewriting it to the soft margin."""
+
+        if len(joints) != 6:
+            raise ValueError("authoritative joints must contain 6 values.")
+        values = np.asarray(joints, dtype=np.float64)
+        if not np.all(np.isfinite(values)):
+            raise ValueError("authoritative joints must contain finite radians.")
+        for index, (value, (lower, upper)) in enumerate(
+            zip(values, JAKA_MINI2_JOINT_LIMITS_RAD, strict=True)
+        ):
+            if value < lower or value > upper:
+                raise ValueError(
+                    f"authoritative joint {index + 1} violates manufacturer limits"
+                )
+        self.arm_joints_rad[:] = values
+        self.joint_limit_limited = False
+        self.limited_joint_indices_1_based = []
+        self._forward()
+
     def reset_session(self, joints: list[float]) -> None:
         self.set_arm_joints_rad(joints)
         self.initial_palm_position_m = self.current_palm_position_m.copy()
@@ -316,11 +354,36 @@ class PalmTargetIkState:
             )
             self.target_workspace_limited = True
 
-    def _clip_arm_joints(self) -> None:
+    def _clip_arm_joints(
+        self,
+        *,
+        previous_joints: np.ndarray | None = None,
+        margin_rad: float | None = None,
+    ) -> None:
+        effective_margin = (
+            self.joint_limit_margin_rad if margin_rad is None else float(margin_rad)
+        )
+        attempted_joints = self.arm_joints_rad.copy()
         self.arm_joints_rad, limited = clip_joints_to_safe_limits(
             self.arm_joints_rad,
-            margin_rad=self.joint_limit_margin_rad,
+            margin_rad=effective_margin,
         )
+        if previous_joints is not None:
+            safe_limits = safe_joint_limits_rad(effective_margin)
+            for index, (previous, attempted, (lower, upper)) in enumerate(
+                zip(previous_joints, attempted_joints, safe_limits, strict=True)
+            ):
+                if previous < lower and attempted >= previous:
+                    self.arm_joints_rad[index] = attempted
+                elif previous > upper and attempted <= previous:
+                    self.arm_joints_rad[index] = attempted
+        limited = [
+            index
+            for index, (attempted, actual) in enumerate(
+                zip(attempted_joints, self.arm_joints_rad, strict=True)
+            )
+            if attempted != actual
+        ]
         self.joint_limit_limited = bool(limited)
         self.limited_joint_indices_1_based = [index + 1 for index in limited]
 
@@ -343,8 +406,9 @@ class PalmTargetIkState:
             damping = self._effective_damping(arm_jacobian)
             lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(3)
             delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
+            previous_joints = self.arm_joints_rad.copy()
             self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
-            self._clip_arm_joints()
+            self._clip_arm_joints(previous_joints=previous_joints, margin_rad=0.0)
             return
         jacp = np.zeros((3, self.model.nv), dtype=np.float64)
         jacr = np.zeros((3, self.model.nv), dtype=np.float64)
@@ -362,8 +426,9 @@ class PalmTargetIkState:
         damping = self._effective_damping(arm_jacobian)
         lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(6)
         delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
+        previous_joints = self.arm_joints_rad.copy()
         self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
-        self._clip_arm_joints()
+        self._clip_arm_joints(previous_joints=previous_joints, margin_rad=0.0)
 
     def _effective_damping(self, jacobian: np.ndarray) -> float:
         """Smoothly increase DLS damping only as solver Jacobian quality falls."""

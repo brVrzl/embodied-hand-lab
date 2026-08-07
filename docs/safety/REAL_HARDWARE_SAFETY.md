@@ -72,8 +72,12 @@ offset is never promoted to `JOINT_BRANCH_DISCONTINUITY` solely for exceeding
 that value.
 
 The measured post-EDG state is the startup authority. The first target must be
-continuous with that state. A newly captured Quest reference cannot legalize a
-joint jump.
+continuous with that state. A measured joint that is inside the manufacturer
+hard range but temporarily inside the conservative software soft margin is
+retained exactly; the soft margin applies to new motion candidates, not to
+rewriting measured state. An exact authoritative hold may therefore be
+accepted while the operator retreats from the margin. A newly captured Quest
+reference cannot legalize a joint jump.
 
 Normal combined operation currently requests the project-selected run limits
 of 1.5 rad/s for J1--J6. These are not manufacturer
