@@ -59,8 +59,6 @@ Confirm the failing feature's extra in
   and `.[realsense]`;
 - `ModuleNotFoundError: h5py` or LeRobot export failure: install
   `.[dataset-export]`;
-- `ModuleNotFoundError: torch`: install a platform-appropriate PyTorch build
-  or `.[training]`;
 - MediaPipe/OpenCV teleoperation import failure: install `.[vision-teleop]`.
 
 Do not solve a binary-wheel failure by mixing unrelated system, Conda, and pip
@@ -78,52 +76,11 @@ Inspect `problems`, `repository.required_paths`, and
   is incomplete or `EMBODIED_LAB_ROOT` points at the wrong directory.
 - A YAML error identifies the exact file; fix it through the owning schema,
   not merely until `yaml.safe_load` succeeds.
-- Missing MuJoCo, pyserial, RealSense, HDF5, or PyTorch is reported as an
-  optional capability and should be installed only for the intended role.
+- Missing MuJoCo, pyserial, RealSense, or HDF5 is reported as an optional
+  capability and should be installed only for the intended role.
 
 Doctor does not prove hardware connectivity. Seeing `/dev/tty*` or
 `/dev/video*` only proves that a device path exists at inventory time.
-
-## CUDA or PyTorch mismatch
-
-Collect distinct layers:
-
-```bash
-nvidia-smi
-nvcc --version
-.venv/bin/python - <<'PY'
-import torch
-print("torch", torch.__version__)
-print("compiled CUDA", torch.version.cuda)
-print("CUDA available", torch.cuda.is_available())
-print("device count", torch.cuda.device_count())
-print("cuDNN", torch.backends.cudnn.version())
-PY
-```
-
-Interpret them correctly:
-
-- `nvidia-smi` reports the host driver and visible GPUs;
-- `nvcc` reports the optional system CUDA toolkit;
-- `torch.version.cuda` reports the CUDA version used to build PyTorch;
-- `torch.cuda.is_available()` tests whether that build can use the current
-  driver/device environment.
-
-A system toolkit is not required for every prebuilt PyTorch wheel, and its
-version need not equal `torch.version.cuda`. If `nvidia-smi` fails, fix the
-host driver/runtime before Python. If `nvidia-smi` works but PyTorch sees no
-GPU, inspect the installed PyTorch build, `CUDA_VISIBLE_DEVICES`, container GPU
-exposure, permissions, and driver compatibility.
-
-This repository currently has no model trainer. Use:
-
-```bash
-.venv/bin/embodied-lab distributed-smoke --check
-```
-
-before attempting collectives. See
-[Distributed training](training/DISTRIBUTED_TRAINING.md) for Gloo/NCCL,
-multi-node, Slurm, shared-memory, and profiling diagnosis.
 
 ## MuJoCo import or model-load failure
 
@@ -137,7 +94,7 @@ First isolate the headless maintained path:
 If import fails, reinstall `.[simulation]` in the active interpreter. If model
 loading fails:
 
-1. confirm `data/sim_assets/jaka_rh56_visual_coacd.xml` exists;
+1. confirm `assets/jaka_rh56_visual_coacd.xml` exists;
 2. preserve the repository-relative MJCF/mesh layout;
 3. check case-sensitive filenames on Linux;
 4. inspect the full MuJoCo XML error, including referenced line/path;
@@ -178,9 +135,10 @@ If no device appears, inspect cable, power, USB port, hub, kernel log, and
 librealsense udev rules. If the device appears only under `sudo`, fix udev/group
 permissions; do not run the robot stack as root.
 
-If a configured serial is wrong, record the actual serial and preserve role
-assignment. `configs/camera/realsense_thor.yaml` contains site-specific
-serials, not universal defaults.
+If a configured serial is wrong, update
+`configs/data_collection/physical_collection.yaml` and preserve role
+assignment. Verify the identity before a physical run; the YAML itself does
+not authorize opening a camera or robot connection.
 
 `tools/check_realsense_stream.py` opens a camera and writes snapshots. Use it
 only when an actual camera probe is intended:
@@ -478,30 +436,6 @@ artifacts; regenerate them from the canonical episode rather than editing them
 in place. Dataset splits must remain episode-level so adjacent frames from one
 demonstration do not leak across train and validation.
 
-## Checkpoint cannot load or resume
-
-There is no repository model trainer or implemented model-checkpoint resume
-path yet. A failure from an external ACT, Diffusion Policy, or OpenPI/pi0
-integration must be diagnosed in that integration without claiming the core
-repository produced the checkpoint.
-
-For future integrations verify:
-
-- checkpoint completed its temporary-write/atomic-rename sequence;
-- file/directory hash and format are valid;
-- model architecture, action dimension, camera order, image size, temporal
-  horizon, and action chunk match;
-- dataset/schema version and normalization statistics match;
-- optimizer, scheduler, scaler, RNG, epoch, and global step exist for full
-  resume;
-- precision, world size, global batch, and learning rate changes are explicit;
-- DDP saved unwrapped weights and only rank zero wrote the main checkpoint;
-- framework-native sharded checkpoints were merged/exported by that framework.
-
-Do not load a partially written `.tmp` file or silently fall back to weights
-only. See the checkpoint contract in
-[Distributed training](training/DISTRIBUTED_TRAINING.md).
-
 ## Jetson Thor memory pressure
 
 First identify which memory is exhausted: system RAM, unified GPU memory,
@@ -540,3 +474,66 @@ require:
 Installation details are in [Installation](setup/INSTALLATION.md), and
 configuration ownership is in
 [Configuration](configuration/CONFIGURATION.md).
+
+---
+
+# 中文版：故障排查
+
+排查顺序是：先保存原始日志和停止原因，再区分软件/数据问题、bounded hold、recording degraded、
+diagnostic-only 和真正的 hard stop。不要自动重试 hard fault，也不要通过修改安全阈值让采集继续。
+
+## CLI、Python 和 MuJoCo
+
+- 找不到 `embodied-lab`：重新执行 `.venv/bin/python -m pip install -e .`，再运行 `--help`。
+- import 或依赖失败：确认 Python 版本和当前 extra；不要用静默 fallback 隐藏依赖问题。
+- `doctor` 报 `not_ready`：把它当作离线 prerequisite 报告，不等同于设备故障；确认路径、配置和
+  可选包后再运行对应的 simulation smoke。
+- MuJoCo load/render 失败：从仓库根目录运行，检查 `assets/` 相对路径、display、`MUJOCO_GL` 和
+  simulation extra。仿真失败不授权连接真机。
+
+## Quest 和输入
+
+- 没有 Quest packet：先检查 `tools/quest_hand_tracking_streamer.py --help` 和 input-only gate，
+  确认 bind/port/project IP/firewall/sender identity；不要把 source timestamp 与 host clock 直接相减。
+- tracking 或 CTRL stale：arm/hand 进入 bounded hold；恢复后必须遵守 release-before-press 和 fresh
+  reference。input recovery timeout 不是伪造 heartbeat 的理由；producer/process/IPC/native watchdog
+  liveness loss 仍是 hard stop。
+- clutch 不恢复：确认两路都实际 release，再产生新的 press edge；不要复用旧 reference 或旧 session。
+
+## JAKA
+
+- native worker build 失败：运行 CMake build，检查 Linux SDK library、architecture 和 `ldd`；build/help
+  不会连接 controller。
+- gate 拒绝：核对显式 robot IP、native CPU/priority、duration、E-stop、workspace、no-retry 和其他
+  acknowledgements。不要删除 gate。
+- `controller_alarm`、collision、E-stop、SDK fault、hard timing、watchdog/liveness、actual joint 或
+  shaped output violation：停止并保留 evidence。不得通过提高阈值、跳过 native check 或依赖 controller
+  alarm 作为正常筛选来处理。
+- `HOLD_REJECTED`、IK no solution、candidate infeasible、soft joint margin 或 continuation budget：
+  保持最后安全目标和新鲜 heartbeat，允许操作者退出不可行方向；这不是进程 hard stop。
+
+## RH56
+
+- serial 找不到：使用明确的 `/dev/serial/by-id/...`，先做 preflight，不要假设 `/dev/ttyUSB0`。
+- timeout：单次 timeout 且上一完整 feedback 仍 fresh 时可 hand-local retry/hold；连续 stale、worker
+  death、checksum/protocol/write failure 或非零 `ERROR` 必须保持 fatal。
+- `STATUS` 的未知值不猜含义，也不削弱 `ERROR` gate。ordinary rate-limit 和 contact clamp 只影响
+  hand hold，不应停止健康 arm。
+- 打开 serial 不应自动 write register、clear error、open hand 或设置 speed/force。
+
+## RealSense、recorder 和数据
+
+- 相机找不到或 profile 不匹配：先按 serial 独立 preflight；不要按 `/dev/video*` 顺序绑定角色。
+- isolated stale/drop/ring expiry、preview lag、queue drop：记录为 `RECORDING_DEGRADED`，不能停止
+  健康 robot control。
+- 持续 acquisition failure：可以停止 recording；writer crash 可以 abort episode；两者都不能自动
+  对 JAKA/RH56 emergency stop。
+- JSONL 与 MP4 不对齐：隔离该 staging episode，检查 frame count、strict timestamp、camera role 和
+  quality metadata；不要把 partial 目录改名成完整数据。
+- 转换失败：先完成 review/approve，确认 episode `completed` 且不是 partial，再运行 `convert-staging`。
+
+## 何时停止
+
+无法确定 actuator command state、cleanup 不确定、实际控制活性丢失或任何 hard fault 时，立即停止
+当前流程并保存日志。不要为追求采集数量而重启、重试或扩大边界；按照[事故响应](safety/incident_response.md)
+处理，并把状态如实记录为 offline、simulation、partial physical 或 not validated。

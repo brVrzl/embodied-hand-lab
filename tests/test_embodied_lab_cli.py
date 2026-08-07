@@ -26,10 +26,6 @@ def test_unified_cli_help_and_dataset_help() -> None:
     expected_usage = {
         ("--help",): "usage: embodied-lab",
         ("dataset", "--help"): "usage: embodied-lab dataset",
-        ("distributed-smoke", "--help"): (
-            "usage: embodied-lab distributed-smoke"
-        ),
-        ("benchmark", "--help"): "usage: embodied-lab benchmark",
     }
     for arguments, usage in expected_usage.items():
         result = subprocess.run(

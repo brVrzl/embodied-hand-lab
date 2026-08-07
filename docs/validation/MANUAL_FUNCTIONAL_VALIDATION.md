@@ -58,13 +58,7 @@ cmake -S native/jaka_servo_worker \
   -B build/jaka_servo_worker -DCMAKE_BUILD_TYPE=Release
 cmake --build build/jaka_servo_worker -j2
 
-cmake -S native/teleop_shaping \
-  -B build/teleop_shaping -DCMAKE_BUILD_TYPE=Release
-cmake --build build/teleop_shaping -j2
-ctest --test-dir build/teleop_shaping --output-on-failure
-
 .venv/bin/embodied-lab sim smoke
-.venv/bin/embodied-lab benchmark configs/benchmark/smoke.yaml
 ```
 
 Pass criteria:
@@ -73,9 +67,9 @@ Pass criteria:
   failed or error outcome. Skips must be reviewed, not counted as passes.
 - Doctor reports `ready_offline`, parses every maintained YAML, and records
   `device_connections_attempted=false` and `robot_commands_sent=false`.
-- Teleop shaping reports 3/3 CTest. `native/jaka_servo_worker` currently has no
-  CTest entries; its criterion is a successful build of the resampler and, on
-  supported Linux, the SDK-linked worker.
+- `native/jaka_servo_worker` currently has no CTest entries; its criterion is a
+  successful build of the resampler and, on supported Linux, the SDK-linked
+  worker.
 - Sim smoke reports finite state, a loaded model, and bounded drift.
 - Benchmark reports `status=passed`; inspect the JSON at
   `build/validation/benchmark.json` rather than accepting only exit status.
@@ -228,19 +222,8 @@ nonfinite actions are rejected before state/SDK commit, and joint/velocity/
 acceleration/jerk limits remain independent. This is deterministic offline
 evidence, not a manual physical watchdog test.
 
-### 6. Benchmark and unavailable simulation functions
-
-```bash
-.venv/bin/embodied-lab benchmark \
-  configs/benchmark/smoke.yaml \
-  --output build/validation/manual-benchmark.json
-```
-
-The current benchmark covers JAKA joint reach tracking and RH56 pre-shape
-only. It does not implement grasp, lift, transport, place, or release.
-
 - External/wrist simulated RGB-D camera views: **NOT IMPLEMENTED — DO NOT
-  CLAIM VALIDATED**. The canonical producer uses two physical D435 cameras.
+CLAIM VALIDATED**. The canonical producer uses two physical D435 cameras.
 - Pure-simulation canonical episode capture: **NOT IMPLEMENTED — DO NOT CLAIM
   VALIDATED**. Live simulation joint logs are not canonical episodes.
 - Interactive action injection/reset/E-stop CLI: **NOT IMPLEMENTED — DO NOT
@@ -267,17 +250,14 @@ ping -c 3 -W 1 <CONFIRM_FROM_CURRENT_CONTROLLER>
 ldd build/jaka_servo_worker/jaka_servo_worker
 readelf -d build/jaka_servo_worker/jaka_servo_worker
 
-./scripts/run_quest_jaka_bounded_teleop.sh \
-  --robot-ip 192.0.2.10 \
-  --output-generator pwl-8ms \
-  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
-  --no-auto-retry --estop-accessible --workspace-clear \
-  --rh56-command-path-absent \
-  --plant-free-no-network-check
+./scripts/run_quest_jaka_bounded_teleop.sh --help
+
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q \
+  tests/test_quest_jaka_bounded_teleop_entry.py
 ```
 
-The last command uses the TEST-NET address `192.0.2.10` and exits before
-sockets or hardware. It validates only gate/config/worker parsing. `ping` is a
+The help command and offline test validate the maintained entry and its
+YAML-owned runtime contract without opening sockets or hardware. `ping` is a
 network reachability check; it does not load the SDK or command the robot.
 
 ### RH56 identity and feedback
@@ -302,7 +282,6 @@ register and produces no commanded motion):
 ```bash
 ./scripts/run_quest_rh56_hand_test.sh \
   --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
-  --read-only \
   --duration-sec 10 \
   --jsonl logs/rh56_read_only.jsonl \
   --summary logs/rh56_read_only.summary.json
@@ -368,8 +347,7 @@ git status --short
 
 Pass criteria: configs parse, output paths are writable, no private serial/IP
 is added to tracked configs, and physical wrappers still require explicit
-runtime safety prerequisites plus `--no-auto-retry`. Doctor does not open any
-device.
+runtime safety prerequisites. Doctor does not open any device.
 
 ## Level 3 — isolated low-risk actuator motion
 
@@ -395,7 +373,7 @@ disconnect and E-stop accessible.
   --delta 0.03 \
   --duration-sec 2 \
   --hold-sec 2 \
-  --manual-stop-accessible --workspace-clear --no-auto-retry \
+  --manual-stop-accessible --no-auto-retry \
   --jsonl "logs/rh56_bounded_index.jsonl" \
   --summary "logs/rh56_bounded_index.summary.json"
 ```
@@ -468,14 +446,12 @@ Run the two single-camera commands from Level 2 while the robots remain
 E-stopped. Verify RGB/depth alignment, role, frame number, timestamp, FPS, and
 USB bandwidth before a dual-camera episode.
 
-Prepare an ignored local config; never put serials/private calibration into the
-tracked example:
+Review the unified tracked collection config and verify both serials/private
+calibration before the separately gated run:
 
 ```bash
-mkdir -p data/local data/episodes data/reports
-cp configs/data_collection/dual_d435_episode.example.yaml \
-  data/local/dual_d435_episode.yaml
-${EDITOR:-vi} data/local/dual_d435_episode.yaml
+mkdir -p data/episodes data/reports
+${EDITOR:-vi} configs/data_collection/physical_collection.yaml
 ```
 
 Replace both serial placeholders with distinct devices and review calibration
@@ -484,7 +460,7 @@ real D435 cameras while commanding MuJoCo only:
 
 ```bash
 .venv/bin/python tools/quest_jaka_mujoco_sim.py live-6dof \
-  --episode-data-config data/local/dual_d435_episode.yaml \
+  --episode-data-config configs/data_collection/physical_collection.yaml \
   --episode-root data/episodes \
   --task-name <TASK_ID> \
   --operator <PSEUDONYMOUS_OPERATOR_ID> \
@@ -565,13 +541,7 @@ required second step and produces no motion.
 
 ```bash
 ./scripts/run_quest_jaka_bounded_teleop.sh \
-  --robot-ip <CONFIRM_FROM_CURRENT_CONTROLLER> \
-  --edg-state-ip <CONFIRM_FROM_CURRENT_NETWORK_CONFIG> \
-  --allowed-sender <QUEST_IPV4> \
-  --duration-sec 30 \
-  --output-generator pwl-8ms \
-  --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
-  --no-auto-retry --estop-accessible --workspace-clear \
+  --runtime-config configs/data_collection/physical_collection.yaml \
   --rh56-command-path-absent
 ```
 
@@ -592,7 +562,7 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
   --device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
   --quest-teleop \
   --duration-sec 30 \
-  --manual-stop-accessible --workspace-clear --no-auto-retry \
+  --manual-stop-accessible --no-auto-retry \
   --capture "logs/rh56_quest_hand_${timestamp}.hts.jsonl" \
   --events "logs/rh56_quest_hand_${timestamp}.events.jsonl" \
   --jsonl "logs/rh56_quest_hand_${timestamp}.telemetry.jsonl" \
@@ -610,13 +580,7 @@ motion.
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --robot-ip <CONFIRM_FROM_CURRENT_CONTROLLER> \
-  --edg-state-ip <CONFIRM_FROM_CURRENT_NETWORK_CONFIG> \
-  --rh56-device /dev/serial/by-id/<CONFIRM_ADAPTER_ID> \
-  --allowed-sender <QUEST_IPV4> \
-  --duration-sec 60 \
-  --hand-prerequisites-complete --no-auto-retry \
-  --estop-accessible --workspace-clear
+  --runtime-config configs/data_collection/physical_collection.yaml
 ```
 
 First combined run: keep left index released throughout and operate grip only;
@@ -631,7 +595,7 @@ dual-camera episode. Adding cameras does not justify claiming physical dataset
 collection. A physical short episode, object task, and stop/recovery trial are
 **NOT IMPLEMENTED — DO NOT CLAIM VALIDATED** as canonical workflows.
 
-## Level 6 — physical benchmark boundary
+## Level 6 — physical task boundary
 
 The repository implements no physical object-task benchmark runner. Therefore
 the required sequence has the following current status:
@@ -647,18 +611,9 @@ the required sequence has the following current status:
 | place | NOT IMPLEMENTED — DO NOT CLAIM VALIDATED |
 | release | NOT IMPLEMENTED — DO NOT CLAIM VALIDATED |
 
-Do not repurpose teleoperation as a benchmark command. Before implementing a
-runner, define task/object/initial-pose distributions and log at least:
-`task_id`, `object_id`, initial pose, config hash, trial number, success,
-failure reason, completion time, drop, command/feedback discrepancy, raw
-status/error, and video/log paths. The existing offline benchmark remains:
-
-```bash
-.venv/bin/embodied-lab benchmark configs/benchmark/smoke.yaml \
-  --output build/validation/offline-only-benchmark.json
-```
-
-It validates only simulated joint reach tracking and hand pre-shape.
+No physical object-task runner is maintained here. Any future task runner must
+define task/object/initial-pose distributions and record its success and
+failure evidence separately from teleoperation and episode capture.
 
 ## Stopping and recovery
 
@@ -693,3 +648,74 @@ an interrupted `.partial`, preserve it for forensics and recollect; do not
 rename it to look complete. Move temporary validation outputs to a named `/tmp`
 archive as shown in Level 0. Never delete datasets, recordings, calibration,
 weights, or experimental results as cleanup.
+
+---
+
+# 中文版：分阶段手动功能验证
+
+本页是维护的验证流程。任何真实设备操作都必须由操作者单独授权，并保留明确的设备身份、
+有界时长/位移、E-stop 可达、workspace 检查和 cleanup 证据。Level 0/1、fake worker、replay 或
+没有 gate 证据的日志都不能写成真机 PASS。
+
+## 通用停止规则
+
+遇到 controller alarm、collision、E-stop、power/enable loss、SDK fault、native hard timing、
+watchdog/liveness loss、tracking divergence、actual joint/output violation、branch/winding fault、
+RH56 `ERROR`/protocol fault 或 cleanup 不确定，立即停止并保留原始日志。不要自动 retry，不要提高
+joint/velocity/acceleration/jerk/watchdog 限制，也不要把 JAKA controller 当作正常轨迹筛选层。
+
+candidate infeasible、IK no solution、soft joint margin、singularity candidate rejection、Quest
+transient loss、temporary feedback stale 或 recorder quality 问题必须按 bounded hold 或 recording
+degraded 处理：不提交当前 candidate，保持最后安全目标/新鲜 heartbeat，允许操作者退出并从 fresh
+measured state 重新 capture。孤立相机 stale、preview、event log 或统计问题不能停止健康控制。
+
+## Level 0：环境和离线基线
+
+从仓库根目录完成 `doctor`、YAML 解析、Python compile、核心 pytest、native build/help、MuJoCo
+headless smoke、RH56 H0 simulation 和 dataset schema/episode validation。确认所有结果标注为
+offline tested 或 simulation validated；不连接 JAKA、RH56、Quest 或 D435。
+
+## Level 1：仿真
+
+按顺序检查 model/viewer、六个 RH56 actuator、Quest 输入、JAKA 六关节、联合 arm/hand、recording
+replay、clutch/recovery、reject/hold、watchdog 和 cleanup。确认 MuJoCo 与 JAKA adapter 共享
+`AcceptedArmTarget`，物理 adapter 不读 `qpos`、不重算 IK，native joint mode 不调用 JAKA inverse kinematics。
+
+每个 episode 必须独立 finalize；frame index 从 0 开始，timestamp 单调，state/action 与视频不串线。
+
+## Level 2：真机无运动检查
+
+在任何 actuator motion 前，独立确认 workspace、E-stop、网络、SDK gate、controller mode、payload/
+COM/TCP/install 状态、JAKA/RH56 identity、Quest sender、RealSense serial、磁盘和日志目录。RH56
+先做 identity/read-only feedback；相机先逐台按 serial preflight；Quest 先做 input-only transport。
+这些步骤不等于可以发送 motion command。
+
+## Level 3：隔离低风险动作
+
+按维护的 gate 顺序分别进行 RH56 单 channel、JAKA 小范围指定关节和必要的静态 hold/return。每一项
+都必须有独立的 stop access、明确边界、operator initiated start/stop 和 cleanup。任何实际 collision、
+alarm、unexpected movement 或 feedback/command state 不确定都停止，不继续扩大范围。
+
+## Level 4：相机和数据采集
+
+先做双相机身份/USB/profile 检查，再做 robot disabled 的本地 recorder smoke，然后做 MuJoCo 加相机，
+最后才考虑已授权的 physical staging。采集默认 RGB-only；Quest packet、TCP、depth 不进入默认训练视图。
+检查 JSONL 与两路 MP4 帧数、strict timestamp、camera role、quality metadata、partial 文件和人工
+review。相机 stale/drop/ring expiry/queue drop 只能降级 recording；持续 acquisition/writer failure
+停止 recording，但不对健康 JAKA/RH56 emergency stop。
+
+## Level 5：分阶段遥操作
+
+先验证 JAKA-only、RH56-only，再验证 combined。使用现有 release-before-press clutch：transient
+tracking loss 只 hold，恢复后 release-before-press 和 fresh measured reference；input/process/IPC/
+native liveness loss 才可以 hard stop。先做短时、低幅度、有界任务；不要把完成一次采集写成长期或
+完整 workspace PASS。
+
+## Level 6：任务边界、停止和恢复
+
+任务成功必须由人工独立标注，不能由 `completed` 推断。Ctrl+C 或自然结束只影响最后一条 partial
+episode，前面已 finalized 的 episode 保留。事故发生时保存 raw logs、terminal reason、config revision、
+device identity 和 cleanup 结果，隔离 partial 数据，按[事故响应](../safety/incident_response.md)处理。
+
+所有结论必须明确写成 offline tested、simulation validated、partial physical、physical PASS、physical
+FAIL 或 not validated；任何历史结果都不能自动授权下一次真机 gate。

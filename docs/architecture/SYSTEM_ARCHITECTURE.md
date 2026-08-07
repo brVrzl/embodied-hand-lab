@@ -1,12 +1,5 @@
 # System architecture
 
-## 中文摘要
-
-Quest 输入先经过边界校验、队列、释放后再按压的 clutch/reference 捕获、坐标映射与
-滤波、共享 continuation IK 和可行性检查，最后形成不可变 `AcceptedArmTarget`。MuJoCo
-和 JAKA 适配器只消费同一目标；物理适配器不得读取 MuJoCo `qpos`、重新映射、滤波或
-重新求 IK。
-
 ## Scope and authority
 
 This page describes the current Quest-to-JAKA/RH56 implementation. It is based
@@ -269,3 +262,54 @@ The following help commands are non-motion inspection only:
 Running `--help`, tests, or plant-free checks does not authorize a hardware
 connection. Current validation claims and unresolved work are summarized in
 [current status](../status/current_status.md).
+
+---
+
+# 中文版：系统架构
+
+## 范围和运行拓扑
+
+本页描述当前 Quest-to-JAKA/RH56 实现，依据当前 source/config，不依据 `docs/history/` 中的旧设计。
+真机路径只有在操作者单独授权并满足完整 gate 后才启用。
+
+```text
+Quest HTS/CTRL
+  -> input validation / bounded queue
+  -> release-before-press clutch/reference
+  -> frame mapping / filter
+  -> shared continuation IK / feasibility
+  -> immutable AcceptedArmTarget
+  -> MuJoCo adapter 或 JAKA joint adapter
+```
+
+物理 adapter 与 MuJoCo adapter 在 `AcceptedArmTarget` 前共享同一目标生成路径。物理 adapter 不读
+MuJoCo `qpos`，不重新映射、滤波、求 IK 或选择 branch；native joint mode 不调用 JAKA inverse kinematics。
+
+相机 producer 只负责从 RealSense frameset 写入 bounded shared-memory ring；recorder/canonical sampler
+负责因果选帧、JSONL 和 RGB MP4。camera、preview、writer 和 event log 不得阻塞 native control heartbeat。
+RH56 通过独立 PC-direct serial worker 运行，arm/RH56 combined wrapper 只负责 session lifecycle 和
+fault aggregation。
+
+## 接受、拒绝和故障
+
+candidate 的 finite、branch、joint range、collision、singularity、velocity/acceleration 和 continuation
+检查属于共享 Python boundary；不通过的 candidate 不 commit，进入 `HOLD_REJECTED` 并保持最后 safe target
+和 fresh heartbeat。transient Quest loss、clutch invalid、ordinary RH56 rate limit/contact clamp 和
+录制质量事件不得无条件结束整个 process。
+
+JAKA controller alarm、collision、E-stop、power/enable loss、SDK fault、native hard timing、watchdog/
+liveness、tracking divergence、actual joint/output violation、branch/winding、RH56 nonzero ERROR 或
+fatal serial/protocol，以及 cleanup 无法确定，保留 hard-stop path。
+
+native worker 是实际 8 ms velocity/acceleration/jerk shaper 和 final hard-check authority；Python
+predictor 不复制 native active segment，也不预测 jerk。JAKA controller 是最终硬件保护，但不是正常
+轨迹筛选的唯一软件层。
+
+## episode 和状态
+
+有效 press 创建独立 episode，release 五秒 finalize；下一次 press 在同一 recorder process 中创建新
+编号并重新初始化 clock、timeline、writer、trigger 和 quality state。Ctrl+C 或最后一次 fault 只影响
+最后 partial episode，之前 finalized 的 episode 不再 outer cleanup 中重复 finalize。
+
+当前 physical calibration、J4 collision 根因、latest acceleration fix、Quest recovery、dual-D435
+同步和完整 Quest-driven RH56 仍按当前 status 标记为未完成或未物理验证。

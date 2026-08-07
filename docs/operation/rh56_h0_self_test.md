@@ -25,7 +25,7 @@ RH56 hardware. Its result must be described as offline simulation evidence.
 H0 defaults to:
 
 ```text
-model:      data/sim_assets/jaka_rh56_visual_coacd.xml
+model:      assets/jaka_rh56_visual_coacd.xml
 arm config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
 ```
 
@@ -86,12 +86,6 @@ load/forward at model `qpos0`. H0 then applies the six configured initial arm
 joints and open-hand targets before forwarding the model; the maintained
 configuration also reports zero penetrating contacts.
 
-This is distinct from the committed integrated workspace derivative
-`models/digital_twin/workspace_scene.xml`, which currently reports four
-duplicate approximately -3 mm Link 0/Link 1 self-contact records at its model
-`qpos0`. H0 does not load that derivative. See
-`docs/digital_twin/README.md` for the regeneration and validation boundary.
-
 Zero initial contact does not prove that every combined thumb-close and
 thumb-lateral target is collision-free. Extreme commands can bring the
 conservative thumb and index convex hulls into contact. H0 deliberately uses a
@@ -127,17 +121,10 @@ Check that the generated runtime asset is current:
 .venv/bin/python tools/build_rh56_visual_coacd_runtime_asset.py --check
 ```
 
-Run the focused regression tests:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q validation/rh56/test_h0_self_test.py
-```
-
 Run a short headless smoke test:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/rh56_h0_self_test.py \
-  --headless \
   --cycle-seconds 0.05 \
   --amplitude-scale 0.01 \
   --repeat 1 \
@@ -178,3 +165,57 @@ A successful run supports only these claims:
 It does not validate physical direction, physical mount alignment, passive
 joint motion, current or force feedback, collision safety over the full command
 space, teleoperation retargeting, or any real-device behavior.
+
+---
+
+# 中文版：RH56 H0 MuJoCo 自检
+
+## 目的和安全边界
+
+H0 是挂载 JAKA/RH56 MuJoCo model 上六个 Inspire RH56DFX semantic actuator channel 的低幅度、
+仅仿真检查。它验证 model load、channel-to-actuator binding、command limit、finite state、log
+output 和 arm target 不变。调用链是 `tools/rh56_h0_self_test.py -> rh56_sim.Rh56H0SelfTest ->
+MuJoCo model/data -> 六个 RH56 position actuator`。没有 Quest receiver、network、serial、robot
+SDK 或 physical adapter，因此结果只能描述为离线仿真证据。
+
+## Model contract 和通道
+
+默认 model 是 `assets/jaka_rh56_visual_coacd.xml`，arm config 是
+`configs/sim/quest_hts_jaka_mini2_live_demo.yaml`。model 有六个 JAKA actuator、12 个 RH56
+joint、六个 RH56 actuator、reviewed collision hull、contact exclusion 和六个 equality constraint。
+equality constraint 只近似 thumb PIP/DIP 和 finger DIP 的 coupled hand，不模拟 tendon compliance、
+backlash、load-dependent coupling、current/force limit、passive state 或 contact sensing。
+
+canonical execution order：
+
+```text
+[index, middle, ring, pinky, thumb_close, thumb_lateral]
+```
+
+上层不能从 MuJoCo actuator order 猜 channel 语义。H0 按名称解析 actuator/joint，确认每个对象
+有 range，并只在这些 range 的交集内发 command。`ANGLE_ACT`、`CURRENT`、`FORCE_ACT`、`ERROR`、
+`STATUS` 是物理 device register，H0 不会产生它们。
+
+## 接触和序列
+
+直接 load/forward 的 `qpos0` 以及配置的初始 arm/open-hand pose 当前应没有 penetrating contact；
+这不证明所有 thumb-close/thumb-lateral target 都无碰撞。H0 使用单 channel、低幅度、有界 motion，
+不是完整 collision certification。
+
+每个 channel 从 open/neutral 开始，经过 smoothstep 正向 excursion，回 neutral；只有合法 range
+允许时尝试负向 excursion，然后再进入下一个 channel。默认幅度是 effective range 的 15%，
+`--amplitude-scale` 必须在 `(0, 0.20]`。整个过程 JAKA target 保持初始值；正常结束、viewer close
+或 Ctrl+C 都在 `finally` 中恢复 hand/arm target。
+
+## 离线运行
+
+```bash
+.venv/bin/python tools/build_rh56_visual_coacd_runtime_asset.py --check
+PYTHONPATH=src .venv/bin/python tools/rh56_h0_self_test.py \
+  --cycle-seconds 0.05 --amplitude-scale 0.01 --repeat 1 \
+  --log-path artifacts/rh56_h0/smoke.jsonl
+```
+
+`--viewer` 只用于图形化仿真检查。status 0 只表示六路序列完成、command/state finite 且 arm
+target 未改变。它不能证明物理方向、安装标定、被动关节、current/force feedback、完整 command
+space collision safety、teleop retargeting 或任何真机行为。

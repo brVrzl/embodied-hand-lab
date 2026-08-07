@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
-import shutil
 import subprocess
-import argparse
 
 import pytest
 
@@ -19,6 +15,7 @@ from tools.quest_jaka_hardware import (
     _reconcile_terminal_transport_symptom,
     _require_realtime_priority_limit,
     _apply_runtime_config,
+    _apply_target_displacement_policy,
     _resolve_output_jerk_limit,
     _synchronize_paused_stopped_reference,
 )
@@ -26,7 +23,6 @@ from tools.quest_jaka_hardware import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_quest_jaka_bounded_teleop.sh"
-COMBINED_SCRIPT = ROOT / "scripts" / "run_quest_jaka_rh56_teleop.sh"
 
 
 def test_combined_realtime_limit_is_checked_before_hardware(
@@ -52,35 +48,6 @@ def test_combined_realtime_limit_is_checked_before_hardware(
     }
 
 
-def _base_args(tmp_path: Path) -> list[str]:
-    return [
-        str(SCRIPT),
-        "--robot-ip",
-        "192.0.2.1",
-        "--edg-state-ip",
-        "192.0.2.2",
-        "--duration-sec",
-        "30",
-        "--output-generator",
-        "pwl-8ms",
-        "--joint-velocity-limits-rad-s",
-        "1.5",
-        "1.5",
-        "1.5",
-        "1.5",
-        "1.5",
-        "1.5",
-        "--log-dir",
-        str(tmp_path / "logs"),
-        "--worker",
-        shutil.which("true") or "/usr/bin/true",
-        "--no-auto-retry",
-        "--estop-accessible",
-        "--workspace-clear",
-        "--rh56-command-path-absent",
-    ]
-
-
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -100,68 +67,6 @@ def test_shell_syntax_and_help_are_offline() -> None:
     assert "not official JAKA Mini2 maximum speeds" in help_result.stdout
 
 
-def test_duration_above_sixty_seconds_is_rejected(tmp_path: Path) -> None:
-    args = _base_args(tmp_path)
-    args[args.index("30")] = "60.001"
-    result = _run(args)
-    assert result.returncode == 2
-    assert "不超过 60" in result.stderr
-    assert not (tmp_path / "logs").exists()
-
-
-def test_six_joint_limits_and_no_auto_retry_are_required(tmp_path: Path) -> None:
-    invalid = _base_args(tmp_path)
-    first_limit = invalid.index("1.5")
-    invalid[first_limit + 3] = "3.2"
-    result = _run(invalid)
-    assert result.returncode == 2
-    assert "不超过 pi" in result.stderr
-
-    missing_no_retry = _base_args(tmp_path)
-    missing_no_retry.remove("--no-auto-retry")
-    result = _run(missing_no_retry)
-    assert result.returncode == 2
-    assert "--no-auto-retry" in result.stderr
-
-
-def test_complete_plant_free_command_uses_pwl_and_zero_rh56(
-    tmp_path: Path,
-) -> None:
-    args = [*_base_args(tmp_path), "--plant-free-no-network-check"]
-    result = _run(args)
-    assert result.returncode == 0, result.stderr
-    report = json.loads(
-        next(
-            line
-            for line in reversed(result.stdout.splitlines())
-            if line.startswith("{")
-        )
-    )
-    assert report["stage"] == "bounded-normal-teleop"
-    assert report["validation"] == "plant-free-no-network"
-    assert report["network_attempted"] is False
-    assert report["hardware_commands_sent"] == 0
-    assert report["rh56_commands"] == 0
-    assert report["output_generator"] == "pwl-8ms"
-    assert report["native_mode"] == "joint-teleop"
-    assert report["native_ik_calls"] == 0
-    assert report["step_num"] == 1
-    assert report["run_output_joint_velocity_limits_rad_s"] == [
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-        1.5,
-    ]
-    assert report["native_worker_velocity_limit_args"] == [
-        "--maximum-output-joint-velocity-rad-s-per-joint",
-        "1.5,1.5,1.5,1.5,1.5,1.5",
-    ]
-    assert report["no_auto_retry"] is True
-    assert not (tmp_path / "logs").exists()
-
-
 def test_jerk_resolution_uses_typed_config_and_project_default(tmp_path: Path) -> None:
     source = (ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml").read_text()
     missing_jerk = tmp_path / "missing_jerk.yaml"
@@ -169,22 +74,9 @@ def test_jerk_resolution_uses_typed_config_and_project_default(tmp_path: Path) -
         source.replace("  command_maximum_joint_jerk_rad_s3: 62.8318530718\n", "")
     )
     config = ReplayConfig.load(missing_jerk)
-    args = argparse.Namespace(output_joint_jerk_limit_rad_s3=None)
-    assert _resolve_output_jerk_limit(args, config) == pytest.approx(
+    assert _resolve_output_jerk_limit(config) == pytest.approx(
         20.0 * 3.141592653589793
     )
-
-
-def test_jerk_resolution_cli_overrides_config_and_rejects_invalid_values() -> None:
-    config = ReplayConfig.load(ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
-    assert _resolve_output_jerk_limit(
-        argparse.Namespace(output_joint_jerk_limit_rad_s3=80.0), config
-    ) == 80.0
-    for value in (0.0, -1.0, float("nan"), 1000.0001):
-        with pytest.raises(SystemExit, match="output jerk shaper"):
-            _resolve_output_jerk_limit(
-                argparse.Namespace(output_joint_jerk_limit_rad_s3=value), config
-            )
 
 
 def test_invalid_config_jerk_is_rejected_before_network(tmp_path: Path) -> None:
@@ -217,15 +109,36 @@ def test_quest_input_recovery_window_cannot_exceed_ten_seconds(
         ReplayConfig.load(invalid)
 
 
-def test_entry_parser_exposes_same_jerk_override_for_all_stages() -> None:
+def test_entry_parser_rejects_yaml_owned_control_overrides() -> None:
     parser = _parser()
-    common = [
-        "post-payload-diagnostic", "--robot-ip", "192.0.2.1",
-        "--log", "x", "--summary", "x",
-        "--metrics", "x",
-    ]
-    parsed = parser.parse_args([*common, "--output-joint-jerk-limit-rad-s3", "70"])
-    assert parsed.output_joint_jerk_limit_rad_s3 == 70.0
+    for option, value in (
+        ("--config", "config.yaml"),
+        ("--worker", "worker"),
+        ("--robot-ip", "192.0.2.1"),
+        ("--edg-state-ip", "192.0.2.2"),
+        ("--bind", "0.0.0.0"),
+        ("--port", "9000"),
+        ("--rh56-device", "/dev/null"),
+        ("--rh56-config", "hand.yaml"),
+        ("--output-joint-jerk-limit-rad-s3", "70"),
+    ):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["bounded-normal-teleop", option, value])
+
+
+@pytest.mark.parametrize(
+    "removed_stage",
+    (
+        "p2-shadow",
+        "e2-isolated",
+        "p4-live",
+        "post-payload-diagnostic",
+        "research-thin-bounded",
+    ),
+)
+def test_entry_parser_rejects_removed_validation_stages(removed_stage: str) -> None:
+    with pytest.raises(SystemExit):
+        _parser().parse_args([removed_stage])
 
 
 def test_runtime_config_resolves_host_and_collection_values(tmp_path: Path) -> None:
@@ -233,7 +146,8 @@ def test_runtime_config_resolves_host_and_collection_values(tmp_path: Path) -> N
     runtime_path.write_text(
         """
 runtime:
-  control_config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+  config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+  worker: build/jaka_servo_worker/jaka_servo_worker
   robot_ip: 192.0.2.10
   edg_state_ip: 192.0.2.11
   bind: 0.0.0.0
@@ -243,9 +157,9 @@ runtime:
   native_control_realtime_priority: 10
   rh56_device: /dev/serial/by-id/test-rh56
   rh56_config: configs/hand/rh56_pc_direct_teleop.yaml
-  rh56_scheduler_profile: fast40
   run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-  episode_data_config: data/local/dual_d435_episode.yaml
+  enforce_clutch_target_displacement_limit: false
+  episode_data_config: configs/data_collection/physical_collection.yaml
   episode_root: data/episodes
   task_name: test_task
   operator: "01"
@@ -257,12 +171,6 @@ runtime:
             "combined-normal-teleop",
             "--runtime-config",
             str(runtime_path),
-            "--log",
-            "log",
-            "--summary",
-            "summary",
-            "--metrics",
-            "metrics",
         ]
     )
     _apply_runtime_config(args)
@@ -272,20 +180,52 @@ runtime:
     assert args.duration_sec == 45
     assert args.operator == "01"
     assert args.run_output_joint_velocity_limits_rad_s == (1.5,) * 6
+    assert args.enforce_clutch_target_displacement_limit is False
 
 
-def test_output_generator_is_configured_and_not_diagnostic_disguise(
-    tmp_path: Path,
-) -> None:
-    missing_generator = _base_args(tmp_path)
-    index = missing_generator.index("--output-generator")
-    del missing_generator[index : index + 2]
-    result = _run(missing_generator)
-    assert result.returncode != 2 or "Required output generator" not in result.stderr
+def test_collection_policy_disables_only_clutch_target_envelope() -> None:
+    config = ReplayConfig.load(
+        ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
+    )
+    collection = _apply_target_displacement_policy(
+        config, enabled=False
+    )
+    assert config.feasibility.target_displacement_limit_enabled is True
+    assert collection.feasibility.target_displacement_limit_enabled is False
+    assert (
+        collection.feasibility.maximum_target_displacement_m
+        == config.feasibility.maximum_target_displacement_m
+    )
+    assert collection.output_contract == config.output_contract
 
+
+def test_native_acceleration_authority_comes_from_shared_contract() -> None:
+    config = ReplayConfig.load(
+        ROOT / "configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
+    )
+    assert (
+        "native_hard_output_joint_acceleration_rad_s2"
+        not in config.raw["hardware_adapter"]
+    )
+    assert config.output_contract.maximum_acceleration_rad_s2 == pytest.approx(
+        12.5663706144
+    )
+
+
+def test_normal_entry_has_no_historical_or_yaml_override_options() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
     assert "bounded-normal-teleop" in source
-    assert "post-payload-diagnostic" not in source
+    for option in (
+        "--config",
+        "--worker",
+        "--robot-ip",
+        "--edg-state-ip",
+        "--bind",
+        "--port",
+        "--output-generator",
+        "--no-auto-retry",
+    ):
+        assert option not in source
     assert "rh56-command-path-absent" in source
     assert "One exec, no retry loop." in source
 
@@ -300,18 +240,9 @@ def test_normal_entry_uses_native_pause_resume_reference_contract() -> None:
     generator = TargetGenerator()
     measured = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
     assert "bounded-normal-teleop" in RECOVERABLE_CLUTCH_STAGES
-    assert "post-payload-diagnostic" not in RECOVERABLE_CLUTCH_STAGES
 
     _synchronize_paused_stopped_reference(
         stage="bounded-normal-teleop",
-        status_flags=StatusFlags.STOPPED_READY,
-        target_generator=generator,
-        measured_joint_position_rad=measured,
-    )
-    assert generator.synchronized == [list(measured)]
-
-    _synchronize_paused_stopped_reference(
-        stage="post-payload-diagnostic",
         status_flags=StatusFlags.STOPPED_READY,
         target_generator=generator,
         measured_joint_position_rad=measured,
@@ -354,100 +285,3 @@ def test_transport_failure_is_not_relabelled_without_native_fault_evidence() -> 
     )
     assert reason == "control_heartbeat_transport_failure"
     assert symptom is None
-
-
-def test_combined_entry_validates_both_gates_without_network_or_device_open(
-    tmp_path: Path,
-) -> None:
-    control_cpu = min(
-        os.sched_getaffinity(0)
-        if hasattr(os, "sched_getaffinity")
-        else range(os.cpu_count() or 1)
-    )
-    runtime = tmp_path / "runtime.yaml"
-    runtime.write_text(
-        (ROOT / "data/local/physical_collection.yaml")
-        .read_text(encoding="utf-8")
-        .replace("native_control_cpu: 6", f"native_control_cpu: {control_cpu}")
-        .replace("log_dir: logs", f"log_dir: {tmp_path / 'logs'}"),
-        encoding="utf-8",
-    )
-    command = [
-        str(COMBINED_SCRIPT),
-        "--runtime-config", str(runtime),
-        "--hand-prerequisites-complete",
-        "--no-auto-retry",
-        "--estop-accessible",
-        "--workspace-clear",
-        "--plant-free-no-network-check",
-    ]
-    result = _run(command)
-    assert result.returncode == 0, result.stderr
-    report = json.loads(next(line for line in reversed(result.stdout.splitlines()) if line.startswith("{")))
-    assert report["stage"] == "combined-normal-teleop"
-    assert report["network_attempted"] is False
-    assert report["rh56_gate_validated"] is True
-    assert report["rh56_scheduler_profile"] == "fast40"
-    assert report["rh56_hand_calibration_path"] == (
-        "configs/hand/quest_rh56_real_retarget.yaml"
-    )
-    assert report["rh56_align_on_grip"] is True
-    assert report["rh56_align_index_pinch_to_validated_pose"] is True
-    assert report["quest_input_recovery_timeout_s"] == 10.0
-    assert report["hardware_commands_sent"] == 0
-    assert report["cpu_isolation"]["enabled"] is True
-    assert report["cpu_isolation"]["native_control_cpu"] == control_cpu
-    assert control_cpu not in report["cpu_isolation"]["python_affinity_mask"]
-    assert report["native_control_realtime"] == {
-        "required_priority": 10,
-        "permission_checked": False,
-        "reason": "plant-free validation performs no host mutation",
-    }
-    assert not (tmp_path / "logs").exists()
-
-    without_cpu_runtime = tmp_path / "runtime-no-cpu.yaml"
-    without_cpu_runtime.write_text(
-        runtime.read_text(encoding="utf-8").replace(
-            f"native_control_cpu: {control_cpu}", "native_control_cpu: null"
-        ),
-        encoding="utf-8",
-    )
-    rejected_unisolated = _run(
-        [
-            str(COMBINED_SCRIPT),
-            "--runtime-config", str(without_cpu_runtime),
-            "--hand-prerequisites-complete", "--no-auto-retry",
-            "--estop-accessible", "--workspace-clear",
-            "--plant-free-no-network-check",
-        ]
-    )
-    assert rejected_unisolated.returncode != 0
-    assert "requires --native-control-cpu" in rejected_unisolated.stderr
-    assert not (tmp_path / "logs").exists()
-
-    rejected = _run([*command, "--duration-sec", "300.001"])
-    assert rejected.returncode == 2
-    assert "Unknown option" in rejected.stderr
-    assert not (tmp_path / "logs").exists()
-
-
-@pytest.mark.parametrize(
-    "missing_flag",
-    ("--hand-prerequisites-complete", "--estop-accessible", "--workspace-clear"),
-)
-def test_combined_entry_requires_safety_prerequisites(
-    tmp_path: Path,
-    missing_flag: str,
-) -> None:
-    command = [
-        str(COMBINED_SCRIPT),
-        "--runtime-config", "data/local/physical_collection.yaml",
-        "--hand-prerequisites-complete", "--no-auto-retry",
-        "--estop-accessible", "--workspace-clear",
-        "--plant-free-no-network-check",
-    ]
-    command.remove(missing_flag)
-    result = _run(command)
-    assert result.returncode == 2
-    assert missing_flag in result.stderr or "required" in result.stderr
-    assert not (tmp_path / "logs").exists()

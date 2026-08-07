@@ -106,3 +106,49 @@ The terminal emits a 5 Hz JSON summary. The timestamped directory
 and summary log, and final JSON report. If either CTRL or right-hand data has
 not appeared within 20 seconds, the gate stops with exit status 3. No listener
 is created merely by importing any module.
+
+---
+
+# 中文版：Quest CTRL 主机传输 gate
+
+本页是当前的 input-only transport 参考。它只测试 Quest 左控制器的 host input boundary，不启动
+MuJoCo、不生成 robot target、不导入 JAKA SDK，也不连接 Inspire/RH56。导入模块本身不会创建
+listener。
+
+## 输入协议和 parser
+
+当前 sender 同时发送 HTS hand/head 数据和一行严格的 `CTRL,v=1,...` 数据。host 要求字段集合和
+顺序完全正确：整数是 unsigned 64-bit decimal，boolean 只能是 `0/1`，trigger 必须 finite 且在
+`[0,1]`。缺失、重复、未知或乱序字段、版本错误、NaN/Inf、非法 UTF-8、越界值和尾随内容都会
+拒绝。parser 不做 hysteresis，也不执行机器人操作。
+
+legacy HTS parser 继续处理非 `CTRL,` 数据，两类 parser 共用 UDP socket 但不互相耦合。`session`、
+`seq` 和 Quest `t_ns` 会保留；freshness 只使用 host monotonic receipt time，不能用 host clock
+减 Quest device/source clock。duplicate 或递减 sequence 不能刷新最新 sample；新 session 表示
+sender restart，旧 session 的延迟 packet 不能制造 clutch edge。
+
+## 双 clutch 和恢复
+
+| CTRL fact | channel | press | release |
+|---|---|---:|---:|
+| `index` | arm | `>= 0.75` | `<= 0.55` |
+| `grip` | hand | `>= 0.75` | `<= 0.55` |
+
+arm 和 hand channel 独立，不合并成 mode enum。启动、sender restart、invalid fact、malformed CTRL
+或 stale 后，必须先观察到两路都在 released 范围，随后才允许下一次 press edge。左控制器 pose
+不参与 target。
+
+## 有界运行
+
+维护的 gate 只有一个 live UDP source，没有 fake、replay、keyboard、MuJoCo 或 hardware mode：
+
+```bash
+PYTHONPATH=src .venv/bin/python \
+  tools/quest_controller_transport_gate.py \
+  --bind 0.0.0.0 --port 9000 --project-ip "$HOST_IPV4" \
+  --print-hz 5 --required-data-timeout-sec 20 --duration-sec 180
+```
+
+终端以 5 Hz 输出 JSON summary，`logs/quest_transport_gate/` 保存 raw datagram、异常、summary 和
+最终 report。如果 20 秒内没有 CTRL 或右手数据，gate 以 status 3 结束。该 input-only gate 不等
+于真机 teleoperation 授权。

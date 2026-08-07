@@ -6,13 +6,13 @@ license, vendor agreement, or applicable law.
 
 ## Correll Robotics Lab RH56DFX assets
 
-- Location: `data/sim_assets/correll_rh56dfx/`
+- Location: `assets/correll_rh56dfx/`
 - Contents: reference MuJoCo XML and visual/collision meshes.
 - Copyright: Correll Robotics Lab, University of Colorado Boulder.
 - License: MIT; the complete upstream notice is retained at
-  `data/sim_assets/correll_rh56dfx/LICENSE`.
+  `assets/correll_rh56dfx/LICENSE`.
 - Runtime role: reference only. The mounted runtime model uses the separately
-  derived project asset documented in `data/sim_assets/README.md`.
+  derived project asset documented in `assets/README.md`.
 
 ## JAKA SDK 2.2.7 snapshot
 
@@ -36,12 +36,6 @@ license, vendor agreement, or applicable law.
 - License evidence: no license text or reliable upstream URL is recorded in
   this repository. Preserve source attribution and do not redistribute this
   snapshot independently until ownership and license terms are confirmed.
-
-## External sibling dependency
-
-The inference-only π0.5-DROID shadow workflow uses a separate OpenPI checkout
-at the commit recorded in `learned_policy/pi05_shadow/VALIDATION_REPORT.md`.
-OpenPI is not vendored here; its own checkout and license remain authoritative.
 
 ## Teleoperation rearchitecture research sources
 

@@ -33,14 +33,18 @@ recompute IK. In joint-teleop mode the native worker must make zero JAKA
 ## Absolute safety rules
 
 - Default to offline and simulation work. Never connect to or command a JAKA,
-  RH56DFX, Quest headset, or other actuator unless the user separately and
-  explicitly authorizes the exact physical gate in the current session.
+RH56DFX, Quest headset, or other actuator without an explicit user request
+for the physical operation in the current session.
 - Repository maintenance, tests, `--help`, fake-worker replay, and static
   analysis do not authorize login, enable, servo mode, EDG, or motion.
 - Never perform automatic payload identification or write payload, TCP,
   installation, collision, or controller safety settings.
-- A physical procedure must retain exact acknowledgement flags, bounded
-  duration/displacement, operator stop access, workspace checks, and cleanup.
+- A physical procedure must retain software-verifiable runtime constraints,
+  bounded execution parameters, actuator safety limits, and deterministic
+  cleanup behavior.
+- Human-only operational confirmations that cannot be independently verified
+  by software must not be implemented as mandatory command-line flags,
+  acknowledgement parameters, or permanent workflow gates.
 - Controller collision, servo alarm, emergency stop, loss of power/enable,
   SDK error, command-loop hard timing fault, or actual liveness loss is a hard
   stop. Candidate infeasibility is different: `HOLD_REJECTED` keeps a fresh
@@ -54,8 +58,7 @@ recompute IK. In joint-teleop mode the native worker must make zero JAKA
 Recorded operator state (not code-owned truth): payload 0.8 kg, COM
 `[9.289, 12.427, 36.961]` mm, upright/floor installation with X=0° and Z=0°,
 TCP1-TCP10 zero, and unchanged controller safety limits. Software must not
-silently apply these values. Verify them at the controller before any future
-authorized physical gate.
+silently apply these values. Verify them at the controller before any future authorized physical operation.
 
 ## Repository and worktree discipline
 
@@ -70,9 +73,9 @@ authorized physical gate.
   work, delete branches, or modify another linked worktree.
 - Keep commits scoped. Inspect the staged diff, run `git diff --check`, exclude
   user work, fetch before push, and never overwrite remote work.
-- Start a new Codex session for a separately authorized physical gate, after a
-  major context-changing merge, or when the current session cannot retain the
-  complete safety/evidence context.
+- Start a new Codex session for a separately authorized physical operation,
+  after a major context-changing merge, or when the current session cannot
+  retain the complete safety/evidence context.
 
 ## Layout and documentation
 
@@ -81,7 +84,7 @@ authorized physical gate.
 - `scripts/`: operator-facing wrappers.
 - `native/`: JAKA diagnostic and EDG worker C++ sources.
 - `configs/`: versioned examples and runtime policy.
-- `data/sim_assets/`, `models/`: robot and simulation assets.
+- `assets/`, `models/`: robot and simulation assets.
 - `tests/`: offline tests; hardware is never required by the default suite.
 - `docs/`: current architecture, operation, safety, development, reference,
   status, and indexed history.
@@ -171,8 +174,8 @@ passing claim for tools that are not configured.
 Permanent tests should name the current contract, use deterministic
 fake/offline backends, and retain regression coverage for fixed safety defects.
 Do not delete a test because it is old or slow; first prove the behavior is
-obsolete or fully duplicated. Physical probes remain separately gated and
-outside default pytest.
+obsolete or fully duplicated. Physical probes remain separate from the default pytest workflow and require
+their own explicit execution context.
 
 ## Current constraints
 

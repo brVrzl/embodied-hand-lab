@@ -1,8 +1,0 @@
-references:
-  - name: replace_with_measured_reference
-    group: A3
-    observation_id: null
-    source: null
-    reconstruction_distance: null
-    known_distance_m: null
-    uncertainty_m: null

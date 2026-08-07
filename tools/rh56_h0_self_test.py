@@ -12,7 +12,7 @@ import yaml
 from rh56_sim import Rh56H0SelfTest
 
 
-DEFAULT_MODEL = Path("data/sim_assets/jaka_rh56_visual_coacd.xml")
+DEFAULT_MODEL = Path("assets/jaka_rh56_visual_coacd.xml")
 DEFAULT_ARM_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
 
 
@@ -23,9 +23,7 @@ def _default_log_path() -> Path:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--viewer", action="store_true", help="show the passive MuJoCo viewer")
-    mode.add_argument("--headless", action="store_true", help="run without a viewer (default)")
+    parser.add_argument("--viewer", action="store_true", help="show the passive MuJoCo viewer")
     parser.add_argument("--cycle-seconds", type=float, default=2.0)
     parser.add_argument("--amplitude-scale", type=float, default=0.15)
     parser.add_argument("--repeat", type=int, default=1)

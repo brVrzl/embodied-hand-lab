@@ -288,10 +288,20 @@ class JointOutputFeasibilityTracker:
         # native transition it does not own, and would reject ordinary 60 Hz
         # replacements whenever the previous candidate was moving.  Native
         # remains authoritative for the actual 8 ms acceleration/jerk path.
-        acceleration_period_s = (
-            self.feasibility_acceleration_period_ns / 1e9
-            if self.feasibility_acceleration_period_ns is not None
-            else interval_s
+        configured_acceleration_period_s = (
+            None
+            if self.feasibility_acceleration_period_ns is None
+            else self.feasibility_acceleration_period_ns / 1e9
+        )
+        # Do not compress a long rejected/held interval into the nominal
+        # producer period.  That compares a stale coarse velocity with a new
+        # average velocity over an unrelated short window and can report a
+        # false acceleration spike.  The native shaper remains responsible for
+        # the actual 8 ms transition; this is only a producer-side plausibility
+        # screen.
+        acceleration_period_s = max(
+            interval_s,
+            configured_acceleration_period_s or 0.0,
         )
         acceleration = tuple(
             (value - previous) / acceleration_period_s
@@ -316,6 +326,59 @@ class JointOutputFeasibilityTracker:
                 > self.maximum_acceleration_rad_s2 + self.acceleration_tolerance_rad_s2
             ),
         )
+
+    def resync_hold(
+        self,
+        joint_position_rad: Sequence[float],
+        *,
+        generated_monotonic_ns: int,
+    ) -> None:
+        """Rebase position while preserving a bounded hold velocity state.
+
+        A rejected candidate is never committed.  The next prediction must
+        use the position that is actually being held, but it must not treat
+        that position as an instantaneous stop: doing so creates a false
+        acceleration spike on the first recovery candidate.  Decay the prior
+        coarse velocity toward zero using the existing acceleration boundary;
+        this is a bounded hold deceleration, not a new output limit.  Native
+        shaping and final checks remain authoritative.
+        """
+
+        values = self._validated_joints(joint_position_rad)
+        timestamp = int(generated_monotonic_ns)
+        if timestamp <= 0:
+            raise ValueError("output feasibility timestamp must be positive")
+        if (
+            self._coarse_timestamp_ns is not None
+            and timestamp < self._coarse_timestamp_ns
+        ):
+            raise ValueError(
+                "hold resynchronization timestamps must be monotonic"
+            )
+        if self._coarse_timestamp_ns is None:
+            hold_interval_s = self.servo_period_ns / 1e9
+        else:
+            hold_interval_s = (
+                timestamp - self._coarse_timestamp_ns
+            ) / 1e9
+        if math.isfinite(self.maximum_acceleration_rad_s2):
+            maximum_velocity_decay = (
+                self.maximum_acceleration_rad_s2 * hold_interval_s
+            )
+            held_velocity = tuple(
+                math.copysign(
+                    max(abs(value) - maximum_velocity_decay, 0.0),
+                    value,
+                )
+                if value != 0.0
+                else 0.0
+                for value in self._coarse_velocity_rad_s
+            )
+        else:
+            held_velocity = self._coarse_velocity_rad_s
+        self._coarse_position_rad = values
+        self._coarse_velocity_rad_s = held_velocity
+        self._coarse_timestamp_ns = timestamp
 
     def commit_prefilter(
         self,

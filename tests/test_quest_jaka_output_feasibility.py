@@ -153,6 +153,86 @@ def test_default_prefilter_uses_producer_interval_for_acceleration() -> None:
     assert candidate.maximum_acceleration_rad_s2 == pytest.approx(4.0)
 
 
+def test_hold_interval_does_not_turn_stale_velocity_into_acceleration_rejection() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=math.pi,
+        maximum_acceleration_rad_s2=4.0 * math.pi,
+        servo_period_ns=PERIOD_NS,
+        feasibility_acceleration_period_ns=16_666_667,
+    )
+    tracker.reset((0.0,) * 6)
+    baseline = tracker.prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    tracker.commit_prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+        prefilter=baseline,
+    )
+    moving = tracker.prefilter(
+        (0.02, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_050_000_000,
+    )
+    tracker.commit_prefilter(
+        (0.02, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_050_000_000,
+        prefilter=moving,
+    )
+
+    # The long hold interval must be used for the acceleration estimate; the
+    # old fixed-period comparison would report roughly -22 rad/s^2 here.
+    held = tracker.prefilter(
+        (0.03, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_400_000_000,
+    )
+    assert held.feasible
+    assert held.maximum_acceleration_rad_s2 == pytest.approx(
+        (0.02 / 0.05 - 0.01 / 0.35) / 0.35
+    )
+
+
+def test_hold_resync_preserves_velocity_with_bounded_deceleration() -> None:
+    tracker = JointOutputFeasibilityTracker(
+        maximum_velocity_rad_s=math.pi,
+        maximum_acceleration_rad_s2=4.0,
+        servo_period_ns=PERIOD_NS,
+    )
+    tracker.reset((0.0,) * 6)
+    baseline = tracker.prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+    )
+    tracker.commit_prefilter(
+        (0.0,) * 6,
+        generated_monotonic_ns=1_000_000_000,
+        prefilter=baseline,
+    )
+    moving = tracker.prefilter(
+        (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_100_000_000,
+    )
+    tracker.commit_prefilter(
+        (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_100_000_000,
+        prefilter=moving,
+    )
+    tracker.resync_hold(
+        (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_150_000_000,
+    )
+    next_candidate = tracker.prefilter(
+        (0.05, 0.0, 0.0, 0.0, 0.0, 0.0),
+        generated_monotonic_ns=1_200_000_000,
+    )
+    assert next_candidate.feasible
+    # The accepted 0.04 rad/100 ms step established 0.4 rad/s.  A 50 ms hold
+    # decelerates it by only 0.2 rad/s, so the next 0.01 rad/50 ms step keeps
+    # the velocity and acceleration estimates continuous instead of starting
+    # from an artificial zero-velocity state.
+    assert next_candidate.maximum_acceleration_rad_s2 == pytest.approx(0.0)
+
+
 def test_below_and_exact_output_velocity_boundary_are_accepted() -> None:
     tracker = _tracker()
     _establish_zero_baseline(tracker)
@@ -264,9 +344,8 @@ def test_failed_p4_candidate_backtracks_before_accepted_target_boundary() -> Non
     assert not recovered.metrics.branch_switch
 
 
-def test_output_contract_authority_is_separate_from_ik_pathology_guard() -> None:
+def test_output_contract_is_the_single_joint_dynamic_policy() -> None:
     config = ReplayConfig.load(CONFIG)
-    assert config.feasibility.maximum_joint_velocity_rad_s == pytest.approx(14.0)
     assert config.output_contract.maximum_velocity_rad_s == pytest.approx(math.pi)
     assert config.output_contract.maximum_acceleration_rad_s2 == pytest.approx(4.0 * math.pi)
     assert config.output_contract.servo_period_ns == PERIOD_NS

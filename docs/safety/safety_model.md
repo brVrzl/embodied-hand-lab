@@ -1,11 +1,5 @@
 # Safety model
 
-## 中文摘要
-
-输入失效、进程/IPC 超时、控制器故障、碰撞、限位、奇异性、输出速度/加速度/jerk 和
-清理失败属于不同故障类，必须按各自处置。候选不可行时保持新鲜 heartbeat 并保持最后
-安全目标；真正的活性或硬件故障停止物理输出。不要用宽泛异常捕获或自动重试掩盖故障。
-
 ## Fault classes
 
 | Class | Examples | Required behavior |
@@ -24,8 +18,11 @@ recoverable hold.
 ## Defense in depth
 
 Shared policy rejects unsafe candidates before constructing
-`AcceptedArmTarget`. The native worker independently checks continuity,
-velocity, acceleration, tracking, liveness, timing, and controller health as
+`AcceptedArmTarget`. Joint velocity and acceleration are configured once in
+the shared output contract: the Python prefilter screens accepted-target
+replacement, while the native worker independently checks the final emitted
+8 ms segment as a transport/controller boundary. The native worker also
+checks continuity, tracking, liveness, timing, and controller health as
 defensive assertions. Native checks must not silently reshape a target and
 thereby make simulation and hardware different.
 
@@ -60,9 +57,10 @@ previous operator report, not a guarantee of present controller state.
 
 ## 纵深防御
 
-共享策略在构造 `AcceptedArmTarget` 前拒绝不安全候选。native worker 独立检查连续性、速度、
-加速度、跟踪、活性、时序和控制器健康，作为最终防御。native 检查不能静默重塑目标，否则
-会破坏仿真/真机一致性。
+共享策略在构造 `AcceptedArmTarget` 前拒绝不安全候选。关节速度和加速度只在 shared output
+contract 中配置一次：Python prefilter 检查 accepted target 的替换，native worker 在硬件边界
+检查最终 8 ms 输出段。native worker 还独立检查连续性、跟踪、活性、时序和控制器健康，作为
+最终防御。native 检查不能静默重塑目标，否则会破坏仿真/真机一致性。
 
 进入 EDG 后测得的 startup hold 是真机权威。捕获参考不能豁免启动连续性。latest-destination
 重采样必须有界且因果；被拒绝或旧目标不能排队后续回放。

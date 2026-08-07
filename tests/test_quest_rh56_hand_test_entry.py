@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import pytest
@@ -87,7 +88,7 @@ def test_preflight_main_does_not_construct_or_open_backend(
 
 
 def test_read_only_requires_real_device_and_returns_hand_operation() -> None:
-    assert validate_gate(_parse("--read-only")) is HandOperation.HAND_ONLY
+    assert validate_gate(_parse()) is HandOperation.HAND_ONLY
 
 
 def test_bounded_command_requires_short_duration_target_and_operator_checks() -> None:
@@ -105,7 +106,6 @@ def test_bounded_command_requires_short_duration_target_and_operator_checks() ->
             _parse(
                 *base,
                 "--manual-stop-accessible",
-                "--workspace-clear",
                 "--no-auto-retry",
                 "--duration-sec",
                 "11",
@@ -115,7 +115,6 @@ def test_bounded_command_requires_short_duration_target_and_operator_checks() ->
         _parse(
             *base,
             "--manual-stop-accessible",
-            "--workspace-clear",
             "--no-auto-retry",
             "--duration-sec",
             "5",
@@ -126,7 +125,6 @@ def test_bounded_command_requires_short_duration_target_and_operator_checks() ->
 def test_bounded_pose_and_channel_target_accept_full_normalized_domain() -> None:
     checks = (
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
     )
     with pytest.raises(ValueError, match="six canonical"):
@@ -160,7 +158,6 @@ def test_bounded_pose_and_channel_target_accept_full_normalized_domain() -> None
 def test_full_normalized_endpoint_is_available_to_bounded_tests_and_teleop_has_no_override() -> None:
     checks = (
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
     )
     assert validate_gate(
@@ -208,21 +205,18 @@ def test_quest_hand_only_uses_explicit_operation_and_production_mode() -> None:
     args = _parse(
         "--quest-teleop",
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
     )
     assert validate_gate(args) is HandOperation.HAND_ONLY
     assert args.channel is None
     assert args.delta is None
     assert args.hand_calibration == "configs/hand/quest_rh56_real_retarget.yaml"
-    assert _parse("--preflight-only", "--scheduler-profile", "fast30").scheduler_profile == "fast30"
 
 
 def test_mapping_check_requires_slow_operator_follow_duration() -> None:
     checks = (
         "--mapping-check",
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
     )
     with pytest.raises(ValueError, match="at least 4"):
@@ -248,11 +242,18 @@ def test_hand_only_and_live_defaults_share_real_physical_calibration() -> None:
     )
 
 
-def test_physical_hand_path_rejects_sim_uncalibrated_mapping() -> None:
+def test_physical_hand_path_rejects_nonreal_calibration(tmp_path: Path) -> None:
+    calibration_path = tmp_path / "uncalibrated.yaml"
+    calibration_path.write_text(
+        Path("configs/hand/quest_rh56_real_retarget.yaml")
+        .read_text(encoding="utf-8")
+        .replace("quest_rh56dfx_real_20260803_v3", "quest_rh56_sim_uncalibrated_v1"),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="quest_rh56dfx_real"):
         _load_hand_only_quest_config(
             "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
-            "configs/sim/quest_rh56_retarget.yaml",
+            str(calibration_path),
         )
 
 
@@ -301,7 +302,6 @@ def test_fault_reset_requires_obstruction_clear() -> None:
     base = (
         "--clear-error",
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
     )
     with pytest.raises(PermissionError, match="mechanical-obstruction-cleared"):
@@ -315,7 +315,6 @@ def test_force_calibration_requires_no_load_confirmation_and_observation_window(
     base = (
         "--force-sensor-calibration",
         "--manual-stop-accessible",
-        "--workspace-clear",
         "--no-auto-retry",
         "--duration-sec",
         "8",
@@ -330,7 +329,6 @@ def test_force_calibration_requires_no_load_confirmation_and_observation_window(
             _parse(
                 "--force-sensor-calibration",
                 "--manual-stop-accessible",
-                "--workspace-clear",
                 "--no-auto-retry",
                 "--calibration-no-load-confirmed",
                 "--duration-sec",

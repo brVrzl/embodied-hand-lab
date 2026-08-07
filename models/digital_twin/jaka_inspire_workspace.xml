@@ -1,4 +1,0 @@
-<mujoco model="jaka_inspire_workspace_compatibility_entry">
-  <!-- Compatibility entry for the integrated World=P scene. The generated scene owns all assets. -->
-  <include file="workspace_scene.xml" />
-</mujoco>

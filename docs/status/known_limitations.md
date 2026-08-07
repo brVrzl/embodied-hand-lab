@@ -41,7 +41,7 @@ Offline tests, replay, and MuJoCo results are not physical PASS evidence.
 - The combined summary field `rh56_commands` counts backend register-write
   attempts. Worker diagnostics separately report successful serial writes;
   neither count proves that the hand reached a commanded pose.
-- The selected `fast40` scheduler has bounded evidence, but physical target
+- The fixed 40 Hz scheduler has bounded evidence, but physical target
   continuity, feedback latency, and behavior across the full safe command
   range remain only partially characterized.
 
@@ -90,3 +90,44 @@ and [current status](current_status.md). Dated reports in the
 [history index](../history/README.md), including the
 [Quest/JAKA output-feasibility follow-up](../history/incidents/quest_jaka_20260722_23/quest_jaka_output_feasibility_followup_20260723.md),
 remain evidence only and do not override current source or safety policy.
+
+---
+
+# 中文版：已知限制
+
+本页记录当前边界，不是对假想功能的 backlog。离线测试、回放和 MuJoCo 结果都不是真机 PASS
+证据。
+
+## 机械臂与联合运行
+
+- 联合 arm/RH56 路径只有一次针对特定配置和运动范围的 60.105 秒真机 PASS；没有 300 秒 PASS。
+- 最新 output-acceleration 修正已离线测试，但尚未完成修正后的有界真机验证。
+- 早期 J4 collision alarm 的根因仍未解决；修正记录中的 payload 不匹配不等于证明了唯一原因。
+- 平移和旋转只覆盖了部分有界真机范围，不能推断完整 workspace 或 orientation envelope。
+- TCP1--TCP10 仍记录为零，不能声称 TCP calibration 已完成。
+- controller health 使用唯一 JAKA SDK session 的轻量 polling；没有通过主动制造 collision 或 E-stop 来验证。
+- Quest tracking/controller invalidity 属于 hard liveness stop，不得转换为普通 `HOLD_REJECTED`。
+
+## RH56DFX
+
+- PC-direct identity、read-only feedback、有界命令和短时 hand-only 有真机证据，但长期 Quest-driven hand teleop 和完整 target/feedback characterization 尚未完成。
+- `ANGLE_ACT` 是六个 commanded actuator axis 的 feedback；`CURRENT`、`FORCE_ACT`、`ERROR` 和 `STATUS` 是 raw register，不是完整 passive-joint、tactile、slip 或 calibrated contact-force state。
+- 非零 `STATUS` 的语义没有验证；不能猜测 code 含义。
+- fixed 40 Hz scheduler 有界测试证据存在，但全 safe command range 的 physical continuity、feedback latency 和行为仍未完成刻画。
+
+## 仿真、相机和数据
+
+- MuJoCo hand 是六 position actuator 的近似，不模拟 tendon compliance、backlash、current/force control、calibrated force limit 或完整 underactuation。
+- viewer 中的 provisional table/mounting geometry 不属于 shared pre-acceptance collision authority，也不能证明真机 workspace clearance。
+- 双 D435 serial/profile、camera-to-robot extrinsic、跨设备时间同步和 end-to-end physical episode capture 尚未真机验证。
+- episode validation、manifest/statistics 和 exporter 已有离线支持，但不代表 production dataset 或 policy training 已验证。
+- 仓库没有当前维护的 ACT、Diffusion Policy 或 OpenPI/pi0 trainer，也没有 Jetson Thor deployment PASS。
+
+## 外部事实
+
+- Quest Unity/APK/runtime 版本和 headset 中实际安装的 build 是外部事实，源码审计不能证明。
+- iPhone/MediaPipe 仍是实验路径，不是当前 Quest/JAKA production entry。
+- vendor reference source 只是保留的外部资料，不保证是可导入的项目模块。
+
+以上限制由[验证矩阵](validation_matrix.md)和[当前状态](current_status.md)汇总；
+[历史索引](../history/README.md)中的 dated evidence 只作为证据，不能覆盖当前 source 或 safety policy。

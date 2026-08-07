@@ -139,3 +139,60 @@ world registration, calibration, filtering, scaling, safety, IK, target
 generation, or command behavior stays on its side of the boundary.
 
 No teleoperation code is modified by this proposal.
+
+---
+
+# 中文版：统一运动输入协议（UMIP）1.0
+
+UMIP 是未来 teleoperation framework 可见的唯一输入契约。它描述 observation，不描述
+command、target、trajectory、control policy、filter、safety、IK 或 scaling。
+
+## 架构和依赖
+
+```text
+device SDK -> provider 私有值 -> MotionInputSample
+                                      -> recorder
+                                      -> replay provider
+                                      -> 可视化/诊断
+```
+
+consumer 只依赖 `motion_input.model` 和 `motion_input.provider`；provider 可以依赖 device SDK，
+反向依赖禁止。未来的 Vision Pro、DexUMI、leader arm、SpaceMouse、vision 或 mocap 都实现
+`MotionInputProvider`，不在下游增加 device-specific 分支。
+
+`MotionInputProvider` 提供 `descriptor`、`open()`、`read(timeout_s)` 和 `close()`。`read` 返回一
+个不可变 `MotionInputSample`，timeout 时返回 `None`；replay 用相同接口，在结束时返回 `EXHAUSTED`。
+pull interface 提供 backpressure 和确定性顺序，不强迫引入线程或 event loop。
+
+## Sample、pose、时间和顺序
+
+`MotionInputSample` 包含 protocol/sample/stream identity、sequence、capture/device/receive/
+processing timestamps、tracking state/confidence、显式 `coordinate_frame`、device descriptor、
+side、wrist/palm pose、motion kind、articulation、metadata 和 namespaced extensions。
+
+`Pose6D` 必须是三个 finite 米制坐标和 `x,y,z,w` 顺序的 finite unit quaternion。UMIP 拒绝非单位
+四元数，不自动 normalize；Euler angle 不进入协议。timestamp 只有在 `clock_id` 相同时才能相减。
+
+`tracking` 必须有真实 wrist pose；`not_tracking` 和 `disconnected` 不得带 wrist/palm pose；
+`limited` 可以保留有效但降质的 pose。provider 保留 source order，不 reorder、smooth、extrapolate
+或生成 pose。sequence gap 和 out-of-order 只作为诊断。
+
+## articulation、兼容和记录
+
+`HandArticulation` 使用语义 joint name，不绑定 SDK 固定 enum。Quest 可以携带 26 个 OpenXR 点，
+其他 provider 可以使用其他命名 joint set；pinch/grasp strength 预留为 `[0,1]`。相对设备使用
+`relative_pose_delta`，把相对输入积分到绝对 target 属于下游 policy。
+
+主版本改变必需语义；同一主版本允许可选字段和记录类型，未知字段可以跳过，但不能静默重新解释
+required field。device SDK object、native handle、numeric enum 和 engine transform 不进入序列化。
+
+`.umip.jsonl` 是 UTF-8 JSONL：一个 header、零个或多个 sample 和可选 footer。每行可独立恢复；
+缺 footer 表示中断或未 finalize，不自动等同于损坏。replay 保留 sample identity 和 timestamp，
+只改变 delivery timing。
+
+诊断定义包括 frequency、sequence gap、timestamp jitter、同 clock latency、processing latency、
+CPU、confidence 和 tracking interruption/recovery。样本使用 bounded rolling window，计数保留
+lifetime totals，避免长时间记录无限增长。
+
+任何 frame registration、标定、滤波、缩放、safety、IK、target generation 或 command behavior
+都留在 teleoperation consumer 一侧。当前协议页不是新 teleoperation 实现提案。

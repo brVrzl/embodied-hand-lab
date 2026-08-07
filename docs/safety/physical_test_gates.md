@@ -1,11 +1,5 @@
 # Physical test gates
 
-## 中文摘要
-
-真机验证按“离线/静态/回放 → 只读与无动作 → fake worker → 有界真机运行”单向推进。
-
-每一步都保留明确的设备身份、停止方式、工作区、运行时长、输出限制、故障停止和清理证据；前一阶段的验证结果不能替代后一阶段的安全前置条件。
-
 Physical progress is monotonic and evidence-based:
 
 1. offline build/static/unit/replay validation;

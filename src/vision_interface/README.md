@@ -38,7 +38,6 @@ Inspect current tools without opening a camera:
 ```bash
 .venv/bin/python tools/check_realsense_stream.py --help
 .venv/bin/python tools/process_rgbd_tabletop.py --help
-.venv/bin/python tools/compare_d435_depth_algorithms.py --help
 ```
 
 Opening or enumerating a physical camera requires an explicit device operation.

@@ -159,7 +159,7 @@ def _add_reviewed_internal_exclusions(root: ET.Element) -> None:
 def patch_rh56_visual_coacd_collision_model(
     root: ET.Element,
     *,
-    asset_root: str | Path = "data/sim_assets",
+    asset_root: str | Path = "assets",
 ) -> None:
     """Derive the supported RH56 runtime model from committed CoACD parts."""
 

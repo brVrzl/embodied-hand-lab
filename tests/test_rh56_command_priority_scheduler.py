@@ -5,7 +5,6 @@ import threading
 
 import pytest
 
-from embodiment_core.config import load_yaml
 from rh56_driver.pc_direct_control import (
     FakeRH56PcDirectBackend,
     HandOperation,
@@ -70,29 +69,15 @@ class ScheduledBackend(FakeRH56PcDirectBackend):
         )
 
 
-def _config(profile: str = "fast30") -> dict:
-    rates = {
-        "baseline": (15, 15, 15, 15, 15, 15),
-        "fast30": (30, 15, 10, 10, 10, 10),
-        "fast40": (40, 15, 10, 10, 10, 10),
-    }[profile]
+def _config() -> dict:
     return {
-        "scheduler_profile": profile,
-        "scheduler_profiles": {
-            profile: {
-                key: value
-                for key, value in zip(
-                    (
-                        "command_rate_hz",
-                        "angle_feedback_rate_hz",
-                        "current_feedback_rate_hz",
-                        "force_feedback_rate_hz",
-                        "status_feedback_rate_hz",
-                        "error_feedback_rate_hz",
-                    ),
-                    rates,
-                )
-            }
+        "scheduler": {
+            "command_rate_hz": 40,
+            "angle_feedback_rate_hz": 15,
+            "current_feedback_rate_hz": 10,
+            "force_feedback_rate_hz": 10,
+            "status_feedback_rate_hz": 10,
+            "error_feedback_rate_hz": 10,
         },
         "feedback_stale_timeout_sec": 0.4,
         "serial": {"timeout_sec": 0.2},
@@ -111,11 +96,11 @@ def _config(profile: str = "fast30") -> dict:
     }
 
 
-def _worker(profile: str = "fast30"):
+def _worker():
     clock = ManualClock()
     backend = ScheduledBackend(clock)
     control = RH56PcDirectControl(
-        backend, _config(profile), perf_counter_ns=clock
+        backend, _config(), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
     first = worker.start(HandOperation.COMBINED, run_in_thread=False)
@@ -123,11 +108,9 @@ def _worker(profile: str = "fast30"):
     return worker, control, backend, clock, first
 
 
-@pytest.mark.parametrize("profile, expected_period_ms", [("fast30", 1000 / 30), ("fast40", 25.0)])
-def test_command_deadline_intervals_follow_requested_rate(
-    profile: str, expected_period_ms: float
-) -> None:
-    worker, _control, backend, clock, first = _worker(profile)
+def test_command_deadline_intervals_follow_requested_rate() -> None:
+    expected_period_ms = 25.0
+    worker, _control, backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target([0.1] * 6, clock())
@@ -144,7 +127,7 @@ def test_command_deadline_intervals_follow_requested_rate(
 
 
 def test_command_priority_then_status_error_max_age_prevents_starvation() -> None:
-    worker, _control, backend, clock, first = _worker("fast40")
+    worker, _control, backend, clock, first = _worker()
     try:
         clock.advance_ms(260)
         worker.activate_from_measured(first.monotonic_ns)
@@ -161,7 +144,7 @@ def test_command_priority_then_status_error_max_age_prevents_starvation() -> Non
 
 
 def test_feedback_registers_run_at_independent_rates() -> None:
-    worker, _control, backend, clock, _first = _worker("fast30")
+    worker, _control, backend, clock, _first = _worker()
     try:
         for _ in range(1000):
             clock.advance_ms(1)
@@ -182,7 +165,7 @@ def test_feedback_registers_run_at_independent_rates() -> None:
 
 
 def test_slow_single_feedback_is_followed_by_due_command_not_remaining_full_poll() -> None:
-    worker, _control, backend, clock, first = _worker("fast40")
+    worker, _control, backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target([0.05] * 6, clock())
@@ -205,7 +188,7 @@ def test_slow_single_feedback_is_followed_by_due_command_not_remaining_full_poll
 
 
 def test_one_latest_target_continues_delta_limited_progress_without_duplicate_writes() -> None:
-    worker, control, backend, clock, first = _worker("fast40")
+    worker, control, backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target([0.2] * 6, clock())
@@ -221,7 +204,7 @@ def test_one_latest_target_continues_delta_limited_progress_without_duplicate_wr
 
 
 def test_activation_force_is_consumed_before_concurrent_latest_target_arrives() -> None:
-    worker, _control, backend, clock, first = _worker("fast40")
+    worker, _control, backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.submit_target([0.2] * 6, clock())
@@ -242,7 +225,7 @@ def test_activation_force_is_consumed_before_concurrent_latest_target_arrives() 
 
 
 def test_measured_activation_is_not_replayed_after_angle_feedback_changes() -> None:
-    worker, _control, backend, clock, first = _worker("fast40")
+    worker, _control, backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         worker.run_cycle()
@@ -269,7 +252,7 @@ def test_failed_write_is_not_committed_or_suppressed_in_next_authorized_session(
     clock = ManualClock()
     rejected_backend = RejectOnceBackend(clock)
     control = RH56PcDirectControl(
-        rejected_backend, _config("fast30"), perf_counter_ns=clock
+        rejected_backend, _config(), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock)
     first = worker.start(HandOperation.COMBINED, run_in_thread=False)
@@ -284,7 +267,7 @@ def test_failed_write_is_not_committed_or_suppressed_in_next_authorized_session(
 
     # Serial/ack failure is a hard stop; retry is permitted only in a new,
     # separately authorized session. The target was not poisoned as duplicate.
-    retry_worker, retry_control, retry_backend, _clock, retry_first = _worker("fast30")
+    retry_worker, retry_control, retry_backend, _clock, retry_first = _worker()
     try:
         retry_worker.activate_from_measured(retry_first.monotonic_ns)
         retry_worker.submit_target(target, retry_first.monotonic_ns)
@@ -295,29 +278,17 @@ def test_failed_write_is_not_committed_or_suppressed_in_next_authorized_session(
         retry_worker.cleanup()
 
 
-def test_profiles_resolve_for_hand_only_and_combined_config_consumers() -> None:
-    config = load_yaml("configs/hand/rh56_pc_direct_teleop.yaml")
-    expected = {"baseline": 15, "fast30": 30, "fast40": 40, "fast50": 50}
-    for profile, command_rate in expected.items():
-        selected = dict(config)
-        selected["scheduler_profile"] = profile
-        hand_only = RH56PcDirectControl(FakeRH56PcDirectBackend(), selected)
-        combined = RH56PcDirectControl(FakeRH56PcDirectBackend(), selected)
-        assert hand_only.command_rate_hz == combined.command_rate_hz == command_rate
-        assert hand_only.feedback_rate_hz == combined.feedback_rate_hz
-
-
 def test_diagnostics_report_requested_and_achieved_command_rates() -> None:
-    worker, _control, _backend, clock, first = _worker("fast30")
+    worker, _control, _backend, clock, first = _worker()
     try:
         worker.activate_from_measured(first.monotonic_ns)
         for index in range(4):
             worker.submit_target([0.1 + index * 0.01] * 6, clock())
             worker.run_cycle()
-            clock.advance_ms(1000 / 30)
+            clock.advance_ms(25)
         diagnostics = worker.diagnostics_snapshot()
-        assert diagnostics["requested_command_rate_hz"] == 30
-        assert diagnostics["successful_serial_write_rate_hz"] == pytest.approx(30.0)
+        assert diagnostics["requested_command_rate_hz"] == 40
+        assert diagnostics["successful_serial_write_rate_hz"] == pytest.approx(40.0)
         assert diagnostics["timing_ms"]["command_deadline_lateness"]["max"] == pytest.approx(0.0)
     finally:
         worker.cleanup()
@@ -328,7 +299,7 @@ def test_logging_is_compact_per_command_and_full_only_on_angle_feedback() -> Non
     clock = ManualClock()
     backend = ScheduledBackend(clock)
     control = RH56PcDirectControl(
-        backend, _config("fast30"), perf_counter_ns=clock
+        backend, _config(), perf_counter_ns=clock
     )
     worker = RH56PcDirectWorker(control, monotonic_ns=clock, record=rows.append)
     first = worker.start(HandOperation.COMBINED, run_in_thread=False)
@@ -352,7 +323,7 @@ def test_logging_is_compact_per_command_and_full_only_on_angle_feedback() -> Non
 
 
 def test_diagnostics_snapshot_copies_producer_windows_under_mailbox_lock() -> None:
-    worker, _control, _backend, clock, _first = _worker("fast30")
+    worker, _control, _backend, clock, _first = _worker()
     failures: list[BaseException] = []
 
     def produce() -> None:

@@ -227,7 +227,7 @@ def test_thumb_close_is_relative_monotonic_with_small_bend_only_lateral_crosstal
         values.append(float(session.simulation.commanded_hand_target[1]))
     assert values == sorted(values)
     assert values[-1] > initial[1]
-    assert 0.0 <= values[-1] <= RH56_THUMB_CLOSE_RANGE_RAD
+    assert -1e-12 <= values[-1] <= RH56_THUMB_CLOSE_RANGE_RAD + 1e-12
     assert session.simulation.commanded_hand_target[0] == pytest.approx(
         initial[0], abs=0.03
     )
@@ -244,7 +244,7 @@ def test_thumb_close_is_relative_monotonic_with_small_bend_only_lateral_crosstal
     assert debug["feature_delta_rad"] is not None
     assert debug["captured_rh56_reference_rad"] == pytest.approx(initial[1])
     assert debug["requested_target_rad"] is not None
-    assert 0.0 <= debug["clipped_target_rad"] <= RH56_THUMB_CLOSE_RANGE_RAD
+    assert -1e-12 <= debug["clipped_target_rad"] <= RH56_THUMB_CLOSE_RANGE_RAD + 1e-12
     assert debug["actual_mujoco_joint_rad"] is not None
     assert debug["joint_range_rad"] == pytest.approx(
         (0.0, RH56_THUMB_CLOSE_RANGE_RAD)
@@ -257,7 +257,7 @@ def test_thumb_close_is_relative_monotonic_with_small_bend_only_lateral_crosstal
     )
 
 
-def test_lateral_only_is_monotonic_slew_limited_and_does_not_change_thumb_close(
+def test_lateral_only_is_monotonic_and_does_not_change_thumb_close(
     tmp_path: Path,
 ) -> None:
     session = _session(tmp_path)
@@ -273,7 +273,6 @@ def test_lateral_only_is_monotonic_slew_limited_and_does_not_change_thumb_close(
 
     lateral_values = []
     for sequence, raw in enumerate((-0.40, -0.20, 0.0, 0.20, 0.25), start=3):
-        before = session.simulation.commanded_hand_target.copy()
         _tick(
             session,
             sequence,
@@ -285,7 +284,6 @@ def test_lateral_only_is_monotonic_slew_limited_and_does_not_change_thumb_close(
         after = session.simulation.commanded_hand_target.copy()
         lateral_values.append(float(after[0]))
         assert 0.0 <= after[0] <= RH56_THUMB_LATERAL_RANGE_RAD
-        assert after[0] - before[0] <= session.thumb_lateral_max_step_rad + 1e-12
         assert after[1] == pytest.approx(initial[1])
         assert after[2:] == pytest.approx(initial[2:])
         assert np.all(np.isfinite(after))

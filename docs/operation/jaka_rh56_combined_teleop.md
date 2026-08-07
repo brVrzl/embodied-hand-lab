@@ -1,7 +1,7 @@
 # JAKA Mini2 + RH56DFX combined teleoperation
 
 This is the current normal physical teleoperation entry. The arm and hand use
-their production operating envelopes rather than the temporary post-payload or
+their production operating envelopes rather than retired commissioning or
 single-channel diagnostic restrictions. All production safety limits remain
 active. The maintained command below is the same command used for the latest
 combined run on 2026-08-03: it loaded the real RH56 calibration, accepted
@@ -67,16 +67,19 @@ The entry uses the same normal production arm limits as
 `run_quest_jaka_bounded_teleop.sh`: J1--J6 1.5 rad/s,
 plus all shared/native position, workspace, velocity, acceleration, jerk,
 tracking, controller, collision, stale, timing, and cleanup boundaries. It
-does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
-0--1000 position range, physically selected `fast40` command profile, 0.05
-delta limit, full normalized command domain, contact hold,
+does not use retired commissioning limits. The hand retains its
+0--1000 position range, fixed 40 Hz command scheduler, 0.05 delta limit,
+full normalized command domain, contact hold,
 feedback/protocol/fault gates, and measured-first startup.
 Both hand-only and combined physical entries load
 `configs/hand/quest_rh56_real_retarget.yaml`, align the target to the current
 Quest pose on grip press from measured activation, and enable the physically
 validated index-pinch three-channel relationship. The simulation-only
 uncalibrated mapping is rejected by physical entry assembly.
-There is no unlimited or safety-disable option.
+The collection runtime explicitly disables only the live-demo
+clutch-relative target-displacement envelope; this is not a general safety
+disable. All IK, joint-limit, singularity, collision, output, controller,
+timing, liveness, and operator workspace checks remain active.
 
 After completing Steps 1--8 in [RH56 operation](rh56_operation.md), inspect the
 formal entry without connecting:
@@ -86,15 +89,14 @@ formal entry without connecting:
 ```
 
 Store the operator-confirmed robot, RH56, native-CPU, and Quest transport values
-in the ignored `data/local/physical_collection.yaml` runtime config. The
+in the reviewed `configs/data_collection/physical_collection.yaml` runtime
+config. The
 explicit CH341 setting is kept in that config when the host exposes only the
 identity-checked `/dev/ttyCH341USB<N>` fallback:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --runtime-config data/local/physical_collection.yaml \
-  --hand-prerequisites-complete \
-  --no-auto-retry --estop-accessible --workspace-clear
+  --runtime-config configs/data_collection/physical_collection.yaml
 ```
 
 Executing this complete real-device command starts an operator-initiated,
@@ -115,8 +117,9 @@ faults and clutch edges are still written immediately. The raw Quest, JAKA,
 native, RH56, and dual-camera streams retain their source rates for offline
 alignment.
 The combined wrapper default and explicit upper bound are both 300 seconds;
-arm-only and post-payload entries retain their existing shorter bounds. Every
-run remains single-shot and requires `--no-auto-retry`.
+the arm-only entry uses its configured shorter bound. The
+combined entry does not expose a retry policy; it runs the configured process
+once and terminates only through its documented stop/cleanup paths.
 
 When dual-D435 episode capture is enabled, the dataset runtime is process
 isolated. Quest/mapping/IK/safety and the native target path remain in the
@@ -127,22 +130,15 @@ Preview, when enabled, is a separate latest-only consumer. Camera, recorder,
 and preview children use ordinary scheduling and the verified non-native CPU
 set; none may include `--native-control-cpu`.
 
-This boundary is offline-tested only. Run the short software comparison with:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
-  tools/validation/benchmark_combined_process_isolation.py --duration-sec 3
-```
-
-Do not use `--paced-seconds` from the older benchmark tool for this validation
-and do not treat the software result as physical D435 evidence.
+This boundary remains software-only and is not evidence of physical D435
+behavior or long-duration collection stability.
 
 ---
 
 # 中文版：JAKA Mini2 + RH56DFX 联合遥操作
 
 这是当前正常真机遥操作入口。arm 与 hand 使用 production 正常工作范围，不继承
-post-payload 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。下方命令就是
+已退役 commissioning 或单通道诊断的临时限制，但所有 production 安全边界仍保持启用。下方命令就是
 2026-08-03 最近一次联合运行使用的最新入口：加载了真实 RH56 标定，接受 10,035 个 arm
 目标，运行 234.32 秒后因 Quest 输入超过 10 秒未恢复而 fail-closed 停止；没有 arm、controller
 或 RH56 transport fault。这只是部分证据，不是 300 秒 PASS；该次没有完成快递盒或抽纸抽出结果。
@@ -175,11 +171,12 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 - hand transport/feedback/device fault 会使 episode invalid 并让 arm 安全 hold/stop；arm
   terminal hard fault 会停止 hand 新命令。
 
-入口复用 arm normal production 的 J1--J6 1.5 rad/s，以及所有关节/
-workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/cleanup 安全边界；不使用
-post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
+入口复用 arm normal production 的 J1--J6 1.5 rad/s，以及所有关节/速度/加速度/jerk/
+tracking/controller/collision/stale/timing/cleanup 安全边界；采集 runtime 不把 live-demo 的
+clutch-relative 0.20 m target envelope 当作任务行程限制；不使用
+已退役 commissioning 的临时速度限制。hand 保留 0--1000、固定 40 Hz command scheduler、
 0.05 delta、完整归一化 command domain、接触保持和全部
-feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
+feedback/protocol/fault gate。没有通用的 unlimited 或 disable-safety 参数。
 hand-only 与 combined 真机入口统一加载
 `configs/hand/quest_rh56_real_retarget.yaml`，每次 grip press 从实测激活值向当前 Quest
 姿态对齐，并启用已完成真机验证的 index-pinch 三通道关系；真机配置装配会拒绝
@@ -208,8 +205,8 @@ event extract、RH56 telemetry 和 combined summary。
 启用真机 episode 采集时，canonical dataset 仍为 30 Hz，诊断用 combined-event
 日志也按 30 Hz 记录；fault 和 clutch 边沿仍立即写入。Quest、JAKA、native、RH56
 以及双相机原始流保留各自采样率，供离线对齐。
-combined wrapper 默认时长与显式上限均为 300 秒；arm-only 与 post-payload 入口保持原有
-较短上限。每段仍为 single-shot，且必须使用 `--no-auto-retry`。
+combined wrapper 默认时长与显式上限均为 300 秒；arm-only 入口使用 runtime YAML 中的
+较短上限。combined 入口不再暴露 retry policy，而是按当前进程的 stop/cleanup 路径运行一次。
 
 启用双 D435 episode 采集后，数据路径改为进程隔离：Quest/mapping/IK/safety 和
 native target 路径仍在 control process；每台 D435 各自运行 producer process，只把帧和
@@ -218,12 +215,4 @@ materialization 和异步写盘都在 recorder process；preview（若启用）�
 latest-only consumer。camera、recorder、preview 只使用不包含
 `--native-control-cpu` 的普通调度 CPU 集合，不使用 `SCHED_FIFO`。
 
-该边界目前只完成离线验证。短时软件对照命令为：
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python \
-  tools/validation/benchmark_combined_process_isolation.py --duration-sec 3
-```
-
-不要在本轮使用旧 benchmark 工具的 `--paced-seconds`，软件结果也不能当作双 D435
-真机证据。
+该边界仍属于软件实现，不能把它当作双 D435 真机行为或长时间采集稳定性的证据。

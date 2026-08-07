@@ -18,7 +18,6 @@ authorized hardware work.
 | RealSense D435 | Python adapter, stream checker, RGB-D processing, and example configs | Offline tested; target dual-camera profiles and synchronization are not physically validated |
 | Meta Quest 3 | Host-side HTS and CTRL UDP parsing, recording, replay, and simulation | Host path implemented; headset APK/runtime installation is external and must be verified separately |
 | Dataset tools | Shared simulation/physical-gated dual-D435 episode capture, validation, inspection, labeling, manifest, statistics, ACT-style HDF5 and LeRobot export boundaries | Offline-tested data contracts; physical JAKA/RH56 multimodal collection is integrated but not physically validated |
-| Training | PyTorch/distributed smoke infrastructure only | No ACT, Diffusion Policy, OpenPI/pi0, or general trainer exists |
 | Jetson Thor | aarch64 JAKA SDK snapshot and device-oriented configs exist | End-to-end Thor installation, camera stack, policy deployment, and latency are not validated |
 
 The maintenance host used during the repository overhaul was macOS arm64.
@@ -52,8 +51,8 @@ editable mode so the `embodied-lab` entry point is regenerated:
 
 `doctor` is read-only. It parses repository YAML, checks required paths and
 Python packages, inventories device filenames, and reports host, storage,
-NVIDIA, PyTorch, container, Slurm, and network-interface facts. It never opens
-a serial port, camera, headset socket, or robot session. A nonzero exit means
+NVIDIA, container, and network-interface facts. It never opens a serial port,
+camera, headset socket, or robot session. A nonzero exit means
 the reported offline prerequisites are incomplete; it does not mean a physical
 device failed.
 
@@ -77,7 +76,6 @@ Install only the role-specific extras needed on a machine:
 | `dataset-export` | HDF5, OpenCV, PyArrow, and LeRobot 0.6 export support |
 | `motion-input-viz` | Matplotlib visualization |
 | `asset-tools` | COACD, image/video, OpenCV, pycolmap, SciPy, and trimesh tools |
-| `training` | HDF5 and PyTorch; distributed smoke only, not a model trainer |
 | `dev` | pytest, native build helpers, MuJoCo, HDF5, image/geometry tools, pyserial |
 
 Examples:
@@ -151,7 +149,7 @@ Install the simulation extra:
 ```
 
 The default model is
-`data/sim_assets/jaka_rh56_visual_coacd.xml`. Keep the repository layout
+`assets/jaka_rh56_visual_coacd.xml`. Keep the repository layout
 intact because MJCF includes and mesh paths are repository-relative.
 
 For interactive Quest simulation, inspect the current wrapper without opening
@@ -166,35 +164,6 @@ host, `MUJOCO_GL=egl` is appropriate only when EGL is installed and usable.
 `MUJOCO_GL=osmesa` requires an OSMesa runtime. Do not set either globally
 without testing the selected host.
 
-## GPU training server
-
-The `training` extra declares `torch>=2.4` and HDF5, but the correct CUDA-enabled
-PyTorch build depends on the server driver and package channel. First record:
-
-```bash
-nvidia-smi
-nvidia-smi topo -m
-nvcc --version
-```
-
-Then install the PyTorch build recommended for that server's supported driver
-and CUDA runtime, followed by the repository:
-
-```bash
-.venv/bin/python -m pip install -e ".[training,dataset-export]"
-.venv/bin/embodied-lab doctor --json
-.venv/bin/embodied-lab distributed-smoke --check
-```
-
-Do not infer the host driver from `nvcc`, or the system toolkit from
-`torch.version.cuda`. The project currently has no trainer; a successful
-distributed smoke does not make ACT or Diffusion Policy available. See
-[distributed training readiness](../training/DISTRIBUTED_TRAINING.md).
-
-No Dockerfile, Conda lock, or Apptainer image is currently authoritative.
-Create a role-specific environment only after selecting the trainer and target
-server stack.
-
 ## JAKA Mini2 native worker
 
 The maintained physical arm transport is the C++ worker in
@@ -203,10 +172,6 @@ locally supplied JAKA SDK 2.2.7 on Linux:
 
 - `x86_64-linux-gnu/libjakaAPI.so` on x86_64;
 - `aarch64-linux-gnu/libjakaAPI.so` on ARM64.
-
-The vendor files have no redistributable license text in this bundle; follow
-[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) before transferring
-them independently.
 
 Build offline:
 
@@ -302,12 +267,11 @@ identities without starting a stream. Without that flag, the tool opens the
 selected camera and writes RGB, metric-depth, point-cloud, and metadata
 snapshots; run the streaming form only when that device probe is intended.
 
-`configs/camera/realsense_thor.yaml` is a site-specific two-camera snapshot,
-not a portable default. For a new system start from
-`configs/data_collection/dual_d435_episode.example.yaml`, replace both role
-serials, and retain calibration identity. Workspace and wrist roles must never
-be inferred from `/dev/video*` numbering. Target dual-D435 hardware/profile
-validation remains incomplete.
+Edit `configs/data_collection/physical_collection.yaml` and verify both role
+serials and calibration identity. This is the only maintained operator-facing
+D435 acquisition config; workspace and wrist roles must never be inferred from
+`/dev/video*` numbering. Target dual-D435 hardware/profile validation remains
+incomplete.
 
 ## Meta Quest 3 host input
 
@@ -361,17 +325,110 @@ Use only checks supported by the installed role:
 .venv/bin/embodied-lab doctor --json
 .venv/bin/embodied-lab sim smoke
 .venv/bin/embodied-lab dataset --help
-.venv/bin/embodied-lab distributed-smoke --check
-.venv/bin/embodied-lab benchmark --help
 
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m compileall -q src tools tests
 .venv/bin/python -m pytest --collect-only -q -p no:cacheprovider
 ```
 
-`distributed-smoke --check` returns nonzero when PyTorch or a usable backend is
-absent. Skip the simulation command on a core-only installation. Neither
-condition should be hidden by deleting tests.
+Skip the simulation command on a core-only installation. A missing optional
+dependency should remain visible rather than being hidden by a fallback.
 
 For configuration rules continue with
 [Configuration](../configuration/CONFIGURATION.md). For installation and
 runtime failures see [Troubleshooting](../TROUBLESHOOTING.md).
+
+---
+
+# 中文版：安装
+
+本页是当前 source bundle 的权威安装说明。安装和 `--help` 检查不会授权连接 JAKA、RH56DFX、
+RealSense、Quest 或其他真机设备。任何真机工作前还要阅读[真机硬件前置条件](../operation/hardware_prerequisites.md)
+和[验证矩阵](../status/validation_matrix.md)。
+
+## 支持范围
+
+| 组件 | 当前支持 | 验证边界 |
+| --- | --- | --- |
+| Python core 和 `embodied-lab doctor` | 已实现 | 离线测试；doctor 只检查软件和路径 |
+| MuJoCo JAKA/RH56 仿真 | 已实现 | 离线/仿真验证，不证明真机行为 |
+| JAKA Mini2 | Linux x86_64/aarch64 native C++ ServoJ/EDG worker | 有界真机部分验证，完整范围和最新修正未完全验证 |
+| RH56DFX | Linux PC-direct USB/RS485 driver | 有 hand-only 证据，长期联合运行未完成 |
+| RealSense D435 | Python adapter、stream checker、RGB-D 工具 | 离线测试，目标双相机 profile/sync 未真机验证 |
+| Meta Quest 3 | host-side HTS/CTRL parser、record/replay、simulation | host 路径实现，headset APK/runtime 要单独确认 |
+| Dataset tools | episode capture、validation、review、manifest、statistics、export 边界 | 数据契约离线测试，真机多模态采集未端到端验证 |
+| Jetson Thor | aarch64 SDK snapshot 和 device 配置 | end-to-end 安装、camera、policy deployment、latency 未验证 |
+
+## Python 和可选依赖
+
+`pyproject.toml` 要求 Python 3.10 或更高，建议新环境使用 Python 3.11，并为每种机器角色
+建立独立 virtualenv：
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
+.venv/bin/python -m pip install -e "."
+.venv/bin/embodied-lab --help
+.venv/bin/embodied-lab doctor
+```
+
+常用 extra：`simulation` 安装 MuJoCo，`hardware` 安装 RH56 serial 支持，`realsense` 安装
+`pyrealsense2`，`dataset-export` 安装 HDF5/OpenCV/PyArrow/LeRobot exporter，`dev` 安装完整
+离线测试环境。extra 只安装 Python 包，不安装 GPU driver、librealsense udev rule、controller
+software 或 Quest application。
+
+## Linux、MuJoCo 和 native JAKA
+
+物理 JAKA worker 需要 Linux。常见系统包是 `build-essential cmake ninja-build pkg-config
+python3-dev python3-venv`。离线仿真检查：
+
+```bash
+.venv/bin/python -m pip install -e ".[simulation,dev]"
+.venv/bin/embodied-lab doctor --json
+.venv/bin/embodied-lab sim smoke
+```
+
+默认 MuJoCo model 是 `assets/jaka_rh56_visual_coacd.xml`，不要破坏仓库相对 include/mesh 路径。
+native worker 离线构建：
+
+```bash
+cmake -S native/jaka_servo_worker -B build/jaka_servo_worker
+cmake --build build/jaka_servo_worker -j
+build/jaka_servo_worker/jaka_servo_worker --help
+```
+
+非 Linux 主机只构建 portable resampler；构建、`file`、`ldd` 或 `--help` 不授权 login、enable、
+servo、EDG 或运动。软件不能通过安装流程写入 payload、TCP、installation、collision 或 controller safety。
+
+## RH56、RealSense 和 Quest
+
+RH56 使用 `RH56DFX -> USB/RS485 -> Linux/Thor`。必须显式选择稳定的
+`/dev/serial/by-id/...`；preflight 不会打开串口。遵循[RH56 操作](../operation/rh56_operation.md)。
+
+RealSense 需要目标 Linux 上兼容的 librealsense 和 udev rules。`--list-devices` 只枚举身份；
+不带该选项的 stream checker 会打开相机。相机角色必须在
+`configs/data_collection/physical_collection.yaml` 中按 serial 绑定，不能按 `/dev/video*` 顺序推断。
+目标双 D435 profile 和同步仍未端到端验证。
+
+仓库不构建 Quest APK 或 Unity project。Quest HTS/CTRL sender 是外部安装事实；host parser、
+recorder 和仿真可通过对应 `--help` 检查。host receipt time 用于 freshness，不能把 Quest source
+time 与 host clock 直接相减。
+
+## Jetson Thor 与安装后检查
+
+Thor 应作为独立 ARM64 deployment/data-collection target。使用匹配的 JetPack/CUDA/TensorRT/
+camera/PyTorch，重新建立 ARM64 virtualenv，构建 aarch64 worker，单独安装和验证 librealsense，
+再运行 `doctor --json` 和 replay。不能把 x86 CUDA wheel、desktop librealsense 或 x86 container
+直接复制到 Thor；当前没有 validated Thor policy export 或 end-to-end robot deployment。
+
+安装后只运行离线检查：
+
+```bash
+.venv/bin/embodied-lab --help
+.venv/bin/embodied-lab doctor --json
+.venv/bin/embodied-lab sim smoke
+.venv/bin/embodied-lab dataset --help
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m compileall -q src tools tests
+.venv/bin/python -m pytest --collect-only -q -p no:cacheprovider
+```
+
+配置规则见[配置](../configuration/CONFIGURATION.md)，安装或 runtime 故障见[故障排查](../TROUBLESHOOTING.md)。

@@ -1,10 +1,10 @@
-"""AnyDexRetarget-informed Quest-21 to simulated RH56DFX adapter.
+"""Quest-21 to simulated RH56DFX adaptive retarget adapter.
 
 The implementation is intentionally project-native: it uses the committed
 RH56DFX MuJoCo actuator/equality semantics and has no NLopt, Pinocchio, SDK, or
-physical-hand transport dependency.  AnyDexRetarget's adaptive/key-vector,
-warm-start, pinch weighting, and scale-calibration concepts informed the two
-small backends below; no upstream source is copied.
+physical-hand transport dependency.  Adaptive warm-start, pinch weighting,
+and scale-calibration concepts are implemented locally; no upstream source is
+copied.
 """
 
 from __future__ import annotations
@@ -29,6 +29,13 @@ RH56_CANONICAL_ORDER = (
     "thumb_close",
     "thumb_lateral",
 )
+RH56_DIGIT_FEATURE_ORDER = (
+    "index",
+    "middle",
+    "ring",
+    "pinky",
+    "thumb_close",
+)
 RH56_MUJOCO_ACTUATOR_ORDER = (
     "thumb_lateral",
     "thumb_close",
@@ -38,7 +45,7 @@ RH56_MUJOCO_ACTUATOR_ORDER = (
     "pinky",
 )
 # Relative MuJoCo travel derived from all 1001 rows of the local vendor-angle
-# workbook recorded in data/sim_assets/rh56_thumb_table_calibration.json.
+# workbook recorded in assets/rh56_thumb_table_calibration.json.
 # Vendor absolute angles (for example 170 deg at one bend endpoint) are not
 # MuJoCo qpos zero offsets.
 RH56_THUMB_CLOSE_RANGE_RAD = math.radians(40.0)
@@ -128,7 +135,6 @@ class PalmLocalFrame:
 class InspireRetargetResult:
     timestamp_monotonic_ns: int
     valid: bool
-    backend: str
     joint_targets: Mapping[str, float]
     actuator_targets: Mapping[str, float]
     normalized_targets: Mapping[str, float]
@@ -142,14 +148,11 @@ class InspireRetargetResult:
 @dataclass(frozen=True, slots=True)
 class HandRetargetCalibration:
     calibration_id: str
-    global_scale: float
-    palm_scale: float
-    finger_scale: tuple[float, float, float, float]
+    palm_normalization_scale: float
+    digit_scale: tuple[float, float, float, float, float]
     finger_feature_open: tuple[float, float, float, float]
     finger_feature_closed: tuple[float, float, float, float]
     finger_curve_exponent: tuple[float, float, float, float]
-    thumb_scale: float
-    key_vector_scale: float
     thumb_curve_open_rad: float
     thumb_curve_closed_rad: float
     thumb_close_bend_gain: float
@@ -171,20 +174,14 @@ class HandRetargetCalibration:
     pinch_pose_maximum_weight_step: float
     validated_pinch_poses: Mapping[str, tuple[float, float, float, float, float, float]]
     thumb_first_pinch_enabled: bool
-    thumb_first_lateral_target: float
-    thumb_first_lateral_tolerance: float
-    thumb_first_index_guard: float
-    thumb_first_thumb_close_guard: float
     thumb_first_index_activation: float
     thumb_first_thumb_close_activation: float
     thumb_first_lateral_activation: float
     mcp_flexion_weight: float
     mcp_flexion_deadband: float
-    maximum_normalized_step: float
-    loss_behavior: str
 
     @classmethod
-    def load(cls, path: str | Path) -> tuple[str, "HandRetargetCalibration"]:
+    def load(cls, path: str | Path) -> "HandRetargetCalibration":
         values = load_yaml(path)
         calibration = values["calibration"]
         thumb_close = calibration.get("thumb_close", {})
@@ -197,11 +194,20 @@ class HandRetargetCalibration:
             str(name): tuple(float(value) for value in pose)
             for name, pose in pinch_pose_blending.get("validated_poses", {}).items()
         }
+        try:
+            palm_normalization_scale = float(
+                calibration["palm_normalization_scale"]
+            )
+            raw_digit_scale = calibration["digit_scale"]
+            if not isinstance(raw_digit_scale, (list, tuple)):
+                raise TypeError("digit_scale must be a sequence")
+            digit_scale = tuple(float(value) for value in raw_digit_scale)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("malformed RH56 retarget calibration") from exc
         result = cls(
             calibration_id=str(calibration["calibration_id"]),
-            global_scale=float(calibration["global_scale"]),
-            palm_scale=float(calibration["palm_scale"]),
-            finger_scale=tuple(float(value) for value in calibration["finger_scale"]),
+            palm_normalization_scale=palm_normalization_scale,
+            digit_scale=digit_scale,
             finger_feature_open=tuple(
                 float(value)
                 for value in calibration.get("finger_feature", {}).get(
@@ -220,8 +226,6 @@ class HandRetargetCalibration:
                     "curve_exponent", (1.0, 1.0, 1.0, 1.0)
                 )
             ),
-            thumb_scale=float(calibration["thumb_scale"]),
-            key_vector_scale=float(calibration["key_vector_scale"]),
             thumb_curve_open_rad=float(thumb_curve.get("curve_open_rad", 0.0)),
             thumb_curve_closed_rad=float(
                 thumb_curve.get("curve_closed_rad", math.pi)
@@ -281,18 +285,6 @@ class HandRetargetCalibration:
             ),
             validated_pinch_poses=validated_poses,
             thumb_first_pinch_enabled=bool(thumb_first.get("enabled", False)),
-            thumb_first_lateral_target=float(
-                thumb_first.get("lateral_target", 0.0)
-            ),
-            thumb_first_lateral_tolerance=float(
-                thumb_first.get("lateral_tolerance", 0.03)
-            ),
-            thumb_first_index_guard=float(
-                thumb_first.get("index_guard", 0.15)
-            ),
-            thumb_first_thumb_close_guard=float(
-                thumb_first.get("thumb_close_guard", 0.25)
-            ),
             thumb_first_index_activation=float(
                 thumb_first.get("index_activation", 0.50)
             ),
@@ -300,31 +292,19 @@ class HandRetargetCalibration:
                 thumb_first.get("thumb_close_activation", 0.35)
             ),
             thumb_first_lateral_activation=float(
-                thumb_first.get(
-                    "lateral_activation",
-                    max(
-                        0.0,
-                        float(thumb_first.get("lateral_target", 0.0))
-                        - float(thumb_first.get("lateral_tolerance", 0.03)),
-                    ),
-                )
+                thumb_first.get("lateral_activation", 0.0)
             ),
             mcp_flexion_weight=float(calibration.get("mcp_flexion_weight", 0.0)),
             mcp_flexion_deadband=float(calibration.get("mcp_flexion_deadband", 0.15)),
-            maximum_normalized_step=float(calibration["maximum_normalized_step"]),
-            loss_behavior=str(calibration.get("loss_behavior", "safe_open")),
         )
         if (
-            len(result.finger_scale) != 4
+            len(result.digit_scale) != len(RH56_DIGIT_FEATURE_ORDER)
             or len(result.finger_feature_open) != 4
             or len(result.finger_feature_closed) != 4
             or len(result.finger_curve_exponent) != 4
             or not all(math.isfinite(value) and value > 0 for value in (
-                result.global_scale,
-                result.palm_scale,
-                *result.finger_scale,
-                result.thumb_scale,
-                result.key_vector_scale,
+                result.palm_normalization_scale,
+                *result.digit_scale,
                 *result.finger_curve_exponent,
             ))
             or not all(
@@ -382,20 +362,14 @@ class HandRetargetCalibration:
                 or not all(math.isfinite(value) and 0.0 <= value <= 1.0 for value in pose)
                 for name, pose in result.validated_pinch_poses.items()
             )
-            or not 0.0 <= result.thumb_first_lateral_target <= 1.0
-            or not 0.0 <= result.thumb_first_lateral_tolerance < 1.0
-            or not 0.0 <= result.thumb_first_index_guard <= 1.0
-            or not 0.0 <= result.thumb_first_thumb_close_guard <= 1.0
             or not 0.0 <= result.thumb_first_index_activation <= 1.0
             or not 0.0 <= result.thumb_first_thumb_close_activation <= 1.0
             or not 0.0 <= result.thumb_first_lateral_activation <= 1.0
             or not 0 <= result.mcp_flexion_weight <= 1
             or not 0 <= result.mcp_flexion_deadband < 1
-            or not 0 < result.maximum_normalized_step <= 1
-            or result.loss_behavior not in {"safe_open", "hold"}
         ):
             raise ValueError("malformed RH56 retarget calibration")
-        return str(values.get("selected_backend", "adaptive")), result
+        return result
 
 
 class HandRetargeter(Protocol):
@@ -681,26 +655,14 @@ class ThumbFirstPinchSequencer:
         self,
         *,
         enabled: bool,
-        lateral_target: float,
-        lateral_tolerance: float,
-        index_guard: float,
-        thumb_close_guard: float,
         index_activation: float = 0.50,
         thumb_close_activation: float = 0.35,
-        lateral_activation: float | None = None,
+        lateral_activation: float = 0.0,
     ) -> None:
         self.enabled = bool(enabled)
-        self.lateral_target = float(lateral_target)
-        self.lateral_tolerance = float(lateral_tolerance)
-        self.index_guard = float(index_guard)
-        self.thumb_close_guard = float(thumb_close_guard)
         self.index_activation = float(index_activation)
         self.thumb_close_activation = float(thumb_close_activation)
-        self.lateral_activation = float(
-            self.lateral_target - self.lateral_tolerance
-            if lateral_activation is None
-            else lateral_activation
-        )
+        self.lateral_activation = float(lateral_activation)
         self.stage = "idle"
 
     def reset(self) -> None:
@@ -753,21 +715,16 @@ class ThumbFirstPinchSequencer:
             return target, self.stage
         # The current measured pose may be far from opposition, but the
         # validated index value is known not to occupy the thumb's lateral
-        # workspace.  Approach all three pinch channels directly; do not
-        # retreat to index_guard/thumb_close_guard first.
+        # workspace. Approach all three pinch channels directly.
         self.stage = "index_approach"
         return target, self.stage
 
 
 class ProjectRh56Retargeter:
-    """Selectable angle-adaptive or AnyDex-style key-vector feature backend."""
+    """Adaptive Quest hand feature retargeter for the six RH56 channels."""
 
-    def __init__(self, calibration: HandRetargetCalibration, *, backend: str) -> None:
-        if backend not in {"adaptive", "vector"}:
-            raise ValueError("backend must be 'adaptive' or 'vector'")
+    def __init__(self, calibration: HandRetargetCalibration) -> None:
         self.calibration = calibration
-        self.backend = backend
-        self._previous: np.ndarray | None = None
         self._last_finger_raw = np.zeros(4, dtype=np.float64)
         self._last_finger_calibrated = np.zeros(4, dtype=np.float64)
         self._pinch_intent = PinchIntentDetector(
@@ -784,7 +741,6 @@ class ProjectRh56Retargeter:
         )
 
     def reset(self) -> None:
-        self._previous = None
         self._last_finger_raw.fill(0.0)
         self._last_finger_calibrated.fill(0.0)
         self._pinch_intent.reset()
@@ -795,7 +751,6 @@ class ProjectRh56Retargeter:
             return InspireRetargetResult(
                 skeleton.timestamp_monotonic_ns,
                 False,
-                self.backend,
                 {},
                 {},
                 {},
@@ -811,7 +766,6 @@ class ProjectRh56Retargeter:
             return InspireRetargetResult(
                 skeleton.timestamp_monotonic_ns,
                 False,
-                self.backend,
                 {},
                 {},
                 {},
@@ -829,7 +783,6 @@ class ProjectRh56Retargeter:
             return InspireRetargetResult(
                 skeleton.timestamp_monotonic_ns,
                 False,
-                self.backend,
                 {},
                 {},
                 {},
@@ -893,12 +846,9 @@ class ProjectRh56Retargeter:
                 self.calibration.thumb_lateral_pregrasp_normalized
             ),
             opposed_across_palm=self.calibration.thumb_lateral_opposed_across_palm,
-            palm_scale=self.calibration.palm_scale,
+            palm_normalization_scale=self.calibration.palm_normalization_scale,
         )
-        if self.backend == "adaptive":
-            normalized = self._adaptive(points, thumb_close, thumb_lateral)
-        else:
-            normalized = self._vector(points, thumb_close, thumb_lateral)
+        normalized = self._adaptive(points, thumb_close, thumb_lateral)
         pinch_mode, pinch_confidence = self._pinch_intent.update(
             thumb_index_distance_palm=float(thumb_tip_distances[0]),
             thumb_middle_distance_palm=float(thumb_tip_distances[1]),
@@ -915,14 +865,6 @@ class ProjectRh56Retargeter:
             for name, before in zip(RH56_CANONICAL_ORDER, unbounded, strict=True)
             if before < 0.0 or before > 1.0
         )
-        if self._previous is not None:
-            delta = np.clip(
-                normalized - self._previous,
-                -self.calibration.maximum_normalized_step,
-                self.calibration.maximum_normalized_step,
-            )
-            normalized = self._previous + delta
-        self._previous = normalized.copy()
         canonical = dict(zip(RH56_CANONICAL_ORDER, normalized.tolist(), strict=True))
         actuators = {
             name: canonical[name] * RH56_MUJOCO_ACTUATOR_MAX_RAD[name]
@@ -981,7 +923,6 @@ class ProjectRh56Retargeter:
         return InspireRetargetResult(
             skeleton.timestamp_monotonic_ns,
             True,
-            self.backend,
             joints,
             actuators,
             canonical,
@@ -1024,21 +965,11 @@ class ProjectRh56Retargeter:
             ]
         )
         curls = self._calibrate_finger_features(raw_curls)
-        return np.asarray([*curls, thumb_close, thumb_lateral])
-
-    def _vector(
-        self,
-        p: np.ndarray,
-        thumb_close: float,
-        thumb_lateral: float,
-    ) -> np.ndarray:
-        palm_forward = p[9] - p[0]
-        raw_curls = []
-        for base, tip in zip((5, 9, 13, 17), (8, 12, 16, 20), strict=True):
-            projection = _cos(p[tip] - p[base], palm_forward)
-            raw_curls.append(float(np.clip((1.0 - projection) * self.calibration.key_vector_scale, 0.0, 1.0)))
-        curls = self._calibrate_finger_features(np.asarray(raw_curls))
-        return np.asarray([*curls, thumb_close, thumb_lateral])
+        # Canonical feature order is index, middle, ring, pinky, thumb_close,
+        # thumb_lateral. Only the first five are digit-derived and scaled.
+        digit_features = np.asarray([*curls, thumb_close])
+        digit_features *= np.asarray(self.calibration.digit_scale)
+        return np.asarray([*digit_features, thumb_lateral])
 
     def _calibrate_finger_features(self, raw: np.ndarray) -> np.ndarray:
         curved = np.asarray(
@@ -1061,7 +992,7 @@ class ProjectRh56Retargeter:
         )
         self._last_finger_raw = raw.copy()
         self._last_finger_calibrated = curved.copy()
-        return curved * np.asarray(self.calibration.finger_scale)
+        return curved
 
 
 def right_hand_palm_local_frame(
@@ -1114,14 +1045,21 @@ def thumb_lateral_opposition_feature(
     pregrasp_across_palm: float | None = None,
     pregrasp_normalized: float | None = None,
     opposed_across_palm: float,
-    palm_scale: float,
+    palm_normalization_scale: float,
 ) -> tuple[float, float]:
     """Map right-thumb base-to-tip motion toward the pinky to [0, 1]."""
 
-    values = (open_across_palm, opposed_across_palm, palm_scale)
+    values = (
+        open_across_palm,
+        opposed_across_palm,
+        palm_normalization_scale,
+    )
     if not all(math.isfinite(value) for value in values):
         raise ValueError("thumb-lateral calibration must be finite")
-    if open_across_palm >= opposed_across_palm or palm_scale <= 0.0:
+    if (
+        open_across_palm >= opposed_across_palm
+        or palm_normalization_scale <= 0.0
+    ):
         raise ValueError("invalid thumb-lateral calibration")
     if (pregrasp_across_palm is None) != (pregrasp_normalized is None):
         raise ValueError("thumb-lateral pregrasp anchor must be complete")
@@ -1135,9 +1073,9 @@ def thumb_lateral_opposition_feature(
         ):
             raise ValueError("invalid thumb-lateral pregrasp anchor")
     across = np.asarray(frame.across_axis, dtype=np.float64)
-    palm_width = frame.palm_width_m * palm_scale
+    palm_width = frame.palm_width_m * palm_normalization_scale
     if not math.isfinite(palm_width) or palm_width <= 0.0:
-        raise ValueError("invalid thumb-lateral palm scale")
+        raise ValueError("invalid thumb-lateral palm normalization scale")
     raw = float(np.dot(points[4] - points[1], across) / palm_width)
     if pregrasp_across_palm is None:
         normalized = float(

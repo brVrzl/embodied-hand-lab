@@ -1,1 +1,0 @@
-"""Video and reconstruction helpers."""

@@ -68,7 +68,6 @@ class FeasibilityReason(str, Enum):
     OUTSIDE_ROBOT_WORKSPACE = "OUTSIDE_ROBOT_WORKSPACE"
     IK_POSITION_FAILED = "IK_POSITION_FAILED"
     IK_ORIENTATION_FAILED = "IK_ORIENTATION_FAILED"
-    IK_DISCONTINUITY = "IK_DISCONTINUITY"
     OUTPUT_VELOCITY_INFEASIBLE = "OUTPUT_VELOCITY_INFEASIBLE"
     OUTPUT_ACCELERATION_INFEASIBLE = "OUTPUT_ACCELERATION_INFEASIBLE"
     CONTROL_COMPUTE_BUDGET_EXHAUSTED = "CONTROL_COMPUTE_BUDGET_EXHAUSTED"
@@ -77,8 +76,6 @@ class FeasibilityReason(str, Enum):
     SINGULARITY_SLOWDOWN = "SINGULARITY_SLOWDOWN"
     LINEAR_VELOCITY_LIMIT = "LINEAR_VELOCITY_LIMIT"
     ANGULAR_VELOCITY_LIMIT = "ANGULAR_VELOCITY_LIMIT"
-    LINEAR_ACCELERATION_LIMIT = "LINEAR_ACCELERATION_LIMIT"
-    ANGULAR_ACCELERATION_LIMIT = "ANGULAR_ACCELERATION_LIMIT"
     SELF_COLLISION = "SELF_COLLISION"
     ENVIRONMENT_COLLISION = "ENVIRONMENT_COLLISION"
     JOINT_BRANCH_DISCONTINUITY = "JOINT_BRANCH_DISCONTINUITY"
@@ -93,8 +90,6 @@ class FeasibilityLimits:
     maximum_target_jump_m: float
     maximum_tcp_velocity_m_s: float
     maximum_tcp_angular_velocity_rad_s: float
-    maximum_joint_velocity_rad_s: float
-    maximum_joint_acceleration_rad_s2: float
     joint_limit_margin_rad: float
     maximum_target_displacement_m: float
     ik_orientation_tolerance_rad: float = math.pi
@@ -106,8 +101,11 @@ class FeasibilityLimits:
     jacobian_recovery_condition: float = math.inf
     minimum_singular_value_recovery: float = 0.0
     singularity_direction_hysteresis_ratio: float = 0.01
+    target_displacement_limit_enabled: bool = True
 
     def __post_init__(self) -> None:
+        if type(self.target_displacement_limit_enabled) is not bool:
+            raise ValueError("target_displacement_limit_enabled must be a boolean")
         if not (
             math.isfinite(self.maximum_jacobian_condition)
             and self.maximum_jacobian_condition > 0.0
@@ -148,16 +146,6 @@ class FeasibilityLimits:
             maximum_tcp_velocity_m_s=float(values["maximum_tcp_velocity_m_s"]),
             maximum_tcp_angular_velocity_rad_s=float(
                 values["maximum_tcp_angular_velocity_rad_s"]
-            ),
-            maximum_joint_velocity_rad_s=float(
-                values["maximum_ik_target_velocity_rad_s"]
-                if "maximum_ik_target_velocity_rad_s" in values
-                else values["maximum_joint_velocity_rad_s"]
-            ),
-            maximum_joint_acceleration_rad_s2=float(
-                values["maximum_ik_target_acceleration_rad_s2"]
-                if "maximum_ik_target_acceleration_rad_s2" in values
-                else values["maximum_joint_acceleration_rad_s2"]
             ),
             joint_limit_margin_rad=math.radians(float(values["joint_limit_margin_deg"])),
             maximum_target_displacement_m=maximum_target_displacement_m,
@@ -214,9 +202,9 @@ class FeasibilityLimits:
 class CommandTrajectoryLimits:
     """Limits applied to the joint-position references sent to MuJoCo.
 
-    These are deliberately separate from IK feasibility thresholds: the IK target
-    may move ahead of the simulated mechanism, while ``data.ctrl`` must remain a
-    physically plausible, jerk-limited trajectory.
+    The velocity and acceleration values come from the shared output contract.
+    This class only adds MuJoCo's optional jerk/tracking shaping parameters; it
+    does not define a second joint-dynamic policy.
     """
 
     maximum_velocity_rad_s: float
@@ -226,14 +214,17 @@ class CommandTrajectoryLimits:
     maximum_velocity_rad_s_per_joint: tuple[float, ...] | None = None
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "CommandTrajectoryLimits":
+    def from_mapping(
+        cls,
+        values: Mapping[str, Any],
+        *,
+        maximum_velocity_rad_s: float,
+        maximum_acceleration_rad_s2: float,
+        maximum_velocity_rad_s_per_joint: tuple[float, ...] | None,
+    ) -> "CommandTrajectoryLimits":
         result = cls(
-            maximum_velocity_rad_s=float(
-                values.get("command_maximum_joint_velocity_rad_s", math.pi)
-            ),
-            maximum_acceleration_rad_s2=float(
-                values.get("command_maximum_joint_acceleration_rad_s2", 4.0 * math.pi)
-            ),
+            maximum_velocity_rad_s=float(maximum_velocity_rad_s),
+            maximum_acceleration_rad_s2=float(maximum_acceleration_rad_s2),
             maximum_jerk_rad_s3=float(
                 values.get(
                     "command_maximum_joint_jerk_rad_s3",
@@ -243,14 +234,7 @@ class CommandTrajectoryLimits:
             position_tracking_frequency_rad_s=float(
                 values.get("command_position_tracking_frequency_rad_s", 10.0)
             ),
-            maximum_velocity_rad_s_per_joint=(
-                None
-                if values.get("command_maximum_joint_velocity_rad_s_per_joint") is None
-                else tuple(
-                    float(value)
-                    for value in values["command_maximum_joint_velocity_rad_s_per_joint"]
-                )
-            ),
+            maximum_velocity_rad_s_per_joint=maximum_velocity_rad_s_per_joint,
         )
         scalar_values = (
             result.maximum_velocity_rad_s,
@@ -366,17 +350,10 @@ def classify_candidate(
         if has_joint_delta
         else metrics.maximum_joint_target_jump_rad
     )
-    joint_velocity = (
-        metrics.maximum_nonperiodic_joint_velocity_rad_s
-        if has_joint_delta
-        else metrics.maximum_joint_velocity_rad_s
-    )
-    joint_acceleration = (
-        metrics.maximum_nonperiodic_joint_acceleration_rad_s2
-        if has_joint_delta
-        else metrics.maximum_joint_acceleration_rad_s2
-    )
-    if metrics.target_displacement_m > limits.maximum_target_displacement_m:
+    if (
+        limits.target_displacement_limit_enabled
+        and metrics.target_displacement_m > limits.maximum_target_displacement_m
+    ):
         return FeasibilityReason.OUTSIDE_ROBOT_WORKSPACE
     near_singularity = (
         metrics.jacobian_condition > limits.maximum_jacobian_condition
@@ -401,18 +378,10 @@ def classify_candidate(
         return FeasibilityReason.LINEAR_VELOCITY_LIMIT
     if metrics.tcp_angular_velocity_rad_s > limits.maximum_tcp_angular_velocity_rad_s:
         return FeasibilityReason.ANGULAR_VELOCITY_LIMIT
-    if (
-        joint_velocity > limits.maximum_joint_velocity_rad_s
-    ):
-        return FeasibilityReason.IK_DISCONTINUITY
     if metrics.output_velocity_violating_joint_indices:
         return FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
     if metrics.output_acceleration_violating_joint_indices:
         return FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
-    if (
-        joint_acceleration > limits.maximum_joint_acceleration_rad_s2
-    ):
-        return FeasibilityReason.LINEAR_ACCELERATION_LIMIT
     if metrics.ik_error_m > limits.ik_position_tolerance_m:
         return FeasibilityReason.IK_POSITION_FAILED
     if metrics.ik_orientation_error_rad > limits.ik_orientation_tolerance_rad:
@@ -545,94 +514,8 @@ class ReplayConfig:
     input_recovery_timeout_s: float
 
     @classmethod
-    def load(cls, path: str | Path, *, speed_profile: str | None = None) -> "ReplayConfig":
+    def load(cls, path: str | Path) -> "ReplayConfig":
         raw = load_yaml(path)
-        if speed_profile is not None:
-            profiles = {
-                "current_live": {
-                    # JAKA ServoJ's official outer theoretical/legal boundary;
-                    # this is a simulation ceiling, not a calibrated physical
-                    # teleoperation work speed.
-                    "velocity": (math.pi,) * 6,
-                },
-                "baseline": {
-                    "velocity": (1.5, 1.5, 1.5, 1.5, 1.5, 1.5),
-                },
-                "moderate": {
-                    "velocity": (1.8, 1.8, 1.8, 1.8, 1.8, 1.8),
-                },
-                "fast": {
-                    "velocity": (2.2, 2.2, 2.2, 2.2, 1.8, 2.5),
-                },
-                "latency_default": {
-                    "velocity": (math.pi,) * 6,
-                },
-                "latency_reduced": {
-                    "velocity": (math.pi,) * 6,
-                    "interpolation_delay_ms": 8.0,
-                    "rotation_filter": {
-                        "rotation_min_cutoff": 3.0,
-                        "rotation_beta": 6.0,
-                        "rotation_derivative_cutoff": 2.0,
-                    },
-                },
-                "latency_raw_diagnostic": {
-                    "velocity": (math.pi,) * 6,
-                    "interpolation_delay_ms": 0.0,
-                    "rotation_filter": {
-                        "rotation_min_cutoff": 1_000_000.0,
-                        "rotation_beta": 0.0,
-                        "rotation_derivative_cutoff": 1.0,
-                    },
-                },
-                "root_cause_fix": {
-                    "velocity": (math.pi,) * 6,
-                    # Diagnostic-only: evaluate a 60 Hz target replacement
-                    # over its own interval.  The hardware/EDG contract stays
-                    # at the configured live ServoJ period.
-                    "feasibility_acceleration_hz": 60.0,
-                },
-                "root_cause_fix_plus_low_latency": {
-                    "velocity": (math.pi,) * 6,
-                    "feasibility_acceleration_hz": 60.0,
-                    "interpolation_delay_ms": 8.0,
-                    "rotation_filter": {
-                        "rotation_min_cutoff": 3.0,
-                        "rotation_beta": 6.0,
-                        "rotation_derivative_cutoff": 2.0,
-                    },
-                },
-            }
-            try:
-                profile = profiles[speed_profile]
-            except KeyError as exc:
-                raise ValueError(f"unknown simulation speed profile {speed_profile!r}") from exc
-            raw = copy.deepcopy(raw)
-            if "interpolation_delay_ms" in profile:
-                raw.setdefault("rates", {})["interpolation_delay_ms"] = profile[
-                    "interpolation_delay_ms"
-                ]
-            if "jaka_transport_hz" in profile:
-                raw.setdefault("rates", {})["jaka_transport_hz"] = profile[
-                    "jaka_transport_hz"
-                ]
-            if "feasibility_acceleration_hz" in profile:
-                raw.setdefault("shared_target_generation", {})[
-                    "feasibility_acceleration_period_ns"
-                ] = int(round(1e9 / float(profile["feasibility_acceleration_hz"])))
-            rotation_filter = profile.get("rotation_filter")
-            if rotation_filter:
-                selected = raw.setdefault("filter", {}).get("selected_profile")
-                values = raw.setdefault("filter", {}).setdefault("profiles", {}).setdefault(
-                    selected, {}
-                )
-                values.update(rotation_filter)
-            raw.setdefault("shared_target_generation", {})[
-                "maximum_output_joint_velocity_rad_s_per_joint"
-            ] = list(profile["velocity"])
-            raw.setdefault("simulation", {})[
-                "command_maximum_joint_velocity_rad_s_per_joint"
-            ] = list(profile["velocity"])
         hardware_adapter = raw.get("hardware_adapter", {})
         if not isinstance(hardware_adapter, dict):
             raise ValueError("hardware_adapter must be a mapping")
@@ -681,12 +564,18 @@ class ReplayConfig:
         simulation = raw["simulation"]
         shared_target = raw.get("shared_target_generation", {})
         rates = raw.get("rates", {})
-        maximum_output_velocity = float(
-            shared_target.get(
-                "maximum_output_joint_velocity_rad_s",
-                simulation.get("command_maximum_joint_velocity_rad_s", math.pi),
+        try:
+            maximum_output_velocity = float(
+                shared_target["maximum_output_joint_velocity_rad_s"]
             )
-        )
+            maximum_output_acceleration = float(
+                shared_target["maximum_output_joint_acceleration_rad_s2"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "shared_target_generation must define the shared output velocity "
+                "and acceleration boundaries"
+            ) from exc
         maximum_output_velocity_per_joint_raw = shared_target.get(
             "maximum_output_joint_velocity_rad_s_per_joint"
         )
@@ -695,12 +584,6 @@ class ReplayConfig:
             if maximum_output_velocity_per_joint_raw is None
             else tuple(
                 float(value) for value in maximum_output_velocity_per_joint_raw
-            )
-        )
-        maximum_output_acceleration = float(
-            shared_target.get(
-                "maximum_output_joint_acceleration_rad_s2",
-                simulation.get("command_maximum_joint_acceleration_rad_s2", 4.0 * math.pi),
             )
         )
         servo_period_ns = int(
@@ -713,7 +596,12 @@ class ReplayConfig:
             raise ValueError(
                 "JAKA servo period must equal 8 ms times servo_step_num"
             )
-        command_limits = CommandTrajectoryLimits.from_mapping(simulation)
+        command_limits = CommandTrajectoryLimits.from_mapping(
+            simulation,
+            maximum_velocity_rad_s=maximum_output_velocity,
+            maximum_acceleration_rad_s2=maximum_output_acceleration,
+            maximum_velocity_rad_s_per_joint=maximum_output_velocity_per_joint,
+        )
         startup_timing_grace_cycles = int(
             raw.get("hardware_adapter", {}).get(
                 "startup_timing_grace_cycles",
@@ -779,7 +667,6 @@ def build_viewer_mjcf(
     output_path: str | Path,
     *,
     arm_only: bool = False,
-    scene: Mapping[str, Any] | None = None,
 ) -> Path:
     base = Path(base_path).resolve()
     output = Path(output_path).resolve()
@@ -799,8 +686,6 @@ def build_viewer_mjcf(
     world = root.find("worldbody")
     if world is None:
         raise RuntimeError("MuJoCo model has no worldbody")
-    if scene is not None:
-        _add_workspace_scene(world, scene)
     # The committed mesh pair Link_0/Link_1 starts with four duplicate ~3 mm
     # penetrations at their shared physical joint.  It is already treated as a
     # baseline-allowed contact by feasibility checks, but leaving contact
@@ -861,131 +746,6 @@ def build_viewer_mjcf(
             ET.SubElement(body, "geom", attributes)
     tree.write(output, encoding="utf-8")
     return output
-
-
-def _add_workspace_scene(world: ET.Element, scene: Mapping[str, Any]) -> None:
-    workspace = load_yaml(scene["workspace_config_path"])
-    table = workspace["tabletop"]
-    table_size = np.asarray(table["size_xyz_m"], dtype=float)
-    table_center_source = np.asarray(table["center_xyz_m"], dtype=float)
-    source_yaw = math.radians(float(scene["source_frame_to_robot_base_yaw_deg"]))
-    base_yaw = math.radians(float(scene["robot_base_world_yaw_deg"]))
-    base_position = np.asarray(scene["robot_base_world_position_m"], dtype=float)
-    source_to_base = _yaw_rotation(source_yaw)
-    base_to_world = _yaw_rotation(base_yaw)
-
-    base = next(
-        (body for body in world.findall("body") if body.get("name") == "jaka_Link_0"),
-        None,
-    )
-    if base is None:
-        raise RuntimeError("MuJoCo model has no top-level jaka_Link_0 body")
-    base.set("pos", _vector_text(base_position))
-    base.set("quat", _yaw_quaternion_text(base_yaw))
-
-    table_center_world = (
-        base_position + base_to_world @ source_to_base @ table_center_source
-    )
-    table_yaw_world = base_yaw + source_yaw
-    ET.SubElement(
-        world,
-        "geom",
-        {
-            "name": "quest_jaka_workspace_tabletop",
-            "type": "box",
-            "pos": _vector_text(table_center_world),
-            "quat": _yaw_quaternion_text(table_yaw_world),
-            "size": _vector_text(table_size / 2.0),
-            "rgba": "0.58 0.35 0.16 1",
-            "friction": "1.0 0.01 0.001",
-        },
-    )
-    for member in workspace.get("table_frame", {}).get("identified_members", ()):
-        center_source = np.asarray(member["center_P_m"], dtype=float)
-        dimensions = np.asarray(member["dimensions_m"], dtype=float)
-        center_world = base_position + base_to_world @ source_to_base @ center_source
-        ET.SubElement(
-            world,
-            "geom",
-            {
-                "name": f"quest_jaka_{member['name']}",
-                "type": "box",
-                "pos": _vector_text(center_world),
-                "quat": _yaw_quaternion_text(table_yaw_world),
-                "size": _vector_text(dimensions / 2.0),
-                "rgba": "0.72 0.76 0.80 1",
-                "friction": "0.8 0.01 0.001",
-            },
-        )
-
-    table_top_z = table_center_world[2] + table_size[2] / 2.0
-    floor = next(
-        (geom for geom in world.findall("geom") if geom.get("name") == "floor"),
-        None,
-    )
-    if floor is not None:
-        floor.set(
-            "pos",
-            _vector_text(
-                (0.0, 0.0, table_top_z - float(table["height_above_floor_m"]))
-            ),
-        )
-    marker = table_center_world.copy()
-    marker[2] = table_top_z + 0.015
-    ET.SubElement(
-        world,
-        "site",
-        {
-            "name": "quest_jaka_workspace_center",
-            "type": "sphere",
-            "pos": _vector_text(marker),
-            "size": "0.012",
-            "rgba": "1 0.75 0.05 0.9",
-            "group": "5",
-        },
-    )
-    axes = ET.SubElement(
-        world,
-        "body",
-        {
-            "name": "quest_jaka_robot_base_axes",
-            "pos": _vector_text(base_position),
-            "quat": _yaw_quaternion_text(base_yaw),
-        },
-    )
-    for name, endpoint, rgba in (
-        ("x", "0.14 0 0", "1 0 0 1"),
-        ("y", "0 0.14 0", "0 1 0 1"),
-        ("z", "0 0 0.14", "0 0 1 1"),
-    ):
-        ET.SubElement(
-            axes,
-            "site",
-            {
-                "name": f"quest_jaka_robot_base_{name}",
-                "type": "cylinder",
-                "fromto": f"0 0 0 {endpoint}",
-                "size": "0.0025",
-                "rgba": rgba,
-                "group": "5",
-            },
-        )
-
-
-def _yaw_rotation(yaw_rad: float) -> np.ndarray:
-    cosine, sine = math.cos(yaw_rad), math.sin(yaw_rad)
-    return np.asarray(
-        ((cosine, -sine, 0.0), (sine, cosine, 0.0), (0.0, 0.0, 1.0)),
-        dtype=float,
-    )
-
-
-def _yaw_quaternion_text(yaw_rad: float) -> str:
-    return _vector_text((math.cos(yaw_rad / 2.0), 0.0, 0.0, math.sin(yaw_rad / 2.0)))
-
-
-def _vector_text(values: Any) -> str:
-    return " ".join(f"{float(value):.12g}" for value in values)
 
 
 class SharedJakaTargetGenerator:
@@ -1129,6 +889,27 @@ class SharedJakaTargetGenerator:
         self._singularity_slowdown_latched = False
         self.reset_episode_winding(self.last_safe_joint_target.tolist())
         return current
+
+    def synchronize_output_prefilter_hold(
+        self,
+        joints_rad: Sequence[float],
+        *,
+        generated_monotonic_ns: int,
+    ) -> None:
+        """Rebase only Python prefilter history after an ordinary rejection.
+
+        This does not change the authoritative IK branch or accepted target.
+        It prevents a rejected candidate's derivative estimate from becoming
+        the next candidate's baseline.
+        """
+
+        joints = np.asarray(joints_rad, dtype=np.float64)
+        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
+            raise ValueError("output prefilter hold state must contain six finite radians")
+        self.output_feasibility.resync_hold(
+            joints.tolist(),
+            generated_monotonic_ns=generated_monotonic_ns,
+        )
 
     @property
     def episode_winding_rad(self) -> tuple[float, ...]:
@@ -1323,6 +1104,10 @@ class SharedJakaTargetGenerator:
         joint_velocity = joint_target_jump / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
         target_delta = np.asarray(target.position_m) - np.asarray(previous_target.position_m)
+        target_jump_m = float(np.linalg.norm(target_delta))
+        target_rotation_jump_rad = _quaternion_angle(
+            target.orientation_xyzw, previous_target.orientation_xyzw
+        )
         target_tool_delta = relative_pose(previous_target, target)
         target_tool_rotvec = quaternion_to_rotvec(target_tool_delta.orientation_xyzw)
         target_tool_swing, target_tool_axial_roll = swing_twist_about_local_z(
@@ -1420,15 +1205,10 @@ class SharedJakaTargetGenerator:
         remaining_checks_started_ns = time.perf_counter_ns()
         metrics = CandidateMetrics(
             target_displacement_m=displacement,
-            target_jump_m=float(np.linalg.norm(target_delta)),
-            target_rotation_jump_rad=_quaternion_angle(
-                target.orientation_xyzw, self.last_safe_target.orientation_xyzw
-            ),
-            tcp_velocity_m_s=float(np.linalg.norm(target_delta)) / dt,
-            tcp_angular_velocity_rad_s=_quaternion_angle(
-                target.orientation_xyzw, self.last_safe_target.orientation_xyzw
-            )
-            / dt,
+            target_jump_m=target_jump_m,
+            target_rotation_jump_rad=target_rotation_jump_rad,
+            tcp_velocity_m_s=target_jump_m / dt,
+            tcp_angular_velocity_rad_s=target_rotation_jump_rad / dt,
             ik_error_m=self.ik.target_error_m,
             ik_orientation_error_rad=float(self.ik.target_rotation_error_rad or 0.0),
             maximum_joint_target_jump_rad=float(np.max(np.abs(joint_target_jump))),

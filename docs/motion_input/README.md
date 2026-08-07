@@ -27,14 +27,12 @@ explicit teleoperation consumer
 - `src/motion_input/controller_provider.py`: CTRL v1 validation and freshness.
 - `src/motion_input/recording.py`, `replay.py`, `diagnostics.py`, and
   `visualization.py`: device-neutral support.
-- `integrations/quest_unity/`: input-only Unity publisher sources.
 
 Current references:
 
 - [UMIP observation contract](UMIP_PROTOCOL.md)
-- [coordinate-frame contract](COORDINATE_FRAMES.md)
+- [coordinate-frame contract](../architecture/coordinate_frames.md)
 - [Quest controller host transport](QUEST_CONTROLLER_TRANSPORT_HOST.md)
-- [Quest SDK/OpenXR review](QUEST_SDK_REVIEW.md)
 - [current Quest host setup](../operation/quest_setup.md)
 
 Dated repository audits, streamer integration gates, offline simulation gates,
@@ -96,14 +94,12 @@ Quest / 未来设备
 - `src/motion_input/hts_canonical.py`：Unity/OpenXR 规范化。
 - `src/motion_input/controller_provider.py`：CTRL v1 验证和新鲜度。
 - `recording.py`、`replay.py`、`diagnostics.py`、`visualization.py`：设备无关工具。
-- `integrations/quest_unity/`：只发送输入的 Unity 源码。
 
 参考文档：
 
 - [UMIP observation contract](UMIP_PROTOCOL.md)
-- [坐标契约](COORDINATE_FRAMES.md)
+- [坐标契约](../architecture/coordinate_frames.md)
 - [Quest 控制器传输](QUEST_CONTROLLER_TRANSPORT_HOST.md)
-- [Quest SDK/OpenXR 审计](QUEST_SDK_REVIEW.md)
 - [当前 Quest 主机设置](../operation/quest_setup.md)
 
 历史输入审计和 gate 位于 `docs/history/archived_designs/motion_input/`，不再定义当前 branch、

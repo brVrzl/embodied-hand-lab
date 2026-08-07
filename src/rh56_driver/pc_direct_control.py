@@ -46,188 +46,6 @@ class HandOperation(str, Enum):
     FORCE_SENSOR_CALIBRATION = "force_sensor_calibration"
 
 
-class RH56CommandShaper:
-    """Bound normalized position commands by velocity and acceleration.
-
-    This is deliberately a position shaper at the RH56 command boundary, not
-    a feedback controller.  The latest target remains authoritative; the
-    shaper only limits how quickly the hand command approaches it.  Hardware
-    safety gates and the outer normalized delta limit remain in
-    :class:`RH56PcDirectControl`.
-    """
-
-    def __init__(
-        self,
-        policy: Mapping[str, Any] | None,
-        *,
-        channel_count: int,
-        command_period_ns: int,
-    ) -> None:
-        values = {} if policy is None else policy
-        if not isinstance(values, Mapping):
-            raise ValueError("RH56 command_shaping must be a mapping.")
-        self.enabled = bool(values.get("enabled", False))
-        self.channel_count = int(channel_count)
-        self.command_period_ns = int(command_period_ns)
-
-        def vector(name: str, default: float) -> np.ndarray:
-            raw = values.get(name, default)
-            items = [raw] * self.channel_count if np.isscalar(raw) else raw
-            result = np.asarray(items, dtype=np.float64).reshape(-1)
-            if (
-                result.size != self.channel_count
-                or not np.all(np.isfinite(result))
-                or np.any(result <= 0.0)
-            ):
-                raise ValueError(
-                    f"RH56 command_shaping {name} must be six positive finite values."
-                )
-            return result
-
-        self.maximum_closing_velocity = vector(
-            "maximum_closing_velocity", 0.35
-        )
-        self.maximum_opening_velocity = vector(
-            "maximum_opening_velocity", 0.60
-        )
-        self.maximum_acceleration = vector("maximum_acceleration", 1.40)
-        self.position: np.ndarray | None = None
-        self.velocity = np.zeros(self.channel_count, dtype=np.float64)
-        self.last_update_ns: int | None = None
-        self.last_dt_sec: float | None = None
-        self.step_count = 0
-        self.reset_count = 0
-
-    def reset(
-        self,
-        position: Sequence[float] | None = None,
-        monotonic_ns: int | None = None,
-    ) -> None:
-        self.position = (
-            None
-            if position is None
-            else np.asarray(position, dtype=np.float64).reshape(-1).copy()
-        )
-        if self.position is not None and self.position.size != self.channel_count:
-            raise ValueError("RH56 command shaper position must have six values.")
-        self.velocity.fill(0.0)
-        self.last_update_ns = None if monotonic_ns is None else int(monotonic_ns)
-        self.last_dt_sec = None
-        self.reset_count += 1
-
-    def reconcile(
-        self,
-        position: Sequence[float],
-        monotonic_ns: int,
-    ) -> None:
-        """Synchronize state after an outer safety clamp or successful write."""
-
-        value = np.asarray(position, dtype=np.float64).reshape(-1)
-        if value.size != self.channel_count:
-            raise ValueError("RH56 command shaper position must have six values.")
-        if self.position is None or not np.allclose(value, self.position, atol=1e-12, rtol=0.0):
-            self.position = value.copy()
-            self.velocity.fill(0.0)
-        self.last_update_ns = int(monotonic_ns)
-
-    def step(
-        self,
-        previous: Sequence[float],
-        target: Sequence[float],
-        monotonic_ns: int,
-        *,
-        contact_closing_mask: Sequence[bool] | None = None,
-    ) -> np.ndarray:
-        previous_value = np.asarray(previous, dtype=np.float64).reshape(-1)
-        target_value = np.asarray(target, dtype=np.float64).reshape(-1)
-        if (
-            previous_value.size != self.channel_count
-            or target_value.size != self.channel_count
-        ):
-            raise ValueError("RH56 command shaper positions must have six values.")
-        if not self.enabled:
-            self.reconcile(previous_value, monotonic_ns)
-            return target_value.copy()
-        if self.position is None or self.last_update_ns is None:
-            self.position = previous_value.copy()
-            self.velocity.fill(0.0)
-            dt_sec = self.command_period_ns / 1e9
-        else:
-            if not np.allclose(
-                previous_value, self.position, atol=1e-12, rtol=0.0
-            ):
-                # A contact hold, measured activation, or other safety gate
-                # changed the actual command.  Do not carry stale momentum
-                # across that discontinuity.
-                self.position = previous_value.copy()
-                self.velocity.fill(0.0)
-            elapsed_ns = int(monotonic_ns) - int(self.last_update_ns)
-            dt_sec = (
-                min(elapsed_ns / 1e9, 0.25)
-                if elapsed_ns > 0
-                else self.command_period_ns / 1e9
-            )
-        dt_sec = max(dt_sec, 1e-6)
-        self.last_dt_sec = dt_sec
-        contact_mask = np.zeros(self.channel_count, dtype=bool)
-        if contact_closing_mask is not None:
-            contact_mask = np.asarray(contact_closing_mask, dtype=bool).reshape(-1)
-            if contact_mask.size != self.channel_count:
-                raise ValueError("RH56 contact closing mask must have six values.")
-
-        error = target_value - self.position
-        closing = error > 0.0
-        # A contact hold is an outer safety clamp.  Do not carry positive
-        # (closing) momentum into the lower hold target: acceleration-limited
-        # reversal would otherwise keep closing for several cycles after
-        # contact had already been detected.
-        self.velocity[contact_mask] = np.minimum(
-            self.velocity[contact_mask], 0.0
-        )
-        speed_limit = np.where(
-            closing,
-            self.maximum_closing_velocity,
-            self.maximum_opening_velocity,
-        )
-        stopping_speed = np.sqrt(
-            2.0 * self.maximum_acceleration * np.abs(error)
-        )
-        desired_velocity = np.sign(error) * np.minimum(speed_limit, stopping_speed)
-        acceleration_step = self.maximum_acceleration * dt_sec
-        self.velocity = self.velocity + np.clip(
-            desired_velocity - self.velocity,
-            -acceleration_step,
-            acceleration_step,
-        )
-        self.velocity[contact_mask] = np.minimum(
-            self.velocity[contact_mask], 0.0
-        )
-        step = self.velocity * dt_sec
-        step = np.where(closing, np.minimum(step, error), np.maximum(step, error))
-        output = self.position + step
-        reached = np.abs(error) <= np.abs(step) + 1e-12
-        output = np.where(reached, target_value, output)
-        self.velocity[reached] = 0.0
-        self.position = np.clip(output, 0.0, 1.0)
-        self.last_update_ns = int(monotonic_ns)
-        self.step_count += 1
-        return self.position.copy()
-
-    def snapshot(self) -> dict[str, Any]:
-        return {
-            "enabled": self.enabled,
-            "maximum_closing_velocity": self.maximum_closing_velocity.tolist(),
-            "maximum_opening_velocity": self.maximum_opening_velocity.tolist(),
-            "maximum_acceleration": self.maximum_acceleration.tolist(),
-            "position": None if self.position is None else self.position.tolist(),
-            "velocity": self.velocity.tolist(),
-            "last_update_ns": self.last_update_ns,
-            "last_dt_sec": self.last_dt_sec,
-            "step_count": self.step_count,
-            "reset_count": self.reset_count,
-        }
-
-
 def require_serial_by_id_path(
     device: str,
     *,
@@ -392,39 +210,18 @@ class RH56PcDirectControl:
         self.state = HandControlState.DISABLED
         self.transport_state = "CLOSED"
         self.operation: HandOperation | None = None
-        profile_name = str(config.get("scheduler_profile", "baseline"))
-        profiles = config.get("scheduler_profiles", {})
-        profile = profiles.get(profile_name, {}) if isinstance(profiles, Mapping) else {}
-        if profiles and not profile:
-            raise ValueError(f"Unknown RH56 scheduler_profile={profile_name!r}.")
-        if not isinstance(profile, Mapping):
-            raise ValueError(f"RH56 scheduler profile {profile_name!r} must be a mapping.")
-        self.scheduler_profile = profile_name
-
-        def scheduler_value(name: str, fallback: Any) -> Any:
-            return profile.get(name, config.get(name, fallback))
-
-        self.command_rate_hz = float(
-            scheduler_value("command_rate_hz", config.get("control_frequency_hz", 15.0))
-        )
+        scheduler = config.get("scheduler")
+        if not isinstance(scheduler, Mapping):
+            raise ValueError("RH56 scheduler configuration is required.")
+        self.command_rate_hz = float(scheduler["command_rate_hz"])
         if self.command_rate_hz <= 0.0:
             raise ValueError("RH56 command_rate_hz must be positive.")
         # Retain the old public name while command and feedback rates are now
         # independently scheduled by RH56PcDirectWorker.
         self.control_frequency_hz = self.command_rate_hz
         self.command_period_ns = int(round(1e9 / self.command_rate_hz))
-        self.command_shaper = RH56CommandShaper(
-            config.get("command_shaping"),
-            channel_count=len(CANONICAL_HAND_ORDER),
-            command_period_ns=self.command_period_ns,
-        )
         self.feedback_rate_hz = {
-            name: float(
-                scheduler_value(
-                    f"{name.lower()}_feedback_rate_hz",
-                    config.get("control_frequency_hz", 15.0),
-                )
-            )
+            name: float(scheduler[f"{name.lower()}_feedback_rate_hz"])
             for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
         }
         if any(rate <= 0.0 for rate in self.feedback_rate_hz.values()):
@@ -732,7 +529,6 @@ class RH56PcDirectControl:
         if self.last_command_normalized is None:
             self.last_command_normalized = normalized
             self.last_command_raw = tuple(int(round(value)) for value in position)
-            self.command_shaper.reset(normalized, monotonic_ns)
         return feedback
 
     def poll_feedback_register(
@@ -841,7 +637,6 @@ class RH56PcDirectControl:
             self.last_command_raw = tuple(
                 int(round(value)) for value in feedback.position_raw
             )
-            self.command_shaper.reset(feedback.position_normalized, monotonic_ns)
         return feedback
 
     def _feedback_from_cache(self, read_latency_ms: float) -> PcDirectFeedback:
@@ -895,7 +690,6 @@ class RH56PcDirectControl:
             int(round(value)) for value in self.last_feedback.position_raw
         )
         self.last_requested_target_normalized = self.last_command_normalized
-        self.command_shaper.reset(self.last_command_normalized, monotonic_ns)
         self._prepare_contact_stop_activation(self.last_feedback)
         self.state = HandControlState.ACTIVE
         self.transport_state = "CONNECTED_COMMANDING"
@@ -1006,21 +800,6 @@ class RH56PcDirectControl:
                 ):
                     self.last_command_disposition = "contact_feedback_wait"
                     return False
-            # The mask represents an outer contact hold, not merely a target
-            # that still points in the closing direction.  The hold target is
-            # normally below the last command, and the shaper must discard any
-            # residual positive velocity before starting that relief motion.
-            contact_closing_mask = (
-                self._contact_latched | (self._contact_candidate_count > 0)
-            )
-            requested = self.command_shaper.step(
-                previous_command,
-                requested,
-                monotonic_ns,
-                contact_closing_mask=contact_closing_mask,
-            )
-        else:
-            self.command_shaper.reconcile(requested, monotonic_ns)
         requested_tuple = tuple(float(value) for value in requested)
         if (
             self.exact_duplicate_suppression
@@ -1053,7 +832,6 @@ class RH56PcDirectControl:
                 command_delta, -self.delta_limit, self.delta_limit
             )
         selected = previous + selected_delta
-        self.command_shaper.reconcile(selected, monotonic_ns)
         raw = denormalize_canonical(
             selected,
             raw_order=CANONICAL_HAND_ORDER,
@@ -1181,7 +959,6 @@ class RH56PcDirectControl:
         self.state = HandControlState.HOLD
         self.transport_state = f"CONNECTED_HOLD:{reason}"
         self.next_command_monotonic_ns = None
-        self.command_shaper.reset(self.last_command_normalized)
 
     def arm_terminal_stop(self, reason: str) -> None:
         self._fault(f"arm_terminal_hard_stop:{reason}")
@@ -1216,7 +993,6 @@ class RH56PcDirectControl:
             self.state = HandControlState.DISABLED
             self.transport_state = "CLOSED"
             self.next_command_monotonic_ns = None
-            self.command_shaper.reset(self.last_command_normalized)
 
     def episode_record(
         self,
@@ -1351,13 +1127,11 @@ class RH56PcDirectControl:
         if self.fault_reason is None:
             self.fault_reason = reason
         self.next_command_monotonic_ns = None
-        self.command_shaper.reset(self.last_command_normalized)
 
     def diagnostics_snapshot(self) -> dict[str, Any]:
         return {
             "enabled": self.diagnostics_enabled,
             "window_size": self.diagnostics_window_size,
-            "scheduler_profile": self.scheduler_profile,
             "requested_command_rate_hz": self.command_rate_hz,
             "requested_feedback_rate_hz": dict(self.feedback_rate_hz),
             "exact_duplicate_suppression": self.exact_duplicate_suppression,
@@ -1395,7 +1169,6 @@ class RH56PcDirectControl:
                 name: _distribution(values)
                 for name, values in self._register_latency_ms.items()
             },
-            "command_shaping": self.command_shaper.snapshot(),
             "contact_stop": self.contact_stop_snapshot(),
         }
 

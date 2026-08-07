@@ -601,7 +601,6 @@ class RH56PcDirectWorker:
             "complete_feedback_record_count": self._feedback_count,
             "worker_cycle_count": self._cycle_count,
             "worker_cycle_overrun_count": self._cycle_overrun_count,
-            "scheduler_profile": self.control.scheduler_profile,
             "requested_command_rate_hz": self.control.command_rate_hz,
             "command_period_ms": self.control.command_period_ns / 1e6,
             "command_due_ns": self._last_command_due_ns,

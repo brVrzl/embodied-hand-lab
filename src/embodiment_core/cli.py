@@ -108,16 +108,6 @@ def _top_parser() -> argparse.ArgumentParser:
         add_help=False,
         help="validate, index, normalize, or export canonical episodes",
     )
-    commands.add_parser(
-        "distributed-smoke",
-        add_help=False,
-        help="optional PyTorch Gloo/NCCL communication smoke",
-    )
-    commands.add_parser(
-        "benchmark",
-        add_help=False,
-        help="deterministic offline MuJoCo benchmark",
-    )
     return parser
 
 
@@ -127,17 +117,6 @@ def main(argv: list[str] | None = None) -> int:
         from episode_dataset.cli import main as dataset_main
 
         return dataset_main(arguments[1:], prog="embodied-lab dataset")
-    if arguments and arguments[0] == "distributed-smoke":
-        from training_infra.cli import main as distributed_main
-
-        return distributed_main(
-            arguments[1:], prog="embodied-lab distributed-smoke"
-        )
-    if arguments and arguments[0] == "benchmark":
-        from benchmarking.cli import main as benchmark_main
-
-        return benchmark_main(arguments[1:], prog="embodied-lab benchmark")
-
     args = _top_parser().parse_args(arguments)
     if args.command == "doctor":
         report = collect_doctor_report()

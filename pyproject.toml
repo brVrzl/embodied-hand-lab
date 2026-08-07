@@ -64,11 +64,6 @@ asset-tools = [
   "scipy>=1.10",
   "trimesh>=4.0",
 ]
-training = [
-  "h5py>=3.10",
-  "torch>=2.4",
-]
-
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

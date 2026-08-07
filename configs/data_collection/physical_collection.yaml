@@ -1,0 +1,100 @@
+# Single collection configuration for the maintained physical and
+# simulation-backed RGB capture entry points. The runtime wrapper consumes
+# `runtime`; the episode recorder consumes `dataset`, `cameras`, and
+# `calibration` from this same document.
+runtime:
+  config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
+  # The live-demo file retains maximum_target_displacement_m for simulation and
+  # replay. Physical collection must not turn a clutch reference into a
+  # 20-cm task-travel limit; IK, joint, singularity, collision, output,
+  # controller, and operator workspace gates remain active.
+  enforce_clutch_target_displacement_limit: false
+  worker: build/jaka_servo_worker/jaka_servo_worker
+  robot_ip: 192.168.71.50
+  edg_state_ip: 192.168.71.19
+  bind: 0.0.0.0
+  port: 9000
+  allowed_sender: null
+  duration_sec: 300
+  bounded_duration_sec: 30
+  log_dir: logs
+  native_control_cpu: 6
+  native_control_realtime_priority: 10
+  rh56_device: /dev/ttyCH341USB0
+  allow_direct_ch341_device: true
+  rh56_config: configs/hand/rh56_pc_direct_teleop.yaml
+  run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  bounded_run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  episode_data_config: configs/data_collection/physical_collection.yaml
+  episode_root: data/raw_episodes
+  task_name: place_bottle_on_cardboard_box
+  operator: "01"
+  episode_preview: false
+  recover_output_acceleration_transition: true
+
+dataset:
+  root: data/raw_episodes
+  format: lerobot_staging_v1
+  fps: 30
+  video_codec: mp4v
+  # Canonical selection is causal. A measured ~83 ms producer stall can leave
+  # a healthy 30 Hz frame about 75 ms behind the next slot; 100 ms keeps that
+  # recorder snapshot usable while longer camera stalls still abort capture.
+  camera_max_age_ms: 100.0
+  # A stale canonical slot is retained as an invalid quality row. Recording
+  # degrades only after roughly 0.5 s at 30 Hz and a severe/missing condition.
+  camera_severe_stale_limit_ms: 500.0
+  camera_consecutive_stale_limit: 15
+  camera_missing_timeout_ms: 1000.0
+  quality_min_valid_ratio: 1.0
+  quality_max_invalid_run: 0
+  # Recorder snapshot freshness only; robot heartbeat/watchdogs are separate.
+  control_max_age_ms: 40.0
+  hand_start_tolerance_rad: 0.05
+  camera_ring_capacity: 16
+  recorder_queue_capacity: 16
+  recorder_overflow_policy: drop_newest
+  preview_max_fps: 10.0
+  writer_batch_size: 8
+  writer_flush_interval_s: 1.0
+  writer_shutdown_timeout_s: 5.0
+
+cameras:
+  # Roles are assigned by explicit serial, never /dev/video* ordering.
+  workspace:
+    serial: "346522072675"
+    width: 640
+    height: 480
+    fps: 30
+    capture_depth: false
+    allow_profile_fallback: true
+    align_depth_to_color: false
+    warmup_frames: 5
+    timeout_ms: 5000
+    max_timestamp_skew_ms: 33.333334
+    sync_retry_frames: 30
+    filters:
+      use_disparity: false
+      spatial: {enabled: false, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
+      temporal: {enabled: false}
+      hole_filling: {enabled: false}
+  wrist:
+    serial: "346222072985"
+    width: 640
+    height: 480
+    fps: 30
+    capture_depth: false
+    allow_profile_fallback: true
+    align_depth_to_color: false
+    warmup_frames: 5
+    timeout_ms: 5000
+    max_timestamp_skew_ms: 33.333334
+    sync_retry_frames: 30
+    filters:
+      use_disparity: false
+      spatial: {enabled: false, magnitude: 2, smooth_alpha: 0.5, smooth_delta: 20, hole_fill: 0}
+      temporal: {enabled: false}
+      hole_filling: {enabled: false}
+
+calibration:
+  snapshot_files: []

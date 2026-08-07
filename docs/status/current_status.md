@@ -1,11 +1,5 @@
 # Current status
 
-## 中文摘要
-
-当前主链路是 Quest 3 HTS/CTRL、左 Touch 控制器、共享 Quest/JAKA 目标管线、MuJoCo、
-JAKA Mini2 ServoJ/EDG 适配器和 PC-direct RH56 路径。默认测试与仿真不连接真机；真机
-状态必须按本页验证等级如实记录，不能把离线或回放结果写成物理 PASS。
-
 ## Executive state
 
 The primary current stack is Meta Quest 3 HTS/CTRL input, a left Touch
@@ -174,7 +168,8 @@ The maintained physical hand route is PC-direct USB/RS485, not JAKA tool-RS485.
 Opening the serial path performs zero register writes. The controller uses
 fresh measured `ANGLE_ACT` for activation, bounded target range/rate/delta, raw
 feedback, stale/protocol/error gates, and deterministic cleanup. The physically
-selected scheduler profile is `fast40`.
+fixed scheduler is 40 Hz command, 15 Hz ANGLE feedback, and 10 Hz
+CURRENT/FORCE/STATUS/ERROR feedback.
 
 Current feedback meanings are deliberately limited:
 
@@ -190,8 +185,8 @@ contact-force signals.
 The runtime now treats one typed serial read timeout as a hand-local retry/hold
 when the previous complete feedback snapshot is still fresh. Consecutive stale
 feedback, worker death, checksum/protocol failure, write failure, or nonzero
-`ERROR` remains a terminal RH56 fault. Ordinary rate limiting and contact
-clamping remain hand-local and do not stop a healthy arm.
+`ERROR` remains a terminal RH56 fault. The RH56 target-discontinuity guard and
+contact clamping remain hand-local and do not stop a healthy arm.
 
 Quest hand-only PC-direct operation and short combined sessions have physical
 evidence, including the 60.105-second combined PASS above. Complete
@@ -208,11 +203,12 @@ the correction is offline tested but has not yet been revalidated on hardware.
 A later bottle-grasp combined run stopped fail-closed on middle-channel
 `ERROR=4` after contact had already been detected. The log showed that a grip
 release followed by loaded reacquisition rebased `FORCE_ACT` to the loaded
-values and cleared provisional/latched holds; the command shaper also retained
-closing momentum after the contact target moved toward relief. The controller
-now preserves the no-load baseline and contact state across loaded
-reacquisition, restores a provisional hold when release races detection, and
-discards residual closing velocity at the contact clamp. This correction is
+values and cleared provisional/latched holds; the former command shaper also
+retained closing momentum after the contact target moved toward relief. The
+current controller preserves the no-load baseline and contact state across
+loaded reacquisition, restores a provisional hold when release races detection,
+and removes the normal-path command shaper. The contact clamp still owns
+closure safety. This correction is
 offline regression tested and received partial post-fix object-contact evidence
 in the 2026-07-31 combined run: contact detection reached 7, loaded activation
 state was preserved 10 times, and RH56 `ERROR` remained zero. The run was not a
@@ -287,7 +283,7 @@ The one maintained normal physical entry is the combined collection wrapper:
 
 It requires an explicit complete real-device invocation for the current
 process, completed hand prerequisites, accessible E-stop, a clear workspace,
-bounded duration, stable/verified device identity, and `--no-auto-retry`. No
+bounded duration, and stable/verified device identity. No
 per-process session state or credential file persists after the process exits.
 The wrapper permits at most 300 seconds, but
 that upper bound is not a validated operating duration. It also requires an
@@ -329,3 +325,72 @@ See [system architecture](../architecture/SYSTEM_ARCHITECTURE.md) and
 [real hardware safety](../safety/REAL_HARDWARE_SAFETY.md) for the current
 contracts. Dated evidence under `docs/history/` remains evidence only and does
 not override these pages or the active source.
+
+---
+
+# 中文版：当前状态
+
+## 当前主链路
+
+当前主链路是 Meta Quest 3 HTS/CTRL、左 Touch 控制器、共享 Quest/JAKA target pipeline、MuJoCo、
+独立 gate 的 JAKA Mini2 ServoJ/EDG adapter 和 PC-direct RH56 路径。默认测试、回放和仿真不连接真机。
+
+```text
+Quest input
+  -> validation / bounded queue
+  -> release-before-press clutch/reference
+  -> mapping / filters / continuation IK
+  -> collision / singularity / limit / output checks
+  -> immutable AcceptedArmTarget
+  -> MuJoCo adapter 或 JAKA accepted-joint adapter
+```
+
+两个 adapter 收到相同的 J1--J6 radians。物理 adapter 不跟随 MuJoCo `qpos`、不重新映射、不重新
+滤波、不重新求 IK；native joint-teleop mode 不调用 JAKA `kine_inverse`。Python 只做 coarse output
+prefilter，保留 finite joint、branch、hard range 和明显 velocity/acceleration impossibility；native
+worker 负责实际 8 ms velocity/acceleration/jerk shaping、final hard check、watchdog 和 publication。
+
+candidate rejection、IK no solution、soft margin、singularity candidate rejection、Quest transient
+loss 和普通 RH56 target-discontinuity/contact clamp 都是 hold/degraded 语义，不是无条件 process exit。实际 controller
+alarm、collision、E-stop、SDK、native hard timing、watchdog/liveness、tracking divergence、actual
+joint/output violation、branch/winding、RH56 ERROR/protocol 和 cleanup uncertainty 仍是 hard stop。
+
+## 验证等级
+
+- Quest parser、clutch、mapping、continuation、output split、HOLD recovery、episode lifecycle 和
+  recorder quality 行为已经 offline tested，部分也有 simulation/fake-worker evidence。
+- MuJoCo accepted-target output 和 integrated arm/hand approximation 已 simulation validated。
+- native 8 ms worker、sole-session polling、RH56 scheduler 有 offline/fake-worker 或部分真机证据，
+  不能扩展为完整 physical PASS。
+- 联合 arm/RH56 有一次 60.105 秒 bounded PASS；没有 300 秒 PASS。operator-ended liveness stop
+  和更长的 partial runs 不能重标为 duration PASS。
+- 最新 output-acceleration 修正、Quest recovery/re-clutch、双 D435 physical capture、TCP calibration
+  和完整 Quest-driven RH56 combined validation 仍未物理验证。
+
+## 当前真机采集
+
+唯一维护的普通真机入口是：
+
+```bash
+./scripts/run_quest_jaka_rh56_teleop.sh --help
+```
+
+完整运行必须显式指定 runtime config、device identity、bounded duration、native CPU/priority、
+hand prerequisites、E-stop 和 workspace。物理采集写 review-first staging RGB MP4
+和低维 measured state/action JSONL；默认不记录 Quest packet、TCP 或 depth。两种 clutch 连续释放
+五秒时 finalize 当前 episode，并在同一 recorder process 中创建下一个编号；Ctrl+C 只影响最后的
+partial episode。
+
+## 未解决问题
+
+1. 解决早期 J4 collision 根因，不得放宽 collision、limit、timing、tracking 或 liveness 边界；
+2. 完成最新 output-acceleration 修正的有界真机验证；
+3. 在 controller 侧完成 TCP calibration；
+4. 物理验证 Quest input recovery/re-clutch 和完整 duration gate；
+5. 完成 RH56 target/feedback characterization 及 staged Quest hand validation；
+6. 物理验证双 D435 staging、camera geometry 和 time alignment；
+7. 在宣称数据集或 policy training 可用前完成质量和 exporter 验证。
+
+所有结论必须标记为 offline tested、simulation validated、partial physical、physical PASS、physical
+FAIL 或 not validated。`docs/history/` 中的 dated evidence 只提供历史证据，不覆盖当前 source、
+safety 或 operator contract。

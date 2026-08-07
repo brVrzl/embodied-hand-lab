@@ -152,7 +152,7 @@ class SmoothQuestJakaSession:
         self.input_recovery_timeout_count = 0
         shared_policy = config.raw.get("shared_target_generation", {})
         self.continuation_enabled = bool(shared_policy.get("continuation_enabled", True))
-        self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 5))
+        self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 3))
         self.control_compute_budget_ms = (
             None
             if control_compute_budget_ms is None
@@ -281,8 +281,8 @@ class SmoothQuestJakaSession:
         self.last_hand_result: InspireRetargetResult | None = None
         self.hand_valid_results = 0
         if self.hand_enabled:
-            backend, calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
-            self.hand_retargeter = ProjectRh56Retargeter(calibration, backend=backend)
+            calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
+            self.hand_retargeter = ProjectRh56Retargeter(calibration)
             validated_poses = (
                 calibration.validated_pinch_poses
                 if calibration.pinch_pose_blending_enabled
@@ -300,10 +300,6 @@ class SmoothQuestJakaSession:
             calibration = self.hand_retargeter.calibration
             self._thumb_first_pinch = ThumbFirstPinchSequencer(
                 enabled=calibration.thumb_first_pinch_enabled,
-                lateral_target=calibration.thumb_first_lateral_target,
-                lateral_tolerance=calibration.thumb_first_lateral_tolerance,
-                index_guard=calibration.thumb_first_index_guard,
-                thumb_close_guard=calibration.thumb_first_thumb_close_guard,
                 index_activation=calibration.thumb_first_index_activation,
                 thumb_close_activation=calibration.thumb_first_thumb_close_activation,
                 lateral_activation=calibration.thumb_first_lateral_activation,
@@ -311,10 +307,6 @@ class SmoothQuestJakaSession:
         else:
             self._thumb_first_pinch = ThumbFirstPinchSequencer(
                 enabled=False,
-                lateral_target=0.0,
-                lateral_tolerance=0.03,
-                index_guard=0.15,
-                thumb_close_guard=0.25,
             )
         self._thumb_first_pinch_stage = "idle"
         self._pinch_blend_mode = "none"
@@ -323,27 +315,21 @@ class SmoothQuestJakaSession:
         relative_values = hand_values.get("four_finger_relative", {})
         self.four_finger_gain = float(relative_values.get("gain", 1.0))
         self.four_finger_dead_zone_rad = float(relative_values.get("dead_zone_rad", 0.015))
-        self.four_finger_max_step_rad = float(relative_values.get("maximum_target_step_rad", 0.04))
         if (
             not math.isfinite(self.four_finger_gain)
             or self.four_finger_gain <= 0.0
             or not math.isfinite(self.four_finger_dead_zone_rad)
             or self.four_finger_dead_zone_rad < 0.0
-            or not math.isfinite(self.four_finger_max_step_rad)
-            or self.four_finger_max_step_rad <= 0.0
         ):
             raise ValueError("invalid H1 four-finger relative hand policy")
         thumb_values = hand_values.get("thumb_close_relative", {})
         self.thumb_close_gain = float(thumb_values.get("gain", 1.0))
         self.thumb_close_dead_zone_rad = float(thumb_values.get("dead_zone_rad", 0.008))
-        self.thumb_close_max_step_rad = float(thumb_values.get("maximum_target_step_rad", 0.025))
         if (
             not math.isfinite(self.thumb_close_gain)
             or self.thumb_close_gain <= 0.0
             or not math.isfinite(self.thumb_close_dead_zone_rad)
             or self.thumb_close_dead_zone_rad < 0.0
-            or not math.isfinite(self.thumb_close_max_step_rad)
-            or self.thumb_close_max_step_rad <= 0.0
         ):
             raise ValueError("invalid H2 thumb-close relative hand policy")
         lateral_values = hand_values.get("thumb_lateral_relative", {})
@@ -351,16 +337,11 @@ class SmoothQuestJakaSession:
         self.thumb_lateral_dead_zone = float(
             lateral_values.get("dead_zone", 0.015)
         )
-        self.thumb_lateral_max_step_rad = float(
-            lateral_values.get("maximum_target_step_rad", 0.025)
-        )
         if (
             not math.isfinite(self.thumb_lateral_gain)
             or self.thumb_lateral_gain <= 0.0
             or not math.isfinite(self.thumb_lateral_dead_zone)
             or self.thumb_lateral_dead_zone < 0.0
-            or not math.isfinite(self.thumb_lateral_max_step_rad)
-            or self.thumb_lateral_max_step_rad <= 0.0
         ):
             raise ValueError("invalid thumb-lateral relative hand policy")
         self._held_hand_command = (
@@ -868,6 +849,11 @@ class SmoothQuestJakaSession:
             self.continuation_enabled
             and not result.accepted
             and result.reason is not FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+            and result.reason
+            not in {
+                FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
+                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
+            }
             and continuation_fraction > self.minimum_continuation_fraction
             and continuation_backtracks < self.maximum_continuation_backtracks
         ):
@@ -1052,6 +1038,23 @@ class SmoothQuestJakaSession:
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
                 FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }
+            if not result.metrics.hard_stop_required and not branch_or_winding_hard_stop:
+                # Keep the accepted target authoritative, but rebase only the
+                # Python prefilter on the state that is actually being held.
+                # This prevents repeated rejects from carrying stale coarse
+                # velocity/acceleration into the next control tick.
+                hold_joints = (
+                    fresh_measured
+                    if fresh_measured is not None
+                    else tuple(
+                        float(value)
+                        for value in self.target_generator.last_safe_joint_target
+                    )
+                )
+                self.target_generator.synchronize_output_prefilter_hold(
+                    hold_joints,
+                    generated_monotonic_ns=now_ns,
+                )
             if result.reason in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
                 FeasibilityReason.EPISODE_WINDING_EXCEEDED,
@@ -1621,25 +1624,6 @@ class SmoothQuestJakaSession:
         )
         self._requested_hand_target = requested_target
         self._clipped_hand_target = target.copy()
-        if self.normalized_hand_output is None:
-            step = np.clip(
-                target[2:] - self._held_hand_command[2:],
-                -self.four_finger_max_step_rad,
-                self.four_finger_max_step_rad,
-            )
-            target[2:] = self._held_hand_command[2:] + step
-            thumb_step = float(np.clip(
-                target[1] - self._held_hand_command[1],
-                -self.thumb_close_max_step_rad,
-                self.thumb_close_max_step_rad,
-            ))
-            target[1] = self._held_hand_command[1] + thumb_step
-            lateral_step = float(np.clip(
-                target[0] - self._held_hand_command[0],
-                -self.thumb_lateral_max_step_rad,
-                self.thumb_lateral_max_step_rad,
-            ))
-            target[0] = self._held_hand_command[0] + lateral_step
         if not np.all(np.isfinite(target)):
             return
         if self.normalized_hand_output is not None:
@@ -2039,7 +2023,7 @@ class SmoothQuestJakaSession:
                 "captured_rh56_reference_rad": thumb_captured_target,
                 "requested_target_rad": self._thumb_close_requested_target,
                 "clipped_target_rad": self._thumb_close_clipped_target,
-                "slew_limited_target_rad": float(self._held_hand_command[1]),
+                "held_target_rad": float(self._held_hand_command[1]),
                 "actual_mujoco_joint_rad": (
                     None if hand_positions is None else float(hand_positions[1])
                 ),
@@ -2063,7 +2047,7 @@ class SmoothQuestJakaSession:
                 "captured_rh56_reference_rad": lateral_captured_target,
                 "requested_target_rad": self._thumb_lateral_requested_target,
                 "clipped_target_rad": self._thumb_lateral_clipped_target,
-                "slew_limited_target_rad": float(self._held_hand_command[0]),
+                "held_target_rad": float(self._held_hand_command[0]),
                 "actual_mujoco_joint_rad": (
                     None if hand_positions is None else float(hand_positions[0])
                 ),
@@ -2128,7 +2112,6 @@ class SmoothQuestJakaSession:
             "ik_rate_hz": _rate(self.ik_timestamps_ns),
             "filter_profile": self.profile.name,
             "clutch_provider": self.clutch_provider,
-            "hand_backend": None if self.hand_retargeter is None else self.hand_retargeter.backend,
             "hand_valid_result_count": self.hand_valid_results,
             "arm_final_state": self.arm_clutch.state.value,
             "hand_final_state": self.hand_clutch.state.value,
@@ -2157,10 +2140,8 @@ class SmoothQuestJakaSession:
             "arm_reference_capture_ms": _distribution_ms(self.arm_capture_durations_ns),
             "four_finger_relative_gain": self.four_finger_gain,
             "four_finger_relative_dead_zone_rad": self.four_finger_dead_zone_rad,
-            "four_finger_relative_maximum_step_rad": self.four_finger_max_step_rad,
             "thumb_close_relative_gain": self.thumb_close_gain,
             "thumb_close_relative_dead_zone_rad": self.thumb_close_dead_zone_rad,
-            "thumb_close_relative_maximum_step_rad": self.thumb_close_max_step_rad,
             "thumb_close_bend_gain": (
                 None
                 if self.hand_retargeter is None
@@ -2173,7 +2154,6 @@ class SmoothQuestJakaSession:
             ),
             "thumb_lateral_relative_gain": self.thumb_lateral_gain,
             "thumb_lateral_relative_dead_zone": self.thumb_lateral_dead_zone,
-            "thumb_lateral_relative_maximum_step_rad": self.thumb_lateral_max_step_rad,
             "thumb_lateral_open_across_palm": (
                 None
                 if self.hand_retargeter is None

@@ -24,7 +24,6 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.simulation import (
     CandidateMetrics,
-    CommandTrajectoryLimits,
     build_viewer_mjcf,
     classify_candidate,
     jerk_limited_position_step,
@@ -103,6 +102,28 @@ def test_reference_capture_zero_deadband_and_target_envelope() -> None:
         bounded.map(_operator((0.10, 0.0, 0.0)))
 
 
+def test_target_envelope_can_be_disabled_without_disabling_other_feasibility() -> None:
+    limits = _limits()
+    disabled = replace(limits, target_displacement_limit_enabled=False)
+    assert (
+        classify_candidate(
+            CandidateMetrics(target_displacement_m=limits.maximum_target_displacement_m + 0.01),
+            disabled,
+        )
+        is FeasibilityReason.ACCEPTED
+    )
+    assert (
+        classify_candidate(
+            CandidateMetrics(
+                target_displacement_m=limits.maximum_target_displacement_m + 0.01,
+                target_jump_m=limits.maximum_target_jump_m + 0.001,
+            ),
+            disabled,
+        )
+        is FeasibilityReason.TARGET_JUMP
+    )
+
+
 def test_identity_and_90_degree_quaternion_mapping() -> None:
     mapper = ProvisionalOperatorToRobotMapper(
         _mapping(
@@ -154,8 +175,6 @@ def _limits() -> FeasibilityLimits:
         maximum_target_jump_m=0.004,
         maximum_tcp_velocity_m_s=0.025,
         maximum_tcp_angular_velocity_rad_s=0.2,
-        maximum_joint_velocity_rad_s=1.2,
-        maximum_joint_acceleration_rad_s2=20.0,
         joint_limit_margin_rad=math.radians(5),
         maximum_target_displacement_m=0.015,
         ik_orientation_tolerance_rad=math.radians(3),
@@ -174,7 +193,6 @@ def _limits() -> FeasibilityLimits:
             FeasibilityReason.TARGET_JUMP,
         ),
         (CandidateMetrics(tcp_velocity_m_s=0.03), FeasibilityReason.LINEAR_VELOCITY_LIMIT),
-        (CandidateMetrics(maximum_joint_acceleration_rad_s2=21.0), FeasibilityReason.LINEAR_ACCELERATION_LIMIT),
         (CandidateMetrics(ik_error_m=0.003), FeasibilityReason.IK_POSITION_FAILED),
         (
             CandidateMetrics(ik_orientation_error_rad=math.radians(4.0)),
@@ -196,11 +214,7 @@ def test_structured_feasibility_rejections(
     assert classify_candidate(metrics, _limits()) is expected
 
 
-def test_singularity_gate_rejects_slow_geometric_approach() -> None:
-    limits = replace(
-        _limits(),
-        maximum_joint_velocity_rad_s=14.0,
-    )
+def test_singularity_gate_is_independent_of_joint_dynamic_diagnostics() -> None:
     geometry_only = CandidateMetrics(
         jacobian_condition=41.0,
         maximum_joint_velocity_rad_s=2.0,
@@ -209,9 +223,9 @@ def test_singularity_gate_rejects_slow_geometric_approach() -> None:
         jacobian_condition=41.0,
         maximum_joint_velocity_rad_s=math.pi + 0.01,
     )
-    assert classify_candidate(geometry_only, limits) is FeasibilityReason.NEAR_SINGULARITY
+    assert classify_candidate(geometry_only, _limits()) is FeasibilityReason.NEAR_SINGULARITY
     assert (
-        classify_candidate(amplified_velocity, limits)
+        classify_candidate(amplified_velocity, _limits())
         is FeasibilityReason.NEAR_SINGULARITY
     )
 
@@ -223,7 +237,6 @@ def test_wrist_angle_proximity_is_warning_only_when_jacobian_is_healthy() -> Non
     )
     metrics = CandidateMetrics(
         wrist_bend_from_singularity_rad=math.radians(14.0),
-        maximum_joint_velocity_rad_s=0.1,
     )
     assert classify_candidate(metrics, limits) is FeasibilityReason.ACCEPTED
 

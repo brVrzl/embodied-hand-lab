@@ -51,8 +51,6 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--robot-ip", required=True)
     parser.add_argument("--edg-state-ip", default="192.168.71.19")
     parser.add_argument("--duration-sec", type=float, default=5.0)
-    parser.add_argument("--estop-accessible", action="store_true")
-    parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
     parser.add_argument("--expected-tool-id", type=int, default=0)
     parser.add_argument("--expected-user-frame-id", type=int, default=0)
@@ -62,8 +60,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
-    if not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
-        raise SystemExit("E1 requires E-stop, clear-workspace, and no-RH56-command confirmations")
+    if not args.rh56_command_path_absent:
+        raise SystemExit("E1 requires no-RH56-command confirmation")
     if not 0.5 <= args.duration_sec <= 10.0:
         raise SystemExit("E1 duration must be in [0.5, 10] seconds")
     args.metrics.parent.mkdir(parents=True, exist_ok=True)

@@ -1,13 +1,5 @@
 # Real hardware safety
 
-## 中文摘要
-
-维护、源码审查、测试、--help、仿真、回放和 fake worker 都不会打开、连接或控制任何真实设备。
-
-任何真机运行都必须由操作者主动执行维护中的真机入口，并满足对应运行模式的全部安全前置条件，包括设备身份、工作区检查、停止装置可达、控制器状态、运行时长限制、命令边界以及确定性的退出和清理。
-
-碰撞、报警、急停、看门狗、SDK、时序、活性或清理不确定性故障仍必须立即停止，不得绕过。
-
 ## Runtime safety boundary
 
 Repository maintenance, source review, tests, --help, simulation, replay, and fake-worker execution do not open, connect to, or command a JAKA, RH56DFX, Quest headset, camera, or any other actuator.
@@ -224,7 +216,8 @@ timeout while the previous complete feedback snapshot is inside the freshness
 window holds the next hand command and retries. A repeated timeout or stale
 snapshot enters `HAND_FAULT`; checksum/protocol failure, nonzero `ERROR`, write
 failure, worker death, or unknown actuator command state remains terminal.
-Ordinary rate limiting and contact clamping are hand-local holds/diagnostics
+The RH56 target-discontinuity guard and contact clamping are hand-local
+holds/diagnostics
 and do not become an arm hard stop.
 
 In combined operation, a terminal arm fault stops new hand commands. A terminal
@@ -253,7 +246,7 @@ experiments, or controller-configuration writes through this repository.
 
 ## Current physical evidence boundary
 
-- A combined `fast40` session completed 60.105 seconds with no hard timing
+- A combined 40 Hz session completed 60.105 seconds with no hard timing
   miss, controller alarm, arm/RH56 worker fault, serial/protocol fault, or
   transport symptom. This is a bounded 60-second physical PASS only.
 - A later run reached 200.943 seconds with zero hard timing faults, then fresh
@@ -271,3 +264,51 @@ promoted to a physical PASS. See [current status](../status/current_status.md)
 for the concise project state and
 [combined teleoperation](../operation/jaka_rh56_combined_teleop.md) for the
 maintained entry's prerequisites.
+
+---
+
+# 中文版：真机安全
+
+## 真机边界
+
+维护、源码审查、测试、`--help`、仿真、回放和 fake worker 都不会打开、连接或控制 JAKA、RH56DFX、
+Quest、RealSense 或其他 actuator。真机运行必须由操作者从维护入口显式启动，并满足设备 identity、
+bounded duration、controller state、workspace、E-stop、command limit、timing/liveness 和 deterministic
+cleanup 等完整前置条件。配置写入、fault reset 和 force calibration 始终是单独 gate，不能自动进入。
+
+软件不能静默写入 payload、COM、installation、TCP、collision 或 controller safety。历史记录中的
+operator values 只是证据，必须在 controller 上重新确认。
+
+## 四级故障处置
+
+- `HARD_STOP`：controller alarm、collision、E-stop、power/enable loss、SDK fault、native hard timing、
+  watchdog/liveness、tracking divergence、actual joint hard limit、branch/winding、actual shaped
+  velocity/acceleration/jerk violation、RH56 nonzero `ERROR`、fatal serial/protocol/checksum、actuator
+  state unknown 或 cleanup 不确定。
+- `BOUNDED_HOLD`：Quest transient tracking loss、clutch/reference invalid、IK no solution、candidate
+  infeasible、continuation exhausted、soft margin、singularity candidate rejection、Python budget/prefilter
+  rejection、temporary feedback stale、RH56 ordinary rate limit 和 contact clamp。此时不提交 candidate，
+  保持最后 authoritative safe target 和 fresh heartbeat，必要时 release-before-press 后从 measured state
+  重新捕获。
+- `RECORDING_DEGRADED`：isolated camera stale/drop、ring expiry、metadata-only slot、recorder queue drop、
+  preview lag、短时 writer backpressure 或单帧 field unavailable。可以停止 recording/abort episode，不能
+  自动停止健康的 robot control。
+- `DIAGNOSTIC_ONLY`：placement、event log、preview、统计、latency spike、high watermark、provenance 或
+  非关键 telemetry 问题。
+
+## 纵深防御和 RH56
+
+Python shared target boundary 负责轻量 candidate prefilter；native worker 负责实际 8 ms shaping、final
+hard checks、watchdog 和 publication；JAKA controller 保留最终硬件保护。不得删除 native checks，也
+不得把 controller alarm 当作正常 trajectory filter。RH56 ordinary rate-limit/contact clamp 只影响
+hand hold；nonzero `ERROR`、fatal protocol/checksum、worker death 和 command state unknown 仍是 fatal。
+
+Quest recovery 的 transient loss 立即 hold；恢复后必须 release-before-press，不复用旧 reference。input
+recovery timeout 可以保持 persistent disengaged hold；producer/process/IPC death 和 native watchdog
+expiry 仍必须 hard stop，不能用伪造 heartbeat 掩盖 process death。
+
+## 验证声明
+
+当前 latest output-acceleration correction、J4 collision root cause、TCP calibration、Quest recovery、
+双 D435 end-to-end capture 和完整 Quest-driven RH56 combined validation 都没有完成物理验证。离线、
+simulation、replay 和 fake-worker 结果不能写成真机 PASS；详见[当前状态](../status/current_status.md)。

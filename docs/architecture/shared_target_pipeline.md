@@ -1,12 +1,5 @@
 # Shared target pipeline
 
-## 中文摘要
-
-`SmoothQuestJakaSession` 管理已验证输入和 clutch/reference 状态，
-`SharedJakaTargetGenerator` 负责连续 IK 与可行性检查；只有通过共享检查的候选才能
-成为不可变 `AcceptedArmTarget`。仿真和物理适配器在此边界前保持一致，物理侧不再做
-二次变换或隐藏式恢复。
-
 ## Acceptance is the adapter boundary
 
 `SmoothQuestJakaSession` consumes validated input, owns clutch/reference state,
@@ -24,6 +17,13 @@ Checks cover:
 - accepted-output joint velocity;
 - accepted-output joint acceleration, including the first 8 ms emitted step
   and replacement of an active native interpolation segment.
+
+Joint velocity and acceleration have one shared policy source:
+`shared_target_generation.maximum_output_joint_*`. The Python output
+prefilter screens accepted-target replacement against that contract, and the
+native worker checks the final emitted 8 ms segment at the hardware boundary.
+There is no separate IK velocity/acceleration gate and no second MuJoCo
+command velocity/acceleration configuration.
 
 The native production adapter additionally applies the project-selected
 `command_maximum_joint_jerk_rad_s3` as a low-latency transition shaper. It is
@@ -96,6 +96,11 @@ continuation，并让 `SharedJakaTargetGenerator` 计算候选。候选只有通
 - Jacobian 奇异质量与方向恢复；
 - 已接受输出的关节速度；
 - 已接受输出的关节加速度，包括第一个 8 ms 输出点以及替换活动插值段的情况。
+
+关节速度和加速度只有一个共享策略来源：
+`shared_target_generation.maximum_output_joint_*`。Python output prefilter 按该契约检查
+accepted target 的替换，native worker 在硬件边界检查最终 8 ms 输出段；不再单独配置
+IK 速度/加速度门限，也不再配置第二套 MuJoCo command 速度/加速度门限。
 
 当前 continuation 保持远程的最多五次回退，最小比例为 1/32。达到 compute budget 后立即进入
 `HOLD_REJECTED`，不再为了更小步长耗尽当前周期。共享输出边界为速度 π rad/s、加速度

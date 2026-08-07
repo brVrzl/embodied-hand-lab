@@ -9,13 +9,11 @@ normal physical-teleoperation entry. Inspecting help is safe:
 .venv/bin/python tools/quest_jaka_hardware.py --help
 ```
 
-The underlying tool still has explicitly separated diagnostic and combined
-stages (`p2-shadow`, `e2-isolated`, `p4-live`, `post-payload-diagnostic`,
-`bounded-normal-teleop`, and `combined-normal-teleop`). The arm-only bounded
-stage is retained for isolation diagnostics, not as a second normal operator
-entry. Never copy an old historical invocation; always reconcile it with the
-current `--help`, current configuration, and the maintained collection entry
-before any physical operation.
+The underlying tool exposes only the maintained `bounded-normal-teleop` and
+`combined-normal-teleop` stages. Historical commissioning and research stages
+are no longer ordinary CLI choices. Never copy an old historical invocation;
+always reconcile the current `--help`, current configuration, and maintained
+collection entry before any physical operation.
 
 ## Current runtime contract
 
@@ -68,10 +66,12 @@ The exact command and required physical prerequisites are documented in
 [JAKA + RH56 combined teleoperation](jaka_rh56_combined_teleop.md). It reuses
 the configured PWL arm path, the 20 ms producer compute budget, and the
 PC-direct RH56 controller. Left index pauses/resumes only the arm; grip
-holds/resumes only the hand. It does not use the post-payload 1 rad/s or hand
+holds/resumes only the hand. It does not use retired commissioning or hand
 single-channel diagnostic restrictions. Production velocity, acceleration,
-jerk, workspace, tracking, stale, collision, protocol, feedback, and cleanup
-boundaries remain active.
+jerk, tracking, stale, collision, protocol, feedback, and cleanup boundaries
+remain active. The collection runtime does not apply the live-demo
+clutch-relative 0.20 m target envelope as a task-travel limit; operator
+workspace confirmation and all kinematic/controller safety checks remain active.
 
 `run_quest_jaka_bounded_teleop.sh` remains only the arm-only isolation entry. It
 sends zero RH56 commands and is not a normal collection entry.
@@ -88,10 +88,9 @@ episode recorder 组合在一起；没有另一个普通真机遥操作入口。
 .venv/bin/python tools/quest_jaka_hardware.py --help
 ```
 
-底层工具仍明确分成 `p2-shadow`、`e2-isolated`、`p4-live`、
-`post-payload-diagnostic`、`bounded-normal-teleop` 和
-`combined-normal-teleop`。其中 arm-only bounded stage 只保留用于隔离诊断，
-不是第二个普通操作者入口。诊断、配置写入和采集入口继续保留各自的运行时安全前置条件。不得直接复制历史命令，必须与当前 `--help`、当前配置以及维护中的采集入口保持一致。
+底层工具只暴露维护中的 `bounded-normal-teleop` 和
+`combined-normal-teleop`。历史 commissioning 和 research stage 不再作为普通
+CLI 选项。不得直接复制历史命令，必须与当前 `--help`、当前配置以及维护中的采集入口保持一致。
 
 ## 当前运行契约
 
@@ -122,9 +121,10 @@ episode recorder 组合在一起；没有另一个普通真机遥操作入口。
 
 精确命令与双授权见[JAKA + RH56 联合遥操作](jaka_rh56_combined_teleop.md)。该采集入口复用
 configured PWL arm、20 ms producer compute budget 和 PC-direct RH56 controller。
-left-index 只暂停/恢复 arm，grip 只保持/恢复 hand。正常入口不使用 post-payload 1 rad/s
-或 hand 单通道诊断限制，但 production 的速度、加速度、jerk、workspace、tracking、stale、
-collision、协议、feedback 和 cleanup 边界全部保留。
+left-index 只暂停/恢复 arm，grip 只保持/恢复 hand。正常入口不使用已退役 commissioning
+或 hand 单通道诊断限制，但 production 的速度、加速度、jerk、tracking、stale、collision、
+协议、feedback 和 cleanup 边界全部保留。采集 runtime 不使用 live-demo 的 clutch-relative 0.20 m
+target envelope 作为任务行程限制；操作者 workspace 确认和其余运动安全检查仍然保留。
 
 `run_quest_jaka_bounded_teleop.sh` 仅保留为 arm-only 隔离入口，发送零 RH56 命令，不是
 普通采集入口。

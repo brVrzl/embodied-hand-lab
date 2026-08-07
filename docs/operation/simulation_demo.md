@@ -1,11 +1,5 @@
 # Quest/JAKA MuJoCo recording, replay, and 125 Hz simulation
 
-## 中文摘要
-
-这是推荐的首个操作流程：接收 Quest 网络输入并只驱动 MuJoCo，不导入、初始化、登录
-或控制 JAKA/RH56 真机 SDK。先使用 `--help`、回放和离线报告验证配置，再进行仿真；
-仿真结果不能表述为真机 PASS。
-
 This is the recommended first operational workflow. It receives Quest network
 input and drives only MuJoCo. It does not import, initialize, log in to, or
 command the JAKA or RH56 physical SDKs.
@@ -50,15 +44,9 @@ only the simulated hand. No RH56 hardware backend is reachable. The explicit
 arm-only build used by the JAKA-only regression removes all RH56 actuators and
 commands and still contains exactly six JAKA actuators.
 
-The viewer scene reuses the provisional physical tabletop dimensions from
-`digital_twin/configs/workspace.yaml`: 0.73 x 1.38 x 0.02 m with a 0.75 m
-tabletop height. The generated simulation world is expressed directly in the
-JAKA base frame (`+X` forward, `-Y` right, `+Z` up). The base remains upright at
-identity; the existing P-frame table and mounting members are transformed into
-that base frame, placing the table workspace on base `+Y` (the robot's left).
-At J1=+90 degrees the RH56 palm/TCP forward projection points into that
-workspace. This scene transform is visualization/plant-only and does not
-rotate the shared Quest mapping or alter accepted joint targets.
+The viewer uses the canonical JAKA/RH56 MuJoCo model directly. It does not load
+a reconstructed workspace or use visualization geometry as control or safety
+authority.
 
 Every live run is also a joint arm/RH56 recording. Choose a new `RUN_NAME` for
 each run: capture files use exclusive creation and an existing path is never
@@ -105,9 +93,8 @@ joint, TCP, singularity, continuation, and rejection diagnostics are needed.
 
 The accepted timing diagnosis is: the viewer needed `handle.sync()` to display
 live MuJoCo state, and 60 Hz target replacement must not be evaluated with the
-8 ms acceleration interval. The finalized single-arm policy is
-`root_cause_fix`; low-latency/raw comparison profiles are not normal operation
-settings.
+8 ms acceleration interval. These values are now part of the YAML policy; the
+launcher no longer selects historical speed overlays.
 
 ## Selectable arm output
 
@@ -231,11 +218,10 @@ Known limits remain: MuJoCo dynamics are approximate, Mini2 dynamics were not
 identified here, no physical ServoJ speed calibration was performed, and the
 official theoretical boundary is not a validated daily working speed.
 
-## Effective `root_cause_fix` policy
+## Effective YAML simulation policy
 
-The current launcher and Python CLI select `root_cause_fix` by default. The
-effective values come from
-`configs/sim/quest_hts_jaka_mini2_live_demo.yaml` plus the named overlay:
+The effective values come directly from
+`configs/sim/quest_hts_jaka_mini2_live_demo.yaml`:
 
 | Contract | Effective value |
 |---|---:|
@@ -308,7 +294,7 @@ hand-only streamer 不能触发当前 clutch。将 Quest 发送地址设置为�
 
 ## 实时仿真
 
-最终默认策略为 `root_cause_fix`：六轴仿真速度上限为 `pi` rad/s，60 Hz target 的输出
+当前 YAML 策略为六轴仿真速度上限 `pi` rad/s，60 Hz target 的输出
 可行性加速度评估周期为 16.667 ms，真机 ServoJ contract 仍为 8 ms，MuJoCo 控制周期为
 2 ms（500 Hz）。`pi` 是官方外层理论/合法性边界，仅作为仿真上限；它不是本项目真机标定
 出的日常遥操作速度，也不会自动修改 production 真机参数。已提交的实时配置会创建
@@ -316,12 +302,8 @@ hand-only streamer 不能触发当前 clutch。将 Quest 发送地址设置为�
 任何 RH56 真机 backend 可达。显式 arm-only builder 用于 JAKA-only 回归，会移除全部
 RH56 actuator/command，并仍然只有 6 个 JAKA actuator。
 
-viewer 场景复用 `digital_twin/configs/workspace.yaml` 中已有的 provisional 现场桌面尺寸：
-`0.73 x 1.38 x 0.02 m`，桌面高 `0.75 m`。生成后的仿真 world 直接使用 JAKA base
-坐标（`+X` 前、`-Y` 右、`+Z` 上）；base 保持竖直 identity，已有 P-frame 桌面和安装梁
-被变换到 base frame，桌面工作区位于 base `+Y`（机器人左侧）。J1=+90 度时，RH56
-palm/TCP 的 forward 水平投影指向该工作区。这个 scene transform 只属于可视化/plant，
-不会再次旋转共享 Quest mapping，也不会改变 accepted joint target。
+viewer 直接使用 canonical JAKA/RH56 MuJoCo model，不加载重建 workspace，也不把可视化
+几何作为控制或安全 authority。
 
 每次 live 运行都会同时生成 arm/RH56 联合录制。每次必须使用新的 `RUN_NAME`；capture
 采用排他创建，不会覆盖已经存在的文件。
@@ -481,10 +463,10 @@ JAKA 或 RH56 真机验证。
 
 数据包、viewer 和拒绝问题见[故障排查](../TROUBLESHOOTING.md)。
 
-## `root_cause_fix` 有效策略
+## YAML 仿真有效策略
 
-当前 launcher 与 Python CLI 默认选择 `root_cause_fix`。有效值来自
-`configs/sim/quest_hts_jaka_mini2_live_demo.yaml` 和该 overlay：
+当前 launcher 与 Python CLI 直接读取
+`configs/sim/quest_hts_jaka_mini2_live_demo.yaml`，不再选择历史 overlay：
 
 | 契约 | 有效值 |
 |---|---:|
@@ -501,5 +483,5 @@ JAKA 或 RH56 真机验证。
 | 旋转 One Euro | min cutoff 1.5、beta 4.0、derivative cutoff 1.0 |
 | continuation | 最多 5 次 backtrack，最小 fraction 1/32 |
 
-加速度和 jerk 是项目选择的可行性/诊断边界，不是公开的 Mini2 真机上限。overlay 只改变
-加速度评估周期，不改变 8 ms ServoJ contract，也不会写入控制器速度设置。
+加速度和 jerk 是项目选择的可行性/诊断边界，不是公开的 Mini2 真机上限。YAML 中的
+可行性评估周期不改变 8 ms ServoJ contract，也不会写入控制器速度设置。

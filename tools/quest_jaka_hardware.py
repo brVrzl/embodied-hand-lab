@@ -2,13 +2,11 @@
 # Native acceleration-transition faults are classified explicitly; the legacy
 # accepted_target_transport_failure label is retained only for compatibility
 # with older summaries and is never used for this event.
-"""Run Quest/JAKA shadow, arm teleoperation, or the separately gated combined path.
+"""Run the maintained bounded arm-only or combined Quest/JAKA path.
 
-P0 never invokes this entry point.  P2 connects read-only and sends accepted
-joint packets to the worker's no-EDG shadow mode.  P4 is separately gated and
-uses the identical Python target-generation session with a thin joint adapter.
-Only ``combined-normal-teleop`` constructs the independent PC-direct RH56
-controller; all other stages retain the arm-only no-RH56 contract.
+The shared Python target-generation session feeds either the arm-only JAKA
+adapter or the combined JAKA/RH56 path. Historical commissioning and research
+stages are intentionally not part of this operator entry point.
 """
 
 from __future__ import annotations
@@ -36,16 +34,11 @@ from quest_jaka_sim import (
 )
 from quest_jaka_sim.live_controller import LiveQuestControllerRouter
 from quest_jaka_sim.live_input import QuestDatagramReceiverWorker
-from teleoperation.jaka.quest_adapter import (
-    E2IsolatedForwardTranslationGuard,
-    JakaAcceptedJointTargetAdapter,
-    ResearchThinBoundedMotionGuard,
-)
+from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
 from teleoperation.wire import LatestTargetPublisher, StatusFlags, WorkerStatusReceiver
 from teleoperation.output_feasibility import (
     NATIVE_DEFENSIVE_OUTPUT_JERK_LIMIT_RAD_S3,
-    PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3,
 )
 from embodiment_core.config import load_yaml
 from episode_dataset.collector import CaptureState
@@ -66,14 +59,10 @@ from rh56_driver.serial_backend import RH56SerialBackend
 from rh56_driver.telemetry import BoundedJsonlRecorder
 
 
-PWL_OUTPUT_GENERATOR = "pwl-8ms"
-PWL_STEP2_OUTPUT_GENERATOR = "pwl-16ms"
-CPP_REFERENCE_OUTPUT_GENERATOR = "cpp-reference-v1"
 COMBINED_CONTROL_REALTIME_PRIORITY = 10
 RECOVERABLE_CLUTCH_STAGES = frozenset((
     "bounded-normal-teleop",
     "combined-normal-teleop",
-    "research-thin-bounded",
 ))
 
 
@@ -361,139 +350,78 @@ def _configure_cpu_isolation(control_cpu: int | None) -> dict[str, object]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    # The live-demo YAML retains its target envelope for simulation/replay. A
+    # physical collection runtime may explicitly disable only that
+    # clutch-relative envelope; all other shared and native safety checks stay
+    # enabled. This is intentionally not a command-line switch.
+    parser.set_defaults(
+        config=None,
+        enforce_clutch_target_displacement_limit=True,
+        episode_data_config=None,
+        episode_preview=False,
+        episode_root=None,
+        event_extract=None,
+        log=None,
+        metrics=None,
+        native_control_cpu=None,
+        native_control_realtime_priority=None,
+        native_telemetry=None,
+        operator=None,
+        output_generator=None,
+        recover_output_acceleration_transition=False,
+        rh56_config=None,
+        rh56_device=None,
+        rh56_log=None,
+        robot_ip=None,
+        run_output_joint_velocity_limits_rad_s=None,
+        summary=None,
+        task_name=None,
+        worker=None,
+        allowed_sender=None,
+        bind=None,
+        port=None,
+        duration_sec=None,
+        edg_state_ip=None,
+        allow_direct_ch341_device=False,
+    )
     parser.add_argument(
         "stage",
         choices=(
-            "p2-shadow",
-            "e2-isolated",
-            "p4-live",
-            "post-payload-diagnostic",
             "bounded-normal-teleop",
             "combined-normal-teleop",
-            "research-thin-bounded",
         ),
     )
     parser.add_argument("--runtime-config", type=Path, help="host-specific runtime YAML for physical collection")
-    parser.add_argument("--config", type=Path)
-    parser.add_argument("--worker", type=Path)
-    parser.add_argument("--robot-ip")
-    parser.add_argument("--edg-state-ip")
-    parser.add_argument("--bind")
-    parser.add_argument("--port", type=int)
-    parser.add_argument("--allowed-sender")
-    parser.add_argument("--duration-sec", type=float)
-    parser.add_argument(
-        "--native-control-cpu",
-        type=int,
-        help=(
-            "reserve this CPU for the native control thread and move current "
-            "Python/non-real-time tasks to the remaining allowed CPUs"
-        ),
-    )
-    parser.add_argument(
-        "--native-control-realtime-priority",
-        type=int,
-        help=(
-            "SCHED_FIFO priority for only the native control thread; the "
-            "formal combined gate requires the fixed project value 10"
-        ),
-    )
-    parser.add_argument("--estop-accessible", action="store_true")
-    parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--rh56-command-path-absent", action="store_true")
-    parser.add_argument("--rh56-device")
-    parser.add_argument(
-        "--allow-direct-ch341-device",
-        action="store_true",
-        help=(
-            "allow an identity-checked /dev/ttyCH341USB<N> only when the "
-            "custom host driver creates no /dev/serial/by-id link"
-        ),
-    )
-    parser.add_argument("--rh56-config", type=Path)
-    parser.add_argument(
-        "--rh56-scheduler-profile",
-        choices=("baseline", "fast30", "fast40", "fast50"),
-        help="Override the RH56 command/feedback scheduler profile.",
-    )
-    parser.add_argument("--rh56-log", type=Path)
-    parser.add_argument("--log", type=Path)
-    parser.add_argument("--summary", type=Path)
-    parser.add_argument("--metrics", type=Path)
-    parser.add_argument("--episode-data-config", type=Path)
-    parser.add_argument("--episode-root", type=Path)
-    parser.add_argument("--task-name")
-    parser.add_argument("--operator")
-    parser.add_argument("--episode-preview", action="store_true")
-    parser.add_argument("--native-telemetry", type=Path)
-    parser.add_argument("--event-extract", type=Path)
-    velocity_group = parser.add_mutually_exclusive_group()
-    velocity_group.add_argument(
-        "--run-output-joint-velocity-limit-rad-s",
-        type=float,
-        help="legacy scalar run boundary applied to all six joints",
-    )
-    velocity_group.add_argument(
-        "--run-output-joint-velocity-limits-rad-s",
-        type=float,
-        nargs=6,
-        metavar=("J1", "J2", "J3", "J4", "J5", "J6"),
-        help="six run-specific output velocity boundaries in J1-J6 order",
-    )
-    parser.add_argument("--abort-on-diagnostic-acceleration-boundary", action="store_true")
-    parser.add_argument(
-        "--output-joint-jerk-limit-rad-s3",
-        type=float,
-        default=None,
-        help=(
-            "project-selected native PWL jerk shaper; CLI overrides config "
-            f"(default {PROJECT_DEFAULT_OUTPUT_JERK_LIMIT_RAD_S3:g})"
-        ),
-    )
-    parser.add_argument(
-        "--recover-output-acceleration-transition",
-        action="store_true",
-        help=(
-            "hold back a PWL point that crosses the recoverable acceleration "
-            "boundary and emit a bounded transition from the last native output"
-        ),
-    )
-    parser.add_argument(
-        "--output-generator",
-        choices=(
-            PWL_OUTPUT_GENERATOR,
-            PWL_STEP2_OUTPUT_GENERATOR,
-            CPP_REFERENCE_OUTPUT_GENERATOR,
-        ),
-        help="hardware transport output generator",
-    )
-    parser.add_argument(
-        "--no-auto-retry",
-        action="store_true",
-        help="confirm that this process performs one attempt only",
-    )
-    parser.add_argument(
-        "--plant-free-no-network-check",
-        action="store_true",
-        help="validate the complete bounded command and exit before sockets or hardware",
-    )
     return parser
+
+
+def _apply_target_displacement_policy(
+    config: ReplayConfig, *, enabled: bool
+) -> ReplayConfig:
+    """Apply the explicit collection-only target-envelope policy."""
+
+    if type(enabled) is not bool:
+        raise ValueError("enforce_clutch_target_displacement_limit must be a boolean")
+    if enabled:
+        return config
+    return replace(
+        config,
+        feasibility=replace(
+            config.feasibility,
+            target_displacement_limit_enabled=False,
+        ),
+    )
 
 
 def _apply_runtime_config(args: argparse.Namespace) -> None:
     """Resolve stable host/collection values from one explicit YAML file."""
 
-    defaults: dict[str, object] = {
-        "config": Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
-        "worker": Path("build/jaka_servo_worker/jaka_servo_worker"),
-        "edg_state_ip": "192.168.71.19",
-        "bind": "0.0.0.0",
-        "port": 9000,
-        "duration_sec": 60.0,
-        "rh56_config": Path("configs/hand/rh56_pc_direct_teleop.yaml"),
-        "task_name": "fixed_bottle_pick_lift_10cm_hold_3s_replace",
-        "operator": "unknown",
-    }
+    if args.runtime_config is None:
+        raise SystemExit(
+            f"{args.stage} requires --runtime-config; "
+            "device, control, and collection values are YAML-owned"
+        )
     runtime: dict[str, object] = {}
     if args.runtime_config is not None:
         try:
@@ -507,61 +435,102 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
             raise SystemExit("runtime config must contain a mapping at root.runtime")
         runtime = candidate
 
-    def resolve(name: str, key: str | None = None) -> object | None:
-        if getattr(args, name) is not None:
-            return getattr(args, name)
-        return runtime.get(key or name, defaults.get(name))
-
-    for name in (
+    duration_key = (
+        "duration_sec"
+        if args.stage == "combined-normal-teleop"
+        else "bounded_duration_sec"
+    )
+    velocity_key = (
+        "run_output_joint_velocity_limits_rad_s"
+        if args.stage == "combined-normal-teleop"
+        else "bounded_run_output_joint_velocity_limits_rad_s"
+    )
+    required_keys = [
         "config",
         "worker",
         "robot_ip",
         "edg_state_ip",
         "bind",
         "port",
-        "duration_sec",
-        "rh56_device",
-        "rh56_config",
-        "rh56_scheduler_profile",
-        "native_control_cpu",
-        "native_control_realtime_priority",
-        "allowed_sender",
-        "episode_data_config",
-        "episode_root",
-        "task_name",
-        "operator",
-        "output_generator",
-        "log",
-        "summary",
-        "metrics",
-        "native_telemetry",
-        "event_extract",
-        "rh56_log",
+        duration_key,
+        velocity_key,
+    ]
+    if args.stage == "combined-normal-teleop":
+        required_keys.extend(
+            (
+                "rh56_device",
+                "rh56_config",
+                "native_control_cpu",
+                "native_control_realtime_priority",
+                "episode_data_config",
+                "episode_root",
+                "task_name",
+                "operator",
+            )
+        )
+    missing = [key for key in required_keys if key not in runtime]
+    if missing:
+        raise SystemExit(
+            "runtime config is missing required keys: " + ", ".join(missing)
+        )
+
+    def resolve(name: str, key: str) -> object | None:
+        value = runtime.get(key)
+        if value is None and key not in runtime:
+            return None
+        return value
+
+    for name, key in (
+        ("config", "config"),
+        ("worker", "worker"),
+        ("robot_ip", "robot_ip"),
+        ("edg_state_ip", "edg_state_ip"),
+        ("bind", "bind"),
+        ("port", "port"),
+        ("duration_sec", duration_key),
+        ("allowed_sender", "allowed_sender"),
     ):
-        value = resolve(name)
+        value = resolve(name, key)
         if value is not None:
             setattr(args, name, value)
+    if args.stage == "combined-normal-teleop":
+        for name in (
+            "rh56_device",
+            "rh56_config",
+            "native_control_cpu",
+            "native_control_realtime_priority",
+            "episode_data_config",
+            "episode_root",
+            "task_name",
+            "operator",
+        ):
+            setattr(args, name, runtime[name])
 
-    velocity_limits = resolve(
-        "run_output_joint_velocity_limits_rad_s",
-        "run_output_joint_velocity_limits_rad_s",
-    )
-    if args.run_output_joint_velocity_limits_rad_s is None and velocity_limits is not None:
+    velocity_limits = runtime[velocity_key]
+    if args.run_output_joint_velocity_limits_rad_s is None:
         try:
             args.run_output_joint_velocity_limits_rad_s = tuple(
                 float(value) for value in velocity_limits
             )
         except (TypeError, ValueError) as exc:
             raise SystemExit(
-                "runtime config run_output_joint_velocity_limits_rad_s must contain six numbers"
+                f"runtime config {velocity_key} must contain six numbers"
             ) from exc
 
+    args.allow_direct_ch341_device = bool(runtime.get("allow_direct_ch341_device", False))
     if bool(runtime.get("allow_direct_ch341_device", False)):
         args.allow_direct_ch341_device = True
     if bool(runtime.get("episode_preview", False)):
         args.episode_preview = True
     if bool(runtime.get("recover_output_acceleration_transition", False)):
         args.recover_output_acceleration_transition = True
+    if "enforce_clutch_target_displacement_limit" in runtime:
+        value = runtime["enforce_clutch_target_displacement_limit"]
+        if type(value) is not bool:
+            raise SystemExit(
+                "runtime config enforce_clutch_target_displacement_limit must be boolean"
+            )
+        args.enforce_clutch_target_displacement_limit = value
 
     if args.config is not None and not isinstance(args.config, Path):
         args.config = Path(str(args.config))
@@ -600,7 +569,7 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
             setattr(args, name, Path(path))
 
     if args.robot_ip is None:
-        raise SystemExit("--robot-ip or --runtime-config with robot_ip is required")
+        raise SystemExit("runtime config must define robot_ip")
 
 
 def _wait_status(runtime: ArmOnlyRuntime, native: NativeWorkerProcess, timeout_s: float = 8.0):
@@ -734,15 +703,11 @@ def _reconcile_terminal_transport_symptom(
     return str(classification), abort_reason
 
 
-def _resolve_output_jerk_limit(args: argparse.Namespace, config: ReplayConfig) -> float:
-    """Resolve CLI > typed config > project default before any I/O."""
+def _resolve_output_jerk_limit(config: ReplayConfig) -> float:
+    """Validate the YAML-owned jerk boundary before any I/O."""
 
     configured = config.command_limits.maximum_jerk_rad_s3
-    value = (
-        configured
-        if args.output_joint_jerk_limit_rad_s3 is None
-        else float(args.output_joint_jerk_limit_rad_s3)
-    )
+    value = configured
     if (
         not math.isfinite(value)
         or value <= 0.0
@@ -784,33 +749,19 @@ def main() -> int:
         raise SystemExit("duration must be positive")
     if args.episode_root is not None and args.episode_data_config is None:
         raise SystemExit("--episode-root requires --episode-data-config")
-    if args.episode_data_config is not None and args.stage not in {
-        "bounded-normal-teleop",
-        "combined-normal-teleop",
-    }:
-        raise SystemExit(
-            "physical episode capture is only available for arm-only or combined teleoperation"
-        )
     try:
         config = replace(ReplayConfig.load(args.config), engagement_schedule_s=())
+        config = _apply_target_displacement_policy(
+            config,
+            enabled=args.enforce_clutch_target_displacement_limit,
+        )
         if args.stage == "combined-normal-teleop":
             config = with_physical_rh56_retarget(config)
     except (KeyError, TypeError, ValueError) as exc:
         raise SystemExit(f"invalid Quest/JAKA configuration before I/O: {exc}") from exc
     except FileNotFoundError as exc:
         raise SystemExit(f"missing physical RH56 calibration before I/O: {exc}") from exc
-    jerk_limit = _resolve_output_jerk_limit(args, config)
-    if args.run_output_joint_velocity_limit_rad_s is not None:
-        if not 0.0 < args.run_output_joint_velocity_limit_rad_s <= config.output_contract.maximum_velocity_rad_s:
-            raise SystemExit("run output velocity limit must be positive and no greater than the shared contract")
-        config = replace(
-            config,
-            output_contract=replace(
-                config.output_contract,
-                maximum_velocity_rad_s=args.run_output_joint_velocity_limit_rad_s,
-                maximum_velocity_rad_s_per_joint=None,
-            ),
-        )
+    jerk_limit = _resolve_output_jerk_limit(config)
     if args.run_output_joint_velocity_limits_rad_s is not None:
         run_boundaries = tuple(args.run_output_joint_velocity_limits_rad_s)
         hard_boundaries = config.output_contract.velocity_boundaries_rad_s
@@ -835,73 +786,23 @@ def main() -> int:
     hardware = config.raw["hardware_adapter"]
     servo_step_num = int(hardware.get("servo_step_num", 1))
     configured_output_generator = _configured_pwl_output_generator(config)
-    if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}:
-        if args.output_generator is None:
-            args.output_generator = configured_output_generator
-        elif args.output_generator != configured_output_generator:
-            raise SystemExit(
-                "configured JAKA transport mode requires output generator "
-                f"{configured_output_generator}"
-            )
-    live = args.stage in (
-        "e2-isolated",
-        "p4-live",
-        "post-payload-diagnostic",
-        "bounded-normal-teleop",
-        "combined-normal-teleop",
-        "research-thin-bounded",
-    )
-    if live:
-        if args.stage == "combined-normal-teleop":
-            if not (args.estop_accessible and args.workspace_clear):
-                raise SystemExit("combined teleoperation requires E-stop and clear-workspace confirmations")
-        elif not (args.estop_accessible and args.workspace_clear and args.rh56_command_path_absent):
-            raise SystemExit("P4 requires E-stop, clear-workspace, and no-RH56-command confirmations")
-    if args.stage == "post-payload-diagnostic":
-        if args.duration_sec > 60.0:
-            raise SystemExit("post-payload diagnostic is limited to 60 seconds")
-        if args.native_telemetry is None or args.event_extract is None:
-            raise SystemExit("post-payload diagnostic requires native telemetry and event extract paths")
-        if args.run_output_joint_velocity_limit_rad_s is None or args.run_output_joint_velocity_limit_rad_s > 1.0:
-            raise SystemExit("post-payload diagnostic requires a shared output limit no greater than 1.0 rad/s")
-        if not args.recover_output_acceleration_transition:
-            raise SystemExit(
-                "post-payload diagnostic requires native recoverable output "
-                "acceleration transitions"
-            )
-    if args.stage in {"bounded-normal-teleop", "combined-normal-teleop"}:
-        maximum_duration_sec = (
-            300.0 if args.stage == "combined-normal-teleop" else 60.0
+    args.output_generator = configured_output_generator
+    if args.stage == "bounded-normal-teleop" and not args.rh56_command_path_absent:
+        raise SystemExit(
+            "bounded arm-only teleoperation requires no-RH56-command confirmation"
         )
-        if args.duration_sec > maximum_duration_sec:
-            raise SystemExit(
-                f"{args.stage} is limited to "
-                f"{maximum_duration_sec:g} seconds"
-            )
-        if args.native_telemetry is None or args.event_extract is None:
-            raise SystemExit(
-                "bounded normal teleoperation requires native telemetry "
-                "and event extract paths"
-            )
-        if args.run_output_joint_velocity_limits_rad_s is None:
-            raise SystemExit(
-                "bounded normal teleoperation requires six per-joint "
-                "run output velocity limits"
-            )
-        if args.output_generator != configured_output_generator:
-            raise SystemExit(
-                f"bounded normal teleoperation requires --output-generator "
-                f"{configured_output_generator}"
-            )
-        if not args.no_auto_retry:
-            raise SystemExit(
-                "bounded normal teleoperation requires --no-auto-retry"
-            )
-        if not args.recover_output_acceleration_transition:
-            raise SystemExit(
-                "bounded normal teleoperation requires native recoverable "
-                "output acceleration transitions"
-            )
+    maximum_duration_sec = (
+        300.0 if args.stage == "combined-normal-teleop" else 60.0
+    )
+    if args.duration_sec > maximum_duration_sec:
+        raise SystemExit(
+            f"{args.stage} is limited to {maximum_duration_sec:g} seconds"
+        )
+    if not args.recover_output_acceleration_transition:
+        raise SystemExit(
+            "maintained teleoperation requires native recoverable output "
+            "acceleration transitions"
+        )
     hand_identity: dict[str, object] | None = None
     hand_config: dict[str, object] | None = None
     realtime_preflight: dict[str, int] | None = None
@@ -920,76 +821,39 @@ def main() -> int:
                 "--native-control-realtime-priority "
                 f"{COMBINED_CONTROL_REALTIME_PRIORITY}"
             )
-        if not args.plant_free_no_network_check:
-            realtime_preflight = _require_realtime_priority_limit(
-                args.native_control_realtime_priority
-            )
+        realtime_preflight = _require_realtime_priority_limit(
+            args.native_control_realtime_priority
+        )
         if args.rh56_device is None or args.rh56_log is None:
             raise SystemExit("combined teleoperation requires --rh56-device and --rh56-log")
         try:
             require_serial_by_id_path(
                 args.rh56_device,
-                require_exists=not args.plant_free_no_network_check,
+                require_exists=True,
                 allow_direct_ch341=args.allow_direct_ch341_device,
             )
         except (ValueError, PermissionError) as exc:
             raise SystemExit(f"invalid combined RH56 gate before any I/O: {exc}") from exc
-        if not args.plant_free_no_network_check:
-            hand_identity = inspect_serial_device(
-                args.rh56_device,
-                allow_direct_ch341=args.allow_direct_ch341_device,
-            )
-            if args.allow_direct_ch341_device and not args.rh56_device.startswith(
-                "/dev/serial/by-id/"
+        hand_identity = inspect_serial_device(
+            args.rh56_device,
+            allow_direct_ch341=args.allow_direct_ch341_device,
+        )
+        if args.allow_direct_ch341_device and not args.rh56_device.startswith(
+            "/dev/serial/by-id/"
+        ):
+            if (
+                hand_identity.get("usb_vid") != "1a86"
+                or hand_identity.get("usb_pid") != "7523"
+                or hand_identity.get("usb_driver") != "usb_ch341"
             ):
-                if (
-                    hand_identity.get("usb_vid") != "1a86"
-                    or hand_identity.get("usb_pid") != "7523"
-                    or hand_identity.get("usb_driver") != "usb_ch341"
-                ):
-                    raise SystemExit(
-                        "direct CH341 identity mismatch before any hardware I/O"
-                    )
+                raise SystemExit(
+                    "direct CH341 identity mismatch before any hardware I/O"
+                )
         hand_config = load_yaml(args.rh56_config)
-        if args.rh56_scheduler_profile is not None:
-            hand_config["scheduler_profile"] = args.rh56_scheduler_profile
         hand_config["mode"] = "real"
         hand_config["backend_type"] = "serial_protocol"
         hand_config.setdefault("serial", {})["port"] = args.rh56_device
-    if args.stage == "research-thin-bounded":
-        if args.duration_sec > 30.0:
-            raise SystemExit("research thin-adapter gate is limited to 30 seconds")
-        if args.native_telemetry is None:
-            raise SystemExit("research thin-adapter gate requires native telemetry")
-        if args.run_output_joint_velocity_limits_rad_s is None:
-            raise SystemExit(
-                "research thin-adapter gate requires six per-joint run velocity limits"
-            )
-        if args.output_generator != CPP_REFERENCE_OUTPUT_GENERATOR:
-            raise SystemExit(
-                "research thin-adapter gate requires --output-generator "
-                f"{CPP_REFERENCE_OUTPUT_GENERATOR}"
-            )
-        if not args.no_auto_retry:
-            raise SystemExit("research thin-adapter gate requires --no-auto-retry")
-    if (
-        args.recover_output_acceleration_transition
-        and args.abort_on_diagnostic_acceleration_boundary
-    ):
-        raise SystemExit(
-            "recoverable transition and legacy diagnostic acceleration abort "
-            "are mutually exclusive"
-        )
-    if args.plant_free_no_network_check and args.stage not in {"bounded-normal-teleop", "combined-normal-teleop"}:
-        raise SystemExit(
-            "--plant-free-no-network-check is only available for "
-            "bounded-normal-teleop or combined-normal-teleop"
-        )
-    clutch_behavior = (
-        "release left-index to pause; press again to resume"
-        if args.stage in RECOVERABLE_CLUTCH_STAGES
-        else "release left-index to stop"
-    )
+    clutch_behavior = "release left-index to pause; press again to resume"
     if args.stage == "combined-normal-teleop" and args.episode_data_config is not None:
         print(
             "ENTRY=physical-collection CONTROL=combined-arm-rh56 "
@@ -1010,8 +874,11 @@ def main() -> int:
         abs_tol=1e-12,
     ):
         raise SystemExit("JAKA transport rate and servo period disagree")
+    # The local configuration now has one output-acceleration authority under
+    # shared_target_generation.  Use the already parsed contract for the
+    # native final hard check instead of requiring a duplicate hardware key.
     native_hard_acceleration = float(
-        hardware["native_hard_output_joint_acceleration_rad_s2"]
+        config.output_contract.maximum_acceleration_rad_s2
     )
     hold_degraded_ms = float(
         hardware["output_acceleration_hold_degraded_ms"]
@@ -1024,8 +891,7 @@ def main() -> int:
     )
     if not (
         math.isfinite(native_hard_acceleration)
-        and native_hard_acceleration
-        >= config.output_contract.maximum_acceleration_rad_s2
+        and native_hard_acceleration > 0.0
         and 0.0 < hold_degraded_ms < hold_hard_stop_ms
         and 2 <= maximum_hold_cycles <= 10_000
     ):
@@ -1033,106 +899,6 @@ def main() -> int:
     allowed_cpus, non_realtime_cpus = _validate_control_cpu(
         args.native_control_cpu
     )
-    if args.plant_free_no_network_check:
-        print(
-            json.dumps(
-                {
-                    "stage": args.stage,
-                    "validation": "plant-free-no-network",
-                    "network_attempted": False,
-                    "hardware_commands_sent": 0,
-                    "rh56_commands": 0,
-                    "rh56_gate_validated": args.stage == "combined-normal-teleop",
-                    "rh56_scheduler_profile": (
-                        None
-                        if hand_config is None
-                        else hand_config.get("scheduler_profile", "baseline")
-                    ),
-                    "rh56_hand_calibration_path": (
-                        None
-                        if args.stage != "combined-normal-teleop"
-                        else config.raw["hand_retargeting"]["calibration_path"]
-                    ),
-                    "rh56_align_on_grip": (
-                        False
-                        if args.stage != "combined-normal-teleop"
-                        else bool(
-                            config.raw["hand_retargeting"]["align_on_grip"]
-                        )
-                    ),
-                    "rh56_align_index_pinch_to_validated_pose": (
-                        False
-                        if args.stage != "combined-normal-teleop"
-                        else bool(
-                            config.raw["hand_retargeting"][
-                                "align_index_pinch_to_validated_pose"
-                            ]
-                        )
-                    ),
-                    "quest_input_recovery_timeout_s": (
-                        config.input_recovery_timeout_s
-                    ),
-                    "output_generator": args.output_generator,
-                    "native_mode": "joint-teleop",
-                    "native_ik_calls": 0,
-                    "servo_period_ms": float(hardware["servo_period_ms"]),
-                    "step_num": servo_step_num,
-                    "transport_hz": float(config.raw["rates"]["jaka_transport_hz"]),
-                    "transport_mode": hardware.get(
-                        "transport_mode", "jaka_125hz_step1"
-                    ),
-                    "run_output_joint_velocity_limits_rad_s": list(
-                        config.output_contract.velocity_boundaries_rad_s
-                    ),
-                    "native_worker_velocity_limit_args": list(
-                        _native_velocity_limit_args(config)
-                    ),
-                    "shared_hard_output_joint_velocity_limit_rad_s": (
-                        config.output_contract.maximum_velocity_rad_s
-                    ),
-                    "shared_recoverable_output_acceleration_boundary_rad_s2": (
-                        config.output_contract.maximum_acceleration_rad_s2
-                    ),
-                    "output_joint_jerk_limit_rad_s3": jerk_limit,
-                    "output_joint_jerk_limit_provenance": (
-                        "cli" if args.output_joint_jerk_limit_rad_s3 is not None
-                        else (
-                            "config"
-                            if "command_maximum_joint_jerk_rad_s3"
-                            in config.raw.get("simulation", {})
-                            else "project_default"
-                        )
-                    ),
-                    "native_output_acceleration_hard_boundary_rad_s2": (
-                        float(
-                            hardware[
-                                "native_hard_output_joint_acceleration_rad_s2"
-                            ]
-                        )
-                    ),
-                    "startup_timing_grace_cycles": config.startup_timing_grace_cycles,
-                    "recover_output_acceleration_transition": (
-                        args.recover_output_acceleration_transition
-                    ),
-                    "no_auto_retry": args.no_auto_retry,
-                    "cpu_isolation": {
-                        "enabled": args.native_control_cpu is not None,
-                        "native_control_cpu": args.native_control_cpu,
-                        "python_affinity_mask": sorted(non_realtime_cpus),
-                        "allowed_affinity_mask": sorted(allowed_cpus),
-                    },
-                    "native_control_realtime": {
-                        "required_priority": (
-                            args.native_control_realtime_priority
-                        ),
-                        "permission_checked": False,
-                        "reason": "plant-free validation performs no host mutation",
-                    },
-                },
-                sort_keys=True,
-            )
-        )
-        return 0
     args.log.parent.mkdir(parents=True, exist_ok=True)
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     if args.native_telemetry is not None:
@@ -1154,23 +920,12 @@ def main() -> int:
         )
         base_jaka_adapter = JakaAcceptedJointTargetAdapter(
             runtime,
-            allow_motion=live,
+            allow_motion=True,
             joint_order=tuple(hardware["joint_order"]),
             joint_angle_unit=str(hardware["joint_angle_unit"]),
             command_mode=str(hardware["command_mode"]),
         )
-        jaka_adapter = (
-            E2IsolatedForwardTranslationGuard(
-                base_jaka_adapter,
-                startup_alignment_tolerance_rad=float(
-                    hardware["startup_alignment_tolerance_rad"]
-                ),
-            )
-            if args.stage == "e2-isolated"
-            else ResearchThinBoundedMotionGuard(base_jaka_adapter)
-            if args.stage == "research-thin-bounded"
-            else base_jaka_adapter
-        )
+        jaka_adapter = base_jaka_adapter
         rh56_worker: RH56PcDirectWorker | None = None
         rh56_control: RH56PcDirectControl | None = None
         rh56_backend: RH56SerialBackend | None = None
@@ -1211,30 +966,8 @@ def main() -> int:
             stale_after_s=float(clutch["stale_after_ms"]) / 1000.0,
             released_at=float(clutch["released_at"]),
         )
-        worker_mode = "joint-teleop" if live else "joint-shadow"
-        if args.stage == "research-thin-bounded":
-            worker_args = [
-                "--hardware",
-                "--robot-ip", args.robot_ip,
-                "--edg-state-ip", args.edg_state_ip,
-                "--duration-s", str(args.duration_sec),
-                "--target-socket", str(target_socket),
-                "--status-socket", str(status_socket),
-                "--metrics-file", str(args.metrics),
-                "--cycle-telemetry-file", str(args.native_telemetry),
-                "--expected-tool-id", str(hardware["expected_tool_id"]),
-                "--expected-user-frame-id", str(hardware["expected_user_frame_id"]),
-                "--servo-step-num", str(servo_step_num),
-                "--expected-payload-mass-kg", "0.8",
-                "--expected-payload-com-mm", "9.289,12.427,36.961",
-                "--maximum-output-joint-velocity-rad-s-per-joint",
-                ",".join(str(value) for value in config.output_contract.velocity_boundaries_rad_s),
-                "--maximum-output-joint-acceleration-rad-s2", "2.0",
-                "--output-joint-jerk-limit-rad-s3", "20.0",
-                "--excessive-tracking-error-abort-rad", "0.20",
-            ]
-        else:
-            worker_args = [
+        worker_mode = "joint-teleop"
+        worker_args = [
             "--mode", worker_mode,
             "--hardware",
             "--robot-ip", args.robot_ip,
@@ -1257,7 +990,7 @@ def main() -> int:
             # existing shared command contract rather than hardware-only copies.
             "--diagnostic-joint-acceleration-boundary-rad-s2", str(config.output_contract.maximum_acceleration_rad_s2),
             "--maximum-output-joint-acceleration-rad-s2", str(
-                hardware["native_hard_output_joint_acceleration_rad_s2"]
+                native_hard_acceleration
             ),
             "--output-joint-jerk-limit-rad-s3", str(jerk_limit),
             "--output-acceleration-hold-degraded-ms", str(
@@ -1273,16 +1006,12 @@ def main() -> int:
             ),
             "--startup-timing-grace-cycles",
             str(config.startup_timing_grace_cycles),
-            ]
-        if args.stage != "research-thin-bounded":
-            worker_args.extend(_native_velocity_limit_args(config))
-        if live and args.stage != "research-thin-bounded":
-            worker_args.append("--monitor-controller-health-each-cycle")
-        if args.native_telemetry is not None and args.stage != "research-thin-bounded":
+        ]
+        worker_args.extend(_native_velocity_limit_args(config))
+        worker_args.append("--monitor-controller-health-each-cycle")
+        if args.native_telemetry is not None:
             worker_args.extend(("--cycle-telemetry-file", str(args.native_telemetry)))
-        if args.abort_on_diagnostic_acceleration_boundary and args.stage != "research-thin-bounded":
-            worker_args.append("--abort-on-diagnostic-acceleration-boundary")
-        if args.recover_output_acceleration_transition and args.stage != "research-thin-bounded":
+        if args.recover_output_acceleration_transition:
             worker_args.append("--recover-output-acceleration-transition")
         if args.native_control_cpu is not None:
             worker_args.extend(("--control-cpu", str(args.native_control_cpu)))
@@ -1424,10 +1153,6 @@ def main() -> int:
             native_started = True
             status = _wait_status(runtime, native)
             measured_joint_samples.append(tuple(status.joint_position_rad))
-            if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard):
-                jaka_adapter.establish_startup_joint_position(
-                    tuple(status.joint_position_rad)
-                )
             target_generator.synchronize_authoritative_arm_joints(list(status.joint_position_rad))
             with _AsyncEventLog(args.log) as log:
                 receiver = QuestDatagramReceiverWorker(
@@ -1539,10 +1264,6 @@ def main() -> int:
                             sample = tuple(status.joint_position_rad)
                             if not measured_joint_samples or sample != measured_joint_samples[-1]:
                                 measured_joint_samples.append(sample)
-                            if isinstance(
-                                jaka_adapter, E2IsolatedForwardTranslationGuard
-                            ):
-                                jaka_adapter.observe_measured_joint_position(sample)
                             _synchronize_paused_stopped_reference(
                                 stage=args.stage,
                                 status_flags=status_flags,
@@ -1600,25 +1321,7 @@ def main() -> int:
                             elif tick.accepted_target is None:
                                 abort_reason = "control_heartbeat_transport_failure"
                             else:
-                                if (
-                                    isinstance(
-                                        jaka_adapter,
-                                        E2IsolatedForwardTranslationGuard,
-                                    )
-                                    and jaka_adapter.abort_reason is not None
-                                ):
-                                    abort_reason = jaka_adapter.abort_reason
-                                else:
-                                    if (
-                                        isinstance(
-                                            jaka_adapter,
-                                            ResearchThinBoundedMotionGuard,
-                                        )
-                                        and jaka_adapter.abort_reason is not None
-                                    ):
-                                        abort_reason = jaka_adapter.abort_reason
-                                    else:
-                                        abort_reason = "IPC_failure"
+                                abort_reason = "IPC_failure"
                             stop_reason = abort_reason
                             component_placement_snapshots.append(
                                 _component_placement_snapshot(
@@ -1636,22 +1339,14 @@ def main() -> int:
                         clutch_edge_reason: str | None = None
                         pause_failed = False
                         if disengaged and not dispatch_failed:
-                            if args.stage in RECOVERABLE_CLUTCH_STAGES:
-                                if not jaka_adapter.pause():
-                                    abort_reason = "recoverable_pause_transport_failure"
-                                    stop_reason = abort_reason
-                                    pause_failed = True
-                                    clutch_edge_reason = stop_reason
-                                else:
-                                    arm_clutch_pause_count += 1
-                                    clutch_edge_reason = "operator_clutch_paused"
+                            if not jaka_adapter.pause():
+                                abort_reason = "recoverable_pause_transport_failure"
+                                stop_reason = abort_reason
+                                pause_failed = True
+                                clutch_edge_reason = stop_reason
                             else:
-                                jaka_adapter.stop()
-                                stop_reason = (
-                                    session.arm_clutch.active_fault.reason
-                                    if session.arm_clutch.active_fault
-                                    else "operator_clutch_released"
-                                )
+                                arm_clutch_pause_count += 1
+                                clutch_edge_reason = "operator_clutch_paused"
                                 clutch_edge_reason = stop_reason
                             clutch_release_monotonic_ns = now_ns
                         prior_engaged = engaged
@@ -2053,9 +1748,7 @@ def main() -> int:
                         # streaming hardware path releases persisted records.
                         session.event_records.clear()
                         event.clear()
-                        if dispatch_failed or pause_failed or (
-                            disengaged and args.stage not in RECOVERABLE_CLUTCH_STAGES
-                        ):
+                        if dispatch_failed or pause_failed:
                             break
                         skipped = max(0, int((now - next_tick) * target_hz))
                         next_tick += (skipped + 1) / target_hz
@@ -2182,70 +1875,6 @@ def main() -> int:
     )
     if transport_symptom_reason is not None:
         stop_reason = abort_reason or stop_reason
-    if args.stage == "research-thin-bounded":
-        bounded_gate_pass = bool(
-            metrics.get("outcome") == "duration_complete"
-            and int(metrics.get("accepted_target_count", 0)) > 0
-            and int(metrics.get("pause_count", 0)) > 0
-            and int(metrics.get("resume_count", 0)) > 0
-            and int(metrics.get("deadline_miss_count", 0)) == 0
-            and int(metrics.get("rh56_command_count", 0)) == 0
-            and not metrics.get("controller_collision", False)
-            and not metrics.get("controller_estop", False)
-            and int(metrics.get("controller_error_code", 0)) == 0
-        )
-        summary = {
-            "schema_version": "quest_jaka_research_thin_gate.v1",
-            "stage": args.stage,
-            "bounded_gate_pass": bounded_gate_pass,
-            "output_generator": CPP_REFERENCE_OUTPUT_GENERATOR,
-            "accepted_targets_dispatched": accepted,
-            "adapter_dispatch_count": jaka_adapter.applied_count,
-            "native_outcome": metrics.get("outcome"),
-            "pause_policy": metrics.get("pause_policy"),
-            "resume_policy": metrics.get("resume_policy"),
-            "pause_count": metrics.get("pause_count", 0),
-            "resume_count": metrics.get("resume_count", 0),
-            "maximum_resume_position_delta_rad": metrics.get(
-                "maximum_resume_position_delta_rad"
-            ),
-            "deadline_miss_count": metrics.get("deadline_miss_count"),
-            "maximum_send_duration_ns": metrics.get("maximum_send_duration_ns"),
-            "maximum_command_age_ns": metrics.get("maximum_command_age_ns"),
-            "maximum_tracking_error_rad": metrics.get("maximum_tracking_error_rad"),
-            "maximum_velocity_rad_s": metrics.get("maximum_velocity_rad_s"),
-            "maximum_acceleration_rad_s2": metrics.get("maximum_acceleration_rad_s2"),
-            "maximum_jerk_rad_s3": metrics.get("maximum_jerk_rad_s3"),
-            "controller_error_code": metrics.get("controller_error_code"),
-            "controller_collision": metrics.get("controller_collision"),
-            "controller_estop": metrics.get("controller_estop"),
-            "rh56_commands": metrics.get("rh56_command_count"),
-            "stop_reason": stop_reason,
-            "abort_reason": abort_reason,
-            "transport_symptom_reason": transport_symptom_reason,
-            "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
-            "arm_transport_packets_sent": runtime.publisher.sent,
-            "arm_transport_packets_dropped": runtime.publisher.dropped,
-            "ik_rejections": dict(sorted(session.rejections.items())),
-            "measured_joint_fk_tcp_motion": _measured_tcp_motion(
-                target_generator, measured_joint_samples
-            ),
-            "producer_timing_ms": _producer_timing_summary(
-                producer_timing_rows
-            ),
-            "component_placement_snapshots": component_placement_snapshots,
-            "native_worker_placement": metrics.get("worker_placement"),
-            "native_system_boundary_observer": metrics.get(
-                "system_boundary_observer"
-            ),
-            "cpu_isolation": cpu_isolation,
-        }
-        args.summary.write_text(
-            json.dumps(summary, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        print(json.dumps(summary, indent=2, sort_keys=True))
-        return 0 if bounded_gate_pass and abort_reason is None else 2
     if args.event_extract is not None and args.native_telemetry is not None:
         _write_event_extract(
             args.native_telemetry,
@@ -2254,29 +1883,6 @@ def main() -> int:
             clutch_release_monotonic_ns=clutch_release_monotonic_ns,
         )
     measured_tcp = _measured_tcp_motion(target_generator, measured_joint_samples)
-    e2_guard = (
-        jaka_adapter
-        if isinstance(jaka_adapter, E2IsolatedForwardTranslationGuard)
-        else None
-    )
-    if args.stage == "e2-isolated":
-        e2_failures = []
-        if e2_guard is None or e2_guard.baseline is None:
-            e2_failures.append("no_fresh_engagement_target")
-        if maximum_quest_displacement_m < 0.005:
-            e2_failures.append("no_small_translation_observed")
-        if stop_reason != "operator_clutch_released":
-            e2_failures.append("clutch_release_not_observed")
-        if metrics["error_code"] != 0 or metrics["cleanup_error_code"] != 0:
-            e2_failures.append("native_or_cleanup_failure")
-        if metrics["hard_timing_misses"] != 0:
-            e2_failures.append("timing_hard_fault")
-        if any(metrics["output_speed_boundary_rejections"]):
-            e2_failures.append("output_speed_boundary_rejection")
-        if abort_reason is not None:
-            e2_failures.append(abort_reason)
-    else:
-        e2_failures = []
     summary = {
         "schema_version": "quest_jaka_physical_gate.v1",
         "stage": args.stage,
@@ -2284,6 +1890,9 @@ def main() -> int:
         "shared_config": str(args.config),
         "runtime_config": (
             None if args.runtime_config is None else str(args.runtime_config)
+        ),
+        "target_displacement_limit_enabled": (
+            config.feasibility.target_displacement_limit_enabled
         ),
         "output_generator": (
             args.output_generator
@@ -2297,19 +1906,15 @@ def main() -> int:
         "run_output_joint_velocity_limits_rad_s": list(
             config.output_contract.velocity_boundaries_rad_s
         ),
-        "no_auto_retry": True,
         "accepted_targets_dispatched": accepted,
         "adapter_dispatch_count": jaka_adapter.applied_count,
         "native_mode": metrics["mode"],
         "output_joint_jerk_limit_rad_s3": jerk_limit,
         "output_joint_jerk_limit_provenance": (
-            "cli" if args.output_joint_jerk_limit_rad_s3 is not None
-            else (
-                "config"
-                if "command_maximum_joint_jerk_rad_s3"
-                in config.raw.get("simulation", {})
-                else "project_default"
-            )
+            "config"
+            if "command_maximum_joint_jerk_rad_s3"
+            in config.raw.get("simulation", {})
+            else "project_default"
         ),
         "native_outcome": metrics["outcome"],
         "native_stop_classification": metrics.get(
@@ -2462,28 +2067,6 @@ def main() -> int:
         "cpu_isolation": cpu_isolation,
         "native_control_realtime": realtime_preflight,
         "measured_joint_fk_tcp_motion": measured_tcp,
-        "e2_maximum_requested_tcp_displacement_m": (
-            None if e2_guard is None else e2_guard.maximum_requested_tcp_displacement_m
-        ),
-        "e2_maximum_accepted_tcp_displacement_m": (
-            None if e2_guard is None else e2_guard.maximum_accepted_tcp_displacement_m
-        ),
-        "e2_maximum_accepted_joint_displacement_rad": (
-            None if e2_guard is None else e2_guard.maximum_accepted_joint_displacement_rad
-        ),
-        "e2_startup_alignment_difference_rad": (
-            None if e2_guard is None else e2_guard.startup_alignment_difference_rad
-        ),
-        "e2_startup_alignment_tolerance_rad": (
-            None if e2_guard is None else e2_guard.startup_alignment_tolerance_rad
-        ),
-        "e2_maximum_observed_startup_difference_rad": (
-            None
-            if e2_guard is None
-            else e2_guard.maximum_observed_startup_difference_rad
-        ),
-        "e2_failures": e2_failures,
-        "e2_pass": args.stage == "e2-isolated" and not e2_failures,
     }
     outer_timing = summary["producer_timing_ms"].get("complete_outer_tick", {})
     summary["control_loop_duration_ns"] = {
@@ -2503,7 +2086,7 @@ def main() -> int:
     print(json.dumps(summary, indent=2, sort_keys=True))
     if episode_capture_failed:
         return 2
-    return 2 if abort_reason is not None or e2_failures else 0
+    return 2 if abort_reason is not None else 0
 
 
 def _measured_tcp_motion(

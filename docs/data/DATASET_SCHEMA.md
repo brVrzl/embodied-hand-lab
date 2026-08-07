@@ -525,8 +525,85 @@ The LeRobot timing exporter uses the minimum signed 64-bit integer as the
 sentinel for an unavailable timestamp/offset. Its metadata records the sentinel
 and code tables.
 
-See [Training integration](../training/TRAINING_INTEGRATION.md) for the
-framework-specific boundary.
+Framework-specific conversion is intentionally an offline boundary. The
+repository does not contain a maintained policy trainer; use the dataset
+collection page and exporter help for the currently supported output formats.
+
+---
+
+# 中文版：canonical 与 compact physical episode 数据集格式
+
+本页是当前数据格式和 episode 生命周期的权威说明。live recorder 先写可人工 review 的
+staging 数据，只有通过结构检查和人工确认后才转换为训练框架格式。离线验证通过不等于真机
+标定或真机 PASS。
+
+## 两种格式和目录
+
+维护的物理采集格式是 `lerobot_staging_v1`，旧的 `raw_episode_v1` 仍用于兼容、仿真和离线
+工具，但不是默认真机采集格式。物理 staging 目录形态为：
+
+```text
+raw_episodes/
+  meta/info.json
+  meta/tasks.jsonl
+  meta/episodes.jsonl
+  meta/episodes/chunk-000/episode_000000.json
+  data/chunk-000/episode_000000.jsonl
+  videos/observation.images.workspace/chunk-000/episode_000000.mp4
+  videos/observation.images.wrist/chunk-000/episode_000000.mp4
+  audit/chunk-000/episode_000000/
+```
+
+一个 episode 只能对应一个独立的 writer 和 timeline。完成后文件必须从 partial 命名空间
+原子化为正式目录，partial、rejected-start 和 failed writer 产物不能伪装成完整 episode。
+
+## 核心 state/action
+
+30 Hz canonical JSONL 每行包含单调递增的 `frame_index` 和 `timestamp_ns`，以及：
+
+- `observation.state[0:6]`：实测 JAKA `arm_q_measured`，单位弧度；
+- `observation.state[6:12]`：实测 RH56 `hand_observation[6]`，归一化值；
+- `action[0:6]`：`accepted_arm_q[6]`，即提交给 arm adapter 的 accepted target；
+- `action[6:12]`：`hand_target[6]`，归一化 RH56 target。
+
+`observation` 是 measured state，`action` 是 accepted target，不能用 action 回填 observation。
+TCP 可以基于审核过的模型和标定离线计算。默认真机训练视图不包含 Quest packet/event、TCP
+或 depth；相机保存 workspace/wrist RGB MP4。
+
+## 对齐和缺失
+
+canonical sampler 使用因果规则：只选择时间戳不晚于 canonical row 的最新 source frame，不
+选择未来帧。视频 frame `i` 与 JSONL row `i` 必须属于同一 episode；review 时必须检查两路
+视频帧数和 JSONL 行数一致、时间戳严格递增、source role/serial 正确。
+
+相机 stale、ring reference 过期、recorder queue drop、preview lag 和单个 required field 缺失
+写入 metadata-only quality 记录，属于 `RECORDING_DEGRADED`，不会停止健康机器人。持续相机
+acquisition 或 writer failure 可以停止 recording/abort episode，但不自动升级为 robot hard stop。
+
+## Episode 生命周期
+
+第一次有效 press 创建 episode，`frame_index` 从 0 开始。两种 valid clutch 连续 release 五秒
+后 finalize 当前 episode；下一次 press 在同一个 recorder process 内创建递增编号的新 episode，
+并重新初始化 canonical clock、control/workspace/wrist timeline、trigger、source timestamp、
+quality counter 和 writer handle。上一 episode 不被覆盖，也不会在 outer cleanup 中再次 finalize。
+
+Ctrl+C 或真实控制 hard fault 只影响最后一条未完成 episode。最后一条 partial 应丢弃或隔离，
+前面已经完成的 episode 保持独立可 review。
+
+## 验证和转换
+
+```bash
+.venv/bin/embodied-lab dataset review-staging <root> <episode>
+.venv/bin/embodied-lab dataset approve-staging <root> <episode> --status approved
+.venv/bin/embodied-lab dataset convert-staging <root> <episode> <output>
+```
+
+转换前至少确认：完成状态、非空 JSONL、严格单调 timestamp、state/action 维度正确、两路 MP4
+帧数对齐、没有 unexpected partial、相机角色正确、任务 outcome 已人工标注。`completed` 只表示
+记录完成，不表示任务成功；`valid` 只表示 archive 结构有效，不表示物理标定有效。
+
+框架导出是离线边界。仓库不提供维护中的 ACT、Diffusion Policy 或 OpenPI trainer；请以当前
+exporter 的 help 和数据采集页为准。
 
 ## Planned schema work
 

@@ -67,6 +67,9 @@ provisional_calibration:
   orientation_deadband_deg: 2.0
   maximum_relative_rotation_deg: 75.0
   maximum_operator_displacement_m: 0.30
+  # Default simulation/replay target envelope. The physical collection runtime
+  # explicitly disables this clutch-relative check; it is not a task travel
+  # limit in the maintained collection flow.
   maximum_target_displacement_m: 0.20
 
 filter:
@@ -98,9 +101,10 @@ rates:
 # adapters consume the result of this policy; neither adapter may override it.
 shared_target_generation:
   continuation_enabled: true
-  # Preserve the remote continuation budget. A compute deadline still stops
-  # retries for the current tick and returns HOLD_REJECTED.
-  maximum_backtracks: 5
+  # Keep at most three useful retries (four IK solves including the first
+  # candidate). A compute deadline still stops the current tick and returns
+  # HOLD_REJECTED without spending the whole cycle on tiny backtracks.
+  maximum_backtracks: 3
   minimum_continuation_fraction: 0.03125
   # Keep producer compute near the 60 Hz period and well below the retained
   # 100 ms native liveness timeout. If mapping plus bounded continuation work
@@ -108,13 +112,16 @@ shared_target_generation:
   # existing HOLD_REJECTED heartbeat preserves native liveness without
   # weakening any feasibility gate. Simulation sessions leave this disabled.
   control_compute_budget_ms: 20.0
+  # Evaluate accepted-target replacement over the 60 Hz target interval. The
+  # native 8 ms ServoJ shaping contract remains separate and unchanged.
+  feasibility_acceleration_period_ns: 16666667
   rejection_policy: hold_last_accepted_and_allow_operator_retreat
   # Official generic ServoJ speed ceiling (180 deg/s), used as the shared outer
   # boundary. Launchers may select lower normal per-joint operating values.
   maximum_output_joint_velocity_rad_s: 3.141592653589793
-  # Default normal operating speed for every JAKA joint. The outer hard
-  # boundary above remains independent and is not a normal teleoperation speed.
-  maximum_output_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  # Simulation policy uses the official outer ceiling. Physical collection
+  # supplies its lower per-run operating values from its runtime YAML.
+  maximum_output_joint_velocity_rad_s_per_joint: [3.141592653589793, 3.141592653589793, 3.141592653589793, 3.141592653589793, 3.141592653589793, 3.141592653589793]
   # Project-selected recoverable PWL transition boundary. This value originated
   # as the July 20 MuJoCo command-shaper acceleration setting; it is not a
   # published Mini2 hardware/controller acceleration maximum.
@@ -137,35 +144,20 @@ hand_retargeting:
   four_finger_relative:
     gain: 1.0
     dead_zone_rad: 0.015
-    maximum_target_step_rad: 0.04
   # H2.1 uses a wrist-local, palm-normalized bend-primary feature. Pinch only
   # assists the part not already represented by bend; there is no bend gate.
   # The result is still used relatively, never as an absolute pose.
   thumb_close_relative:
     gain: 1.0
     dead_zone_rad: 0.008
-    maximum_target_step_rad: 0.025
   # H3 uses a normalized palm-local feature and explicitly multiplies the
   # relative delta by the current MuJoCo actuator/joint range intersection.
   thumb_lateral_relative:
     gain: 1.0
     dead_zone: 0.015
-    maximum_target_step_rad: 0.025
 
 simulation:
-  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
-  scene:
-    # Reuse the existing provisional physical-table measurements instead of
-    # maintaining a second set of dimensions in this live configuration.
-    workspace_config_path: digital_twin/configs/workspace.yaml
-    source_frame_to_robot_base_yaw_deg: 180.0
-    robot_base_world_position_m: [0.0, 0.0, 0.0]
-    robot_base_world_yaw_deg: 0.0
-    viewer_camera:
-      lookat_world_m: [0.03, 0.50, 0.28]
-      distance_m: 2.05
-      azimuth_deg: 0.0
-      elevation_deg: -25.0
+  mjcf_path: assets/jaka_rh56_visual_coacd.xml
   zero_gravity: true
   arm_position_kp: 500.0
   arm_position_kv: 50.0
@@ -208,16 +200,6 @@ simulation:
   maximum_target_jump_m: 0.04
   maximum_tcp_velocity_m_s: 1.0
   maximum_tcp_angular_velocity_rad_s: 5.0
-  # These thresholds detect pathological unsmoothed non-periodic IK candidates.
-  # They are not actuator/output limits; joint-limit, equivalent-branch,
-  # winding, and output checks remain active. Periodic J1/J4/J6 motion is
-  # governed by absolute joint range, winding, and output feasibility rather
-  # than a per-candidate angular travel cap.
-  maximum_ik_target_velocity_rad_s: 14.0
-  maximum_ik_target_acceleration_rad_s2: 1000.0
-  command_maximum_joint_velocity_rad_s: 3.1415926536
-  command_maximum_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-  command_maximum_joint_acceleration_rad_s2: 12.5663706144
   command_maximum_joint_jerk_rad_s3: 62.8318530718
   command_position_tracking_frequency_rad_s: 10.0
   joint_limit_margin_deg: 5.0
@@ -233,10 +215,11 @@ simulation:
   reject_action: hold_last_safe_for_isolated_rejection_then_disengage
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts
 
-# This is the only arm teleoperation configuration consumed by both the
-# MuJoCo reference entry point and the Quest-to-JAKA hardware entry point.
-# Values below configure the thin output adapter and hard fault containment;
-# they do not alter a healthy accepted target.
+# This is the arm teleoperation policy consumed by the MuJoCo reference entry
+# point and, with the explicit collection-runtime policy overlay, by the
+# Quest-to-JAKA hardware entry point. Values below configure the thin output
+# adapter and hard fault containment; they do not alter a healthy accepted
+# target.
 hardware_adapter:
   # Keep the production default at the controller's 8 ms ServoJ cadence.
   # Select jaka_62_5hz_step2 only for the explicitly experimental 16 ms mode;
@@ -264,10 +247,6 @@ hardware_adapter:
   excessive_tracking_error_abort_rad: 0.35
   excessive_tracking_error_consecutive_cycles: 2
   startup_alignment_tolerance_rad: 0.001
-  # Native final hard assertion. It intentionally remains at the existing
-  # project-selected 4*pi value: no official Mini2 ServoJ acceleration maximum
-  # or controller readback was found, so this task does not raise it.
-  native_hard_output_joint_acceleration_rad_s2: 12.5663706144
   output_acceleration_hold_degraded_ms: 250.0
   output_acceleration_hold_hard_stop_ms: 2000.0
   maximum_consecutive_output_acceleration_hold_cycles: 250
@@ -279,7 +258,6 @@ hardware_adapter:
     output_joint_speed_ceiling: official_jaka_servoj_documentation
     configured_joint_speed_readback: unavailable_in_installed_sdk_v2_2_7
     recoverable_output_joint_acceleration: project_selected
-    native_hard_output_joint_acceleration: project_selected
     normal_output_joint_velocity: launcher_selected
     nlf_defaults: official_filter_planner_defaults_not_hardware_limits
 axis_analysis:

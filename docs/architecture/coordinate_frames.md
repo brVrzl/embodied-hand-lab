@@ -32,9 +32,19 @@ fresh Quest reference; stale data, stream loss, or a completed physical stop
 requires release and another fresh press. Do not document SPACE-key clutch or
 world-frame head-follow behavior for the current live 6-DoF path.
 
-The generic UMIP frame contract remains documented in
-`docs/motion_input/COORDINATE_FRAMES.md`; this page describes the additional
-Quest/JAKA mapping policy.
+The provider-level UMIP frame contract is summarized in the Motion Input
+platform page. This page is the single current authority for both the generic
+input convention and the additional Quest/JAKA mapping policy.
+
+## UMIP provider convention
+
+UMIP poses are child-frame poses relative to the sample's explicit
+`coordinate_frame`. Providers emit right-handed metres and `x,y,z,w` unit
+quaternions. They perform only the documented source-basis conversion; robot
+registration, calibration, filtering, scaling, IK, and safety remain downstream
+responsibilities. The Quest frame identity includes device, session, and
+reference-space IDs, so coordinates from different sessions are never silently
+combined.
 
 ---
 
@@ -66,5 +76,8 @@ T_relative = inverse(T_wrist_reference) * T_wrist_current
 或真机 stop 后必须先释放再按下。当前 6-DoF 路径不使用 SPACE clutch，也不是实时跟随
 world-frame head pose。
 
-通用 UMIP 坐标契约见 `docs/motion_input/COORDINATE_FRAMES.md`；本页说明额外的 Quest/JAKA
-映射策略。
+UMIP pose 是相对于 sample 显式 `coordinate_frame` 的子坐标系 pose。provider 输出右手系米制
+坐标和 `x,y,z,w` 单位四元数，只做已记录的源坐标基转换；机器人注册、标定、滤波、缩放、IK
+和安全仍由下游负责。Quest frame identity 包含 device、session 和 reference-space ID，不同
+session 的数值坐标不能被静默合并。本页同时是通用输入约定和 Quest/JAKA 额外映射策略的唯一
+当前权威页。

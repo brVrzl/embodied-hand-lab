@@ -25,17 +25,6 @@ from .config import load_yaml
 
 SAFE_ENVIRONMENT_KEYS = (
     "CUDA_VISIBLE_DEVICES",
-    "NCCL_SOCKET_IFNAME",
-    "NCCL_IB_DISABLE",
-    "NCCL_P2P_DISABLE",
-    "TORCH_DISTRIBUTED_DEBUG",
-    "MASTER_ADDR",
-    "MASTER_PORT",
-    "LOCAL_RANK",
-    "RANK",
-    "WORLD_SIZE",
-    "SLURM_JOB_ID",
-    "SLURM_NODEID",
     "EMBODIED_LAB_ROOT",
     "EMBODIED_LAB_SOURCE_REVISION",
 )
@@ -196,67 +185,6 @@ def _python_packages() -> dict[str, Any]:
     return packages
 
 
-def _torch_report() -> dict[str, Any]:
-    if importlib.util.find_spec("torch") is None:
-        return {"importable": False}
-    try:
-        import torch
-    except Exception as exc:
-        return {
-            "importable": False,
-            "import_error": f"{type(exc).__name__}: {exc}",
-        }
-    distributed = getattr(torch, "distributed", None)
-    cudnn_version = None
-    try:
-        cudnn_version = torch.backends.cudnn.version()
-    except Exception:
-        pass
-    nccl_version: object = None
-    try:
-        nccl_version = torch.cuda.nccl.version()
-    except Exception:
-        pass
-    devices: list[dict[str, Any]] = []
-    if torch.cuda.is_available():
-        for index in range(torch.cuda.device_count()):
-            properties = torch.cuda.get_device_properties(index)
-            devices.append(
-                {
-                    "index": index,
-                    "name": properties.name,
-                    "total_memory_bytes": properties.total_memory,
-                    "compute_capability": [
-                        properties.major,
-                        properties.minor,
-                    ],
-                }
-            )
-    return {
-        "importable": True,
-        "version": str(torch.__version__),
-        "compiled_cuda_version": getattr(torch.version, "cuda", None),
-        "cuda_available": bool(torch.cuda.is_available()),
-        "cuda_device_count": int(torch.cuda.device_count()),
-        "cudnn_version": cudnn_version,
-        "nccl_version": nccl_version,
-        "distributed_available": bool(
-            distributed is not None and distributed.is_available()
-        ),
-        "gloo_available": bool(
-            distributed is not None
-            and distributed.is_available()
-            and getattr(distributed, "is_gloo_available", lambda: False)()
-        ),
-        "nccl_available": bool(
-            distributed is not None
-            and distributed.is_available()
-            and getattr(distributed, "is_nccl_available", lambda: False)()
-        ),
-        "devices": devices,
-    }
-
-
 def _nvidia_report() -> dict[str, Any]:
     query = _run(
         (
@@ -290,7 +218,6 @@ def _config_report(root: Path) -> dict[str, Any]:
 def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
     root = repository_root() if root is None else Path(root).resolve()
     data_path = root / "data"
-    models_path = root / "models"
     shm_path = Path("/dev/shm")
     infiniband_path = Path("/sys/class/infiniband")
     config = _config_report(root)
@@ -301,10 +228,9 @@ def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
             root / "configs/sim/quest_hts_jaka_mini2_offline.yaml"
         ).is_file(),
         "default_mjcf": (
-            root / "data/sim_assets/jaka_rh56_visual_coacd.xml"
+            root / "assets/jaka_rh56_visual_coacd.xml"
         ).is_file(),
         "data_directory": data_path.is_dir(),
-        "models_directory": models_path.is_dir(),
     }
     problems: list[str] = []
     if not required_paths["pyproject"]:
@@ -350,7 +276,6 @@ def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
         "storage": {
             "repository": _disk(root),
             "data": _disk(data_path if data_path.exists() else root),
-            "models": _disk(models_path if models_path.exists() else root),
             "temporary": _disk(Path(tempfile.gettempdir())),
             "shared_memory": _disk(shm_path)
             if shm_path.exists()
@@ -366,7 +291,6 @@ def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
             "bandwidth_probe_performed": False,
         },
         "nvidia": _nvidia_report(),
-        "pytorch": _torch_report(),
         "python_packages": packages,
         "tools": {
             name: _run(command)
@@ -375,7 +299,6 @@ def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
                 ("docker", ("docker", "--version")),
                 ("apptainer", ("apptainer", "--version")),
                 ("singularity", ("singularity", "--version")),
-                ("slurm", ("sinfo", "--version")),
                 ("lspci", ("lspci", "--version")),
             )
         },
@@ -424,7 +347,6 @@ def write_report(path: Path, payload: dict[str, Any]) -> None:
 
 def render_summary(report: dict[str, Any]) -> str:
     host = report["host"]
-    pytorch = report["pytorch"]
     nvidia = report["nvidia"]["driver_and_gpus"]
     gpu_summary = (
         nvidia.get("stdout")
@@ -447,15 +369,6 @@ def render_summary(report: dict[str, Any]) -> str:
             )
         ),
         f"NVIDIA: {gpu_summary}",
-        (
-            "PyTorch: "
-            + (
-                f"{pytorch.get('version')} "
-                f"(CUDA available={pytorch.get('cuda_available')})"
-                if pytorch.get("importable")
-                else "not installed"
-            )
-        ),
         (
             "Config YAML: "
             f"{report['repository']['configurations']['yaml_count']} parsed, "

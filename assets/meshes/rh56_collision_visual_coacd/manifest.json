@@ -1,0 +1,262 @@
+{
+  "bodies": {
+    "rh56_R_hand_base_link": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part011.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part012.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part013.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part014.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part015.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part016.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part017.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part018.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part019.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part020.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part021.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part022.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_hand_base_link_part023.stl"
+      ],
+      "input_faces": 29446,
+      "max_hulls": 24,
+      "part_count": 24,
+      "source_file": "assets/meshes/rh56/R_hand_base_link.STL"
+    },
+    "rh56_R_index_distal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_distal_part009.stl"
+      ],
+      "input_faces": 6708,
+      "max_hulls": 10,
+      "part_count": 10,
+      "source_file": "assets/meshes/rh56/R_index_distal.STL"
+    },
+    "rh56_R_index_proximal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_index_proximal_part011.stl"
+      ],
+      "input_faces": 8236,
+      "max_hulls": 12,
+      "part_count": 12,
+      "source_file": "assets/meshes/rh56/R_index_proximal.STL"
+    },
+    "rh56_R_middle_distal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_distal_part008.stl"
+      ],
+      "input_faces": 3658,
+      "max_hulls": 10,
+      "part_count": 9,
+      "source_file": "assets/meshes/rh56/R_middle_distal.STL"
+    },
+    "rh56_R_middle_proximal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_middle_proximal_part011.stl"
+      ],
+      "input_faces": 8236,
+      "max_hulls": 12,
+      "part_count": 12,
+      "source_file": "assets/meshes/rh56/R_middle_proximal.STL"
+    },
+    "rh56_R_pinky_distal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_distal_part009.stl"
+      ],
+      "input_faces": 8328,
+      "max_hulls": 10,
+      "part_count": 10,
+      "source_file": "assets/meshes/rh56/R_pinky_distal.STL"
+    },
+    "rh56_R_pinky_proximal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_pinky_proximal_part011.stl"
+      ],
+      "input_faces": 8236,
+      "max_hulls": 12,
+      "part_count": 12,
+      "source_file": "assets/meshes/rh56/R_pinky_proximal.STL"
+    },
+    "rh56_R_ring_distal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_distal_part008.stl"
+      ],
+      "input_faces": 6694,
+      "max_hulls": 10,
+      "part_count": 9,
+      "source_file": "assets/meshes/rh56/R_ring_distal.STL"
+    },
+    "rh56_R_ring_proximal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_ring_proximal_part011.stl"
+      ],
+      "input_faces": 8236,
+      "max_hulls": 12,
+      "part_count": 12,
+      "source_file": "assets/meshes/rh56/R_ring_proximal.STL"
+    },
+    "rh56_R_thumb_distal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_distal_part007.stl"
+      ],
+      "input_faces": 3110,
+      "max_hulls": 8,
+      "part_count": 8,
+      "source_file": "assets/meshes/rh56/R_thumb_distal.STL"
+    },
+    "rh56_R_thumb_intermediate": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_intermediate_part011.stl"
+      ],
+      "input_faces": 9664,
+      "max_hulls": 12,
+      "part_count": 12,
+      "source_file": "assets/meshes/rh56/R_thumb_intermediate.STL"
+    },
+    "rh56_R_thumb_proximal": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part003.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part004.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part005.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part006.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part007.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part008.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part009.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part010.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part011.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part012.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_part013.stl"
+      ],
+      "input_faces": 18438,
+      "max_hulls": 14,
+      "part_count": 14,
+      "source_file": "assets/meshes/rh56/R_thumb_proximal.STL"
+    },
+    "rh56_R_thumb_proximal_base": {
+      "collision_files": [
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_base_part000.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_base_part001.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_base_part002.stl",
+        "assets/meshes/rh56_collision_visual_coacd/R_thumb_proximal_base_part003.stl"
+      ],
+      "input_faces": 936,
+      "max_hulls": 4,
+      "part_count": 4,
+      "source_file": "assets/meshes/rh56/R_thumb_proximal_base.STL"
+    }
+  },
+  "generator": "tools/generate_rh56_visual_coacd_collision.py",
+  "method": "coacd",
+  "out_dir": "assets/meshes/rh56_collision_visual_coacd",
+  "seed": 17,
+  "source_dir": "assets/meshes/rh56",
+  "threshold_m": 0.002
+}

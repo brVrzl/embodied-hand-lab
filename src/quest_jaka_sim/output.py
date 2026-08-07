@@ -176,18 +176,14 @@ class JakaEquivalent125HzMujocoAdapter:
         self._maximum_emitted_acceleration_rad_s2 = 0.0
         self._transition_limited_emitted_count = 0
         self.applied_count = 0
-        hard_acceleration = float(
-            simulation.config.raw.get("hardware_adapter", {}).get(
-                "native_hard_output_joint_acceleration_rad_s2",
-                simulation.config.output_contract.maximum_acceleration_rad_s2,
-            )
-        )
         self.resampler.configure_transition(
             maximum_velocity_rad_s=simulation.config.output_contract.velocity_boundaries_rad_s,
             recoverable_acceleration_rad_s2=(
                 simulation.config.output_contract.maximum_acceleration_rad_s2
             ),
-            hard_acceleration_rad_s2=hard_acceleration,
+            hard_acceleration_rad_s2=(
+                simulation.config.output_contract.maximum_acceleration_rad_s2
+            ),
             maximum_jerk_rad_s3=simulation.config.command_limits.maximum_jerk_rad_s3,
         )
         self.resampler.initialize(self._last_q, self._time_origin_ns)

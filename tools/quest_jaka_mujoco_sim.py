@@ -107,16 +107,6 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
     )
-    smooth_live.add_argument(
-        "--speed-profile",
-        choices=(
-            "current_live", "baseline", "moderate", "fast",
-            "latency_default", "latency_reduced", "latency_raw_diagnostic",
-            "root_cause_fix", "root_cause_fix_plus_low_latency",
-        ),
-        default="root_cause_fix",
-        help="simulation-only overlay; default retains the finalized arm policy",
-    )
     smooth_live.add_argument("--bind", default="0.0.0.0")
     smooth_live.add_argument("--port", type=int, default=9000)
     smooth_live.add_argument("--project-ip")
@@ -173,16 +163,6 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml"),
     )
-    smooth_replay.add_argument(
-        "--speed-profile",
-        choices=(
-            "current_live", "baseline", "moderate", "fast",
-            "latency_default", "latency_reduced", "latency_raw_diagnostic",
-            "root_cause_fix", "root_cause_fix_plus_low_latency",
-        ),
-        default="root_cause_fix",
-        help="simulation-only overlay; default retains the finalized arm policy",
-    )
     smooth_replay.add_argument("--report", type=Path)
     smooth_replay.add_argument("--events", type=Path)
     smooth_replay.add_argument("--arm-emitted-events", type=Path)
@@ -232,7 +212,6 @@ def _make_session(config: ReplayConfig) -> tuple[JakaMujocoSimulation, QuestJaka
     augmented = build_viewer_mjcf(
         config.mjcf_path,
         Path("logs/quest_jaka_sim/quest_jaka_viewer_model.xml"),
-        scene=config.raw.get("simulation", {}).get("scene"),
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
     return simulation, QuestJakaReplaySession(config, simulation)
@@ -249,7 +228,6 @@ def _make_smooth_session(
         config.mjcf_path,
         output,
         arm_only=not hand_enabled,
-        scene=config.raw.get("simulation", {}).get("scene"),
     )
     simulation = JakaMujocoSimulation(config, mjcf_path=augmented)
     target_generator = SharedJakaTargetGenerator(config, mjcf_path=config.mjcf_path)
@@ -384,18 +362,10 @@ def _viewer(simulation: JakaMujocoSimulation):
         show_right_ui=False,
     )
     handle.opt.geomgroup[5] = 1
-    scene = simulation.config.raw.get("simulation", {}).get("scene", {})
-    camera = scene.get("viewer_camera")
-    if camera is None:
-        handle.cam.azimuth = -130
-        handle.cam.elevation = -25
-        handle.cam.distance = 1.25
-        handle.cam.lookat[:] = [-0.05, -0.30, 0.24]
-    else:
-        handle.cam.lookat[:] = camera["lookat_world_m"]
-        handle.cam.distance = float(camera["distance_m"])
-        handle.cam.azimuth = float(camera["azimuth_deg"])
-        handle.cam.elevation = float(camera["elevation_deg"])
+    handle.cam.azimuth = -130
+    handle.cam.elevation = -25
+    handle.cam.distance = 1.25
+    handle.cam.lookat[:] = [-0.05, -0.30, 0.24]
     print(f"VIEWER_CAMERA_LOOKAT={handle.cam.lookat.tolist()}")
     print(f"VIEWER_CAMERA_DISTANCE={handle.cam.distance:g}")
     print(f"VIEWER_CAMERA_AZIMUTH={handle.cam.azimuth:g}")
@@ -405,51 +375,6 @@ def _viewer(simulation: JakaMujocoSimulation):
     if reason is not None:
         print(f"VIEWER_FULLSCREEN_REASON={reason}")
     return handle
-
-
-def _print_scene_installation(simulation: JakaMujocoSimulation) -> None:
-    table_id = mujoco.mj_name2id(
-        simulation.model,
-        mujoco.mjtObj.mjOBJ_GEOM,
-        "quest_jaka_workspace_tabletop",
-    )
-    if table_id < 0:
-        return
-    base_id = mujoco.mj_name2id(
-        simulation.model, mujoco.mjtObj.mjOBJ_BODY, "jaka_Link_0"
-    )
-    palm_id = mujoco.mj_name2id(
-        simulation.model,
-        mujoco.mjtObj.mjOBJ_BODY,
-        "rh56_R_hand_base_link",
-    )
-    probe = mujoco.MjData(simulation.model)
-    probe.qpos[simulation.arm_qpos_ids] = simulation.config.initial_arm_joints_rad
-    mujoco.mj_forward(simulation.model, probe)
-    base_rotation = probe.xmat[base_id].reshape(3, 3)
-    tcp_forward_world = -probe.xmat[palm_id].reshape(3, 3)[:, 2]
-    tcp_forward_base = base_rotation.T @ tcp_forward_world
-    base_quaternion_wxyz = np.zeros(4)
-    mujoco.mju_mat2Quat(base_quaternion_wxyz, base_rotation.reshape(9))
-    print(
-        "TABLE_POSE_WORLD_M="
-        f"position={simulation.model.geom_pos[table_id].tolist()} "
-        f"size={(2.0 * simulation.model.geom_size[table_id]).tolist()}"
-    )
-    print(
-        "ROBOT_BASE_WORLD_POSE="
-        f"position={probe.xpos[base_id].tolist()} "
-        f"quaternion_wxyz={base_quaternion_wxyz.tolist()}"
-    )
-    initial_degrees = ",".join(
-        f"{math.degrees(value):g}" for value in simulation.config.initial_arm_joints_rad
-    )
-    print(f"INITIAL_JOINTS_DEG=[{initial_degrees}]")
-    print(
-        "J1_90_TCP_FORWARD="
-        f"world={tcp_forward_world.tolist()} base={tcp_forward_base.tolist()}"
-    )
-
 
 def _sync_viewer(
     handle: object,
@@ -468,7 +393,7 @@ def _sync_viewer(
     hand_status = (
         "disabled"
         if hand_result is None
-        else f"{hand_result.backend} valid={hand_result.valid} cost={hand_result.optimizer_cost}"
+        else f"valid={hand_result.valid} cost={hand_result.optimizer_cost}"
     )
     arm = getattr(session, "arm_clutch", None)
     hand = getattr(session, "hand_clutch", None)
@@ -625,8 +550,6 @@ def _replay(args: argparse.Namespace) -> int:
     datagrams = list(HtsRawRecordingReader(args.recording).datagrams())
     if not datagrams:
         raise SystemExit("recording contains no datagrams")
-    if args.viewer:
-        _print_scene_installation(simulation)
     base_ns = datagrams[0].receive_monotonic_ns
     previous_ns = base_ns
     handle = _viewer(simulation) if args.viewer else None
@@ -822,7 +745,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     if args.episode_root is not None and args.episode_data_config is None:
         raise SystemExit("--episode-root requires --episode-data-config")
     config = replace(
-        ReplayConfig.load(args.config, speed_profile=args.speed_profile),
+        ReplayConfig.load(args.config),
         engagement_schedule_s=(),
     )
     simulation, session = _make_smooth_session(
@@ -857,9 +780,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
         f"mujoco={1.0/simulation.model.opt.timestep:g}Hz viewer={viewer_hz:g}Hz"
     )
     print(f"ARM_OUTPUT={args.arm_output_mode}")
-    _print_effective_speed_config(config, simulation, args.speed_profile)
-    if args.viewer:
-        _print_scene_installation(simulation)
+    _print_effective_speed_config(config, simulation)
     print("JAKA hardware control disabled")
     print("RH56 hardware control disabled")
     print("CONTROL=LEFT INDEX arm clutch; LEFT GRIP RH56 hand clutch")
@@ -1128,7 +1049,7 @@ def _live_6dof(args: argparse.Namespace) -> int:
     report = session.report(str(capture_path.resolve()))
     report.update(
         mode="live_quest_to_smooth_6dof_simulation_only",
-        speed_profile=args.speed_profile or "config_default",
+        policy_source="yaml",
         event_log=str(events_path.resolve()),
         raw_receive_queue_drops=worker.dropped,
         simulation_overrun_steps=sim_overrun_steps,
@@ -1181,7 +1102,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     ):
         raise SystemExit("hand cycles require positive period/count and --hand-engage-at-sec")
     config = replace(
-        ReplayConfig.load(args.config, speed_profile=args.speed_profile),
+        ReplayConfig.load(args.config),
         engagement_schedule_s=(),
     )
     if args.hand_reacquisition_ms is not None:
@@ -1214,8 +1135,6 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     control_period_ns = int(round(1e9 / float(rates.get("target_generation_hz", 60.0))))
     sim_period_ns = int(round(simulation.model.opt.timestep * 1e9))
     viewer_period_ns = int(round(1e9 / float(rates.get("viewer_hz", 60.0))))
-    if args.viewer:
-        _print_scene_installation(simulation)
     handle = _viewer(simulation) if args.viewer else None
     realtime = bool(args.realtime or args.viewer)
     wall_start = time.monotonic()
@@ -1297,7 +1216,7 @@ def _replay_6dof(args: argparse.Namespace) -> int:
     report = session.report(str(args.recording.resolve()))
     report.update(
         mode="recorded_smooth_6dof_simulation_only",
-        speed_profile=args.speed_profile or "config_default",
+        policy_source="yaml",
         deterministic=True,
         replay_speed=args.speed,
         viewer_update_count=viewer_updates,
@@ -1340,7 +1259,6 @@ def _replay_6dof(args: argparse.Namespace) -> int:
 def _print_effective_speed_config(
     config: ReplayConfig,
     simulation: JakaMujocoSimulation,
-    speed_profile: str | None = None,
 ) -> None:
     """Print all speed/latency values that affect the simulation run."""
 
@@ -1353,10 +1271,8 @@ def _print_effective_speed_config(
     limits = config.feasibility
     command = config.command_limits
     contract = config.output_contract
-    selected_policy = speed_profile or "config_default"
-    print(f"SIM_POLICY={selected_policy}")
+    print("SIM_POLICY=yaml")
     print(f"JOINT_SPEED_LIMITS_RAD_S={list(contract.velocity_boundaries_rad_s)}")
-    print(f"IK_JOINT_VELOCITY_GUARD_RAD_S={limits.maximum_joint_velocity_rad_s:g}")
     print(f"JOINT_ACCELERATION_LIMITS_RAD_S2={[command.maximum_acceleration_rad_s2] * 6}")
     print(f"JOINT_JERK_LIMITS_RAD_S3={[command.maximum_jerk_rad_s3] * 6}")
     print(f"TCP_LINEAR_VELOCITY_LIMIT_M_S={limits.maximum_tcp_velocity_m_s:g}")

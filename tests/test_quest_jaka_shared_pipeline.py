@@ -33,11 +33,7 @@ from teleoperation.accepted_target import (
 from quest_jaka_sim.se3 import quaternion_angle_rad, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import build_viewer_mjcf
 from quest_jaka_sim.simulation import CandidateMetrics, FeasibilityReason, FeasibilityResult
-from teleoperation.jaka.quest_adapter import (
-    E2IsolatedForwardTranslationGuard,
-    JakaAcceptedJointTargetAdapter,
-    ResearchThinBoundedMotionGuard,
-)
+from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
 from teleoperation.wire import TargetFlags, TargetKind
 from tools.quest_jaka_hardware import _control_output_failed, _write_event_extract
 
@@ -168,12 +164,13 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert hardware["expected_tool_id"] == hardware["expected_user_frame_id"] == 0
     assert config.raw["shared_target_generation"] == {
         "continuation_enabled": True,
-        "maximum_backtracks": 5,
+        "maximum_backtracks": 3,
         "minimum_continuation_fraction": 0.03125,
         "control_compute_budget_ms": 20.0,
+        "feasibility_acceleration_period_ns": 16666667,
         "rejection_policy": "hold_last_accepted_and_allow_operator_retreat",
         "maximum_output_joint_velocity_rad_s": math.pi,
-        "maximum_output_joint_velocity_rad_s_per_joint": [1.5, 1.5, 1.5, 1.5, 1.5, 1.5],
+        "maximum_output_joint_velocity_rad_s_per_joint": [math.pi] * 6,
         "maximum_output_joint_acceleration_rad_s2": 12.5663706144,
         "maximum_periodic_joint_winding_rad": 5.0,
     }
@@ -738,153 +735,6 @@ def test_fresh_disengaged_arm_keeps_native_liveness_without_motion_target(
     assert recorder.heartbeats[0].state is ArmControlState.DISENGAGED
 
 
-def test_research_thin_guard_allows_separate_bounded_axes_and_rejects_combined() -> None:
-    runtime = _MockRuntime()
-    guard = ResearchThinBoundedMotionGuard(
-        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
-    )
-    baseline = _accepted()
-    assert guard.apply(baseline)
-    forward = replace(
-        baseline,
-        sequence_number=2,
-        filtered_tcp=AcceptedTcpPose(
-            (0.12, -0.2, 0.3), baseline.filtered_tcp.orientation_xyzw
-        ),
-    )
-    assert guard.apply(forward)
-    combined = replace(
-        baseline,
-        sequence_number=3,
-        filtered_tcp=AcceptedTcpPose(
-            (0.11, -0.2, 0.3),
-            rotvec_to_quaternion_xyzw((math.radians(3.0), 0.0, 0.0)),
-        ),
-    )
-    assert not guard.apply(combined)
-    assert guard.abort_reason == "research_combined_translation_rotation_forbidden"
-
-
-def test_e2_guard_forwards_only_unchanged_continuous_positive_x_targets() -> None:
-    runtime = _MockRuntime()
-    output = JakaAcceptedJointTargetAdapter(runtime, allow_motion=True)
-    guard = E2IsolatedForwardTranslationGuard(
-        output, startup_alignment_tolerance_rad=0.001
-    )
-    baseline = _accepted()
-    guard.establish_startup_joint_position(baseline.joint_position_rad)
-    assert guard.apply(baseline)
-
-    forward_pose = AcceptedTcpPose(
-        (0.115, -0.2, 0.3), baseline.desired_tcp.orientation_xyzw
-    )
-    forward = replace(
-        baseline,
-        sequence_number=2,
-        desired_tcp=forward_pose,
-        filtered_tcp=forward_pose,
-        joint_position_rad=(0.11, -0.21, 0.31, -0.41, 0.51, -0.61),
-    )
-    assert guard.apply(forward)
-    assert runtime.packets[-1].payload[:6] == forward.joint_position_rad
-    assert guard.maximum_requested_tcp_displacement_m == pytest.approx(0.015)
-    assert guard.maximum_accepted_joint_displacement_rad == pytest.approx([0.01] * 6)
-
-    lateral_pose = AcceptedTcpPose(
-        (0.115, -0.194, 0.3), baseline.desired_tcp.orientation_xyzw
-    )
-    lateral = replace(
-        forward,
-        sequence_number=3,
-        desired_tcp=lateral_pose,
-        filtered_tcp=lateral_pose,
-    )
-    assert not guard.apply(lateral)
-    assert guard.abort_reason == "e2_requested_cross_axis_displacement"
-    assert len(runtime.packets) == 2
-
-
-def test_e2_guard_observes_encoder_noise_without_replacing_startup_state() -> None:
-    runtime = _MockRuntime()
-    guard = E2IsolatedForwardTranslationGuard(
-        JakaAcceptedJointTargetAdapter(runtime, allow_motion=True),
-        startup_alignment_tolerance_rad=0.001,
-    )
-    target = _accepted()
-    post_edg = target.joint_position_rad
-    guard.establish_startup_joint_position(post_edg)
-    noisy = tuple(value + 3.49066e-5 for value in post_edg)
-    guard.observe_measured_joint_position(noisy)
-    assert guard.startup_joint_position_rad == post_edg
-    assert guard.latest_measured_joint_position_rad == noisy
-    assert guard.maximum_observed_startup_difference_rad == pytest.approx(
-        [3.49066e-5] * 6
-    )
-    assert runtime.packets == []
-    assert guard.apply(target)
-    assert runtime.packets[0].payload[:6] == post_edg
-
-
-def test_e2_guard_uses_approved_startup_alignment_contract() -> None:
-    observed_stationary_mismatch_rad = 3.49066e-5
-    target = _accepted()
-
-    accepted_runtime = _MockRuntime()
-    accepted_guard = E2IsolatedForwardTranslationGuard(
-        JakaAcceptedJointTargetAdapter(accepted_runtime, allow_motion=True),
-        startup_alignment_tolerance_rad=0.001,
-    )
-    accepted_guard.establish_startup_joint_position(
-        tuple(
-            value + observed_stationary_mismatch_rad
-            for value in target.joint_position_rad
-        )
-    )
-    assert accepted_guard.apply(target)
-    assert accepted_guard.abort_reason is None
-
-    rejected_runtime = _MockRuntime()
-    rejected_guard = E2IsolatedForwardTranslationGuard(
-        JakaAcceptedJointTargetAdapter(rejected_runtime, allow_motion=True),
-        startup_alignment_tolerance_rad=0.001,
-    )
-    rejected_guard.establish_startup_joint_position(
-        tuple(value + 0.0011 for value in target.joint_position_rad)
-    )
-    assert not rejected_guard.apply(target)
-    assert rejected_guard.abort_reason == "e2_first_target_not_continuous_with_post_edg_state"
-    assert rejected_runtime.packets == []
-
-
-def test_e2_startup_baseline_changes_only_through_fresh_handoff() -> None:
-    first = _accepted().joint_position_rad
-    second = tuple(value + 0.0002 for value in first)
-    output = JakaAcceptedJointTargetAdapter(_MockRuntime(), allow_motion=True)
-    armed_session = E2IsolatedForwardTranslationGuard(
-        output, startup_alignment_tolerance_rad=0.001
-    )
-    armed_session.establish_startup_joint_position(first)
-    armed_session.observe_measured_joint_position(second)
-    with pytest.raises(RuntimeError, match="already established"):
-        armed_session.establish_startup_joint_position(second)
-    assert armed_session.startup_joint_position_rad == first
-
-    fresh_session = E2IsolatedForwardTranslationGuard(
-        JakaAcceptedJointTargetAdapter(_MockRuntime(), allow_motion=True),
-        startup_alignment_tolerance_rad=0.001,
-    )
-    fresh_session.establish_startup_joint_position(second)
-    assert fresh_session.startup_joint_position_rad == second
-
-
-def test_e2_entry_synchronizes_shared_seed_only_at_post_edg_handoff() -> None:
-    source = Path("tools/quest_jaka_hardware.py").read_text(encoding="utf-8")
-    command_loop = source.split("while time.monotonic() - started < args.duration_sec:", 1)[1]
-    command_loop = command_loop.split("except KeyboardInterrupt:", 1)[0]
-    assert "synchronize_authoritative_arm_joints" not in command_loop
-    assert "observe_measured_joint_position(sample)" in command_loop
-
-
 def test_composite_adapters_receive_the_identical_accepted_target_object() -> None:
     identities: list[int] = []
 
@@ -976,7 +826,6 @@ def test_physical_entry_has_no_mujoco_plant_adapter_or_simulation_step() -> None
     assert not hasattr(SharedJakaTargetGenerator, "set_hand_actuator_target")
     assert "native.process.poll()" in source
     assert "accepted_target_transport_failure" in source
-    assert 'return 2 if abort_reason is not None or e2_failures else 0' in source
 
 
 def test_invalid_or_communication_failed_target_does_not_count_as_applied() -> None:
@@ -1278,25 +1127,6 @@ def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_rest
         <= math.pi + 1e-12
     )
     assert not recovered.feasibility.metrics.branch_switch
-
-
-def test_p4_entry_requires_operator_safety_gates_before_connection(tmp_path: Path) -> None:
-    result = subprocess.run(
-        [
-            ".venv/bin/python",
-            "tools/quest_jaka_hardware.py",
-            "p4-live",
-            "--robot-ip", "192.0.2.1",
-            "--log", str(tmp_path / "log.jsonl"),
-            "--summary", str(tmp_path / "summary.json"),
-            "--metrics", str(tmp_path / "metrics.json"),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    assert result.returncode != 0
-    assert "E-stop, clear-workspace, and no-RH56-command confirmations" in result.stderr
-    assert not (tmp_path / "metrics.json").exists()
 
 
 def test_offline_model_parity_report_separates_target_kinematic_and_dynamic_error(

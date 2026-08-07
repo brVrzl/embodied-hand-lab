@@ -4,8 +4,6 @@ import threading
 import time
 from pathlib import Path
 import json
-import subprocess
-import sys
 
 import numpy as np
 import pytest
@@ -388,23 +386,3 @@ def test_teleop_event_log_publication_is_bounded_and_nonblocking(tmp_path: Path)
     assert path.is_file()
     assert log.drop_count >= 0
     assert log.error_count == 0
-
-
-def test_offline_pipeline_benchmark_cli_reports_bounded_nonblocking_run() -> None:
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "tools/validation/benchmark_episode_pipeline.py",
-            "--samples",
-            "20",
-        ],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    report = json.loads(completed.stdout)
-    for result in report.values():
-        assert result["bounded_shutdown"] is True
-        assert result["global_block_detected"] is False
-        assert result["episode_abort"] is False
-        assert result["control_loop_duration_ns"]["count"] == 20

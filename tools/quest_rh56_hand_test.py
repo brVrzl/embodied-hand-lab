@@ -79,11 +79,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--config", default="configs/hand/rh56_pc_direct_teleop.yaml")
-    parser.add_argument(
-        "--scheduler-profile",
-        choices=("baseline", "fast30", "fast40", "fast50"),
-        help="Override the RH56 command/feedback scheduler profile.",
-    )
     parser.add_argument("--quest-config", default="configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
     parser.add_argument(
         "--hand-calibration",
@@ -99,7 +94,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Opt into the real RH56 serial path; without it this command is dry-run only.",
     )
     modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("--read-only", action="store_true", help="Stage 1 feedback-only probe (default).")
     modes.add_argument("--bounded-command", action="store_true", help="Stage 2 measured-relative one-channel test.")
     modes.add_argument(
         "--bounded-channel-target",
@@ -147,7 +141,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--allowed-sender")
     parser.add_argument("--manual-stop-accessible", action="store_true")
-    parser.add_argument("--workspace-clear", action="store_true")
     parser.add_argument("--no-auto-retry", action="store_true")
     parser.add_argument("--configuration-write-understood", action="store_true")
     parser.add_argument("--mechanical-obstruction-cleared", action="store_true")
@@ -157,7 +150,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary", default="", help="Summary JSON path.")
     parser.add_argument("--capture", default="", help="Stage 3 raw Quest capture path.")
     parser.add_argument("--events", default="", help="Stage 3 shared session event JSONL path.")
-    parser.add_argument("--out", default="", help="Deprecated alias for --summary.")
     return parser
 
 
@@ -247,10 +239,10 @@ def validate_gate(args: argparse.Namespace) -> HandOperation | None:
         "clear-error",
         "force-sensor-calibration",
     } and not (
-        args.manual_stop_accessible and args.workspace_clear and args.no_auto_retry
+        args.manual_stop_accessible and args.no_auto_retry
     ):
         raise PermissionError(
-            f"--{mode} requires --manual-stop-accessible, --workspace-clear, and --no-auto-retry."
+            f"--{mode} requires --manual-stop-accessible and --no-auto-retry."
         )
     if mode == "write-runtime-config":
         if args.speed is None or args.force is None:
@@ -723,8 +715,8 @@ def _run_mapping_check(
         record=None if capture is None else capture.write,
     )
     assembler = HtsCanonicalAssembler(stale_after_s=0.25)
-    backend_name, calibration = HandRetargetCalibration.load(args.hand_calibration)
-    retargeter = ProjectRh56Retargeter(calibration, backend=backend_name)
+    calibration = HandRetargetCalibration.load(args.hand_calibration)
+    retargeter = ProjectRh56Retargeter(calibration)
     latest_debug: dict[str, Any] | None = None
     printed_at = 0.0
 
@@ -836,7 +828,7 @@ def _load_hand_only_quest_config(
 def main() -> None:
     args = _build_parser().parse_args()
     operation = validate_gate(args)
-    summary_path = args.summary or args.out
+    summary_path = args.summary
     if not args.real:
         _write_summary(
             {
@@ -910,8 +902,6 @@ def main() -> None:
         _write_summary(result, summary_path)
         return
     config = load_yaml(args.config)
-    if args.scheduler_profile is not None:
-        config["scheduler_profile"] = args.scheduler_profile
     config["mode"] = "real"
     config["backend_type"] = "serial_protocol"
     config.setdefault("serial", {})["port"] = args.device

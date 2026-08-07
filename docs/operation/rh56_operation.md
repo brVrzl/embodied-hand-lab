@@ -11,10 +11,13 @@ The control order is
 order is `[pinky, ring, middle, index, thumb_close, thumb_lateral]`. The driver
 uses 115200 baud, device address 1, `ANGLE_SET=1486`, `ANGLE_ACT=1546`,
 `FORCE_ACT=1582`, `CURRENT=1594`, `ERROR=1606`, and `STATUS=1612`. Position,
-speed, and force register ranges are 0--1000. Production hand control defaults
-to the physically tested `fast40` scheduler profile, with a maximum normalized
-change of 0.05 per command and configured maximum closure 0.8. The 15 Hz
-baseline remains selectable for comparison.
+speed, and force register ranges are 0--1000. Production hand control uses a
+fixed 40 Hz command scheduler with 15 Hz ANGLE feedback and 10 Hz
+CURRENT/FORCE/STATUS/ERROR feedback. Quest targets enter the command path
+directly; the old velocity/acceleration shaper and simulation hand slew caps
+are no longer used. `hand_delta_limit=0.05` remains only as a final guard
+against an abnormal target discontinuity, while `contact_stop` owns separate
+closure/contact limits. Configured maximum closure is 0.8.
 
 Opening the serial transport performs zero writes: it does not clear errors,
 write speed/force, send a hold target, or open the hand. `ANGLE_ACT` is measured
@@ -26,9 +29,8 @@ no guessed status-code policy is applied.
 
 ## Current hand-only entry
 
-The single operator procedure is maintained in
-[RH56 hand-only session debug](rh56_session_debug.md). In brief, the default
-entry is dry-run; a physical hand-only process requires
+The single operator procedure is this page. In brief, the default entry is
+dry-run; a physical hand-only process requires
 `--real --device /dev/serial/by-id/...`, an explicit hand operation mode, and
 the runtime safety prerequisites below. It never starts JAKA.
 
@@ -55,8 +57,8 @@ The following fake/offline check is useful before any physical hand gate:
   tests/test_quest_jaka_bounded_teleop_entry.py
 ```
 
-All register-range, canonical/protocol ordering, scheduler/rate, per-cycle
-delta, serial timeout, frame/checksum, feedback-stale, ERROR/STATUS,
+All register-range, canonical/protocol ordering, scheduler/rate,
+target-discontinuity, serial timeout, frame/checksum, feedback-stale, ERROR/STATUS,
 measured/commanded separation, manual-stop, and cleanup protections remain
 active.
 
@@ -89,8 +91,11 @@ tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Q
 `[pinky, ring, middle, index, thumb_close, thumb_lateral]`。协议为 115200 baud、地址 1；
 `ANGLE_SET=1486`、`ANGLE_ACT=1546`、`FORCE_ACT=1582`、`CURRENT=1594`、
 `ERROR=1606`、`STATUS=1612`。position/speed/force 寄存器范围是 0--1000。正式手部控制
-默认使用已完成真机测试的 `fast40` scheduler profile；15 Hz baseline 仍可显式选择。
-每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
+固定使用 40 Hz command、15 Hz ANGLE feedback 和 10 Hz CURRENT/FORCE/STATUS/ERROR
+feedback；不再提供 scheduler profile 选择。Quest target 直接进入 RH56 command
+path；旧的速度/加速度 command shaper 和仿真手部逐帧 slew cap 已删除。
+`hand_delta_limit=0.05` 只作为异常 target 跳变的最后防护，`contact_stop` 单独负责
+闭合/接触限制；配置的最大闭合量为 0.8。
 
 打开串口时寄存器写入数为零：不 clear error、不写 speed/force、不发送 hold target、也不
 自动张开。`ANGLE_ACT` 是实测反馈，command 不会伪装成 measured。非零 `ERROR`、读帧/
@@ -99,8 +104,7 @@ tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Q
 
 ## 中文当前入口
 
-设备前置检查、read-only/单通道阶段和下一步六通道映射命令统一见
-[RH56 hand-only session debug](rh56_session_debug.md)。普通 hand-only 真机命令只需在进程
+设备前置检查、read-only/单通道阶段和六通道映射命令统一见本页。普通 hand-only 真机命令只需在进程
 启动时传入 `--real --device ...` 和显式 operation mode，并满足运行时安全前置条件；
 默认命令仍是 dry-run。普通 hand-only 不使用 magic token 或短语；runtime config、
 clear error、force calibration 和 JAKA 联合运行继续使用各自独立 gate。

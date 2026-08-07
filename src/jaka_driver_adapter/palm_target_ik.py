@@ -12,7 +12,7 @@ from embodiment_core.robot_limits import (
     safe_jaka_mini2_joint_limits_rad,
 )
 
-DEFAULT_MJCF = Path("data/sim_assets/jaka_rh56_visual_coacd.xml")
+DEFAULT_MJCF = Path("assets/jaka_rh56_visual_coacd.xml")
 MJCF_ARM_JOINT_NAMES = [f"jaka_joint_{index}" for index in range(1, 7)]
 PALM_BODY_NAME = "rh56_R_hand_base_link"
 IDENTITY_QUAT_WXYZ = np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64)

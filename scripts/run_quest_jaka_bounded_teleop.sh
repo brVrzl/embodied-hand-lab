@@ -6,38 +6,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-ROBOT_IP=""
-EDG_STATE_IP="192.168.71.19"
-BIND_HOST="0.0.0.0"
-UDP_PORT="9000"
-ALLOWED_SENDER=""
-DURATION_SEC="30"
-OUTPUT_GENERATOR=""
-JOINT_VELOCITY_LIMITS=("1.5" "1.5" "1.5" "1.5" "1.5" "1.5")
-CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
-WORKER="build/jaka_servo_worker/jaka_servo_worker"
-LOG_DIR="logs"
-ESTOP_ACCESSIBLE="false"
-WORKSPACE_CLEAR="false"
+RUNTIME_CONFIG=""
 RH56_PATH_ABSENT="false"
-NO_AUTO_RETRY="false"
-PLANT_FREE_NO_NETWORK_CHECK="false"
-OUTPUT_JERK_LIMIT_RAD_S3=""
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
-
-PROJECT_SHARED_HARD_VELOCITY_RAD_S="3.141592653589793"
 
 usage() {
   cat <<'EOF'
 Usage / 用法:
   ./scripts/run_quest_jaka_bounded_teleop.sh \
-    --robot-ip ROBOT_IPV4 \
-    --joint-velocity-limits-rad-s 1.5 1.5 1.5 1.5 1.5 1.5 \
-    --no-auto-retry \
-    --estop-accessible \
-    --workspace-clear \
-    --rh56-command-path-absent \
-    [options]
+    --runtime-config configs/data_collection/physical_collection.yaml \
+    --rh56-command-path-absent
 
 Runs one bounded normal-speed Quest/JAKA arm-only teleoperation attempt through
 the production AcceptedArmTarget + configured PWL path. Releasing left index pauses
@@ -47,29 +25,11 @@ commands RH56.
 不会命令 RH56。
 
 Required / 必填:
-  --robot-ip IPV4
-  --no-auto-retry
-  --estop-accessible
-  --workspace-clear
+  --runtime-config PATH
   --rh56-command-path-absent
 
 Options / 可选:
-  --edg-state-ip IPV4     EDG state host (default: 192.168.71.19)
-  --bind HOST             Quest UDP bind host (default: 0.0.0.0)
-  --port PORT             Quest/CTRL UDP port (default: 9000)
-  --allowed-sender IPV4   Accept Quest packets only from this sender
-  --duration-sec SEC      Positive duration, at most 60 (default: 30)
-  --output-generator VALUE Optional override; normally derived from config
-  --joint-velocity-limits-rad-s J1 J2 J3 J4 J5 J6
-                          J1-J6 default 1.5 rad/s
-  --config PATH           Shared production live configuration
-  --worker PATH           Native JAKA worker
-  --output-joint-jerk-limit-rad-s3 VALUE
-                          Override the config project-selected jerk shaper
-  --log-dir PATH          Timestamped output directory parent (default: logs)
   --python PATH           Python interpreter (default: .venv/bin/python)
-  --plant-free-no-network-check
-                          Validate the complete command without sockets/hardware
   -h, --help              Show this help without connecting to hardware
 
 Project-selected normal teleoperation run limits / 项目选定的正常遥操作参数:
@@ -102,31 +62,9 @@ require_value() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --robot-ip) require_value "$@"; ROBOT_IP="$2"; shift 2 ;;
-    --edg-state-ip) require_value "$@"; EDG_STATE_IP="$2"; shift 2 ;;
-    --bind) require_value "$@"; BIND_HOST="$2"; shift 2 ;;
-    --port) require_value "$@"; UDP_PORT="$2"; shift 2 ;;
-    --allowed-sender) require_value "$@"; ALLOWED_SENDER="$2"; shift 2 ;;
-    --duration-sec) require_value "$@"; DURATION_SEC="$2"; shift 2 ;;
-    --output-generator) require_value "$@"; OUTPUT_GENERATOR="$2"; shift 2 ;;
-    --joint-velocity-limits-rad-s)
-      if [[ $# -lt 7 ]]; then
-        echo "Six J1-J6 velocity values are required / 必须提供 J1-J6 六个速度值" >&2
-        exit 2
-      fi
-      JOINT_VELOCITY_LIMITS=("$2" "$3" "$4" "$5" "$6" "$7")
-      shift 7
-      ;;
-    --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
-    --worker) require_value "$@"; WORKER="$2"; shift 2 ;;
-    --output-joint-jerk-limit-rad-s3) require_value "$@"; OUTPUT_JERK_LIMIT_RAD_S3="$2"; shift 2 ;;
-    --log-dir) require_value "$@"; LOG_DIR="$2"; shift 2 ;;
+    --runtime-config) require_value "$@"; RUNTIME_CONFIG="$2"; shift 2 ;;
     --python) require_value "$@"; PYTHON_BIN="$2"; shift 2 ;;
-    --no-auto-retry) NO_AUTO_RETRY="true"; shift ;;
-    --estop-accessible) ESTOP_ACCESSIBLE="true"; shift ;;
-    --workspace-clear) WORKSPACE_CLEAR="true"; shift ;;
     --rh56-command-path-absent) RH56_PATH_ABSENT="true"; shift ;;
-    --plant-free-no-network-check) PLANT_FREE_NO_NETWORK_CHECK="true"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option / 未知参数: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -134,59 +72,21 @@ done
 
 cd "${REPO_ROOT}"
 
-if [[ -z "${ROBOT_IP}" ]]; then
-  echo "--robot-ip is required / 必须提供 --robot-ip" >&2
+if [[ -z "${RUNTIME_CONFIG}" ]]; then
+  echo "--runtime-config is required / 必须提供 --runtime-config" >&2
   exit 2
 fi
-if [[ "${NO_AUTO_RETRY}" != "true" ]]; then
-  echo "--no-auto-retry is required / 必须提供 --no-auto-retry" >&2
+if [[ "${RH56_PATH_ABSENT}" != "true" ]]; then
+  echo "--rh56-command-path-absent is required / 必须提供 --rh56-command-path-absent" >&2
   exit 2
 fi
-if [[ "${ESTOP_ACCESSIBLE}" != "true" || "${WORKSPACE_CLEAR}" != "true" || "${RH56_PATH_ABSENT}" != "true" ]]; then
-  echo "All three safety confirmations are required / 必须提供三项安全确认" >&2
-  exit 2
-fi
-if ! [[ "${DURATION_SEC}" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]]; then
-  echo "Invalid duration / duration 格式无效: ${DURATION_SEC}" >&2
-  exit 2
-fi
-if ! awk -v value="${DURATION_SEC}" 'BEGIN { exit !(value > 0 && value <= 60) }'; then
-  echo "Duration must be >0 and <=60 seconds / 时长必须大于 0 且不超过 60 秒" >&2
-  exit 2
-fi
-for value in "${JOINT_VELOCITY_LIMITS[@]}"; do
-  if ! awk -v value="${value}" -v hard="${PROJECT_SHARED_HARD_VELOCITY_RAD_S}" \
-      'BEGIN { exit !(value > 0 && value <= hard) }'; then
-    echo "Each joint velocity must be >0 and <=pi rad/s / 每个关节速度必须大于 0 且不超过 pi rad/s" >&2
-    exit 2
-  fi
-done
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Python is not executable / Python 不可执行: ${PYTHON_BIN}" >&2
   exit 2
 fi
-if [[ ! -x "${WORKER}" ]]; then
-  echo "Native worker is not executable / 原生 worker 不可执行: ${WORKER}" >&2
-  echo "Build it first with cmake; no hardware connection was attempted." >&2
-  exit 2
-fi
-if [[ ! -f "${CONFIG}" ]]; then
-  echo "Configuration not found / 配置不存在: ${CONFIG}" >&2
-  exit 2
-fi
-
-timestamp="$(date +%Y%m%d_%H%M%S)"
-LOG_PREFIX="${LOG_DIR%/}/quest_jaka_bounded_teleop_${timestamp}_$$"
-if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" != "true" ]]; then
-  mkdir -p "${LOG_DIR}"
-fi
 
 echo "PHYSICAL_GATE=bounded-normal-teleop"
-echo "OUTPUT_GENERATOR=${OUTPUT_GENERATOR:-from-config}"
-echo "JOINT_VELOCITY_LIMITS_RAD_S=${JOINT_VELOCITY_LIMITS[*]}"
-echo "DURATION_SEC=${DURATION_SEC}"
-echo "LOG_PREFIX=${LOG_PREFIX}"
-echo "NO_AUTO_RETRY=true"
+echo "RUNTIME_CONFIG=${RUNTIME_CONFIG}"
 echo "ARM_CLUTCH=release pauses; press again captures a fresh reference and resumes"
 echo "STOP=Ctrl+C, stale input, controller/native hard fault, or duration elapsed"
 echo "No RH56 command or controller configuration write is performed."
@@ -194,31 +94,9 @@ echo "不发送 RH56 命令，也不写入任何控制器配置。"
 
 CMD=(
   "${PYTHON_BIN}" tools/quest_jaka_hardware.py bounded-normal-teleop
-  --config "${CONFIG}"
-  --worker "${WORKER}"
-  --robot-ip "${ROBOT_IP}"
-  --edg-state-ip "${EDG_STATE_IP}"
-  --bind "${BIND_HOST}"
-  --port "${UDP_PORT}"
-  --duration-sec "${DURATION_SEC}"
-  --run-output-joint-velocity-limits-rad-s "${JOINT_VELOCITY_LIMITS[@]}"
-  --no-auto-retry
-  --estop-accessible
-  --workspace-clear
+  --runtime-config "${RUNTIME_CONFIG}"
   --rh56-command-path-absent
-  --recover-output-acceleration-transition
-  --log "${LOG_PREFIX}.jsonl"
-  --summary "${LOG_PREFIX}_summary.json"
-  --metrics "${LOG_PREFIX}_worker.json"
-  --native-telemetry "${LOG_PREFIX}_native.jsonl"
-  --event-extract "${LOG_PREFIX}_events.jsonl"
 )
-[[ -n "${ALLOWED_SENDER}" ]] && CMD+=(--allowed-sender "${ALLOWED_SENDER}")
-[[ -n "${OUTPUT_GENERATOR}" ]] && CMD+=(--output-generator "${OUTPUT_GENERATOR}")
-[[ -n "${OUTPUT_JERK_LIMIT_RAD_S3}" ]] && CMD+=(--output-joint-jerk-limit-rad-s3 "${OUTPUT_JERK_LIMIT_RAD_S3}")
-if [[ "${PLANT_FREE_NO_NETWORK_CHECK}" == "true" ]]; then
-  CMD+=(--plant-free-no-network-check)
-fi
 
 # One exec, no retry loop.
 exec env PYTHONPATH=src "${CMD[@]}"

@@ -1,45 +1,14 @@
-mode: real
-device_name: inspire_rh56
-transport: serial_rs485_pc_direct
-backend_type: serial_protocol
 serial:
-  # The operator must override this with the adapter's real stable by-id path.
-  port: /dev/serial/by-id/REPLACE_WITH_ACTUAL_RH56_ADAPTER_ID
   baudrate: 115200
   timeout_sec: 0.2
   hand_id: 1
-finger_count: 6
-control_frequency_hz: 40
-scheduler_profile: fast40
-scheduler_profiles:
-  baseline:
-    command_rate_hz: 15
-    angle_feedback_rate_hz: 15
-    current_feedback_rate_hz: 15
-    force_feedback_rate_hz: 15
-    status_feedback_rate_hz: 15
-    error_feedback_rate_hz: 15
-  fast30:
-    command_rate_hz: 30
-    angle_feedback_rate_hz: 15
-    current_feedback_rate_hz: 10
-    force_feedback_rate_hz: 10
-    status_feedback_rate_hz: 10
-    error_feedback_rate_hz: 10
-  fast40:
-    command_rate_hz: 40
-    angle_feedback_rate_hz: 15
-    current_feedback_rate_hz: 10
-    force_feedback_rate_hz: 10
-    status_feedback_rate_hz: 10
-    error_feedback_rate_hz: 10
-  fast50:
-    command_rate_hz: 50
-    angle_feedback_rate_hz: 15
-    current_feedback_rate_hz: 10
-    force_feedback_rate_hz: 10
-    status_feedback_rate_hz: 10
-    error_feedback_rate_hz: 10
+scheduler:
+  command_rate_hz: 40
+  angle_feedback_rate_hz: 15
+  current_feedback_rate_hz: 10
+  force_feedback_rate_hz: 10
+  status_feedback_rate_hz: 10
+  error_feedback_rate_hz: 10
 serial_inter_transaction_delay_ms: 5
 feedback_warning_age_ms:
   angle: 150
@@ -61,27 +30,12 @@ diagnostics:
   telemetry_buffer_capacity: 64
   telemetry_flush_every_records: 16
   telemetry_flush_interval_sec: 1.0
-# Software-only normalized position shaping.  This limits command velocity and
-# acceleration at the 40 Hz hand boundary; it does not write RH56 registers or
-# bypass the delta/contact/fault gates below.
-command_shaping:
-  enabled: true
-  maximum_closing_velocity: [0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
-  # Opening is intentionally bounded separately because direct measurements
-  # showed abrupt four-times-faster release steps than closure steps.
-  maximum_opening_velocity: [0.60, 0.60, 0.60, 0.60, 0.60, 0.60]
-  maximum_acceleration: [1.40, 1.40, 1.40, 1.40, 1.40, 1.40]
-close_strength: 0.35
-pinch_strength: 0.25
-speed_default: [800, 800, 800, 800, 800, 800]
-force_default: [260, 260, 260, 260, 260, 260]
 hand_schema:
   version: inspire6_v1
-  canonical_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
-  canonical_hand_order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
   protocol_order: [pinky, ring, middle, index, thumb_close, thumb_lateral]
   gesture_order: canonical
-  raw_order: [thumb_close, thumb_lateral, index, middle, ring, pinky]
+  # Final guard for an abnormal target discontinuity, not normal hand
+  # smoothing. contact_stop has separate closure safety limits.
   hand_delta_limit: 0.05
   dof_calibration:
     index: {raw_open: 1000, raw_close: 0, direction_sign: -1, safe_min: 0, safe_max: 1000, default_speed: 800, default_force_limit: 260}
@@ -94,11 +48,7 @@ gesture_presets:
   open: [1000, 1000, 1000, 1000, 1000, 1000]
   close: [200, 200, 200, 200, 200, 200]
   pinch: [650, 650, 760, 760, 500, 350]
-topics:
-  state: /hand/state
-  command: /hand/command
 safety:
-  estop_enabled: true
   # The RH56 normalized protocol domain is available on every channel. Object
   # protection is handled by the feedback-qualified contact stop below, not by
   # a fixed 0.8 travel truncation.
@@ -124,6 +74,6 @@ safety:
     baseline_alpha: 0.10
   teleop_notes:
     - This config is for RH56 PC-direct hand-only teleop.
-    - Fast40 is the physically selected default; baseline/fast30/fast50 remain explicit comparison profiles. Delta_limit remains 0.05 and this gate performs no automatic config writes.
-    - Command shaping is a normalized position trajectory limit, not a low-pass filter; the latest-only target and 40 Hz scheduler remain unchanged.
+    - The fixed scheduler uses 40 Hz commands, 15 Hz ANGLE feedback, and 10 Hz CURRENT/FORCE/STATUS/ERROR feedback. hand_delta_limit remains 0.05 and this gate performs no automatic config writes.
+    - Quest targets are latest-only and direct; hand_delta_limit is only an abnormal target-discontinuity guard, while contact_stop owns closure safety.
     - /hand/command_angles expects canonical raw count order.

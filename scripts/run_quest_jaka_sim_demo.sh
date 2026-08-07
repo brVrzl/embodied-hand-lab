@@ -7,7 +7,6 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
 CONFIG="configs/sim/quest_hts_jaka_mini2_live_demo.yaml"
-SPEED_PROFILE="root_cause_fix"
 BIND_HOST="0.0.0.0"
 UDP_PORT="9000"
 PROJECT_IP=""
@@ -35,7 +34,6 @@ simulation-only Quest 3 -> JAKA Mini2 MuJoCo 6D 相对遥操作演示。
 
 选项：
   --config PATH           演示 YAML（默认 configs/sim/quest_hts_jaka_mini2_live_demo.yaml）
-  --speed-profile NAME    仿真 overlay（默认 root_cause_fix；实验 profile 仅供诊断）
   --bind HOST             UDP bind host（默认 0.0.0.0）
   --port PORT             Quest/CTRL 共用 UDP 端口（默认 9000）
   --project-ip IPV4       显示给 Quest 操作者填写的主机 IPv4（默认由正式入口探测）
@@ -70,7 +68,6 @@ require_value() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) require_value "$@"; CONFIG="$2"; shift 2 ;;
-    --speed-profile) require_value "$@"; SPEED_PROFILE="$2"; shift 2 ;;
     --bind) require_value "$@"; BIND_HOST="$2"; shift 2 ;;
     --port) require_value "$@"; UDP_PORT="$2"; shift 2 ;;
     --project-ip) require_value "$@"; PROJECT_IP="$2"; shift 2 ;;
@@ -159,7 +156,6 @@ CMD=(
 [[ -n "${EVENTS}" ]] && CMD+=(--events "${EVENTS}")
 [[ -n "${ARM_EMITTED_EVENTS}" ]] && CMD+=(--arm-emitted-events "${ARM_EMITTED_EVENTS}")
 [[ -n "${IK_DEBUG_FLAG}" ]] && CMD+=("${IK_DEBUG_FLAG}")
-[[ -n "${SPEED_PROFILE}" ]] && CMD+=(--speed-profile "${SPEED_PROFILE}")
 
 # exec keeps one foreground process, so Ctrl-C/window close reaches the Python
 # finally blocks that stop the receiver thread and close the viewer/socket.

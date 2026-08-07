@@ -32,7 +32,7 @@ provisional_calibration:
   maximum_target_displacement_m: 0.015
 
 simulation:
-  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  mjcf_path: assets/jaka_rh56_visual_coacd.xml
   zero_gravity: true
   initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
   ik_gain: 0.70
@@ -45,13 +45,16 @@ simulation:
   maximum_target_jump_m: 0.004
   maximum_tcp_velocity_m_s: 0.025
   maximum_tcp_angular_velocity_rad_s: 0.20
-  maximum_joint_velocity_rad_s: 1.5
-  command_maximum_joint_velocity_rad_s: 1.5
-  command_maximum_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-  maximum_joint_acceleration_rad_s2: 20.0
   joint_limit_margin_deg: 5.0
   reject_action: disengage_and_hold_last_safe_simulated_target
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts
+
+shared_target_generation:
+  # The offline arm uses the same output contract as the MuJoCo direct-output
+  # adapter.  There is no separate IK or command velocity/acceleration policy.
+  maximum_output_joint_velocity_rad_s: 1.5
+  maximum_output_joint_velocity_rad_s_per_joint: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
+  maximum_output_joint_acceleration_rad_s2: 12.5663706144
 
 axis_analysis:
   right_hand_left_right_s: [71.0, 73.0]

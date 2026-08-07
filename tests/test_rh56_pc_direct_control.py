@@ -20,7 +20,14 @@ from rh56_driver.serial_backend import RH56SerialBackend
 
 def _config() -> dict:
     return {
-        "control_frequency_hz": 15,
+        "scheduler": {
+            "command_rate_hz": 15,
+            "angle_feedback_rate_hz": 15,
+            "current_feedback_rate_hz": 15,
+            "force_feedback_rate_hz": 15,
+            "status_feedback_rate_hz": 15,
+            "error_feedback_rate_hz": 15,
+        },
         "feedback_stale_timeout_sec": 0.4,
         "serial": {"timeout_sec": 0.2},
         "hand_schema": {
@@ -110,7 +117,7 @@ def test_session_arm_open_and_feedback_perform_no_register_writes_until_activati
     assert backend.write_count == 0
 
 
-def test_active_commands_are_rate_and_delta_limited_in_canonical_order() -> None:
+def test_active_commands_apply_final_target_delta_guard_in_canonical_order() -> None:
     control, backend = _opened_control()
     control.activate(1_000_000_000)
 
@@ -126,56 +133,6 @@ def test_active_commands_are_rate_and_delta_limited_in_canonical_order() -> None
     assert control.command([0.8] * 6, 1_000_000_000 + control.command_period_ns)
     assert control.last_command_normalized == pytest.approx([0.1] * 6)
     assert backend.position_writes[-1] == [900] * 6
-
-
-def test_enabled_command_shaper_has_bounded_acceleration_and_no_overshoot() -> None:
-    backend = FakeRH56PcDirectBackend()
-    config = _config()
-    config["safety"] = {"max_close_strength": 1.0}
-    config["command_shaping"] = {
-        "enabled": True,
-        "maximum_closing_velocity": [0.35] * 6,
-        "maximum_opening_velocity": [0.60] * 6,
-        "maximum_acceleration": [1.40] * 6,
-    }
-    control = RH56PcDirectControl(backend, config)
-    control.open(HandOperation.HAND_ONLY)
-    control.poll_feedback(1_000_000_000)
-    control.activate(1_000_000_000)
-
-    period = control.command_period_ns
-    closing_positions: list[float] = []
-    for step in range(24):
-        timestamp = 1_000_000_000 + step * period
-        control.poll_feedback(timestamp)
-        assert control.command([0.8] * 6, timestamp)
-        closing_positions.append(control.last_command_normalized[0])
-    closing_steps = [b - a for a, b in zip(closing_positions, closing_positions[1:])]
-    assert closing_positions == sorted(closing_positions)
-    assert closing_positions[-1] < 0.8
-    assert max(closing_steps) <= 0.05
-    assert closing_steps[1] > closing_steps[0]
-
-    opening_positions: list[float] = []
-    for step in range(80):
-        timestamp = 1_000_000_000 + (24 + step) * period
-        control.poll_feedback(timestamp)
-        control.command([0.0] * 6, timestamp)
-        opening_positions.append(control.last_command_normalized[0])
-    assert all(0.0 <= value <= 0.8 for value in opening_positions)
-    assert opening_positions[-1] == pytest.approx(0.0)
-    opening_steps = [a - b for a, b in zip(opening_positions, opening_positions[1:])]
-    assert max(opening_steps) <= 0.05
-
-
-def test_command_shaper_rejects_malformed_channel_vectors() -> None:
-    config = _config()
-    config["command_shaping"] = {
-        "enabled": True,
-        "maximum_acceleration": [1.4] * 5,
-    }
-    with pytest.raises(ValueError, match="command_shaping maximum_acceleration"):
-        RH56PcDirectControl(FakeRH56PcDirectBackend(), config)
 
 
 def test_contact_stop_only_pauses_once_while_measured_closure_is_progressing() -> None:
@@ -309,43 +266,6 @@ def test_contact_stop_latches_after_confirmed_stall_and_opening_releases() -> No
     assert control.last_command_normalized[0] == pytest.approx(0.0)
 
 
-def test_contact_candidate_discards_shaper_closing_momentum_immediately() -> None:
-    backend = FakeRH56PcDirectBackend()
-    config = _contact_stop_config()
-    config["control_frequency_hz"] = 40
-    config["command_shaping"] = {
-        "enabled": True,
-        "maximum_closing_velocity": [0.35] * 6,
-        "maximum_opening_velocity": [0.60] * 6,
-        "maximum_acceleration": [1.40] * 6,
-    }
-    control = RH56PcDirectControl(backend, config)
-    control.open(HandOperation.HAND_ONLY)
-    control.poll_feedback(1_000_000_000)
-    control.activate(1_000_000_000)
-
-    period = control.command_period_ns
-    for step in range(8):
-        timestamp = 1_000_000_000 + step * period
-        assert control.command([0.8, 0, 0, 0, 0, 0], timestamp)
-        backend.position[0] = round(
-            1000.0 * (1.0 - control.last_command_normalized[0])
-        )
-        control.poll_feedback_register("ANGLE", timestamp + period // 2)
-
-    before_contact = control.last_command_normalized[0]
-    assert control.command_shaper.velocity[0] > 0.0
-    backend.load[0] = 350.0
-    control.poll_feedback_register("FORCE", 1_000_000_000 + 8 * period)
-    assert control.contact_stop_snapshot()["candidate_count"][0] == 1
-
-    assert control.command(
-        [0.8, 0, 0, 0, 0, 0], 1_000_000_000 + 9 * period
-    )
-    assert control.last_command_normalized[0] < before_contact
-    assert control.command_shaper.velocity[0] <= 0.0
-
-
 def test_loaded_reactivation_preserves_baseline_and_provisional_hold() -> None:
     backend = FakeRH56PcDirectBackend()
     control = RH56PcDirectControl(backend, _contact_stop_config())
@@ -462,7 +382,7 @@ def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> No
     backend = FakeRH56PcDirectBackend()
     backend.position = [650.0] * 6
     config = _config()
-    config["control_frequency_hz"] = 100
+    config["scheduler"]["command_rate_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
     first = worker.start(HandOperation.COMBINED)

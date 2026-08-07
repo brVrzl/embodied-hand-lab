@@ -41,11 +41,10 @@ physical evidence or opening an operator guide.
 | Area | Current capability |
 | --- | --- |
 | Quest/JAKA control | Shared input, clutch, mapping, continuation IK, collision/singularity/limit checks, output feasibility, and immutable accepted-target boundary |
-| MuJoCo | Headless smoke, replay/live simulation, six arm plus six hand actuators, and a deterministic joint reach/pre-shape benchmark |
+| MuJoCo | Headless smoke, replay/live simulation, and six arm plus six hand actuators |
 | Physical JAKA | Explicitly selected ServoJ/EDG joint adapter with sole-session status polling and final native safety checks; only partially physically validated |
 | RH56DFX | PC-direct USB/RS485 scheduler, bounded six-actuator commands, and raw actuator feedback; independently operated and only partially physically validated |
 | Dataset tools | Atomic canonical episodes, integrity validation, episode-level splits, train-only statistics, ACT-style HDF5 export, and optional LeRobot v3 export |
-| Training infrastructure | Host inspection, global-batch validation, rank handling, and a PyTorch distributed communication smoke test |
 | Policy training | Integration boundaries are documented; no maintained ACT, Diffusion Policy, or OpenPI trainer is implemented in this repository |
 | Cameras | RealSense adapters, processing utilities, and example configuration exist; synchronized dual-D435 physical collection is not end-to-end validated |
 
@@ -78,9 +77,8 @@ Run the offline suite:
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-The Linux-only JAKA SDK tests and optional PyTorch collective test are skipped
-when their platform or dependency is unavailable. A skip is not physical
-validation.
+The Linux-only JAKA SDK tests are skipped when their platform or dependency is
+unavailable. A skip is not physical validation.
 
 ## Maintained workflows
 
@@ -89,14 +87,10 @@ validation.
 ```bash
 ./scripts/run_quest_jaka_sim_demo.sh --help
 .venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
-.venv/bin/embodied-lab benchmark \
-  configs/benchmark/smoke.yaml \
-  --output /tmp/embodied-lab-benchmark.json
 ```
 
 The live simulation receives Quest UDP packets but imports no JAKA or RH56
-hardware SDK. See [simulation operation](docs/operation/simulation_demo.md) and
-[benchmarking](docs/benchmark/BENCHMARKS.md).
+hardware SDK. See [simulation operation](docs/operation/simulation_demo.md).
 
 ### Dataset preparation
 
@@ -110,27 +104,9 @@ hardware SDK. See [simulation operation](docs/operation/simulation_demo.md) and
 ```
 
 Canonical schema, atomic completion, missing-frame semantics, collection
-limits, and framework adapters are documented in
-[the dataset collection entry](docs/data/DATA_COLLECTION.md),
-[dataset schema](docs/data/DATASET_SCHEMA.md),
-[collection guide](docs/data/COLLECTION_GUIDE.md), and
-[training integration](docs/training/TRAINING_INTEGRATION.md).
-
-### Training-server preparation
-
-Install the optional PyTorch dependency on a compatible training host:
-
-```bash
-.venv/bin/python -m pip install -e ".[training]"
-.venv/bin/embodied-lab distributed-smoke --check
-```
-
-Single-process is the baseline and DDP is the intended scaling path when a
-trainer is added. The repository does not claim validated GPU, multi-GPU,
-multi-node, Slurm, FSDP, or DeepSpeed training. See
-[distributed training](docs/training/DISTRIBUTED_TRAINING.md) for `torchrun`
-and Slurm templates, global-batch semantics, checkpoint requirements, storage
-guidance, and Jetson Thor deployment boundaries.
+limits, review, and framework adapters are documented in the
+[dataset collection entry](docs/data/DATA_COLLECTION.md) and
+[dataset schema](docs/data/DATASET_SCHEMA.md).
 
 ### Physical operation
 
@@ -155,14 +131,9 @@ authority.
 | `native/jaka_servo_worker` | Linux JAKA EDG transport and 8 ms final command boundary |
 | `src/rh56_driver`, `src/rh56_sim` | PC-direct RH56 protocol path and simulation approximation |
 | `src/episode_dataset` | Episode lifecycle, synchronization, validation, manifests, statistics, and export |
-| `src/training_infra` | Optional distributed-runtime inspection and collective smoke test |
-| `src/benchmarking` | Deterministic offline benchmark harness |
-| `src/vision_interface`, `digital_twin` | Camera interfaces and workspace reconstruction/calibration research |
+| `src/vision_interface` | Camera interfaces and perception support |
 | `configs` | Versioned examples and runtime policies |
 | `docs/history` | Dated evidence and superseded designs, never current operating authority |
-
-`learned_policy/` is preserved inference research, not the maintained training
-stack or a physical command path.
 
 ## Environment choices
 
@@ -172,7 +143,6 @@ Install only the extras needed by a host:
 - `.[hardware]` for serial support, still subject to physical authorization;
 - `.[realsense]` or `.[vision-teleop]` for optional camera/input tooling;
 - `.[dataset-export]` for ACT-style HDF5 and LeRobot export;
-- `.[training]` for PyTorch training-server preparation;
 - `.[asset-tools]` for reconstruction and collision-asset development;
 - `.[dev]` for the complete offline development and test environment.
 
@@ -197,8 +167,8 @@ as proof that another platform is ready. See
 
 More diagnostics are in [troubleshooting](docs/TROUBLESHOOTING.md). The
 [documentation index](docs/README.md) separates current authority from dated
-evidence, and the [execution roadmap](docs/roadmap/NEXT_STEPS.md) records the
-remaining data, training, benchmark, calibration, and deployment work.
+evidence; remaining work is recorded only in the current status and known
+limitations pages.
 
 ## 中文说明
 

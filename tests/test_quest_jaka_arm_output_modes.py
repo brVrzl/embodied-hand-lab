@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-import math
 from pathlib import Path
 import subprocess
 
@@ -52,82 +51,8 @@ def _simulation(tmp_path: Path) -> JakaMujocoSimulation:
     model = build_viewer_mjcf(
         config.mjcf_path,
         tmp_path / "output-mode.xml",
-        scene=config.raw["simulation"]["scene"],
     )
     return JakaMujocoSimulation(config, mjcf_path=model)
-
-
-def test_workspace_scene_uses_physical_table_and_operator_aligned_base(
-    tmp_path: Path,
-) -> None:
-    simulation = _simulation(tmp_path)
-    model = simulation.model
-    expected_initial = np.deg2rad((90.0, -35.0, -90.0, 10.0, 65.0, -15.0))
-    assert simulation.config.initial_arm_joints_rad == pytest.approx(expected_initial)
-    assert simulation.config.initial_arm_joints_rad[1:] == (
-        -0.6108652382,
-        -1.5707963268,
-        0.1745329252,
-        1.1344640138,
-        -0.2617993878,
-    )
-    assert simulation.arm_joints_rad == pytest.approx(expected_initial)
-    assert simulation.data.ctrl[simulation.arm_actuator_ids] == pytest.approx(
-        expected_initial
-    )
-    table_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_GEOM, "quest_jaka_workspace_tabletop"
-    )
-    base_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "jaka_Link_0")
-    palm_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_BODY, "rh56_R_hand_base_link"
-    )
-    assert model.geom_pos[table_id] == pytest.approx((0.053, 0.545, -0.060))
-    assert 2.0 * model.geom_size[table_id] == pytest.approx((0.73, 1.38, 0.02))
-    assert model.body_pos[base_id] == pytest.approx((0.0, 0.0, 0.0))
-    assert model.body_quat[base_id] == pytest.approx((1.0, 0.0, 0.0, 0.0))
-    assert model.body_pos[base_id, 1] < model.geom_pos[table_id, 1]
-    assert model.geom_pos[table_id, 1] - model.geom_size[table_id, 1] == pytest.approx(
-        -0.145
-    )
-    assert simulation.data.ncon == 0
-    assert len(simulation.arm_actuator_ids) == 6
-    assert len(simulation.hand_actuator_ids) == 6
-
-    probe = mujoco.MjData(model)
-    probe.qpos[simulation.arm_qpos_ids] = simulation.config.initial_arm_joints_rad
-    probe.qpos[simulation.arm_qpos_ids[0]] = math.pi / 2.0
-    mujoco.mj_forward(model, probe)
-    forward = -probe.xmat[palm_id].reshape(3, 3)[:, 2]
-    toward_table = model.geom_pos[table_id] - probe.xpos[base_id]
-    assert np.dot(forward[:2], toward_table[:2]) > 0.0
-    assert forward[1] > 0.8
-    assert probe.ncon == 0
-
-    camera = simulation.config.raw["simulation"]["scene"]["viewer_camera"]
-    lookat = np.asarray(camera["lookat_world_m"], dtype=float)
-    assert lookat == pytest.approx((0.03, 0.50, 0.28))
-    assert abs(lookat[1] - model.geom_pos[table_id, 1]) < 0.1
-    assert float(camera["distance_m"]) > 2.0
-    assert float(camera["azimuth_deg"]) == 0.0
-    assert -35.0 < float(camera["elevation_deg"]) < -15.0
-
-    arm_only_path = build_viewer_mjcf(
-        simulation.config.mjcf_path,
-        tmp_path / "arm-only-scene.xml",
-        arm_only=True,
-        scene=simulation.config.raw["simulation"]["scene"],
-    )
-    arm_only = JakaMujocoSimulation(simulation.config, mjcf_path=arm_only_path)
-    assert len(arm_only.arm_actuator_ids) == 6
-    assert len(arm_only.hand_actuator_ids) == 0
-    assert arm_only.arm_joints_rad == pytest.approx(simulation.arm_joints_rad)
-    assert arm_only.data.ncon == 0
-    assert mujoco.mj_name2id(
-        arm_only.model,
-        mujoco.mjtObj.mjOBJ_GEOM,
-        "quest_jaka_workspace_tabletop",
-    ) >= 0
 
 
 def _target(
