@@ -327,59 +327,6 @@ class JointOutputFeasibilityTracker:
             ),
         )
 
-    def resync_hold(
-        self,
-        joint_position_rad: Sequence[float],
-        *,
-        generated_monotonic_ns: int,
-    ) -> None:
-        """Rebase position while preserving a bounded hold velocity state.
-
-        A rejected candidate is never committed.  The next prediction must
-        use the position that is actually being held, but it must not treat
-        that position as an instantaneous stop: doing so creates a false
-        acceleration spike on the first recovery candidate.  Decay the prior
-        coarse velocity toward zero using the existing acceleration boundary;
-        this is a bounded hold deceleration, not a new output limit.  Native
-        shaping and final checks remain authoritative.
-        """
-
-        values = self._validated_joints(joint_position_rad)
-        timestamp = int(generated_monotonic_ns)
-        if timestamp <= 0:
-            raise ValueError("output feasibility timestamp must be positive")
-        if (
-            self._coarse_timestamp_ns is not None
-            and timestamp < self._coarse_timestamp_ns
-        ):
-            raise ValueError(
-                "hold resynchronization timestamps must be monotonic"
-            )
-        if self._coarse_timestamp_ns is None:
-            hold_interval_s = self.servo_period_ns / 1e9
-        else:
-            hold_interval_s = (
-                timestamp - self._coarse_timestamp_ns
-            ) / 1e9
-        if math.isfinite(self.maximum_acceleration_rad_s2):
-            maximum_velocity_decay = (
-                self.maximum_acceleration_rad_s2 * hold_interval_s
-            )
-            held_velocity = tuple(
-                math.copysign(
-                    max(abs(value) - maximum_velocity_decay, 0.0),
-                    value,
-                )
-                if value != 0.0
-                else 0.0
-                for value in self._coarse_velocity_rad_s
-            )
-        else:
-            held_velocity = self._coarse_velocity_rad_s
-        self._coarse_position_rad = values
-        self._coarse_velocity_rad_s = held_velocity
-        self._coarse_timestamp_ns = timestamp
-
     def commit_prefilter(
         self,
         joint_position_rad: Sequence[float],
@@ -389,11 +336,12 @@ class JointOutputFeasibilityTracker:
     ) -> None:
         """Advance the coarse screen only after an accepted target."""
 
-        if not prefilter.feasible:
-            raise ValueError("an infeasible joint target cannot enter the accepted contract")
-        # ``prefilter`` is the boundary that validates the six finite joints;
-        # commit consumes that same trusted candidate without repeating the
-        # numerical scan on the hot path.
+        # ``prefilter`` is an advisory diagnostic.  The candidate has already
+        # passed the authoritative Python geometry/branch checks; native owns
+        # actual output shaping and final hard dynamic checks.  Advance the
+        # coarse state even when the advisory estimate is outside the normal
+        # operating envelope so a later candidate is compared with the last
+        # accepted target rather than a stale measured-state rebase.
         candidate = tuple(float(value) for value in joint_position_rad)
         if len(candidate) != 6:
             raise ValueError("output feasibility requires six joint radians")

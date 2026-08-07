@@ -101,10 +101,10 @@ rates:
 # adapters consume the result of this policy; neither adapter may override it.
 shared_target_generation:
   continuation_enabled: true
-  # Keep at most three useful retries (four IK solves including the first
+  # Keep at most one useful retry (two IK solves including the first
   # candidate). A compute deadline still stops the current tick and returns
   # HOLD_REJECTED without spending the whole cycle on tiny backtracks.
-  maximum_backtracks: 3
+  maximum_backtracks: 1
   minimum_continuation_fraction: 0.03125
   # Keep producer compute near the 60 Hz period and well below the retained
   # 100 ms native liveness timeout. If mapping plus bounded continuation work

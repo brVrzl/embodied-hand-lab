@@ -7,7 +7,7 @@
 | Transient Quest input invalidity | stale/invalid CTRL or wrist data before recovery deadline | immediate no-motion hold, fresh producer heartbeat, release-before-press recapture |
 | Input recovery deadline | live producer remains healthy but input does not recover by the configured window | persistent disengaged hold, fresh no-motion heartbeat, no old-reference reuse |
 | Producer/process liveness | producer/process/IPC death or native watchdog expiry | stop physical output and clean up |
-| Recoverable candidate infeasibility | IK, collision, singularity direction, output velocity/acceleration | `HOLD_REJECTED`, fresh heartbeat, hold last safe target |
+| Recoverable candidate infeasibility | IK, collision, singularity direction, explicit candidate limits, or native recoverable transition hold | `HOLD_REJECTED`, fresh heartbeat, hold last safe target |
 | Native/controller hard fault | tracking error, servo alarm, collision, estop, power/enable loss, SDK error, hard timing fault | stop before another point and clean up |
 | Operator action | clutch release, bounded gate end, explicit stop | stop/hold per stage and clean up |
 
@@ -17,14 +17,14 @@ recoverable hold.
 
 ## Defense in depth
 
-Shared policy rejects unsafe candidates before constructing
-`AcceptedArmTarget`. Joint velocity and acceleration are configured once in
-the shared output contract: the Python prefilter screens accepted-target
-replacement, while the native worker independently checks the final emitted
-8 ms segment as a transport/controller boundary. The native worker also
-checks continuity, tracking, liveness, timing, and controller health as
-defensive assertions. Native checks must not silently reshape a target and
-thereby make simulation and hardware different.
+Shared policy rejects geometrically or kinematically unsafe candidates before
+constructing `AcceptedArmTarget`. The Python output prefilter records coarse
+accepted-target velocity/acceleration estimates for diagnostics; it is not a
+second hard dynamic gate. The native worker independently checks and shapes the
+final emitted 8 ms segment as a transport/controller boundary. The native
+worker also checks continuity, tracking, liveness, timing, and controller
+health as defensive assertions. Native checks must not silently reshape a
+target and thereby make simulation and hardware different.
 
 The startup hold measured after entering EDG is the physical authority.
 Reference capture cannot waive startup continuity. Latest-destination
@@ -49,7 +49,7 @@ previous operator report, not a guarantee of present controller state.
 | Quest 输入短时失效 | CTRL/wrist 陈旧或无效且仍在 recovery deadline 内 | 立即无运动保持、fresh producer heartbeat、release-before-press 重采参考 |
 | 输入 recovery deadline | producer 仍存活但输入超过配置窗口未恢复 | persistent disengaged hold、fresh no-motion heartbeat、不复用旧参考 |
 | Producer/process 活性 | producer/process/IPC 死亡或 native watchdog expiry | 停止真机输出并清理 |
-| 可恢复候选不可行 | IK、碰撞、奇异方向、输出速度/加速度 | `HOLD_REJECTED`、新鲜 heartbeat、保持最后安全目标 |
+| 可恢复候选不可行 | IK、碰撞、奇异方向、显式候选限制、native 可恢复 transition hold | `HOLD_REJECTED`、新鲜 heartbeat、保持最后安全目标 |
 | Native/控制器硬故障 | tracking error、servo alarm、collision、estop、power/enable 丢失、SDK、硬时序故障 | 在发送下一点前停止并清理 |
 | 操作者动作 | clutch release、gate 到时、显式停止 | 按 stage 停止/保持并清理 |
 
@@ -57,10 +57,10 @@ previous operator report, not a guarantee of present controller state.
 
 ## 纵深防御
 
-共享策略在构造 `AcceptedArmTarget` 前拒绝不安全候选。关节速度和加速度只在 shared output
-contract 中配置一次：Python prefilter 检查 accepted target 的替换，native worker 在硬件边界
-检查最终 8 ms 输出段。native worker 还独立检查连续性、跟踪、活性、时序和控制器健康，作为
-最终防御。native 检查不能静默重塑目标，否则会破坏仿真/真机一致性。
+共享策略在构造 `AcceptedArmTarget` 前拒绝几何或运动学上不安全候选。关节速度和加速度只在
+shared output contract 中配置一次：Python prefilter 记录 accepted target 替换的 coarse 诊断，
+native worker 在硬件边界检查并 shaping 最终 8 ms 输出段。native worker 还独立检查连续性、跟踪、
+活性、时序和控制器健康，作为最终防御。native 检查不能静默重塑目标，否则会破坏仿真/真机一致性。
 
 进入 EDG 后测得的 startup hold 是真机权威。捕获参考不能豁免启动连续性。latest-destination
 重采样必须有界且因果；被拒绝或旧目标不能排队后续回放。

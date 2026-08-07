@@ -86,8 +86,9 @@ when a causal frame is missing/stale; it never waits for the next frame.
 The Python producer runs the Quest/CTRL validation and clutch boundary, mapping,
 one shared continuation IK attempt plus a small bounded number of retries, and
 candidate legality checks at the target-generation rate. Its output check is a
-coarse velocity/acceleration prefilter; it validates six finite joint values at
-that boundary but does not copy the native active segment or predict jerk.
+coarse velocity/acceleration diagnostic prefilter; it validates six finite
+joint values at that boundary but does not copy the native active segment or
+predict jerk.
 `AcceptedArmTarget` remains the immutable shared boundary.
 
 The native worker owns the actual 8 ms velocity/acceleration/jerk transition
@@ -148,7 +149,7 @@ from the last accepted branch and applies the current shared checks:
 - branch/joint-step continuity;
 - Jacobian condition, minimum singular value, and directional recovery;
 - self-collision and the environment represented in the generator's base MJCF;
-- accepted-output velocity and acceleration feasibility;
+- native final output velocity and acceleration checks;
 - the physical producer compute deadline when that budget is enabled.
 
 Only a passing candidate becomes
@@ -292,9 +293,10 @@ fault aggregation。
 
 ## 接受、拒绝和故障
 
-candidate 的 finite、branch、joint range、collision、singularity、velocity/acceleration 和 continuation
-检查属于共享 Python boundary；不通过的 candidate 不 commit，进入 `HOLD_REJECTED` 并保持最后 safe target
-和 fresh heartbeat。transient Quest loss、clutch invalid、ordinary RH56 rate limit/contact clamp 和
+candidate 的 finite、branch、joint range、collision、singularity 和 continuation 检查属于共享 Python
+boundary；不通过的 candidate 不 commit，进入 `HOLD_REJECTED` 并保持最后 safe target 和 fresh heartbeat。
+Python coarse velocity/acceleration 结果只记录为诊断软约束，native worker 负责最终输出动态 shaping/check。
+transient Quest loss、clutch invalid、ordinary RH56 rate limit/contact clamp 和
 录制质量事件不得无条件结束整个 process。
 
 JAKA controller alarm、collision、E-stop、power/enable loss、SDK fault、native hard timing、watchdog/

@@ -24,12 +24,13 @@ does not follow MuJoCo `qpos`, remap, filter, or recompute IK. Current native
 absolute target through the 8 ms latest-destination/PWL worker.
 
 The Python hot path now uses a coarse output prefilter: the candidate boundary
-retains six-finite-joint, branch-continuity, hard-range, and obvious
-velocity/acceleration checks, while the native worker remains responsible for
-actual 8 ms velocity/acceleration/jerk shaping and final hard assertions. It
-does not predict jerk or reproduce the native active segment. Continuation
-preserves the remote maximum of five backtracks; reaching the existing
-20 ms Python budget returns `HOLD_REJECTED` and keeps a fresh heartbeat.
+retains six-finite-joint, branch-continuity, and hard-range checks, while
+velocity/acceleration estimates remain advisory diagnostics rather than a
+second hard trajectory gate. The native worker remains responsible for actual
+8 ms velocity/acceleration/jerk shaping and final hard assertions. Python does
+not predict jerk or reproduce the native active segment. Continuation allows
+at most one retry; reaching the existing 20 ms Python budget returns
+`HOLD_REJECTED` and keeps a fresh heartbeat.
 
 The `0.22 rad` candidate-jump setting is not a periodic-joint travel limit.
 J1/J4/J6 are not rejected merely because one candidate step exceeds it. Their
@@ -347,7 +348,7 @@ Quest input
 
 两个 adapter 收到相同的 J1--J6 radians。物理 adapter 不跟随 MuJoCo `qpos`、不重新映射、不重新
 滤波、不重新求 IK；native joint-teleop mode 不调用 JAKA `kine_inverse`。Python 只做 coarse output
-prefilter，保留 finite joint、branch、hard range 和明显 velocity/acceleration impossibility；native
+prefilter，保留 finite joint、branch 和 hard range；velocity/acceleration 估计只作为诊断软约束，native
 worker 负责实际 8 ms velocity/acceleration/jerk shaping、final hard check、watchdog 和 publication。
 
 candidate rejection、IK no solution、soft margin、singularity candidate rejection、Quest transient

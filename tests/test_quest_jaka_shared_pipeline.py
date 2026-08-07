@@ -164,7 +164,7 @@ def test_one_shared_config_defines_target_and_jaka_transport_contract() -> None:
     assert hardware["expected_tool_id"] == hardware["expected_user_frame_id"] == 0
     assert config.raw["shared_target_generation"] == {
         "continuation_enabled": True,
-        "maximum_backtracks": 3,
+        "maximum_backtracks": 1,
         "minimum_continuation_fraction": 0.03125,
         "control_compute_budget_ms": 20.0,
         "feasibility_acceleration_period_ns": 16666667,
@@ -370,8 +370,9 @@ def test_shared_continuation_bounds_full_pose_for_both_outputs(
 
     assert advanced.accepted_target is not None
     assert event["continuation_enabled"] is True
-    assert 0.0 < event["continuation_fraction"] < 1.0
-    assert event["requested_backlog_deg"] > 0.0
+    assert 0.0 < event["continuation_fraction"] <= 1.0
+    assert event["continuation_backtracks"] <= 1
+    assert event["requested_backlog_deg"] >= 0.0
     assert quaternion_angle_rad(
         captured.accepted_target.filtered_tcp.orientation_xyzw,
         advanced.accepted_target.filtered_tcp.orientation_xyzw,

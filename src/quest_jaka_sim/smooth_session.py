@@ -152,7 +152,7 @@ class SmoothQuestJakaSession:
         self.input_recovery_timeout_count = 0
         shared_policy = config.raw.get("shared_target_generation", {})
         self.continuation_enabled = bool(shared_policy.get("continuation_enabled", True))
-        self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 3))
+        self.maximum_continuation_backtracks = int(shared_policy.get("maximum_backtracks", 1))
         self.control_compute_budget_ms = (
             None
             if control_compute_budget_ms is None
@@ -1038,23 +1038,6 @@ class SmoothQuestJakaSession:
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
                 FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }
-            if not result.metrics.hard_stop_required and not branch_or_winding_hard_stop:
-                # Keep the accepted target authoritative, but rebase only the
-                # Python prefilter on the state that is actually being held.
-                # This prevents repeated rejects from carrying stale coarse
-                # velocity/acceleration into the next control tick.
-                hold_joints = (
-                    fresh_measured
-                    if fresh_measured is not None
-                    else tuple(
-                        float(value)
-                        for value in self.target_generator.last_safe_joint_target
-                    )
-                )
-                self.target_generator.synchronize_output_prefilter_hold(
-                    hold_joints,
-                    generated_monotonic_ns=now_ns,
-                )
             if result.reason in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
                 FeasibilityReason.EPISODE_WINDING_EXCEEDED,

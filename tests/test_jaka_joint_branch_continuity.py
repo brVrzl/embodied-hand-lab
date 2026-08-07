@@ -86,7 +86,7 @@ def test_winding_guard_rejects_and_holds_before_a_full_turn() -> None:
     assert result.metrics.episode_winding_rad[3] > 5.0
 
 
-def test_large_periodic_candidate_step_is_recoverable_hold() -> None:
+def test_large_periodic_candidate_step_is_not_a_branch_hard_stop() -> None:
     generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
     seed = generator.last_safe_joint_target.copy()
     candidate = seed.copy()
@@ -103,8 +103,9 @@ def test_large_periodic_candidate_step_is_recoverable_hold() -> None:
         fresh_measured_joint_position_rad=seed.tolist(),
     )
     assert not result.accepted
-    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
-    assert result.joint_target_rad is None
+    assert result.reason is not FeasibilityReason.JOINT_BRANCH_DISCONTINUITY
+    assert result.reason is not FeasibilityReason.EPISODE_WINDING_EXCEEDED
+    assert not result.metrics.hard_stop_required
 
 
 def test_wrist_sized_j6_step_is_not_a_branch_hard_stop() -> None:
@@ -123,8 +124,9 @@ def test_wrist_sized_j6_step_is_not_a_branch_hard_stop() -> None:
         dt_s=1.0 / 60.0,
         fresh_measured_joint_position_rad=seed.tolist(),
     )
-    assert not result.accepted
-    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
+    assert result.accepted
+    assert result.reason is FeasibilityReason.ACCEPTED
+    assert result.metrics.output_velocity_violating_joint_indices == (5,)
     assert result.metrics.branch_equivalent_offset == (0, 0, 0, 0, 0, 0)
 
 
@@ -133,7 +135,7 @@ def test_equivalent_branch_selection_does_not_make_wrist_motion_hard() -> None:
     seed = generator.last_safe_joint_target.copy()
     # The solver returned a representation one revolution away from the
     # measured branch.  The nearest legal representation is used; dynamic
-    # output feasibility then decides whether this candidate can be held.
+    # output estimates remain diagnostic and do not create a branch fault.
     candidate = seed.copy()
     candidate[3] += 5.5
 
@@ -148,8 +150,9 @@ def test_equivalent_branch_selection_does_not_make_wrist_motion_hard() -> None:
         fresh_measured_joint_position_rad=seed.tolist(),
     )
     assert not result.accepted
-    assert result.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
-    assert result.joint_target_rad is None
+    assert result.reason is not FeasibilityReason.JOINT_BRANCH_DISCONTINUITY
+    assert result.reason is not FeasibilityReason.EPISODE_WINDING_EXCEEDED
+    assert not result.metrics.hard_stop_required
     assert result.metrics.branch_equivalent_offset[3] != 0
 
 

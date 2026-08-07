@@ -377,10 +377,12 @@ def classify_candidate(
         return FeasibilityReason.LINEAR_VELOCITY_LIMIT
     if metrics.tcp_angular_velocity_rad_s > limits.maximum_tcp_angular_velocity_rad_s:
         return FeasibilityReason.ANGULAR_VELOCITY_LIMIT
-    if metrics.output_velocity_violating_joint_indices:
-        return FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
-    if metrics.output_acceleration_violating_joint_indices:
-        return FeasibilityReason.OUTPUT_ACCELERATION_INFEASIBLE
+    # The Python output predictor is advisory.  It records a coarse warning
+    # for the event/summary path, but the native worker owns the actual 8 ms
+    # velocity/acceleration/jerk shaping and final hard checks.  Treating the
+    # producer estimate as a second hard gate causes a normal destination
+    # replacement to enter a self-reinforcing HOLD when measured state lags
+    # the last emitted target.
     if metrics.ik_error_m > limits.ik_position_tolerance_m:
         return FeasibilityReason.IK_POSITION_FAILED
     if metrics.ik_orientation_error_rad > limits.ik_orientation_tolerance_rad:
@@ -916,27 +918,6 @@ class SharedJakaTargetGenerator:
         self._singularity_slowdown_latched = False
         self.reset_episode_winding(self.last_safe_joint_target.tolist())
         return current
-
-    def synchronize_output_prefilter_hold(
-        self,
-        joints_rad: Sequence[float],
-        *,
-        generated_monotonic_ns: int,
-    ) -> None:
-        """Rebase only Python prefilter history after an ordinary rejection.
-
-        This does not change the authoritative IK branch or accepted target.
-        It prevents a rejected candidate's derivative estimate from becoming
-        the next candidate's baseline.
-        """
-
-        joints = np.asarray(joints_rad, dtype=np.float64)
-        if joints.shape != (6,) or not np.all(np.isfinite(joints)):
-            raise ValueError("output prefilter hold state must contain six finite radians")
-        self.output_feasibility.resync_hold(
-            joints.tolist(),
-            generated_monotonic_ns=generated_monotonic_ns,
-        )
 
     @property
     def episode_winding_rad(self) -> tuple[float, ...]:

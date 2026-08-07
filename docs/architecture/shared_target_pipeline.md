@@ -14,16 +14,16 @@ Checks cover:
 - pose residual and continuation progress;
 - joint limits, self/environment collision, and branch continuity;
 - Jacobian singularity quality and directional recovery;
-- accepted-output joint velocity;
-- accepted-output joint acceleration, including the first 8 ms emitted step
-  and replacement of an active native interpolation segment.
+- accepted-output joint velocity and acceleration are measured for diagnostics;
+- native final output velocity/acceleration checks, including the first 8 ms
+  emitted step and replacement of an active interpolation segment.
 
 Joint velocity and acceleration have one shared policy source:
 `shared_target_generation.maximum_output_joint_*`. The Python output
-prefilter screens accepted-target replacement against that contract, and the
-native worker checks the final emitted 8 ms segment at the hardware boundary.
-There is no separate IK velocity/acceleration gate and no second MuJoCo
-command velocity/acceleration configuration.
+prefilter records a coarse diagnostic against that contract; the native worker
+checks and shapes the final emitted 8 ms segment at the hardware boundary.
+There is no separate Python hard IK velocity/acceleration gate and no second
+MuJoCo command velocity/acceleration configuration.
 
 The native production adapter additionally applies the project-selected
 `command_maximum_joint_jerk_rad_s3` as a low-latency transition shaper. It is
@@ -31,7 +31,7 @@ not claimed as a Mini2 hardware maximum and is not a replacement for the
 final velocity, acceleration, timing, tracking, controller, or SDK hard-stop
 checks.
 
-The configured continuation preserves the remote maximum of five backtracks and a minimum
+The configured continuation allows at most one backtrack and retains a minimum
 fraction of 1/32. Each retry starts from the last authoritative branch and
 reuses the same safety gates; reaching the compute budget immediately returns
 `CONTROL_COMPUTE_BUDGET_EXHAUSTED` and holds the last target. The output
@@ -98,11 +98,11 @@ continuation，并让 `SharedJakaTargetGenerator` 计算候选。候选只有通
 - 已接受输出的关节加速度，包括第一个 8 ms 输出点以及替换活动插值段的情况。
 
 关节速度和加速度只有一个共享策略来源：
-`shared_target_generation.maximum_output_joint_*`。Python output prefilter 按该契约检查
-accepted target 的替换，native worker 在硬件边界检查最终 8 ms 输出段；不再单独配置
-IK 速度/加速度门限，也不再配置第二套 MuJoCo command 速度/加速度门限。
+`shared_target_generation.maximum_output_joint_*`。Python output prefilter 按该契约记录
+accepted target 替换的 coarse 诊断，native worker 在硬件边界检查并 shaping 最终 8 ms 输出段；不再
+单独配置 Python hard IK 速度/加速度门限，也不再配置第二套 MuJoCo command 速度/加速度门限。
 
-当前 continuation 保持远程的最多五次回退，最小比例为 1/32。达到 compute budget 后立即进入
+当前 continuation 最多回退一次，最小比例为 1/32。达到 compute budget 后立即进入
 `HOLD_REJECTED`，不再为了更小步长耗尽当前周期。共享输出边界为速度 π rad/s、加速度
 4π rad/s²；它们属于共享策略，不是 native 后处理参数。
 

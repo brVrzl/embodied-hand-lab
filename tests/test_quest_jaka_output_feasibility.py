@@ -248,7 +248,7 @@ def test_hold_interval_does_not_turn_stale_velocity_into_acceleration_rejection(
     )
 
 
-def test_hold_resync_preserves_velocity_with_bounded_deceleration() -> None:
+def test_rejected_prefilter_trial_keeps_last_accepted_baseline() -> None:
     tracker = JointOutputFeasibilityTracker(
         maximum_velocity_rad_s=math.pi,
         maximum_acceleration_rad_s2=4.0,
@@ -268,25 +268,16 @@ def test_hold_resync_preserves_velocity_with_bounded_deceleration() -> None:
         (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
         generated_monotonic_ns=1_100_000_000,
     )
-    tracker.commit_prefilter(
-        (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
-        generated_monotonic_ns=1_100_000_000,
-        prefilter=moving,
-    )
-    tracker.resync_hold(
-        (0.04, 0.0, 0.0, 0.0, 0.0, 0.0),
-        generated_monotonic_ns=1_150_000_000,
-    )
+    # The trial above represents a rejected candidate and is deliberately not
+    # committed.  A measured-state rebase here would make the next candidate
+    # appear to start from 0.04 rad instead of the last accepted zero target.
     next_candidate = tracker.prefilter(
         (0.05, 0.0, 0.0, 0.0, 0.0, 0.0),
         generated_monotonic_ns=1_200_000_000,
     )
     assert next_candidate.feasible
-    # The accepted 0.04 rad/100 ms step established 0.4 rad/s.  A 50 ms hold
-    # decelerates it by only 0.2 rad/s, so the next 0.01 rad/50 ms step keeps
-    # the velocity and acceleration estimates continuous instead of starting
-    # from an artificial zero-velocity state.
-    assert next_candidate.maximum_acceleration_rad_s2 == pytest.approx(0.0)
+    assert next_candidate.maximum_velocity_rad_s == pytest.approx(0.25)
+    assert next_candidate.maximum_acceleration_rad_s2 == pytest.approx(1.25)
 
 
 def test_below_and_exact_output_velocity_boundary_are_accepted() -> None:
@@ -338,7 +329,7 @@ def test_failed_p4_prediction_includes_active_segment_replacement_residual() -> 
     assert prediction.violating_joint_indices == (5,)
 
 
-def test_failed_p4_candidate_backtracks_before_accepted_target_boundary() -> None:
+def test_output_prefilter_violation_is_advisory_to_accepted_target_boundary() -> None:
     base = ReplayConfig.load(CONFIG)
     config = replace(
         base,
@@ -365,39 +356,13 @@ def test_failed_p4_candidate_backtracks_before_accepted_target_boundary() -> Non
         dt_s=dt_s,
         generated_monotonic_ns=T214,
     )
-    assert not full.accepted
-    assert full.reason is FeasibilityReason.OUTPUT_VELOCITY_INFEASIBLE
+    assert full.accepted
+    assert full.reason is FeasibilityReason.ACCEPTED
     assert full.metrics.output_velocity_violating_joint_indices == (5,)
-    assert np.asarray(generator.last_safe_joint_target) == pytest.approx(Q213)
+    assert np.asarray(generator.last_safe_joint_target) == pytest.approx(
+        full.joint_target_rad
+    )
 
-    half, fraction = bounded_pose_step(
-        generator.last_safe_target,
-        desired,
-        maximum_translation_m=float(
-            np.linalg.norm(
-                np.asarray(desired.position_m)
-                - np.asarray(generator.last_safe_target.position_m)
-            )
-            * 0.5
-        ),
-        maximum_rotation_rad=(
-            quaternion_angle_rad(
-                generator.last_safe_target.orientation_xyzw,
-                desired.orientation_xyzw,
-            )
-            * 0.5
-        ),
-    )
-    assert fraction == pytest.approx(0.5)
-    recovered = generator.evaluate(
-        half,
-        dt_s=dt_s,
-        generated_monotonic_ns=T214,
-    )
-    assert recovered.accepted
-    assert recovered.reason is FeasibilityReason.ACCEPTED
-    assert recovered.metrics.predicted_output_maximum_joint_velocity_rad_s < math.pi
-    assert not recovered.metrics.branch_switch
 
 
 def test_output_contract_is_the_single_joint_dynamic_policy() -> None:

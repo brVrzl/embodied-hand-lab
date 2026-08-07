@@ -55,17 +55,18 @@ must not map frames, filter, recompute IK, select another branch, follow MuJoCo
 `kine_inverse` calls.
 
 Python is a candidate prefilter, not the final output authority. It retains
-the six-finite-joint, branch, hard-range, and obvious velocity/acceleration
-checks and rejects an infeasible candidate into bounded hold. It does not
-predict jerk or reproduce the native active segment. The native worker still
-performs the real 8 ms velocity/acceleration/jerk shaping and final hard
-checks; the JAKA controller remains an additional hardware protection layer.
-No output or watchdog limit was increased for this simplification.
+the six-finite-joint, branch, and hard-range checks. Its coarse
+velocity/acceleration estimates are recorded as advisory diagnostics and do
+not, by themselves, reject an otherwise legal candidate. It does not predict
+jerk or reproduce the native active segment. The native worker still performs
+the real 8 ms velocity/acceleration/jerk shaping and final hard checks; the
+JAKA controller remains an additional hardware protection layer. No output or
+watchdog limit was increased for this simplification.
 
 The `0.22 rad` candidate-jump setting is not a J1/J4/J6 travel or 360-degree
 limit. Periodic joints are allowed to progress through multiple candidates;
 their safety boundary is the selected legal absolute branch, the hard joint
-range, accumulated winding guard, Python output prefilter, and native 8 ms
+range, accumulated winding guard, Python output diagnostics, and native 8 ms
 velocity/acceleration/jerk checks. The setting remains applicable to obvious
 non-periodic joint discontinuities. A candidate with zero equivalent-branch
 offset is never promoted to `JOINT_BRANCH_DISCONTINUITY` solely for exceeding
@@ -143,8 +144,8 @@ A hard stop terminates new output and runs cleanup. It must never be converted
 to `HOLD_REJECTED`, retried automatically, or hidden by a later secondary
 transport symptom.
 
-The 60 Hz Python producer preserves the remote maximum of five continuation
-backtracks after its initial solve. A rejected trial is not committed; the last authoritative
+The 60 Hz Python producer allows at most one continuation retry after its
+initial solve. A rejected trial is not committed; the last authoritative
 target remains in force and the producer publishes a bounded hold heartbeat.
 The per-tick timing ring stores retry and IK-call counts without constructing
 full attempt dictionaries on normal accepted ticks. Detailed diagnostics are
@@ -290,7 +291,7 @@ operator values 只是证据，必须在 controller 上重新确认。
   velocity/acceleration/jerk violation、RH56 nonzero `ERROR`、fatal serial/protocol/checksum、actuator
   state unknown 或 cleanup 不确定。
 - `BOUNDED_HOLD`：Quest transient tracking loss、clutch/reference invalid、IK no solution、candidate
-  infeasible、continuation exhausted、soft margin、singularity candidate rejection、Python budget/prefilter
+  infeasible、continuation exhausted、soft margin、singularity candidate rejection、Python budget/explicit-legality
   rejection、temporary feedback stale、RH56 ordinary rate limit 和 contact clamp。此时不提交 candidate，
   保持最后 authoritative safe target 和 fresh heartbeat，必要时 release-before-press 后从 measured state
   重新捕获。
@@ -302,8 +303,8 @@ operator values 只是证据，必须在 controller 上重新确认。
 
 ## 纵深防御和 RH56
 
-Python shared target boundary 负责轻量 candidate prefilter；native worker 负责实际 8 ms shaping、final
-hard checks、watchdog 和 publication；JAKA controller 保留最终硬件保护。不得删除 native checks，也
+Python shared target boundary 负责 finite/branch/hard-range 等轻量 candidate prefilter，并记录 coarse
+velocity/acceleration 诊断；native worker 负责实际 8 ms shaping、final hard checks、watchdog 和 publication；JAKA controller 保留最终硬件保护。不得删除 native checks，也
 不得把 controller alarm 当作正常 trajectory filter。RH56 ordinary rate-limit/contact clamp 只影响
 hand hold；nonzero `ERROR`、fatal protocol/checksum、worker death 和 command state unknown 仍是 fatal。
 
