@@ -6,7 +6,7 @@ import subprocess
 import pytest
 
 from quest_jaka_sim import ReplayConfig
-from teleoperation.wire import StatusFlags
+from teleoperation.wire import StatusFlags, WorkerStatusPacket
 from tools.quest_jaka_hardware import (
     COMBINED_CONTROL_REALTIME_PRIORITY,
     RECOVERABLE_CLUTCH_STAGES,
@@ -18,6 +18,7 @@ from tools.quest_jaka_hardware import (
     _apply_target_displacement_policy,
     _resolve_output_jerk_limit,
     _synchronize_paused_stopped_reference,
+    _wait_status,
 )
 
 
@@ -56,6 +57,52 @@ def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def test_wait_status_requires_native_startup_reference_ready() -> None:
+    q_hold = (0.2, -0.3, 0.4, -0.5, 0.6, -0.7)
+    drifted = (0.2, -0.3, 0.4, -0.5, 0.6011, -0.7)
+    statuses = iter(
+        (
+            WorkerStatusPacket(
+                state=5,
+                flags=int(StatusFlags.CONNECTED | StatusFlags.EDG_ACTIVE),
+                last_sequence=0,
+                loop_sequence=1,
+                worker_monotonic_ns=1,
+                command_monotonic_ns=1,
+                observation_monotonic_ns=1,
+                joint_position_rad=drifted,
+                error_code=0,
+            ),
+            WorkerStatusPacket(
+                state=5,
+                flags=int(
+                    StatusFlags.CONNECTED
+                    | StatusFlags.EDG_ACTIVE
+                    | StatusFlags.STARTUP_REFERENCE_READY
+                ),
+                last_sequence=0,
+                loop_sequence=2,
+                worker_monotonic_ns=2,
+                command_monotonic_ns=2,
+                observation_monotonic_ns=2,
+                joint_position_rad=q_hold,
+                error_code=0,
+            ),
+        )
+    )
+
+    class FakeRuntime:
+        def latest_status(self):
+            return next(statuses, None)
+
+    class FakeNative:
+        process = None
+
+    status = _wait_status(FakeRuntime(), FakeNative(), timeout_s=0.1)
+    assert status.joint_position_rad == q_hold
+    assert StatusFlags(status.flags) & StatusFlags.STARTUP_REFERENCE_READY
 
 
 def test_shell_syntax_and_help_are_offline() -> None:

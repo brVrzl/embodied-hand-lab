@@ -73,6 +73,7 @@ constexpr std::uint32_t kStatusOutputAccelerationRecovered = 1u << 8;
 constexpr std::uint32_t kStatusControlledBraking = 1u << 9;
 constexpr std::uint32_t kStatusStoppedReady = 1u << 10;
 constexpr std::uint32_t kStatusMeasuredStateRefresh = 1u << 11;
+constexpr std::uint32_t kStatusStartupReferenceReady = 1u << 12;
 
 #pragma pack(push, 1)
 struct TargetPacket {
@@ -2466,8 +2467,10 @@ int run(const Options& o) {
   bool output_acceleration_hold_status_pending = false;
   bool output_acceleration_recovery_status_pending = false;
   std::array<double, 6> initial{}, observed{}, target{}, ik_target{};
+  std::array<double, 6> startup_q_hold{};
   std::array<double, 6> tracking_reference{}, command_reference{};
   bool has_ik_target = false;
+  bool startup_q_hold_initialized = false;
   bool first_external_joint_target_received = false;
   bool pause_requested = false;
   bool pause_stopped_ready = false;
@@ -2516,6 +2519,8 @@ int run(const Options& o) {
       validate_manufacturer_joint_position_limits(observed);
       const auto handoff_ns = now_ns();
       const std::array<double, 6> q_hold = observed;
+      startup_q_hold = q_hold;
+      startup_q_hold_initialized = true;
       tracking_reference = command_reference = q_hold;
       ik_target = q_hold;
       teleop.last_ik_target = q_hold;
@@ -3200,9 +3205,16 @@ int run(const Options& o) {
           flags |= kStatusControlledBraking;
         if (pause_requested && pause_stopped_ready)
           flags |= kStatusStoppedReady | kStatusMeasuredStateRefresh;
+        const bool startup_reference_ready =
+            is_joint_teleop_mode(o.mode) && startup_q_hold_initialized &&
+            !first_external_joint_target_received;
+        if (startup_reference_ready)
+          flags |= kStatusStartupReferenceReady;
         StatusPacket status{kStatusMagic, kWireVersion, static_cast<std::uint16_t>(state), flags, last_sequence, i,
                             cycle_end, command_time, read_end, {}, error_code, 0};
-        std::copy(observed.begin(), observed.end(), status.joint_position_rad); status_sender.send_status(status);
+        const auto& status_joints = startup_reference_ready ? startup_q_hold : observed;
+        std::copy(status_joints.begin(), status_joints.end(), status.joint_position_rad);
+        status_sender.send_status(status);
         status_accepted = accepted; status_rejected = rejected;
         output_acceleration_hold_status_pending = false;
         output_acceleration_recovery_status_pending = false;

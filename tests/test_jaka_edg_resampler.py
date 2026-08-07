@@ -16,6 +16,8 @@ from teleoperation.wire import (
     TargetFlags,
     TargetKind,
     TargetPacket,
+    StatusFlags,
+    WorkerStatusReceiver,
 )
 
 
@@ -320,6 +322,81 @@ def test_live_worker_holds_post_edg_state_until_fresh_aligned_target(tmp_path) -
     assert payload["output_maximum_adjacent_delta_rad"] == [0.0] * 6
     assert payload["resampler_destination_switches"] == 0
     assert all(row["joint_position_rad"] == pytest.approx(q_hold) for row in points)
+
+
+def test_live_worker_publishes_sticky_q_hold_until_first_target(tmp_path) -> None:
+    initial = (0.2, -0.3, 0.4, -0.5, 0.6, -0.7)
+    offset = (1e-5, -2e-5, 3e-5, -4e-5, 5e-5, -6e-5)
+    q_hold = tuple(left + right for left, right in zip(initial, offset, strict=True))
+    metrics = tmp_path / "startup-reference.json"
+    target = tmp_path / "startup-reference.sock"
+    status_path = tmp_path / "startup-reference.status.sock"
+    process = subprocess.Popen(
+        [
+            str(WORKER),
+            "--mode", "joint-teleop-dry-run",
+            "--duration-s", "3.4",
+            "--fake-initial-joints-rad", ",".join(map(str, initial)),
+            "--fake-post-edg-joint-offset-rad", ",".join(map(str, offset)),
+            "--target-socket", str(target),
+            "--status-socket", str(status_path),
+            "--metrics-file", str(metrics),
+        ]
+    )
+    try:
+        deadline = time.monotonic() + 2.0
+        while not target.exists() and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert target.exists()
+        with WorkerStatusReceiver(status_path) as receiver:
+            startup = None
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                candidate = receiver.latest()
+                if candidate is not None and (
+                    StatusFlags(candidate.flags) & StatusFlags.STARTUP_REFERENCE_READY
+                ):
+                    startup = candidate
+                    break
+                time.sleep(0.001)
+            assert startup is not None
+            assert startup.joint_position_rad == pytest.approx(q_hold)
+
+            # Stand in for a delayed first clutch press.  The native status must
+            # continue exposing the same authoritative q_hold, not a later
+            # measured sample, during this wait.
+            time.sleep(3.0)
+            delayed = receiver.latest()
+            assert delayed is not None
+            assert StatusFlags(delayed.flags) & StatusFlags.STARTUP_REFERENCE_READY
+            assert delayed.joint_position_rad == pytest.approx(q_hold)
+
+            with LatestTargetPublisher(target) as publisher:
+                assert publisher.publish(_packet(1, q_hold, time.monotonic_ns()))
+                deadline = time.monotonic() + 0.5
+                after_target = None
+                while time.monotonic() < deadline:
+                    candidate = receiver.latest()
+                    if candidate is not None and not (
+                        StatusFlags(candidate.flags) & StatusFlags.STARTUP_REFERENCE_READY
+                    ):
+                        after_target = candidate
+                        break
+                    time.sleep(0.001)
+                assert after_target is not None
+                assert not (
+                    StatusFlags(after_target.flags)
+                    & StatusFlags.STARTUP_REFERENCE_READY
+                )
+                assert after_target.joint_position_rad == pytest.approx(q_hold)
+                assert publisher.publish(
+                    _packet(2, (0.0,) * 6, time.monotonic_ns(), stop=True)
+                )
+        assert process.wait(timeout=3) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=3)
 
 
 def test_per_joint_and_global_tracking_and_displacement_metrics_agree(tmp_path) -> None:

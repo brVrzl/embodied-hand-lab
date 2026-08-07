@@ -46,6 +46,7 @@ class StatusFlags(enum.IntFlag):
     CONTROLLED_BRAKING = 1 << 9
     STOPPED_READY = 1 << 10
     MEASURED_STATE_REFRESH = 1 << 11
+    STARTUP_REFERENCE_READY = 1 << 12
 
 
 class FrameId(enum.IntEnum):

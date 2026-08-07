@@ -573,15 +573,22 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
 
 
 def _wait_status(runtime: ArmOnlyRuntime, native: NativeWorkerProcess, timeout_s: float = 8.0):
+    required_flags = (
+        StatusFlags.CONNECTED
+        | StatusFlags.EDG_ACTIVE
+        | StatusFlags.STARTUP_REFERENCE_READY
+    )
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         status = runtime.latest_status()
-        if status is not None and StatusFlags(status.flags) & StatusFlags.CONNECTED:
+        if status is not None and (
+            StatusFlags(status.flags) & required_flags
+        ) == required_flags:
             return status
         if native.process is not None and native.process.poll() is not None:
             raise RuntimeError("JAKA worker exited before reporting connected state")
         time.sleep(0.005)
-    raise RuntimeError("JAKA worker did not report connected state")
+    raise RuntimeError("JAKA worker did not report startup reference ready state")
 
 
 def _control_output_failed(*, reason: str, output_applied: bool) -> bool:
