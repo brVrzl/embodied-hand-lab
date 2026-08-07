@@ -1349,9 +1349,6 @@ def main() -> int:
                     task_name=args.task_name,
                     operator=args.operator,
                     control_config_path=args.config,
-                    maximum_start_delta_rad=float(
-                        hardware["startup_alignment_tolerance_rad"]
-                    ),
                     schema_version=PHYSICAL_SCHEMA_VERSION,
                     preview_enabled=args.episode_preview,
                     forbidden_cpu=args.native_control_cpu,

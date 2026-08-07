@@ -923,7 +923,6 @@ class ProcessEpisodeRecorder:
         task_name: str,
         operator: str,
         control_config_path: str | Path,
-        maximum_start_delta_rad: float,
         metadata: Mapping[str, Any],
         dataset: Mapping[str, Any],
         camera_profiles: Mapping[str, Any],
@@ -944,7 +943,6 @@ class ProcessEpisodeRecorder:
                     "task_name": task_name,
                     "operator": operator,
                     "control_config_path": str(control_config_path),
-                    "maximum_start_delta_rad": maximum_start_delta_rad,
                     "metadata": dict(metadata),
                     "dataset": dict(dataset),
                     "camera_profiles": dict(camera_profiles),
@@ -1182,7 +1180,6 @@ def _recorder_process_main_impl(
             async_writer,
             camera_max_age_ns=round(float(dataset.get("camera_max_age_ms", 100.0)) * 1e6),
             control_max_age_ns=round(float(dataset.get("control_max_age_ms", 40.0)) * 1e6),
-            maximum_start_delta_rad=float(config["maximum_start_delta_rad"]),
             maximum_hand_start_delta_rad=float(dataset.get("hand_start_tolerance_rad", 0.05)),
             defer_finalization=True,
             camera_severe_stale_ns=round(float(dataset.get("camera_severe_stale_limit_ms", 500.0)) * 1e6),
@@ -1191,7 +1188,6 @@ def _recorder_process_main_impl(
             canonical_required_field_consecutive_limit=int(
                 dataset.get("canonical_required_field_consecutive_limit", 15)
             ),
-            retry_start_rejections=(writer_format == "lerobot_staging_v1"),
             quality_min_valid_ratio=float(dataset.get("quality_min_valid_ratio", 1.0)),
             quality_max_invalid_run=int(dataset.get("quality_max_invalid_run", 0)),
         )

@@ -80,7 +80,6 @@ def test_raw_episode_writer_aligns_two_videos_with_parquet_rows(tmp_path: Path) 
             accepted=control,
             workspace=workspace,
             wrist=wrist,
-            maximum_start_delta_rad=0.2,
             maximum_hand_start_delta_rad=0.2,
         ),
         camera_max_age_ns=100_000_000,
@@ -150,7 +149,6 @@ def test_lerobot_staging_requires_review_before_parquet_materialization(
             accepted=control,
             workspace=_camera("workspace", timestamp_ns, 1, width=32),
             wrist=_camera("wrist", timestamp_ns, 1, width=32),
-            maximum_start_delta_rad=0.2,
             maximum_hand_start_delta_rad=0.2,
         ),
         camera_max_age_ns=100_000_000,
@@ -243,7 +241,6 @@ def _collector(
         writer,
         camera_max_age_ns=33_333_334,
         control_max_age_ns=20_000_000,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
 
@@ -302,7 +299,6 @@ def test_physical_v2_preserves_normalized_hand_unit(tmp_path: Path) -> None:
         writer,
         camera_max_age_ns=33_333_334,
         control_max_age_ns=20_000_000,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 1_000_000_000
@@ -558,16 +554,53 @@ def test_dataset_modules_import_without_optional_dependencies(monkeypatch) -> No
         preview.require_preview_dependencies()
 
 
-def test_continuity_failure_writes_report_without_partial_episode(tmp_path: Path) -> None:
+def test_start_target_measured_delta_is_diagnostic_only(tmp_path: Path) -> None:
     collector = _collector(tmp_path)
     base = 2_000_000_000
     collector.ingest_camera(_camera("workspace", base, 1))
     collector.ingest_camera(_camera("wrist", base, 1))
     collector.ingest_control(_control(base, trigger=True, q=0.5), reference_established=True)
+    assert collector.state is CaptureState.REC
+    diagnostics = collector.diagnostics()
+    assert diagnostics["start_arm_target_measured_delta_rad"] == pytest.approx(0.4)
+    assert diagnostics["start_arm_target_measured_max_joint_index"] == 0
+    collector.ingest_control(
+        _control(base + 10_000_000, trigger=False), reference_established=True
+    )
     assert collector.state is CaptureState.DONE
-    assert collector.result is not None and collector.result.name.startswith("rejected-start-")
-    assert not list(tmp_path.glob("episode-*"))
-    assert not list(tmp_path.glob("*.partial"))
+    assert collector.result is not None and collector.result.is_dir()
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    [
+        ("accepted_arm_q", "first AcceptedArmTarget is unavailable"),
+        ("arm_q_measured", "initial measured arm state is unavailable"),
+    ],
+)
+def test_start_requires_arm_target_and_measured_state(
+    tmp_path: Path, field: str, message: str
+) -> None:
+    base = 2_050_000_000
+    control = replace(_control(base, trigger=True), **{field: None})
+    writer = CanonicalEpisodeWriter(tmp_path, task_name="pick", operator="tester")
+    with pytest.raises(ValueError, match=message):
+        writer.begin(
+            StartPrerequisites(
+                trigger_press_monotonic_ns=base,
+                reference_established=True,
+                accepted=control,
+                workspace=_camera("workspace", base, 1),
+                wrist=_camera("wrist", base, 1),
+                maximum_hand_start_delta_rad=0.2,
+            ),
+            camera_max_age_ns=100_000_000,
+        )
+
+
+def test_control_sample_rejects_invalid_arm_dimensions() -> None:
+    with pytest.raises(ValueError, match="accepted_arm_q must contain six finite values"):
+        replace(_control(2_060_000_000, trigger=True), accepted_arm_q=(0.0,) * 5)
 
 
 def test_begin_failure_removes_owned_partial_staging(
@@ -588,7 +621,6 @@ def test_begin_failure_removes_owned_partial_staging(
         accepted=_control(base, trigger=True),
         workspace=_camera("workspace", base, 1),
         wrist=_camera("wrist", base, 1),
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
 
@@ -722,7 +754,6 @@ def test_metadata_only_quality_slot_round_trips_without_an_image_row(tmp_path: P
         camera_consecutive_stale_limit=100,
         camera_missing_timeout_ns=2_000_000_000,
         control_max_age_ns=40_000_000,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 2_415_000_000
@@ -765,7 +796,6 @@ def test_single_canonical_required_field_loss_is_metadata_only(tmp_path: Path) -
         writer,
         camera_max_age_ns=40_000_000,
         control_max_age_ns=40_000_000,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
         canonical_required_field_consecutive_limit=2,
     )
@@ -950,7 +980,6 @@ def test_async_writer_drains_before_atomic_finalize(tmp_path: Path) -> None:
         writer,
         camera_max_age_ns=33_333_334,
         control_max_age_ns=20_000_000,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 2_500_000_000
@@ -975,7 +1004,6 @@ def test_collector_shutdown_closes_idle_and_rejects_arming_writer(
     )
     idle = SingleEpisodeCollector(
         idle_writer,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     idle.shutdown("capture_loop_ended")
@@ -992,7 +1020,6 @@ def test_collector_shutdown_closes_idle_and_rejects_arming_writer(
     )
     arming = SingleEpisodeCollector(
         arming_writer,
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     arming.ingest_control(
@@ -1013,8 +1040,7 @@ def test_collector_shutdown_closes_idle_and_rejects_arming_writer(
             CanonicalEpisodeWriter(
                 tmp_path / "invalid", task_name="pick", operator="tester"
             ),
-            maximum_start_delta_rad=float("nan"),
-            maximum_hand_start_delta_rad=0.02,
+            maximum_hand_start_delta_rad=float("nan"),
         )
 
 
@@ -1045,7 +1071,6 @@ def test_default_recorder_control_age_accepts_observed_producer_jitter(
 ) -> None:
     collector = SingleEpisodeCollector(
         CanonicalEpisodeWriter(tmp_path, task_name="pick", operator="tester"),
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 3_250_000_000
@@ -1068,7 +1093,6 @@ def test_default_recorder_camera_age_accepts_observed_producer_stall(
 ) -> None:
     collector = SingleEpisodeCollector(
         CanonicalEpisodeWriter(tmp_path, task_name="pick", operator="tester"),
-        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 3_300_000_000

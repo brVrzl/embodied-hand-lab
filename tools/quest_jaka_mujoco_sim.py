@@ -707,16 +707,12 @@ def _start_episode_data_runtime(
     AsyncDualCameraPreview | None,
 ]:
     try:
-        hardware_config = config.raw.get("hardware_adapter", {})
         runtime = EpisodeDataRuntime.start(
             args.episode_data_config,
             episode_root=args.episode_root,
             task_name=args.task_name,
             operator=args.operator,
             control_config_path=args.config,
-            maximum_start_delta_rad=float(
-                hardware_config.get("startup_alignment_tolerance_rad", 0.001)
-            ),
             preview_enabled=args.episode_preview,
             metadata={
                 "raw_streams": {

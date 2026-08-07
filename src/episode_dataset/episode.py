@@ -124,6 +124,21 @@ class ControlSample:
             raise ValueError("control_segment_mode is invalid")
 
 
+def start_arm_target_measured_diagnostics(sample: ControlSample) -> dict[str, float | int]:
+    """Return the one-time episode-start target/measured diagnostic."""
+
+    target = sample.accepted_arm_q
+    measured = sample.arm_q_measured
+    if target is None or measured is None:
+        raise ValueError("arm target and measured state are required for start diagnostics")
+    deltas = tuple(abs(command - actual) for command, actual in zip(target, measured, strict=True))
+    maximum_joint_index = max(range(len(deltas)), key=deltas.__getitem__)
+    return {
+        "start_arm_target_measured_delta_rad": max(deltas),
+        "start_arm_target_measured_max_joint_index": maximum_joint_index,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class CameraSample:
     role: str
@@ -219,7 +234,6 @@ class StartPrerequisites:
     accepted: ControlSample
     workspace: CameraRecord
     wrist: CameraRecord
-    maximum_start_delta_rad: float
     maximum_hand_start_delta_rad: float
 
     def validate(self, *, camera_max_age_ns: int) -> None:
@@ -229,23 +243,16 @@ class StartPrerequisites:
             raise ValueError("first AcceptedArmTarget is unavailable")
         if self.accepted.arm_q_measured is None:
             raise ValueError("initial measured arm state is unavailable")
+        if len(self.accepted.accepted_arm_q) != 6:
+            raise ValueError("first AcceptedArmTarget must contain six joints")
+        if len(self.accepted.arm_q_measured) != 6:
+            raise ValueError("initial measured arm state must contain six joints")
         if self.accepted.arm_dq_measured is None:
             raise ValueError("initial measured/estimated arm velocity is unavailable")
         if self.accepted.tcp_pose_xyzw is None:
             raise ValueError("initial measured/estimated TCP pose is unavailable")
         if not self.accepted.arm_trigger:
             raise ValueError("arm trigger is not held")
-        delta = max(
-            abs(target - measured)
-            for target, measured in zip(
-                self.accepted.accepted_arm_q, self.accepted.arm_q_measured, strict=True
-            )
-        )
-        if delta > self.maximum_start_delta_rad:
-            raise ValueError(
-                f"first accepted target continuity delta {delta:.9f} rad exceeds "
-                f"{self.maximum_start_delta_rad:.9f} rad"
-            )
         if self.accepted.hand_target is None:
             raise ValueError("initial RH56 hold/target is unavailable")
         if self.accepted.hand_observation is None:

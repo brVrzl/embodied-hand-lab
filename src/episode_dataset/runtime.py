@@ -67,7 +67,6 @@ class EpisodeDataRuntime:
         task_name: str,
         operator: str,
         control_config_path: str | Path,
-        maximum_start_delta_rad: float,
         metadata: Mapping[str, Any],
         schema_version: str = SCHEMA_VERSION,
         preview_enabled: bool = False,
@@ -140,7 +139,6 @@ class EpisodeDataRuntime:
                 task_name=task_name,
                 operator=operator,
                 control_config_path=control_config_path,
-                maximum_start_delta_rad=maximum_start_delta_rad,
                 metadata={
                     "camera_serials": serials,
                     "calibration_files": calibration.get("snapshot_files", []),
