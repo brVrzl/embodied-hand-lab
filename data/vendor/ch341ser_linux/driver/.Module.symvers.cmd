@@ -1,0 +1,1 @@
+savedcmd_/home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/Module.symvers :=  scripts/mod/modpost -M -m       -o /home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/Module.symvers -T /home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/modules.order -i Module.symvers -e 
