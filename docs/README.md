@@ -87,14 +87,11 @@ never override the current status or safety pages.
 - [Digital-twin workspace](digital_twin/README.md)
 - [RGB-D readiness](d435_depth_pointcloud_readiness.md)
 - [Motion-input platform](motion_input/README.md)
-- [Quest Unity integration](../integrations/quest_unity/README.md)
 - [Offline teleoperation rearchitecture](research/teleop_rearchitecture.md)
 - [Command-health ABI research](research/teleop_command_abi.md)
 - [Clutch-recovery transport research](research/jaka_clutch_recovery_transport_contract.md)
 
 These areas do not silently replace the primary Quest/JAKA control authority.
-`learned_policy/` is preserved inference research and remains outside the
-maintained physical command path.
 
 ## History and evidence
 

@@ -411,11 +411,6 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--rh56-config", type=Path)
-    parser.add_argument(
-        "--rh56-scheduler-profile",
-        choices=("baseline", "fast30", "fast40", "fast50"),
-        help="Override the RH56 command/feedback scheduler profile.",
-    )
     parser.add_argument("--rh56-log", type=Path)
     parser.add_argument("--log", type=Path)
     parser.add_argument("--summary", type=Path)
@@ -522,7 +517,6 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         "duration_sec",
         "rh56_device",
         "rh56_config",
-        "rh56_scheduler_profile",
         "native_control_cpu",
         "native_control_realtime_priority",
         "allowed_sender",
@@ -951,8 +945,6 @@ def main() -> int:
                         "direct CH341 identity mismatch before any hardware I/O"
                     )
         hand_config = load_yaml(args.rh56_config)
-        if args.rh56_scheduler_profile is not None:
-            hand_config["scheduler_profile"] = args.rh56_scheduler_profile
         hand_config["mode"] = "real"
         hand_config["backend_type"] = "serial_protocol"
         hand_config.setdefault("serial", {})["port"] = args.rh56_device
@@ -1043,11 +1035,6 @@ def main() -> int:
                     "hardware_commands_sent": 0,
                     "rh56_commands": 0,
                     "rh56_gate_validated": args.stage == "combined-normal-teleop",
-                    "rh56_scheduler_profile": (
-                        None
-                        if hand_config is None
-                        else hand_config.get("scheduler_profile", "baseline")
-                    ),
                     "rh56_hand_calibration_path": (
                         None
                         if args.stage != "combined-normal-teleop"
@@ -1349,6 +1336,9 @@ def main() -> int:
                     task_name=args.task_name,
                     operator=args.operator,
                     control_config_path=args.config,
+                    maximum_start_delta_rad=float(
+                        hardware["startup_alignment_tolerance_rad"]
+                    ),
                     schema_version=PHYSICAL_SCHEMA_VERSION,
                     preview_enabled=args.episode_preview,
                     forbidden_cpu=args.native_control_cpu,

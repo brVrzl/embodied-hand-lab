@@ -27,7 +27,6 @@ explicit teleoperation consumer
 - `src/motion_input/controller_provider.py`: CTRL v1 validation and freshness.
 - `src/motion_input/recording.py`, `replay.py`, `diagnostics.py`, and
   `visualization.py`: device-neutral support.
-- `integrations/quest_unity/`: input-only Unity publisher sources.
 
 Current references:
 
@@ -96,7 +95,6 @@ Quest / 未来设备
 - `src/motion_input/hts_canonical.py`：Unity/OpenXR 规范化。
 - `src/motion_input/controller_provider.py`：CTRL v1 验证和新鲜度。
 - `recording.py`、`replay.py`、`diagnostics.py`、`visualization.py`：设备无关工具。
-- `integrations/quest_unity/`：只发送输入的 Unity 源码。
 
 参考文档：
 

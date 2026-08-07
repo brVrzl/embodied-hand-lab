@@ -161,9 +161,6 @@ authority.
 | `configs` | Versioned examples and runtime policies |
 | `docs/history` | Dated evidence and superseded designs, never current operating authority |
 
-`learned_policy/` is preserved inference research, not the maintained training
-stack or a physical command path.
-
 ## Environment choices
 
 Install only the extras needed by a host:

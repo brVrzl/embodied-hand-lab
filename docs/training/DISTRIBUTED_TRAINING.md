@@ -633,7 +633,6 @@ framework field.
 
 ### OpenPI/pi0
 
-The protected OpenPI shadow code is inference-only and is not a trainer.
 Follow the selected upstream OpenPI/pi0 release's native PyTorch or JAX
 distribution and checkpoint system rather than wrapping it in this project's
 DDP layer. Keep the project dataset schema separate from the adapter's image,
@@ -694,7 +693,7 @@ change independently of this source bundle.
 | Checkpoint recovery | Planned | Rank-zero atomic JSON helper exists, but model/optimizer/scaler/RNG checkpoint and resume do not. |
 | ACT multi-GPU | Planned | No ACT dependency, adapter, or trainer. DDP is the recommended future strategy. |
 | Diffusion Policy multi-GPU | Planned | No Diffusion Policy dependency, adapter, trainer, or EMA checkpoint implementation. |
-| OpenPI/pi0 large-model training | Planned | Only protected inference shadow work exists; upstream-native distribution must be selected later. |
+| OpenPI/pi0 large-model training | Planned | No repository trainer; upstream-native distribution must be selected later. |
 | Jetson Thor deployment | Planned | Handoff contract is documented, but no selected trained model, export, Jetson environment, or latency/equivalence result exists. |
 
 The next meaningful gate is a Linux training environment with a compatible

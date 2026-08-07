@@ -174,7 +174,8 @@ The maintained physical hand route is PC-direct USB/RS485, not JAKA tool-RS485.
 Opening the serial path performs zero register writes. The controller uses
 fresh measured `ANGLE_ACT` for activation, bounded target range/rate/delta, raw
 feedback, stale/protocol/error gates, and deterministic cleanup. The physically
-selected scheduler profile is `fast40`.
+fixed scheduler is 40 Hz command, 15 Hz ANGLE feedback, and 10 Hz
+CURRENT/FORCE/STATUS/ERROR feedback.
 
 Current feedback meanings are deliberately limited:
 

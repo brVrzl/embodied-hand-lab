@@ -8,14 +8,10 @@ and [combined teleoperation procedure](../operation/jaka_rh56_combined_teleop.md
 before opening any device. Documentation, `--help`, and offline validation do
 not authorize a physical run.
 
-## Prepare the dual-camera configuration
-
-Create the ignored local copy and fill both explicit D435 serial numbers:
+## Prepare the unified collection configuration
 
 ```bash
-mkdir -p data/local
-cp configs/data_collection/dual_d435_episode.example.yaml \
-  data/local/dual_d435_episode.yaml
+${EDITOR:-vi} configs/data_collection/physical_collection.yaml
 ```
 
 The `workspace` and `wrist` serials must be different and must match their
@@ -24,16 +20,9 @@ measured acquisition experiment justifies a documented change. The complete
 schema, staleness semantics, storage estimate, and camera preflight are in the
 [collection and quality guide](COLLECTION_GUIDE.md).
 
-The host runtime config is also kept outside Git:
-
-```bash
-cp configs/data_collection/physical_collection.example.yaml \
-  data/local/physical_collection.yaml
-```
-
 Configure host/device identity once in that YAML. Do not export robot, RH56,
-Quest, episode, or native-CPU values from `.bashrc`; the collection command
-reads them from `data/local/physical_collection.yaml`.
+camera, episode, or native-CPU values from `.bashrc`; the collection command
+reads them from this file.
 
 ## Maintained collection entry
 
@@ -43,7 +32,7 @@ does not require per-run substitution:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --runtime-config data/local/physical_collection.yaml \
+  --runtime-config configs/data_collection/physical_collection.yaml \
   --hand-prerequisites-complete \
   --no-auto-retry \
   --estop-accessible \

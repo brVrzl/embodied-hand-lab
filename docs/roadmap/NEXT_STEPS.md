@@ -102,7 +102,7 @@ earlier safety, calibration, or data-quality dependency.
 
 **Inputs**
 
-- Verified PC-direct serial identity and the current `fast40` profile.
+- Verified PC-direct serial identity and the current fixed 40 Hz scheduler.
 - A separately authorized hand-only gate.
 
 **Actions**

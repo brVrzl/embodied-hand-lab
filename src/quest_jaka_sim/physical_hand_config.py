@@ -24,7 +24,7 @@ def with_physical_rh56_retarget(
     path = Path(calibration_path)
     if not path.is_file():
         raise FileNotFoundError(f"physical RH56 calibration does not exist: {path}")
-    _, calibration = HandRetargetCalibration.load(path)
+    calibration = HandRetargetCalibration.load(path)
     if not calibration.calibration_id.startswith("quest_rh56dfx_real_"):
         raise ValueError(
             "physical RH56 entry requires a quest_rh56dfx_real_* calibration"

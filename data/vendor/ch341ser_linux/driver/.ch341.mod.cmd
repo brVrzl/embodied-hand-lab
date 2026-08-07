@@ -1,1 +1,0 @@
-savedcmd_/home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/ch341.mod := printf '%s\n'   ch341.o | awk '!x[$$0]++ { print("/home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/"$$0) }' > /home/thor/projects/embodied_lab/data/vendor/ch341ser_linux/driver/ch341.mod

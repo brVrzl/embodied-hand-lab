@@ -16,7 +16,6 @@ does not contain a model trainer.
 | ACT training/evaluation | Not implemented |
 | Diffusion Policy adapter/training/evaluation | Not implemented |
 | OpenPI/π0 fine-tuning | Not implemented |
-| OpenPI π0.5-DROID shadow query | Inference-only, embodiment-incompatible, and unable to command a robot |
 | Single-/multi-GPU model training | Not implemented; only a distributed communication smoke tool exists |
 | Checkpoint/resume/export pipeline | Planned |
 | Jetson Thor policy deployment | Planned |
@@ -352,29 +351,6 @@ Start with state-only or two-RGB-camera single-GPU overfit on a few episodes.
 Do not add FSDP or DeepSpeed for a model that fits on one GPU.
 
 ## OpenPI / π0 integration boundary
-
-### Protected local shadow code
-
-`learned_policy/pi05_shadow/` is inference-only evidence and remains
-unmodified. It:
-
-- accepts exactly `openpi.pi05_droid_state.v1`;
-- requires seven DROID/Franka joint positions plus one gripper position;
-- sends two HWC RGB images and a prompt to a websocket policy server;
-- validates a `(15, 8)` action chunk at its recorded OpenPI commit:
-  seven DROID/Franka joint-velocity actions plus one gripper-position action;
-- rejects a six-joint JAKA state;
-- never pads, drops, clips, maps, publishes, or executes the returned action;
-- imports no JAKA/RH56 command path.
-
-That DROID checkpoint and schema are incompatible with the canonical 25-D
-JAKA/RH56 observation and 12-D absolute action. Do not crop seven joints to six,
-pad six to seven, collapse six hand actuators to one gripper scalar, or execute
-the DROID velocities as JAKA targets.
-
-The dated Thor validation report describes one historical host and pinned
-checkout. Its JAX/PTX and PyTorch/ARM findings are evidence for that run, not a
-claim about every current Thor or current OpenPI release.
 
 ### Minimal future integration
 

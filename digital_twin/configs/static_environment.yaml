@@ -96,4 +96,4 @@ aluminium_frame:
 
 robot_visual_policy:
   reconstructed_robot_included: false
-  active_robot_source: data/sim_assets/jaka_rh56_visual_coacd.xml
+  active_robot_source: assets/jaka_rh56_visual_coacd.xml

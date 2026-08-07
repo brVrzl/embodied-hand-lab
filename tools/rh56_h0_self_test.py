@@ -12,7 +12,7 @@ import yaml
 from rh56_sim import Rh56H0SelfTest
 
 
-DEFAULT_MODEL = Path("data/sim_assets/jaka_rh56_visual_coacd.xml")
+DEFAULT_MODEL = Path("assets/jaka_rh56_visual_coacd.xml")
 DEFAULT_ARM_CONFIG = Path("configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
 
 

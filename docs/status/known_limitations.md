@@ -41,7 +41,7 @@ Offline tests, replay, and MuJoCo results are not physical PASS evidence.
 - The combined summary field `rh56_commands` counts backend register-write
   attempts. Worker diagnostics separately report successful serial writes;
   neither count proves that the hand reached a commanded pose.
-- The selected `fast40` scheduler has bounded evidence, but physical target
+- The fixed 40 Hz scheduler has bounded evidence, but physical target
   continuity, feedback latency, and behavior across the full safe command
   range remain only partially characterized.
 

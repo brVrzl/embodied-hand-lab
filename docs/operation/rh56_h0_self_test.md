@@ -25,7 +25,7 @@ RH56 hardware. Its result must be described as offline simulation evidence.
 H0 defaults to:
 
 ```text
-model:      data/sim_assets/jaka_rh56_visual_coacd.xml
+model:      assets/jaka_rh56_visual_coacd.xml
 arm config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
 ```
 

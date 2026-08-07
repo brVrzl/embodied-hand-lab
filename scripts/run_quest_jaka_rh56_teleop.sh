@@ -19,7 +19,7 @@ usage() {
   cat <<'EOF'
 Usage / 用法:
   ./scripts/run_quest_jaka_rh56_teleop.sh \
-    --runtime-config data/local/physical_collection.yaml \
+    --runtime-config configs/data_collection/physical_collection.yaml \
     --hand-prerequisites-complete --no-auto-retry \
     --estop-accessible --workspace-clear
 

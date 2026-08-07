@@ -71,11 +71,8 @@ parse is not permission to open a device.
 | --- | --- |
 | `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Default headless/offline replay and unified simulation smoke |
 | `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Shared live Quest target-generation, MuJoCo, and native-adapter policy |
-| `configs/data_collection/physical_collection.example.yaml` | Host-specific physical collection runtime schema; copy to ignored `data/local/` |
-| `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
-| `configs/motion_input/quest_hts_right_hand.yaml` | Canonical HTS receiver/operator preparation settings |
+| `configs/data_collection/physical_collection.yaml` | Unified physical and simulation-backed collection config; runtime and recorder/camera settings are kept in one reviewed file |
 | `configs/benchmark/smoke.yaml` | Deterministic offline joint-reach/pre-shape smoke benchmark |
-| `configs/sim/jaka_collision_sweep_poses.yaml` | Offline digital-twin collision-sweep pose samples |
 
 The live Quest YAML is shared policy before the output adapter. It contains
 input freshness, clutch semantics, frames, provisional calibration, filters,
@@ -102,6 +99,19 @@ The canonical six-channel order is:
 [index, middle, ring, pinky, thumb_close, thumb_lateral]
 ```
 
+The MuJoCo hand actuator order is:
+
+```text
+[thumb_lateral, thumb_close, index, middle, ring, pinky]
+```
+
+For the Quest RH56 retarget YAML, `calibration.palm_normalization_scale`
+controls the shared palm-width denominator used by `thumb_lateral`; it is not
+a sixth feature scale. `calibration.digit_scale` is exactly five finite,
+positive values in `[index, middle, ring, pinky, thumb_close]` order. The
+loader requires these fields directly and does not compose a runtime global
+scale with local scales or accept legacy aliases.
+
 The protocol order is:
 
 ```text
@@ -114,36 +124,44 @@ feedback fields. They are not a tactile array, slip sensor, or complete
 kinematic state. Nonzero `STATUS` semantics have not been validated and must
 remain raw rather than guessed.
 
-`rh56_pc_direct_teleop.yaml` contains a placeholder serial path. The actual
-stable device is always selected explicitly with `--device`. Speed/force
-values in YAML are software command policy, not permission to write runtime
+`rh56_pc_direct_teleop.yaml` contains serial protocol settings but no device
+path. The actual stable device is selected by the physical runtime
+configuration and injected by the entry point before backend creation.
+Speed/force values in YAML are software command policy, not permission to write runtime
 registers. Runtime configuration writes have a separate explicit operation and
 configuration-write confirmation.
 
-### Camera, perception, and collection preparation
+### Perception and collection preparation
 
 | File | Owner and status |
 | --- | --- |
-| `configs/camera/default_rgbd.yaml` | Small mock RGB-D fixture; not a physical-camera default |
-| `configs/camera/realsense_thor.yaml` | Site-specific dual-D435 snapshot with recorded serials; not portable |
 | `configs/perception/d435_tabletop.yaml` | Offline tabletop depth/point-cloud processing and uncalibrated target-frame placeholder |
-| `configs/data_collection/dual_d435_episode.example.yaml` | Copyable settings consumed by the simulation-backed Quest + dual-D435 episode path; no physical JAKA/RH56 collector consumes it |
+| `configs/data_collection/physical_collection.yaml` | Unified runtime, dual-D435 acquisition, and episode-writer schema; bind workspace/wrist roles by serial |
 
-Copy site values into the same ignored local path used by the collection
-guide rather than editing a versioned example:
+The maintained collection file is the single source for this repository's
+physical and simulation-backed capture. Its `runtime` mapping is consumed by
+the physical wrapper; its `dataset`, `cameras`, and `calibration` mappings are
+consumed by the episode recorder. Edit the host/device values in this file and
+verify them before any separately acknowledged physical run:
 
 ```bash
-mkdir -p data/local
-cp configs/data_collection/dual_d435_episode.example.yaml \
-  data/local/dual_d435_episode.yaml
+${EDITOR:-vi} configs/data_collection/physical_collection.yaml
 ```
 
 Replace both camera serial placeholders and attach calibration snapshot
 identity before collection. Camera roles are assigned by serial, never
-`/dev/video*` order. The current consumer records real Quest and D435 input
+`/dev/video*` order. Camera acquisition settings live in this collection
+schema; there is no second production camera profile under
+`configs/camera/`. The current consumer records real Quest and D435 input
 against simulated arm/hand state; a copied config does not make physical
 JAKA/RH56 collection implemented or validate the cameras, calibration, or
 synchronization on a target host.
+
+The small mock RGB-D YAML used by `tests/test_configs.py` is kept under
+`tests/fixtures/`, because it is test data rather than an operator or device
+configuration. The tabletop YAML is intentionally separate: it configures
+offline depth/point-cloud analysis after capture and is not read by the
+episode recorder.
 
 The tabletop perception config uses meters. Its
 `target_from_camera_npy: null` and `calibration_status: uncalibrated` values
@@ -212,8 +230,9 @@ when the wrapper itself resolves the root.
 
 Keep these roles separate:
 
-- `data/sim_assets/`: versioned MuJoCo assets;
-- `data/local/`: ignored site-specific collection configuration;
+- `assets/`: versioned MuJoCo assets;
+- `configs/data_collection/physical_collection.yaml`: reviewed host/device and
+  episode capture configuration;
 - `data/episodes/`: canonical episode data, ignored by default;
 - `models/`: model and digital-twin assets;
 - `logs/`: runtime evidence, ignored;
@@ -263,9 +282,9 @@ values.
 
 ### RH56
 
-Select a stable device path explicitly. The YAML owns baud rate, address,
-scheduler profile, canonical/protocol mapping, stale thresholds, and command
-bounds. An open transport performs no automatic configuration write or
+Select a stable device path explicitly. The YAML owns baud rate, address, the
+single fixed scheduler, canonical/protocol mapping, stale thresholds, and
+command bounds. An open transport performs no automatic configuration write or
 safe-open.
 
 ### RealSense

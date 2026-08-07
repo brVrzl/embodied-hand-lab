@@ -60,19 +60,16 @@ Confirm the maintained command surfaces without opening hardware:
 .venv/bin/python tools/check_realsense_stream.py --help
 ```
 
-## Prepare a local dual-camera config
-
-Copy the tracked example to the ignored `data/` area:
+## Prepare the unified collection config
 
 ```bash
-mkdir -p data/local
-cp configs/data_collection/dual_d435_episode.example.yaml \
-  data/local/dual_d435_episode.yaml
+${EDITOR:-vi} configs/data_collection/physical_collection.yaml
 ```
 
-Do not edit the example with local serial numbers. `data/` is ignored so the
-copy can contain machine-specific camera identities and calibration paths
-without becoming repository configuration.
+The same reviewed YAML supplies host runtime values, both explicit D435 role
+bindings, recorder quality policy, and episode output settings. Keep
+workspace/wrist serials distinct and preserve role assignment; do not infer
+roles from `/dev/video*` ordering.
 
 The implemented config fields are:
 
@@ -233,7 +230,7 @@ MuJoCo:
 
 ```bash
 .venv/bin/python tools/quest_jaka_mujoco_sim.py live-6dof \
-  --episode-data-config data/local/dual_d435_episode.yaml \
+  --episode-data-config configs/data_collection/physical_collection.yaml \
   --episode-root data/episodes \
   --task-name <TASK_ID> \
   --operator <OPERATOR_ID>
@@ -317,7 +314,7 @@ workspace, device identity, CPU isolation, and RH56 prerequisites are checked:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --runtime-config data/local/physical_collection.yaml \
+  --runtime-config configs/data_collection/physical_collection.yaml \
   --hand-prerequisites-complete --no-auto-retry \
   --estop-accessible --workspace-clear \
   --log-dir logs
@@ -342,7 +339,7 @@ the whole run; the canonical action is then explicitly sourced as
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --runtime-config data/local/physical_collection.yaml \
+  --runtime-config configs/data_collection/physical_collection.yaml \
   --duration-sec 10 --hand-prerequisites-complete --no-auto-retry \
   --estop-accessible --workspace-clear --log-dir logs
 ```

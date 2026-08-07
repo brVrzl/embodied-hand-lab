@@ -29,7 +29,14 @@ class ManualClock:
 
 def _config(*, diagnostics: bool = True) -> dict:
     return {
-        "control_frequency_hz": 15,
+        "scheduler": {
+            "command_rate_hz": 15,
+            "angle_feedback_rate_hz": 15,
+            "current_feedback_rate_hz": 15,
+            "force_feedback_rate_hz": 15,
+            "status_feedback_rate_hz": 15,
+            "error_feedback_rate_hz": 15,
+        },
         "feedback_stale_timeout_sec": 0.4,
         "serial": {"timeout_sec": 0.2},
         "hand_schema": {
@@ -276,7 +283,7 @@ def test_worker_is_the_only_serial_backend_caller_and_never_overlaps_io() -> Non
 
     backend = ConcurrencyGuardBackend()
     config = _config()
-    config["control_frequency_hz"] = 100
+    config["scheduler"]["command_rate_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
     first = worker.start(HandOperation.COMBINED)
@@ -548,7 +555,7 @@ def test_jsonl_write_and_flush_failures_are_independent_and_buffer_is_bounded() 
     assert flush_recorder.buffered_record_count == 0
 
 
-def test_default_command_and_feedback_rates_are_unchanged() -> None:
+def test_configured_command_and_feedback_rates_are_used() -> None:
     config = _config()
     control = RH56PcDirectControl(FakeRH56PcDirectBackend(), config)
     worker = RH56PcDirectWorker(control)

@@ -81,7 +81,7 @@ authorized physical gate.
 - `scripts/`: operator-facing wrappers.
 - `native/`: JAKA diagnostic and EDG worker C++ sources.
 - `configs/`: versioned examples and runtime policy.
-- `data/sim_assets/`, `models/`: robot and simulation assets.
+- `assets/`, `models/`: robot and simulation assets.
 - `tests/`: offline tests; hardware is never required by the default suite.
 - `docs/`: current architecture, operation, safety, development, reference,
   status, and indexed history.

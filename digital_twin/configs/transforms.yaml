@@ -56,7 +56,7 @@ transforms:
     note: All-zero robot pose places both the RH56 palm normal and fixed communication-cable side on P -x; not a substitute for calibrated T_B_P.
   T_F_H:
     status: repository_defined_unverified
-    source: data/sim_assets/jaka_rh56_visual_coacd.xml
+    source: assets/jaka_rh56_visual_coacd.xml
     parent_model_body: jaka_Link_6
     child_model_body: rh56_R_hand_base_link
     translation_m: [0.0, 0.0, 0.009]

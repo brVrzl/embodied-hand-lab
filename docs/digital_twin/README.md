@@ -24,7 +24,7 @@ There are two related MuJoCo assets with different roles and current evidence:
 
 | Asset | Role | Initial contact evidence | Current boundary |
 |---|---|---|---|
-| `data/sim_assets/jaka_rh56_visual_coacd.xml` | Canonical shared robot runtime used by simulation, teleoperation, H0, and benchmark code | Direct load/forward at model `qpos0`: zero contacts. The configured H0 arm start also has zero penetrating contacts. | Current shared robot authority |
+| `assets/jaka_rh56_visual_coacd.xml` | Canonical shared robot runtime used by simulation, teleoperation, H0, and benchmark code | Direct load/forward at model `qpos0`: zero contacts. The configured H0 arm start also has zero penetrating contacts. | Current shared robot authority |
 | `models/digital_twin/workspace_scene.xml` | Committed derivative that adds the P-frame workspace | Direct load/forward at model `qpos0`: four duplicate contact records for `jaka_Link_0_geom_0` against `jaka_Link_1_geom_0`, each at about -3 mm; no environment contact at that state | Provisional and currently stale relative to the canonical runtime |
 | `models/digital_twin/jaka_inspire_workspace.xml` | Compatibility include for `workspace_scene.xml` | Same result as the included scene | Not a separate scene authority |
 
@@ -32,7 +32,7 @@ The current scene generator, when run from the canonical shared runtime asset,
 retains its adjacent-link exclusion and produces an integrated scene with zero
 initial contacts. That generated result differs from the committed
 `workspace_scene.xml`. Therefore, the committed integrated scene must be
-regenerated and revalidated before a new collision sweep is treated as current
+regenerated and revalidated before any new contact result is treated as current
 evidence. Do not use the committed scene's initial Link 0/Link 1 contacts to
 describe the shared runtime model.
 
@@ -118,7 +118,7 @@ Validate the current workspace inputs without writing a scene:
 
 ```bash
 .venv/bin/python tools/digital_twin/build_mujoco_workspace_scene.py \
-  --robot-model data/sim_assets/jaka_rh56_visual_coacd.xml \
+  --robot-model assets/jaka_rh56_visual_coacd.xml \
   --static-config digital_twin/configs/static_environment.yaml \
   --camera-config digital_twin/configs/camera_placeholders.yaml \
   --operational-config digital_twin/configs/robot_operational_placement.yaml \
@@ -131,8 +131,8 @@ To inspect a regenerated scene without overwriting the committed model, omit
 `--dry-run` and keep the shown artifact output paths. Then load, inspect, and
 compare that artifact before replacing any maintained model.
 
-The committed scene can be checked by the renderer and collision-sweep
-frontends without executing their expensive stages:
+The committed scene can be checked by the renderer without executing its
+expensive stages:
 
 ```bash
 .venv/bin/python tools/digital_twin/render_workspace_scene.py \
@@ -140,34 +140,11 @@ frontends without executing their expensive stages:
   --output-dir artifacts/digital_twin/render \
   --dry-run
 
-.venv/bin/python tools/digital_twin/run_joint_space_collision_sweep.py \
-  --scene models/digital_twin/workspace_scene.xml \
-  --classification digital_twin/configs/collision_classification.yaml \
-  --operational-config digital_twin/configs/robot_operational_placement.yaml \
-  --robot-config configs/sim/jaka_collision_sweep_poses.yaml \
-  --output artifacts/digital_twin/collision_sweep \
-  --dry-run
 ```
 
-After regenerating the scene and reviewing initial contacts, a short offline
-sweep can be run with `--quick --skip-render`; the full sweep should be retained
-for a deliberate validation run. The integrated validator additionally needs
+The integrated validator additionally needs
 the absent reconstruction-derived segmentation manifest, scene manifest, and
 visual mesh, so it is blocked until those inputs are restored or regenerated.
-
-## Prior sweep evidence
-
-An earlier repository report described 130 static configurations and nine
-actuator trajectories (31,995 MuJoCo steps). It reported no zero-pose
-environment or floor contact, but reported policy failures for a low-table
-approach and both RH56 open/close directions, plus a shallow Link 5/table
-warning. It also reported deep contacts and large simulated constraint forces
-at intentionally infeasible sampled states.
-
-The raw sweep summary, sampled states, event renders, and validation artifacts
-are absent from this source bundle, and the committed scene has since drifted
-from the canonical runtime source. Those numbers are historical claims, not
-reproduced current validation and not physical force predictions.
 
 ## Readiness blockers
 
@@ -176,13 +153,9 @@ The integrated workspace is not **Simulation Ready**. Before promoting it:
 1. regenerate the workspace scene from the current canonical runtime asset;
 2. confirm zero-pose and configured-start contact state on the regenerated
    scene;
-3. review table/rail primitives and rerun the deterministic collision sweep;
-4. preserve the scene, manifest, configuration snapshot, and sweep outputs
-   together;
-5. restore or repeat robot/world, external-camera, and wrist-camera
+3. restore or repeat robot/world, external-camera, and wrist-camera
    calibration;
-6. classify every retained collision finding as geometry error, conservative
-   proxy, or excluded infeasible pose.
+4. keep all regenerated scene and calibration evidence together.
 
 These steps remain offline validation work. A digital-twin result must never be
 reported as physical validation or safety certification.

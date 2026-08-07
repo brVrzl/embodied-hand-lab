@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import sys
 
 import pytest
@@ -215,7 +216,6 @@ def test_quest_hand_only_uses_explicit_operation_and_production_mode() -> None:
     assert args.channel is None
     assert args.delta is None
     assert args.hand_calibration == "configs/hand/quest_rh56_real_retarget.yaml"
-    assert _parse("--preflight-only", "--scheduler-profile", "fast30").scheduler_profile == "fast30"
 
 
 def test_mapping_check_requires_slow_operator_follow_duration() -> None:
@@ -248,11 +248,18 @@ def test_hand_only_and_live_defaults_share_real_physical_calibration() -> None:
     )
 
 
-def test_physical_hand_path_rejects_sim_uncalibrated_mapping() -> None:
+def test_physical_hand_path_rejects_nonreal_calibration(tmp_path: Path) -> None:
+    calibration_path = tmp_path / "uncalibrated.yaml"
+    calibration_path.write_text(
+        Path("configs/hand/quest_rh56_real_retarget.yaml")
+        .read_text(encoding="utf-8")
+        .replace("quest_rh56dfx_real_20260803_v3", "quest_rh56_sim_uncalibrated_v1"),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="quest_rh56dfx_real"):
         _load_hand_only_quest_config(
             "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
-            "configs/sim/quest_rh56_retarget.yaml",
+            str(calibration_path),
         )
 
 

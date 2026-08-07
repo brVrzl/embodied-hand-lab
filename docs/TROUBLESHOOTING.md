@@ -137,7 +137,7 @@ First isolate the headless maintained path:
 If import fails, reinstall `.[simulation]` in the active interpreter. If model
 loading fails:
 
-1. confirm `data/sim_assets/jaka_rh56_visual_coacd.xml` exists;
+1. confirm `assets/jaka_rh56_visual_coacd.xml` exists;
 2. preserve the repository-relative MJCF/mesh layout;
 3. check case-sensitive filenames on Linux;
 4. inspect the full MuJoCo XML error, including referenced line/path;
@@ -178,9 +178,10 @@ If no device appears, inspect cable, power, USB port, hub, kernel log, and
 librealsense udev rules. If the device appears only under `sudo`, fix udev/group
 permissions; do not run the robot stack as root.
 
-If a configured serial is wrong, record the actual serial and preserve role
-assignment. `configs/camera/realsense_thor.yaml` contains site-specific
-serials, not universal defaults.
+If a configured serial is wrong, update
+`configs/data_collection/physical_collection.yaml` and preserve role
+assignment. Verify the identity before a physical run; the YAML itself does
+not authorize opening a camera or robot connection.
 
 `tools/check_realsense_stream.py` opens a camera and writes snapshots. Use it
 only when an actual camera probe is intended:

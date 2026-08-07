@@ -301,7 +301,7 @@ def collect_doctor_report(root: Path | None = None) -> dict[str, Any]:
             root / "configs/sim/quest_hts_jaka_mini2_offline.yaml"
         ).is_file(),
         "default_mjcf": (
-            root / "data/sim_assets/jaka_rh56_visual_coacd.xml"
+            root / "assets/jaka_rh56_visual_coacd.xml"
         ).is_file(),
         "data_directory": data_path.is_dir(),
         "models_directory": models_path.is_dir(),

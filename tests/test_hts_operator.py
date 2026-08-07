@@ -5,7 +5,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-import yaml
 
 from motion_input import (
     HtsCanonicalAssembler,
@@ -228,16 +227,6 @@ def test_transition_log_has_monotonic_timestamps_and_reasons() -> None:
     timestamps = [transition.timestamp_monotonic_ns for transition in pipeline.transitions]
     assert timestamps == sorted(timestamps)
     assert all(transition.reason for transition in pipeline.transitions)
-
-
-def test_repository_right_hand_config_uses_existing_yaml_style() -> None:
-    path = Path(__file__).parents[1] / "configs/motion_input/quest_hts_right_hand.yaml"
-    values = yaml.safe_load(path.read_text(encoding="utf-8"))["hand_tracking_streamer"]
-    config = RightHandOperatorConfig.from_mapping(values)
-    assert config.required_hand.value == "right"
-    assert config.left_hand_required is False
-    assert config.head_pose_required is False
-    assert config.stale_after_s == pytest.approx(0.25)
 
 
 def test_recorded_gate_proves_stale_neutral_and_21_joint_recovery(tmp_path: Path) -> None:

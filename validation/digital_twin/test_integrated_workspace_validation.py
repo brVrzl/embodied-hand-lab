@@ -71,7 +71,7 @@ def test_optional_sparse_debug_geometry_has_no_collision(tmp_path: Path) -> None
     command = [
         sys.executable,
         str(ROOT / "tools/digital_twin/build_mujoco_workspace_scene.py"),
-        "--robot-model", str(ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"),
+        "--robot-model", str(ROOT / "assets/jaka_rh56_visual_coacd.xml"),
         "--static-config", str(ROOT / "digital_twin/configs/static_environment.yaml"),
         "--camera-config", str(ROOT / "digital_twin/configs/camera_placeholders.yaml"),
         "--operational-config", str(ROOT / "digital_twin/configs/robot_operational_placement.yaml"),
@@ -99,7 +99,7 @@ def test_generated_XML_regeneration_consistency(tmp_path: Path) -> None:
     output = tmp_path / "workspace.xml"; manifest = tmp_path / "manifest.yaml"
     command = [
         sys.executable, str(ROOT / "tools/digital_twin/build_mujoco_workspace_scene.py"),
-        "--robot-model", str(ROOT / "data/sim_assets/jaka_rh56_visual_coacd.xml"),
+        "--robot-model", str(ROOT / "assets/jaka_rh56_visual_coacd.xml"),
         "--static-config", str(ROOT / "digital_twin/configs/static_environment.yaml"),
         "--camera-config", str(ROOT / "digital_twin/configs/camera_placeholders.yaml"),
         "--operational-config", str(ROOT / "digital_twin/configs/robot_operational_placement.yaml"),

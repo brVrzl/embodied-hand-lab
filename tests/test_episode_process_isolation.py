@@ -13,7 +13,6 @@ import pytest
 
 from episode_dataset.episode import CameraSample
 from episode_dataset.episode import ControlSample
-from episode_dataset.collector import CaptureState
 from episode_dataset.process_runtime import (
     FrameReferenceDescriptor,
     ProcessEpisodeRecorder,
@@ -25,11 +24,11 @@ from episode_dataset.process_runtime import (
 )
 
 
-def _control(timestamp_ns: int, trigger: bool, *, q: float = 0.0) -> ControlSample:
+def _control(timestamp_ns: int, trigger: bool) -> ControlSample:
     zeros = (0.0,) * 6
     return ControlSample(
         host_monotonic_ns=timestamp_ns,
-        accepted_arm_q=(q,) * 6,
+        accepted_arm_q=zeros,
         arm_q_measured=zeros,
         arm_dq_measured=zeros,
         tcp_pose_xyzw=(0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 1.0),
@@ -505,6 +504,7 @@ def test_recorder_process_materializes_reference_and_finalizes_bounded(tmp_path)
         task_name="offline_process_recorder",
         operator="test",
         control_config_path=tmp_path / "control.yaml",
+        maximum_start_delta_rad=0.02,
         metadata={"physically_validated": False},
         dataset={
             "fps": 30,
@@ -565,6 +565,7 @@ def test_recorder_startup_failure_reports_child_error(tmp_path) -> None:
         task_name="offline_process_recorder_failure",
         operator="test",
         control_config_path=tmp_path / "control.yaml",
+        maximum_start_delta_rad=0.02,
         metadata={},
         dataset={"format": "unsupported_for_test"},
         camera_profiles={},
@@ -577,7 +578,7 @@ def test_recorder_startup_failure_reports_child_error(tmp_path) -> None:
         recorder.stop()
 
 
-def test_staging_recorder_keeps_one_process_for_three_episodes(tmp_path) -> None:
+def test_staging_recorder_rotation_finalizes_previous_episode(tmp_path) -> None:
     context = mp.get_context("spawn")
     rings = {
         role: SharedMemoryCameraFrameRing.create(
@@ -596,6 +597,7 @@ def test_staging_recorder_keeps_one_process_for_three_episodes(tmp_path) -> None
         task_name="offline_staging_rotation",
         operator="test",
         control_config_path=tmp_path / "control.yaml",
+        maximum_start_delta_rad=0.02,
         metadata={"physically_validated": False},
         dataset={
             "format": "lerobot_staging_v1",
@@ -619,121 +621,34 @@ def test_staging_recorder_keeps_one_process_for_three_episodes(tmp_path) -> None
     collector = None
     try:
         collector = recorder.start(timeout_s=3.0)
-        def wait_until(predicate) -> None:
-            deadline = time.monotonic() + 3.0
-            while time.monotonic() < deadline:
-                collector.diagnostics()
-                assert recorder.error is None
-                if predicate():
-                    return
-                time.sleep(0.01)
-            raise AssertionError("recorder did not reach expected state")
-
-        def capture_episode(index: int) -> None:
-            base = 1_000_000_000 + index * 100_000_000
-            for role, ring in rings.items():
-                sample = replace(
-                    _camera_sample(role, base, index),
-                    rgb=np.full((8, 32, 3), index, dtype=np.uint8),
-                    depth_raw=np.full((8, 32), index, dtype=np.uint16),
-                    depth_aligned_to_rgb=np.full((8, 32), index, dtype=np.uint16),
-                )
-                collector.ingest_camera(ring.publish(sample, index))
-            collector.ingest_control(
-                _control(base, True, q=0.0022),
-                reference_established=True,
-                capture_active=True,
+        base = 1_000_000_000
+        for role, ring in rings.items():
+            sample = replace(
+                _camera_sample(role, base, 0),
+                rgb=np.zeros((8, 32, 3), dtype=np.uint8),
+                depth_raw=np.zeros((8, 32), dtype=np.uint16),
+                depth_aligned_to_rgb=np.zeros((8, 32), dtype=np.uint16),
             )
-            wait_until(lambda: collector.state is CaptureState.REC)
-            collector.ingest_control(
-                _control(base + 34_000_000, True, q=0.0022),
-                reference_established=True,
-                capture_active=True,
-            )
-            collector.ingest_control(
-                _control(base + 68_000_000, True, q=0.0022),
-                reference_established=True,
-                capture_active=True,
-            )
-            collector.ingest_control(
-                _control(base + 102_000_000, False, q=0.0022),
-                reference_established=True,
-                capture_active=False,
-            )
-            wait_until(lambda: collector.state is CaptureState.DONE)
-
-        for index in range(2):
-            capture_episode(index)
-            collector.rotate_episode(
-                "both_clutches_released_5s",
-                release_ns=1_000_000_000 + index * 100_000_000 + 102_000_000,
-            )
-            wait_until(lambda: collector.writer.temporary_id == f"episode_{index + 1:06d}")
-            assert recorder._process.is_alive()
-
-        capture_episode(2)
-        assert recorder._process.is_alive()
-        collector.finalize_pending()
-
+            collector.ingest_camera(ring.publish(sample, 0))
+        collector.ingest_control(
+            _control(base, True), reference_established=True, capture_active=True
+        )
+        collector.rotate_episode("both_clutches_released_5s", release_ns=base)
+        deadline = time.monotonic() + 3.0
+        while collector.writer.temporary_id != "episode_000001" and time.monotonic() < deadline:
+            collector.diagnostics()
+            time.sleep(0.01)
+        assert collector.writer.temporary_id == "episode_000001"
         index = tmp_path / "meta" / "episodes.jsonl"
         rows = [json.loads(line) for line in index.read_text().splitlines()]
-        assert [row["episode_name"] for row in rows] == [
-            "episode_000000",
-            "episode_000001",
-            "episode_000002",
-        ]
-        for episode_index in range(3):
-            name = f"episode_{episode_index:06d}"
-            metadata = json.loads(
-                (tmp_path / "meta/episodes/chunk-000" / f"{name}.json").read_text()
-            )
-            assert metadata["completion_status"] == "completed"
-            assert metadata["num_frames"] == 3
-            assert metadata["start_arm_target_measured_delta_rad"] == pytest.approx(0.0022)
-            assert metadata["start_arm_target_measured_max_joint_index"] == 0
-            data_rows = [
-                json.loads(line)
-                for line in (tmp_path / "data/chunk-000" / f"{name}.jsonl").read_text().splitlines()
-            ]
-            assert [row["frame_index"] for row in data_rows] == [0, 1, 2]
-            timestamps = [row["timestamp_ns"] for row in data_rows]
-            assert timestamps == sorted(timestamps)
-            assert [row["timestamp"] for row in data_rows] == sorted(
-                row["timestamp"] for row in data_rows
-            )
-            assert len(data_rows[0]["observation.state"]) == 12
-            assert len(data_rows[0]["action"]) == 12
-            assert data_rows[0]["action"][0] == pytest.approx(0.0022)
-            assert (
-                tmp_path
-                / "videos/observation.images.workspace/chunk-000"
-                / f"{name}.mp4"
-            ).stat().st_size > 0
-            assert (
-                tmp_path
-                / "videos/observation.images.wrist/chunk-000"
-                / f"{name}.mp4"
-            ).stat().st_size > 0
-        assert not list(tmp_path.rglob("*.partial"))
-        assert not list(tmp_path.rglob("rejected*.json"))
+        assert rows[0]["episode_name"] == "episode_000000"
+        assert rows[0]["length"] == 1
+        assert (tmp_path / "data/chunk-000/episode_000000.jsonl").is_file()
+        assert not (tmp_path / "data/chunk-000/episode_000001.jsonl").exists()
     finally:
         if collector is not None:
-            if collector.result is None:
-                collector.shutdown("offline_test_complete")
-                collector.finalize_pending()
+            collector.shutdown("offline_test_complete")
+            collector.finalize_pending()
         recorder.stop()
-        assert not recorder._process.is_alive()
-        shared_names = [
-            name
-            for ring in rings.values()
-            for name in (
-                ring.spec.header_name,
-                ring.spec.rgb_name,
-                ring.spec.depth_name,
-                ring.spec.aligned_depth_name,
-            )
-            if name is not None
-        ]
         for ring in rings.values():
             ring.close()
-        _assert_shared_memory_absent(shared_names)

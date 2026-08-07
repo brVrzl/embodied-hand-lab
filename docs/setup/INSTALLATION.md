@@ -151,7 +151,7 @@ Install the simulation extra:
 ```
 
 The default model is
-`data/sim_assets/jaka_rh56_visual_coacd.xml`. Keep the repository layout
+`assets/jaka_rh56_visual_coacd.xml`. Keep the repository layout
 intact because MJCF includes and mesh paths are repository-relative.
 
 For interactive Quest simulation, inspect the current wrapper without opening
@@ -203,10 +203,6 @@ locally supplied JAKA SDK 2.2.7 on Linux:
 
 - `x86_64-linux-gnu/libjakaAPI.so` on x86_64;
 - `aarch64-linux-gnu/libjakaAPI.so` on ARM64.
-
-The vendor files have no redistributable license text in this bundle; follow
-[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) before transferring
-them independently.
 
 Build offline:
 
@@ -302,12 +298,11 @@ identities without starting a stream. Without that flag, the tool opens the
 selected camera and writes RGB, metric-depth, point-cloud, and metadata
 snapshots; run the streaming form only when that device probe is intended.
 
-`configs/camera/realsense_thor.yaml` is a site-specific two-camera snapshot,
-not a portable default. For a new system start from
-`configs/data_collection/dual_d435_episode.example.yaml`, replace both role
-serials, and retain calibration identity. Workspace and wrist roles must never
-be inferred from `/dev/video*` numbering. Target dual-D435 hardware/profile
-validation remains incomplete.
+Edit `configs/data_collection/physical_collection.yaml` and verify both role
+serials and calibration identity. This is the only maintained operator-facing
+D435 acquisition config; workspace and wrist roles must never be inferred from
+`/dev/video*` numbering. Target dual-D435 hardware/profile validation remains
+incomplete.
 
 ## Meta Quest 3 host input
 

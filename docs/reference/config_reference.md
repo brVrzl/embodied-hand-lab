@@ -21,16 +21,11 @@ owning loader and current `--help`.
 | --- | --- |
 | `configs/sim/quest_hts_jaka_mini2_live_demo.yaml` | Authoritative shared live Quest/JAKA target-generation policy before either output adapter, including the capped 10-second no-motion Quest input recovery window and persistent disengaged-hold behavior; also owns the maintained MuJoCo live-scene settings |
 | `configs/sim/quest_hts_jaka_mini2_offline.yaml` | Recorded-input and headless/offline simulation policy; deliberately smaller and different from live policy |
-| `configs/sim/quest_rh56_retarget.yaml` | Simulation-only Quest-to-RH56 feature calibration |
-| `configs/sim/jaka_collision_sweep_poses.yaml` | Offline digital-twin collision-sweep pose samples |
-| `configs/motion_input/quest_hts_right_hand.yaml` | HTS receiver and canonical-operator preparation values; not physical robot bounds |
 | `configs/benchmark/smoke.yaml` | Deterministic offline JAKA joint-reach/RH56 actuator pre-shape smoke benchmark |
-| `configs/hand/rh56_pc_direct_teleop.yaml` | Maintained PC-direct transport, scheduler, channel order, feedback, command bounds, and safety policy; actual stable serial device remains a CLI choice |
+| `configs/hand/rh56_pc_direct_teleop.yaml` | Maintained PC-direct transport, scheduler, channel order, feedback, command bounds, and safety policy; actual stable serial device is supplied by the selected runtime configuration |
 | `configs/hand/quest_rh56_real_retarget.yaml` | Maintained live Quest hand-feature calibration used by hand-only and combined physical RH56 entries and the live simulation default; does not own RH56 protocol travel or authorize writes |
-| `configs/camera/default_rgbd.yaml` | Small mock RGB-D fixture, not a physical-camera default |
-| `configs/camera/realsense_thor.yaml` | Site-specific dual-D435 snapshot with recorded serials; not portable and not end-to-end validated |
 | `configs/perception/d435_tabletop.yaml` | Offline tabletop processing parameters; camera-to-JAKA transform and workspace remain explicitly uncalibrated |
-| `configs/data_collection/dual_d435_episode.example.yaml` | Copyable dual-D435 settings shared by simulation capture and the separately gated physical v2 collector; local serials/calibration are required |
+| `configs/data_collection/physical_collection.yaml` | Unified physical/simulation collection schema containing runtime, dual-D435, and episode-writer settings |
 | `configs/training/distributed.example.yaml` | Proposed future trainer contract; explicitly not consumed by a current ACT, Diffusion Policy, or other trainer |
 
 `digital_twin/configs/` is a separate set of calibration evidence, provisional
@@ -71,6 +66,20 @@ For RH56, the canonical software order is:
 ```text
 [index, middle, ring, pinky, thumb_close, thumb_lateral]
 ```
+
+The MuJoCo actuator map consumes the same six values in this order:
+
+```text
+[thumb_lateral, thumb_close, index, middle, ring, pinky]
+```
+
+Quest RH56 retarget calibration keeps the scale semantics separate: the
+`calibration.palm_normalization_scale` scalar is used only for shared
+palm-width normalization of `thumb_lateral`, while
+`calibration.digit_scale` must contain exactly five finite positive values in
+`[index, middle, ring, pinky, thumb_close]` order. The lateral feature is not a
+digit-scale channel, and the loader has no legacy scale aliases or runtime
+global/local scale composition.
 
 Raw `ANGLE_ACT`, `CURRENT`, `FORCE_ACT`, `ERROR`, and `STATUS` are register
 feedback, not a tactile array or complete passive-joint state. MuJoCo hand

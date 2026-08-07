@@ -281,8 +281,8 @@ class SmoothQuestJakaSession:
         self.last_hand_result: InspireRetargetResult | None = None
         self.hand_valid_results = 0
         if self.hand_enabled:
-            backend, calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
-            self.hand_retargeter = ProjectRh56Retargeter(calibration, backend=backend)
+            calibration = HandRetargetCalibration.load(hand_values["calibration_path"])
+            self.hand_retargeter = ProjectRh56Retargeter(calibration)
             validated_poses = (
                 calibration.validated_pinch_poses
                 if calibration.pinch_pose_blending_enabled
@@ -300,10 +300,6 @@ class SmoothQuestJakaSession:
             calibration = self.hand_retargeter.calibration
             self._thumb_first_pinch = ThumbFirstPinchSequencer(
                 enabled=calibration.thumb_first_pinch_enabled,
-                lateral_target=calibration.thumb_first_lateral_target,
-                lateral_tolerance=calibration.thumb_first_lateral_tolerance,
-                index_guard=calibration.thumb_first_index_guard,
-                thumb_close_guard=calibration.thumb_first_thumb_close_guard,
                 index_activation=calibration.thumb_first_index_activation,
                 thumb_close_activation=calibration.thumb_first_thumb_close_activation,
                 lateral_activation=calibration.thumb_first_lateral_activation,
@@ -311,10 +307,6 @@ class SmoothQuestJakaSession:
         else:
             self._thumb_first_pinch = ThumbFirstPinchSequencer(
                 enabled=False,
-                lateral_target=0.0,
-                lateral_tolerance=0.03,
-                index_guard=0.15,
-                thumb_close_guard=0.25,
             )
         self._thumb_first_pinch_stage = "idle"
         self._pinch_blend_mode = "none"
@@ -2128,7 +2120,6 @@ class SmoothQuestJakaSession:
             "ik_rate_hz": _rate(self.ik_timestamps_ns),
             "filter_profile": self.profile.name,
             "clutch_provider": self.clutch_provider,
-            "hand_backend": None if self.hand_retargeter is None else self.hand_retargeter.backend,
             "hand_valid_result_count": self.hand_valid_results,
             "arm_final_state": self.arm_clutch.state.value,
             "hand_final_state": self.hand_clutch.state.value,

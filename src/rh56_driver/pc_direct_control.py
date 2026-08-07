@@ -392,21 +392,10 @@ class RH56PcDirectControl:
         self.state = HandControlState.DISABLED
         self.transport_state = "CLOSED"
         self.operation: HandOperation | None = None
-        profile_name = str(config.get("scheduler_profile", "baseline"))
-        profiles = config.get("scheduler_profiles", {})
-        profile = profiles.get(profile_name, {}) if isinstance(profiles, Mapping) else {}
-        if profiles and not profile:
-            raise ValueError(f"Unknown RH56 scheduler_profile={profile_name!r}.")
-        if not isinstance(profile, Mapping):
-            raise ValueError(f"RH56 scheduler profile {profile_name!r} must be a mapping.")
-        self.scheduler_profile = profile_name
-
-        def scheduler_value(name: str, fallback: Any) -> Any:
-            return profile.get(name, config.get(name, fallback))
-
-        self.command_rate_hz = float(
-            scheduler_value("command_rate_hz", config.get("control_frequency_hz", 15.0))
-        )
+        scheduler = config.get("scheduler")
+        if not isinstance(scheduler, Mapping):
+            raise ValueError("RH56 scheduler configuration is required.")
+        self.command_rate_hz = float(scheduler["command_rate_hz"])
         if self.command_rate_hz <= 0.0:
             raise ValueError("RH56 command_rate_hz must be positive.")
         # Retain the old public name while command and feedback rates are now
@@ -419,12 +408,7 @@ class RH56PcDirectControl:
             command_period_ns=self.command_period_ns,
         )
         self.feedback_rate_hz = {
-            name: float(
-                scheduler_value(
-                    f"{name.lower()}_feedback_rate_hz",
-                    config.get("control_frequency_hz", 15.0),
-                )
-            )
+            name: float(scheduler[f"{name.lower()}_feedback_rate_hz"])
             for name in ("ANGLE", "CURRENT", "FORCE", "STATUS", "ERROR")
         }
         if any(rate <= 0.0 for rate in self.feedback_rate_hz.values()):
@@ -1357,7 +1341,6 @@ class RH56PcDirectControl:
         return {
             "enabled": self.diagnostics_enabled,
             "window_size": self.diagnostics_window_size,
-            "scheduler_profile": self.scheduler_profile,
             "requested_command_rate_hz": self.command_rate_hz,
             "requested_feedback_rate_hz": dict(self.feedback_rate_hz),
             "exact_duplicate_suppression": self.exact_duplicate_suppression,

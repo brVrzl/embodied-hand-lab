@@ -243,9 +243,8 @@ runtime:
   native_control_realtime_priority: 10
   rh56_device: /dev/serial/by-id/test-rh56
   rh56_config: configs/hand/rh56_pc_direct_teleop.yaml
-  rh56_scheduler_profile: fast40
   run_output_joint_velocity_limits_rad_s: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
-  episode_data_config: data/local/dual_d435_episode.yaml
+  episode_data_config: configs/data_collection/physical_collection.yaml
   episode_root: data/episodes
   task_name: test_task
   operator: "01"
@@ -366,7 +365,7 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     )
     runtime = tmp_path / "runtime.yaml"
     runtime.write_text(
-        (ROOT / "data/local/physical_collection.yaml")
+        (ROOT / "configs/data_collection/physical_collection.yaml")
         .read_text(encoding="utf-8")
         .replace("native_control_cpu: 6", f"native_control_cpu: {control_cpu}")
         .replace("log_dir: logs", f"log_dir: {tmp_path / 'logs'}"),
@@ -387,7 +386,6 @@ def test_combined_entry_validates_both_gates_without_network_or_device_open(
     assert report["stage"] == "combined-normal-teleop"
     assert report["network_attempted"] is False
     assert report["rh56_gate_validated"] is True
-    assert report["rh56_scheduler_profile"] == "fast40"
     assert report["rh56_hand_calibration_path"] == (
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
@@ -441,7 +439,7 @@ def test_combined_entry_requires_safety_prerequisites(
 ) -> None:
     command = [
         str(COMBINED_SCRIPT),
-        "--runtime-config", "data/local/physical_collection.yaml",
+        "--runtime-config", "configs/data_collection/physical_collection.yaml",
         "--hand-prerequisites-complete", "--no-auto-retry",
         "--estop-accessible", "--workspace-clear",
         "--plant-free-no-network-check",

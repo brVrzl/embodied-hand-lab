@@ -15,7 +15,6 @@ from .episode import (
     ControlSample,
     EpisodeStatus,
     StartPrerequisites,
-    start_arm_target_measured_diagnostics,
 )
 from .timeline import CanonicalClock, CausalTimeline, TimestampRegression
 
@@ -40,8 +39,10 @@ class SingleEpisodeCollector:
         # 30 Hz frame about 75 ms behind the next canonical slot.
         camera_max_age_ns: int = 100_000_000,
         control_max_age_ns: int = 40_000_000,
+        maximum_start_delta_rad: float,
         maximum_hand_start_delta_rad: float,
         defer_finalization: bool = False,
+        retry_start_rejections: bool = False,
         camera_severe_stale_ns: int = 500_000_000,
         camera_consecutive_stale_limit: int = 15,
         camera_missing_timeout_ns: int = 1_000_000_000,
@@ -55,6 +56,7 @@ class SingleEpisodeCollector:
         # this flag and finalizes during outer-session cleanup; offline callers
         # retain the original synchronous behavior.
         self.defer_finalization = bool(defer_finalization)
+        self.retry_start_rejections = bool(retry_start_rejections)
         self.camera_max_age_ns = int(camera_max_age_ns)
         self.camera_severe_stale_ns = int(camera_severe_stale_ns)
         self.camera_consecutive_stale_limit = int(camera_consecutive_stale_limit)
@@ -78,9 +80,14 @@ class SingleEpisodeCollector:
             raise ValueError(
                 "canonical required field consecutive limit must be positive"
             )
+        self.maximum_start_delta_rad = float(maximum_start_delta_rad)
         self.maximum_hand_start_delta_rad = float(maximum_hand_start_delta_rad)
-        if not math.isfinite(self.maximum_hand_start_delta_rad) or self.maximum_hand_start_delta_rad < 0.0:
-            raise ValueError("maximum_hand_start_delta_rad must be finite and non-negative")
+        for name, value in (
+            ("maximum_start_delta_rad", self.maximum_start_delta_rad),
+            ("maximum_hand_start_delta_rad", self.maximum_hand_start_delta_rad),
+        ):
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"{name} must be finite and non-negative")
         self.state = CaptureState.IDLE
         self._state_listener: Callable[[CaptureState], None] | None = None
         self.clock = CanonicalClock(writer.dataset_fps)
@@ -107,8 +114,8 @@ class SingleEpisodeCollector:
         self._deferred_finish: tuple[str, int | None] | None = None
         self._deferred_discard: str | None = None
         self._deferred_rejection: str | None = None
-        self._start_arm_target_measured_delta_rad: float | None = None
-        self._start_arm_target_measured_max_joint_index: int | None = None
+        self._start_rejection_count = 0
+        self._last_start_rejection: str | None = None
         self._camera_consecutive_stale = {"workspace": 0, "wrist": 0}
         self._camera_stale_count = {"workspace": 0, "wrist": 0}
         self._camera_drop_count = {"workspace": 0, "wrist": 0}
@@ -445,17 +452,11 @@ class SingleEpisodeCollector:
             ),
             workspace=workspace.value,
             wrist=wrist.value,
+            maximum_start_delta_rad=self.maximum_start_delta_rad,
             maximum_hand_start_delta_rad=self.maximum_hand_start_delta_rad,
         )
         try:
             self.writer.begin(prerequisites, camera_max_age_ns=self.camera_max_age_ns)
-            start_diagnostics = start_arm_target_measured_diagnostics(sample)
-            self._start_arm_target_measured_delta_rad = start_diagnostics[
-                "start_arm_target_measured_delta_rad"
-            ]
-            self._start_arm_target_measured_max_joint_index = start_diagnostics[
-                "start_arm_target_measured_max_joint_index"
-            ]
             self.writer.append_raw_camera(workspace.value)
             self.writer.append_raw_camera(wrist.value)
             self.clock.start(sample.host_monotonic_ns)
@@ -467,6 +468,14 @@ class SingleEpisodeCollector:
             self._set_state(CaptureState.REC)
             self._append_canonical(0, sample.host_monotonic_ns)
         except ValueError as exc:
+            if self.retry_start_rejections:
+                # A fresh clutch capture can legitimately produce a small
+                # target/measured mismatch while the operator is still
+                # settling.  Keep ARMING and re-run the same safety gate on
+                # later fresh samples; never publish this candidate.
+                self._start_rejection_count += 1
+                self._last_start_rejection = str(exc)
+                return False
             if self.defer_finalization:
                 self._deferred_rejection = str(exc)
             else:
@@ -752,8 +761,8 @@ class SingleEpisodeCollector:
             "canonical_required_field_invalid_total": self._canonical_required_field_invalid_total,
             "canonical_required_field_invalid_run": self._canonical_required_field_invalid_run,
             "canonical_required_field_consecutive_limit": self.canonical_required_field_consecutive_limit,
-            "start_arm_target_measured_delta_rad": self._start_arm_target_measured_delta_rad,
-            "start_arm_target_measured_max_joint_index": self._start_arm_target_measured_max_joint_index,
+            "start_rejection_count": self._start_rejection_count,
+            "last_start_rejection": self._last_start_rejection,
             "recorder_enqueued_count": writer_metrics.get("recorder_enqueued_count", 0),
             "recorder_written_count": writer_metrics.get("recorder_written_count", 0),
             "recorder_dropped_count": writer_metrics.get("recorder_dropped_count", 0),

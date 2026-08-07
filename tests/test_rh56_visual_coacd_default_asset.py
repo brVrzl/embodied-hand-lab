@@ -21,7 +21,7 @@ from rh56_collision_model import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ASSET_ROOT = PROJECT_ROOT / "data" / "sim_assets"
+ASSET_ROOT = PROJECT_ROOT / "assets"
 SOURCE_XML = ASSET_ROOT / "jaka_rh56.xml"
 RUNTIME_XML = ASSET_ROOT / "jaka_rh56_visual_coacd.xml"
 MANIFEST_PATH = ASSET_ROOT / "jaka_rh56_visual_coacd.manifest.json"
@@ -102,4 +102,4 @@ def test_default_patch_and_runtime_configs_select_visual_coacd() -> None:
         "configs/sim/quest_hts_jaka_mini2_live_demo.yaml",
     ):
         config = yaml.safe_load((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
-        assert config["simulation"]["mjcf_path"] == "data/sim_assets/jaka_rh56_visual_coacd.xml"
+        assert config["simulation"]["mjcf_path"] == "assets/jaka_rh56_visual_coacd.xml"

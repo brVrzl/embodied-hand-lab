@@ -89,7 +89,7 @@ def validate(args: argparse.Namespace) -> dict:
         checks.append(check("flange_to_hand_transform", "fail", "Required flange/hand body missing."))
     xml_root = ET.parse(args.model).getroot()
     scale_attributes = [mesh.get("scale") for mesh in xml_root.iter("mesh") if mesh.get("scale")]
-    link0 = trimesh.load_mesh(REPO_ROOT / "data/sim_assets/meshes/jaka_minicobo_meshes/Link0.STL", process=False)
+    link0 = trimesh.load_mesh(REPO_ROOT / "assets/meshes/jaka_minicobo_meshes/Link0.STL", process=False)
     mesh_ok = not scale_attributes and 0.05 < float(max(link0.extents)) < 0.5
     checks.append(check("mesh_scaling", "pass" if mesh_ok else "warn", "No explicit mesh scale in wrapper; Link0 has plausible meter-scale bounds, not metrological validation.", {"explicit_scale_attributes": scale_attributes, "link0_extents_m": np.asarray(link0.extents).tolist()}))
     tabletop = workspace.get("tabletop", {})

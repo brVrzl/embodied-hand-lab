@@ -131,9 +131,8 @@ IDLE -> ARMING -> REC -> FINALIZING -> DONE
    reference established; first accepted arm target available; measured arm
    position available; measured or explicitly estimated arm velocity and TCP
    pose available; hand observation and hold target available; arm trigger
-   still held; and fresh, causal post-trigger frames available from both
-   cameras. The accepted-arm-target versus measured-arm delta is recorded once
-   as start diagnostic metadata and is not an episode-start rejection gate.
+   still held; arm and hand start-continuity deltas inside their configured
+   limits; and fresh, causal post-trigger frames available from both cameras.
 4. `REC` writes raw sources asynchronously and emits canonical samples on a
    fixed-rate clock. At the current 30 Hz camera profile, causal latest-frame
    selection permits 100 ms of source age; it never selects a future frame and

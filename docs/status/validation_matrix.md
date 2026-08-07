@@ -27,7 +27,7 @@ Statuses apply to the current source and preserved evidence. In this table:
 | Integrated MuJoCo RH56 | Offline tested | Validated approximation | n/a | Six position actuators plus six equality constraints; not complete physical underactuation |
 | JAKA-only arm model | Offline tested | Validated | n/a | Exactly six JAKA actuators; RH56 command path absent |
 | Physical JAKA translation/orientation | Offline path tested | Validated | Partial | Earlier larger motion ended in unresolved J4 collision |
-| Physical RH56 PC-direct route | Scheduler/protocol tested offline | Hand model validated separately | Partial | Identity/read-only/bounded command and hand-only 15/30/40/50 Hz evidence; `fast40` selected |
+| Physical RH56 PC-direct route | Scheduler/protocol tested offline | Hand model validated separately | Partial | Identity/read-only/bounded command and fixed 40 Hz hand-only evidence |
 | Combined Quest/JAKA/RH56 operation | Fake/gate tested offline | Integrated simulation validated | **One bounded 60.105 s PASS; no 300 s PASS** | Later 200.943 s run correctly hard-stopped after fresh CTRL reported `active=0`; latest acceleration fix remains physically unvalidated |
 | Controller collision and other hard-fault propagation | Offline/fake-worker tested | Fake-worker validated | Not intentionally induced | Collision, alarm, E-stop, SDK, hard timing, and true liveness faults remain hard stops |
 | TCP calibration | Interfaces/model frames tested | Frame tests pass | **Not validated** | TCP1--TCP10 recorded zero |

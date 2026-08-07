@@ -11,10 +11,10 @@ The control order is
 order is `[pinky, ring, middle, index, thumb_close, thumb_lateral]`. The driver
 uses 115200 baud, device address 1, `ANGLE_SET=1486`, `ANGLE_ACT=1546`,
 `FORCE_ACT=1582`, `CURRENT=1594`, `ERROR=1606`, and `STATUS=1612`. Position,
-speed, and force register ranges are 0--1000. Production hand control defaults
-to the physically tested `fast40` scheduler profile, with a maximum normalized
-change of 0.05 per command and configured maximum closure 0.8. The 15 Hz
-baseline remains selectable for comparison.
+speed, and force register ranges are 0--1000. Production hand control uses a
+fixed 40 Hz command scheduler with 15 Hz ANGLE feedback and 10 Hz
+CURRENT/FORCE/STATUS/ERROR feedback. The maximum normalized change is 0.05
+per command and configured maximum closure is 0.8.
 
 Opening the serial transport performs zero writes: it does not clear errors,
 write speed/force, send a hold target, or open the hand. `ANGLE_ACT` is measured
@@ -89,7 +89,8 @@ tool-RS485，也不创建 JAKA SDK session。2026-07-29 已完成一次 60 秒 Q
 `[pinky, ring, middle, index, thumb_close, thumb_lateral]`。协议为 115200 baud、地址 1；
 `ANGLE_SET=1486`、`ANGLE_ACT=1546`、`FORCE_ACT=1582`、`CURRENT=1594`、
 `ERROR=1606`、`STATUS=1612`。position/speed/force 寄存器范围是 0--1000。正式手部控制
-默认使用已完成真机测试的 `fast40` scheduler profile；15 Hz baseline 仍可显式选择。
+固定使用 40 Hz command、15 Hz ANGLE feedback 和 10 Hz CURRENT/FORCE/STATUS/ERROR
+feedback；不再提供 scheduler profile 选择。
 每次 normalized target 最大变化 0.05，配置的最大闭合量为 0.8。
 
 打开串口时寄存器写入数为零：不 clear error、不写 speed/force、不发送 hold target、也不

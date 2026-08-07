@@ -68,8 +68,8 @@ The entry uses the same normal production arm limits as
 plus all shared/native position, workspace, velocity, acceleration, jerk,
 tracking, controller, collision, stale, timing, and cleanup boundaries. It
 does not use the post-payload diagnostic 1 rad/s limit. The hand retains its
-0--1000 position range, physically selected `fast40` command profile, 0.05
-delta limit, full normalized command domain, contact hold,
+0--1000 position range, fixed 40 Hz command scheduler, 0.05 delta limit,
+full normalized command domain, contact hold,
 feedback/protocol/fault gates, and measured-first startup.
 Both hand-only and combined physical entries load
 `configs/hand/quest_rh56_real_retarget.yaml`, align the target to the current
@@ -86,13 +86,14 @@ formal entry without connecting:
 ```
 
 Store the operator-confirmed robot, RH56, native-CPU, and Quest transport values
-in the ignored `data/local/physical_collection.yaml` runtime config. The
+in the reviewed `configs/data_collection/physical_collection.yaml` runtime
+config. The
 explicit CH341 setting is kept in that config when the host exposes only the
 identity-checked `/dev/ttyCH341USB<N>` fallback:
 
 ```bash
 ./scripts/run_quest_jaka_rh56_teleop.sh \
-  --runtime-config data/local/physical_collection.yaml \
+  --runtime-config configs/data_collection/physical_collection.yaml \
   --hand-prerequisites-complete \
   --no-auto-retry --estop-accessible --workspace-clear
 ```
@@ -177,7 +178,7 @@ RH56 设备身份会在任何硬件启动前校验；优先使用稳定 by-id。
 
 入口复用 arm normal production 的 J1--J6 1.5 rad/s，以及所有关节/
 workspace/速度/加速度/jerk/tracking/controller/collision/stale/timing/cleanup 安全边界；不使用
-post-payload 的临时 1 rad/s。hand 保留 0--1000、已完成真机选择的 `fast40` profile、
+post-payload 的临时 1 rad/s。hand 保留 0--1000、固定 40 Hz command scheduler、
 0.05 delta、完整归一化 command domain、接触保持和全部
 feedback/protocol/fault gate。没有 unlimited 或 disable-safety 参数。
 hand-only 与 combined 真机入口统一加载

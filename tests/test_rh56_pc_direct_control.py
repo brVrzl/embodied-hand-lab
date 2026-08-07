@@ -20,7 +20,14 @@ from rh56_driver.serial_backend import RH56SerialBackend
 
 def _config() -> dict:
     return {
-        "control_frequency_hz": 15,
+        "scheduler": {
+            "command_rate_hz": 15,
+            "angle_feedback_rate_hz": 15,
+            "current_feedback_rate_hz": 15,
+            "force_feedback_rate_hz": 15,
+            "status_feedback_rate_hz": 15,
+            "error_feedback_rate_hz": 15,
+        },
         "feedback_stale_timeout_sec": 0.4,
         "serial": {"timeout_sec": 0.2},
         "hand_schema": {
@@ -312,7 +319,7 @@ def test_contact_stop_latches_after_confirmed_stall_and_opening_releases() -> No
 def test_contact_candidate_discards_shaper_closing_momentum_immediately() -> None:
     backend = FakeRH56PcDirectBackend()
     config = _contact_stop_config()
-    config["control_frequency_hz"] = 40
+    config["scheduler"]["command_rate_hz"] = 40
     config["command_shaping"] = {
         "enabled": True,
         "maximum_closing_velocity": [0.35] * 6,
@@ -462,7 +469,7 @@ def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> No
     backend = FakeRH56PcDirectBackend()
     backend.position = [650.0] * 6
     config = _config()
-    config["control_frequency_hz"] = 100
+    config["scheduler"]["command_rate_hz"] = 100
     control = RH56PcDirectControl(backend, config)
     worker = RH56PcDirectWorker(control)
     first = worker.start(HandOperation.COMBINED)

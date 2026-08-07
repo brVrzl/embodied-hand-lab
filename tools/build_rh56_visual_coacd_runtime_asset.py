@@ -19,7 +19,7 @@ from rh56_collision_model import (  # noqa: E402
     patch_rh56_visual_coacd_collision_model,
 )
 
-ASSET_ROOT = PROJECT_ROOT / "data" / "sim_assets"
+ASSET_ROOT = PROJECT_ROOT / "assets"
 DEFAULT_SOURCE = ASSET_ROOT / "jaka_rh56.xml"
 DEFAULT_OUTPUT = ASSET_ROOT / "jaka_rh56_visual_coacd.xml"
 DEFAULT_MANIFEST = ASSET_ROOT / "jaka_rh56_visual_coacd.manifest.json"
@@ -58,7 +58,7 @@ def build_manifest(source: Path, output: Path, xml_bytes: bytes) -> dict[str, ob
         "status": "selected_default_collision_model",
         "runtime_xml": _relative(output),
         "derivation_source_xml": _relative(source),
-        "vendor_visual_mesh_directory": "data/sim_assets/meshes/rh56",
+        "vendor_visual_mesh_directory": "assets/meshes/rh56",
         "coacd_mesh_directory": _relative(ASSET_ROOT / VISUAL_COACD_ASSET_DIR),
         "coacd_generation_manifest": _relative(ASSET_ROOT / VISUAL_COACD_ASSET_DIR / "manifest.json"),
         "vendor_visual_geom_count": len(VISUAL_COACD_SOURCE_STEMS),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,7 @@ from quest_jaka_sim.hand_retarget import (
     ProjectRh56Retargeter,
     QuestHandSkeleton,
     RH56_FULL_JOINT_ORDER,
+    RH56_DIGIT_FEATURE_ORDER,
     RH56_MUJOCO_ACTUATOR_ORDER,
     RH56_THUMB_CLOSE_RANGE_RAD,
     calibrate_finger_feature,
@@ -62,11 +64,10 @@ def _skeleton(points: list[tuple[float, float, float]], *, valid: bool = True) -
     return QuestHandSkeleton(1, Side.RIGHT, "right_wrist", HTS_JOINT_NAMES, tuple(points), valid, 1.0)
 
 
-@pytest.mark.parametrize("backend", ["adaptive", "vector"])
-def test_backends_are_deterministic_respect_order_and_limits(backend: str) -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
-    first = ProjectRh56Retargeter(calibration, backend=backend).retarget(_skeleton(_open_points()))
-    second = ProjectRh56Retargeter(calibration, backend=backend).retarget(_skeleton(_open_points()))
+def test_adaptive_retargeter_is_deterministic_respects_order_and_limits() -> None:
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
+    first = ProjectRh56Retargeter(calibration).retarget(_skeleton(_open_points()))
+    second = ProjectRh56Retargeter(calibration).retarget(_skeleton(_open_points()))
     assert first == second
     assert first.valid
     assert tuple(first.actuator_targets) == RH56_MUJOCO_ACTUATOR_ORDER
@@ -75,8 +76,8 @@ def test_backends_are_deterministic_respect_order_and_limits(backend: str) -> No
 
 
 def test_adaptive_backend_open_fist_and_mimic_semantics() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
-    retargeter = ProjectRh56Retargeter(calibration, backend="adaptive")
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
+    retargeter = ProjectRh56Retargeter(calibration)
     opened = retargeter.retarget(_skeleton(_open_points()))
     retargeter.reset()
     fist = retargeter.retarget(_skeleton(_fist_points()))
@@ -94,11 +95,11 @@ def test_adaptive_backend_open_fist_and_mimic_semantics() -> None:
 
 
 def test_adaptive_backend_observes_mcp_only_flexion() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
-    opened = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
+    opened = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(_open_points())
     )
-    flexed = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    flexed = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(_mcp_only_flexion_points())
     )
     assert all(
@@ -107,8 +108,33 @@ def test_adaptive_backend_observes_mcp_only_flexion() -> None:
     )
 
 
+def test_digit_scale_uses_fixed_digit_order_and_leaves_palm_lateral_unscaled() -> None:
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
+    scaled = replace(calibration, digit_scale=(0.5, 0.6, 0.7, 0.8, 0.9))
+    result = ProjectRh56Retargeter(scaled).retarget(_skeleton(_mcp_only_flexion_points()))
+
+    assert RH56_DIGIT_FEATURE_ORDER == (
+        "index",
+        "middle",
+        "ring",
+        "pinky",
+        "thumb_close",
+    )
+    for index, name in enumerate(RH56_DIGIT_FEATURE_ORDER[:4]):
+        calibrated = result.pinch_diagnostics[f"{name}_calibrated_curl_feature"]
+        assert result.normalized_targets[name] == pytest.approx(
+            calibrated * scaled.digit_scale[index]
+        )
+    assert result.normalized_targets["thumb_close"] == pytest.approx(
+        result.pinch_diagnostics["thumb_close_feature"] * scaled.digit_scale[4]
+    )
+    assert result.normalized_targets["thumb_lateral"] == pytest.approx(
+        result.pinch_diagnostics["thumb_lateral_feature"]
+    )
+
+
 def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() -> None:
-    _, calibration = HandRetargetCalibration.load(
+    calibration = HandRetargetCalibration.load(
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
     assert calibration.calibration_id == "quest_rh56dfx_real_20260803_v3"
@@ -133,7 +159,7 @@ def test_real_finger_calibration_has_measured_direction_and_monotonic_mapping() 
 
 
 def test_real_thumb_curve_calibration_removes_recorded_open_rest_bend() -> None:
-    _, calibration = HandRetargetCalibration.load(
+    calibration = HandRetargetCalibration.load(
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
     assert calibration.thumb_curve_open_rad == pytest.approx(0.60)
@@ -296,12 +322,11 @@ def test_pose_blend_fades_before_switching_modes_and_tracking_loss_exits() -> No
 
 
 def test_real_calibration_disables_unverified_pose_and_uses_thumb_first_gate() -> None:
-    _, calibration = HandRetargetCalibration.load(
+    calibration = HandRetargetCalibration.load(
         "configs/hand/quest_rh56_real_retarget.yaml"
     )
     assert not calibration.pinch_pose_blending_enabled
     assert calibration.thumb_first_pinch_enabled
-    assert calibration.thumb_first_lateral_target == pytest.approx(0.90)
     assert calibration.thumb_first_index_activation == pytest.approx(0.50)
     assert calibration.thumb_first_thumb_close_activation == pytest.approx(0.35)
     assert calibration.thumb_first_lateral_activation == pytest.approx(0.86)
@@ -330,7 +355,7 @@ def test_thumb_lateral_pregrasp_calibration_requires_complete_anchor(
 
 
 def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
     far = _open_points()
     thumb_tip = far[4]
     for index in (8, 12, 16, 20):
@@ -338,10 +363,10 @@ def test_thumb_close_uses_closest_non_thumb_fingertip() -> None:
     middle_pinch = list(far)
     middle_pinch[12] = thumb_tip
 
-    far_result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    far_result = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(far)
     )
-    pinch_result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    pinch_result = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(middle_pinch)
     )
     assert pinch_result.pinch_diagnostics["thumb_index_pinch_strength"] == 0.0
@@ -413,7 +438,7 @@ def test_thumb_close_bend_primary_rejects_nonfinite_inputs() -> None:
 
 
 def test_bend_only_full_feature_reaches_full_thumb_close_actuator_range() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
     points = _open_points()
     points[1:5] = [
         (-0.04, 0.00, 0.0),
@@ -424,7 +449,7 @@ def test_bend_only_full_feature_reaches_full_thumb_close_actuator_range() -> Non
     for index in (8, 12, 16, 20):
         points[index] = (0.20, 0.20, 0.0)
 
-    result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    result = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(points)
     )
 
@@ -468,7 +493,7 @@ def test_thumb_lateral_synthetic_across_palm_sweep_is_monotonic() -> None:
             frame,
             open_across_palm=-0.60,
             opposed_across_palm=0.25,
-            palm_scale=1.0,
+            palm_normalization_scale=1.0,
         )
         values.append(feature)
         assert measured == pytest.approx(raw)
@@ -495,7 +520,7 @@ def test_thumb_lateral_pregrasp_anchor_preserves_endpoints_and_monotonicity() ->
             pregrasp_across_palm=raw_points[1],
             pregrasp_normalized=expected[1],
             opposed_across_palm=raw_points[2],
-            palm_scale=1.0,
+            palm_normalization_scale=1.0,
         )
         assert measured == pytest.approx(raw)
         assert feature == pytest.approx(target)
@@ -522,24 +547,24 @@ def test_thumb_lateral_feature_is_invariant_to_common_wrist_frame_rotation() -> 
         original_frame,
         open_across_palm=-0.60,
         opposed_across_palm=0.25,
-        palm_scale=1.0,
+        palm_normalization_scale=1.0,
     )
     transformed = thumb_lateral_opposition_feature(
         rotated,
         rotated_frame,
         open_across_palm=-0.60,
         opposed_across_palm=0.25,
-        palm_scale=1.0,
+        palm_normalization_scale=1.0,
     )
     assert transformed == pytest.approx(original)
 
 
 def test_degenerate_palm_frame_is_rejected_without_nan() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
     points = _open_points()
     points[17] = points[5]
 
-    result = ProjectRh56Retargeter(calibration, backend="adaptive").retarget(
+    result = ProjectRh56Retargeter(calibration).retarget(
         _skeleton(points)
     )
 
@@ -549,8 +574,8 @@ def test_degenerate_palm_frame_is_rejected_without_nan() -> None:
 
 
 def test_tracking_loss_is_invalid_and_resets_warm_start() -> None:
-    _, calibration = HandRetargetCalibration.load("configs/sim/quest_rh56_retarget.yaml")
-    retargeter = ProjectRh56Retargeter(calibration, backend="adaptive")
+    calibration = HandRetargetCalibration.load("configs/hand/quest_rh56_real_retarget.yaml")
+    retargeter = ProjectRh56Retargeter(calibration)
     assert retargeter.retarget(_skeleton(_open_points())).valid
     loss = retargeter.retarget(_skeleton([], valid=False))
     assert not loss.valid
@@ -561,9 +586,9 @@ def test_tracking_loss_is_invalid_and_resets_warm_start() -> None:
 def test_malformed_calibration_is_rejected(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text(
-        "selected_backend: adaptive\ncalibration:\n"
-        "  calibration_id: bad\n  global_scale: 1\n  palm_scale: 1\n"
-        "  finger_scale: [1, 1]\n  thumb_scale: 1\n  key_vector_scale: 1\n"
+        "calibration:\n"
+        "  calibration_id: bad\n  palm_normalization_scale: 1\n"
+        "  digit_scale: [1, 1]\n"
         "  pinch_weight: 0.5\n  maximum_normalized_step: 0.1\n",
         encoding="utf-8",
     )
@@ -571,13 +596,49 @@ def test_malformed_calibration_is_rejected(tmp_path: Path) -> None:
         HandRetargetCalibration.load(path)
 
 
+@pytest.mark.parametrize(
+    "palm_normalization_scale,scale_values",
+    [
+        (1.0, [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]),
+        (1.0, [1.0, 1.0, 0.0, 1.0, 1.0]),
+        (float("nan"), [1.0, 1.0, 1.0, 1.0, 1.0]),
+        (float("inf"), [1.0, 1.0, 1.0, 1.0, 1.0]),
+        (1.0, [1.0, 1.0, float("inf"), 1.0, 1.0]),
+    ],
+)
+def test_digit_scale_requires_five_finite_positive_values(
+    tmp_path: Path,
+    palm_normalization_scale: float,
+    scale_values: list[float],
+) -> None:
+    path = tmp_path / "bad_scale.yaml"
+    path.write_text(
+        "calibration:\n"
+        "  calibration_id: bad\n"
+        f"  palm_normalization_scale: {palm_normalization_scale!r}\n"
+        f"  digit_scale: {scale_values!r}\n"
+        "  maximum_normalized_step: 0.1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="malformed"):
+        HandRetargetCalibration.load(path)
+
+
+def test_calibration_requires_new_scale_fields(tmp_path: Path) -> None:
+    path = tmp_path / "old_scale_schema.yaml"
+    path.write_text(
+        "calibration:\n"
+        "  calibration_id: bad\n"
+        "  maximum_normalized_step: 0.1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(KeyError):
+        HandRetargetCalibration.load(path)
+
+
 def test_thumb_first_pinch_passes_early_index_approach_without_intervention() -> None:
     sequencer = ThumbFirstPinchSequencer(
         enabled=True,
-        lateral_target=0.90,
-        lateral_tolerance=0.04,
-        index_guard=0.12,
-        thumb_close_guard=0.22,
     )
     continuous = np.array([0.48, 0.0, 0.0, 0.0, 0.38, 0.65])
     passed, stage = sequencer.update(
@@ -594,10 +655,6 @@ def test_thumb_first_pinch_passes_early_index_approach_without_intervention() ->
 def test_thumb_first_pinch_approaches_verified_pose_without_guard_retreat() -> None:
     sequencer = ThumbFirstPinchSequencer(
         enabled=True,
-        lateral_target=0.90,
-        lateral_tolerance=0.04,
-        index_guard=0.12,
-        thumb_close_guard=0.22,
     )
     continuous = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
     held, stage = sequencer.update(
@@ -624,10 +681,6 @@ def test_thumb_first_pinch_approaches_verified_pose_without_guard_retreat() -> N
 def test_thumb_first_pinch_releases_intervention_when_target_leaves_verified_pose() -> None:
     sequencer = ThumbFirstPinchSequencer(
         enabled=True,
-        lateral_target=0.90,
-        lateral_tolerance=0.04,
-        index_guard=0.12,
-        thumb_close_guard=0.22,
     )
     verified = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
     _, stage = sequencer.update(
@@ -653,10 +706,6 @@ def test_thumb_first_pinch_releases_intervention_when_target_leaves_verified_pos
 def test_thumb_first_pinch_keeps_direct_target_when_lateral_is_pushed_back() -> None:
     sequencer = ThumbFirstPinchSequencer(
         enabled=True,
-        lateral_target=0.90,
-        lateral_tolerance=0.04,
-        index_guard=0.12,
-        thumb_close_guard=0.22,
     )
     continuous = np.array([0.55, 0.0, 0.0, 0.0, 0.40, 0.90])
     sequencer.update(

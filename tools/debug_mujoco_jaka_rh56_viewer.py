@@ -23,7 +23,7 @@ import numpy as np
 from rh56_collision_model import patch_rh56_visual_coacd_collision_model
 
 
-BASE_XML = Path("data/sim_assets/jaka_rh56.xml")
+BASE_XML = Path("assets/jaka_rh56.xml")
 DEBUG_DIR = Path("data/mujoco_debug")
 COLLISION_MODES = ("visual_coacd",)
 PREGRASP_QPOS = np.asarray(

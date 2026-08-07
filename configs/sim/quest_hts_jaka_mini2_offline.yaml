@@ -32,7 +32,7 @@ provisional_calibration:
   maximum_target_displacement_m: 0.015
 
 simulation:
-  mjcf_path: data/sim_assets/jaka_rh56_visual_coacd.xml
+  mjcf_path: assets/jaka_rh56_visual_coacd.xml
   zero_gravity: true
   initial_arm_joints_rad: [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878]
   ik_gain: 0.70

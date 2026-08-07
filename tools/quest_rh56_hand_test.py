@@ -79,11 +79,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--config", default="configs/hand/rh56_pc_direct_teleop.yaml")
-    parser.add_argument(
-        "--scheduler-profile",
-        choices=("baseline", "fast30", "fast40", "fast50"),
-        help="Override the RH56 command/feedback scheduler profile.",
-    )
     parser.add_argument("--quest-config", default="configs/sim/quest_hts_jaka_mini2_live_demo.yaml")
     parser.add_argument(
         "--hand-calibration",
@@ -723,8 +718,8 @@ def _run_mapping_check(
         record=None if capture is None else capture.write,
     )
     assembler = HtsCanonicalAssembler(stale_after_s=0.25)
-    backend_name, calibration = HandRetargetCalibration.load(args.hand_calibration)
-    retargeter = ProjectRh56Retargeter(calibration, backend=backend_name)
+    calibration = HandRetargetCalibration.load(args.hand_calibration)
+    retargeter = ProjectRh56Retargeter(calibration)
     latest_debug: dict[str, Any] | None = None
     printed_at = 0.0
 
@@ -910,8 +905,6 @@ def main() -> None:
         _write_summary(result, summary_path)
         return
     config = load_yaml(args.config)
-    if args.scheduler_profile is not None:
-        config["scheduler_profile"] = args.scheduler_profile
     config["mode"] = "real"
     config["backend_type"] = "serial_protocol"
     config.setdefault("serial", {})["port"] = args.device

@@ -231,6 +231,7 @@ def test_canonical_writer_materializes_ring_refs_before_metadata(tmp_path: Path)
         CanonicalEpisodeWriter(tmp_path, task_name="offline", operator="test"),
         camera_max_age_ns=100_000_000,
         control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     collector.ingest_camera(workspace_ref)
@@ -274,6 +275,7 @@ def test_canonical_alignment_is_causal_and_does_not_wait_for_slow_source(tmp_pat
         CanonicalEpisodeWriter(tmp_path, task_name="offline", operator="test"),
         camera_max_age_ns=100_000_000,
         control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 2_000_000_000
@@ -302,6 +304,7 @@ def test_canonical_timing_fields_are_not_aliased(tmp_path: Path) -> None:
         writer,
         camera_max_age_ns=100_000_000,
         control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
 
@@ -321,6 +324,7 @@ def test_wrist_stale_is_quality_fault_then_persistent_recording_fault(tmp_path: 
         camera_consecutive_stale_limit=3,
         camera_missing_timeout_ns=200_000_000,
         control_max_age_ns=40_000_000,
+        maximum_start_delta_rad=0.02,
         maximum_hand_start_delta_rad=0.02,
     )
     base = 1_000_000_000

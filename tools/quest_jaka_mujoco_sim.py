@@ -468,7 +468,7 @@ def _sync_viewer(
     hand_status = (
         "disabled"
         if hand_result is None
-        else f"{hand_result.backend} valid={hand_result.valid} cost={hand_result.optimizer_cost}"
+        else f"valid={hand_result.valid} cost={hand_result.optimizer_cost}"
     )
     arm = getattr(session, "arm_clutch", None)
     hand = getattr(session, "hand_clutch", None)
@@ -707,12 +707,16 @@ def _start_episode_data_runtime(
     AsyncDualCameraPreview | None,
 ]:
     try:
+        hardware_config = config.raw.get("hardware_adapter", {})
         runtime = EpisodeDataRuntime.start(
             args.episode_data_config,
             episode_root=args.episode_root,
             task_name=args.task_name,
             operator=args.operator,
             control_config_path=args.config,
+            maximum_start_delta_rad=float(
+                hardware_config.get("startup_alignment_tolerance_rad", 0.001)
+            ),
             preview_enabled=args.episode_preview,
             metadata={
                 "raw_streams": {

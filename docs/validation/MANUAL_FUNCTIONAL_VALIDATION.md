@@ -468,14 +468,12 @@ Run the two single-camera commands from Level 2 while the robots remain
 E-stopped. Verify RGB/depth alignment, role, frame number, timestamp, FPS, and
 USB bandwidth before a dual-camera episode.
 
-Prepare an ignored local config; never put serials/private calibration into the
-tracked example:
+Review the unified tracked collection config and verify both serials/private
+calibration before the separately gated run:
 
 ```bash
-mkdir -p data/local data/episodes data/reports
-cp configs/data_collection/dual_d435_episode.example.yaml \
-  data/local/dual_d435_episode.yaml
-${EDITOR:-vi} data/local/dual_d435_episode.yaml
+mkdir -p data/episodes data/reports
+${EDITOR:-vi} configs/data_collection/physical_collection.yaml
 ```
 
 Replace both serial placeholders with distinct devices and review calibration
@@ -484,7 +482,7 @@ real D435 cameras while commanding MuJoCo only:
 
 ```bash
 .venv/bin/python tools/quest_jaka_mujoco_sim.py live-6dof \
-  --episode-data-config data/local/dual_d435_episode.yaml \
+  --episode-data-config configs/data_collection/physical_collection.yaml \
   --episode-root data/episodes \
   --task-name <TASK_ID> \
   --operator <PSEUDONYMOUS_OPERATOR_ID> \

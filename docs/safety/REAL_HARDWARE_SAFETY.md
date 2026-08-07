@@ -253,7 +253,7 @@ experiments, or controller-configuration writes through this repository.
 
 ## Current physical evidence boundary
 
-- A combined `fast40` session completed 60.105 seconds with no hard timing
+- A combined 40 Hz session completed 60.105 seconds with no hard timing
   miss, controller alarm, arm/RH56 worker fault, serial/protocol fault, or
   transport symptom. This is a bounded 60-second physical PASS only.
 - A later run reached 200.943 seconds with zero hard timing faults, then fresh
