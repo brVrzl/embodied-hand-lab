@@ -852,7 +852,6 @@ class SmoothQuestJakaSession:
             and result.reason
             not in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
-                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }
             and continuation_fraction > self.minimum_continuation_fraction
             and continuation_backtracks < self.maximum_continuation_backtracks
@@ -1034,22 +1033,19 @@ class SmoothQuestJakaSession:
         if result.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED:
             self.control_compute_budget_exhausted_count += 1
         if not result.accepted:
-            branch_or_winding_hard_stop = result.reason in {
+            branch_hard_stop = result.reason in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
-                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }
             if result.reason in {
                 FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
-                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
             }:
-                # A branch/winding violation means the command state is no
-                # longer safely determinate.  Keep the continuity and winding
-                # guards fail-closed and let the wrapper perform terminal
-                # cleanup; a fresh clutch cannot be used to conceal it.
+                # A branch violation means the command state is no longer
+                # safely determinate. Total periodic travel remains a
+                # diagnostic and is not a terminal winding safety condition.
                 self.arm_clutch.fault(now_ns, result.reason.value)
                 self.arm_mapper.clear()
             self._handle_rejection(now_ns, result.reason.value)
-            if result.metrics.hard_stop_required or branch_or_winding_hard_stop:
+            if result.metrics.hard_stop_required or branch_hard_stop:
                 hard_stop_reason = (
                     "HARD_SINGULARITY_AT_ACCEPTED_STATE"
                     if result.metrics.hard_stop_required

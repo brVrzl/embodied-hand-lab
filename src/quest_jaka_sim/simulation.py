@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 import copy
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 import math
 from pathlib import Path
@@ -22,6 +22,8 @@ from embodiment_core.robot_limits import (
     shortest_equivalent_delta_rad,
 )
 from jaka_driver_adapter.palm_target_ik import (
+    DEFAULT_JOINT_LIMIT_AVOIDANCE_ZONE_RAD,
+    IK_SOLVER_MODES,
     MJCF_ARM_JOINT_NAMES,
     PalmTargetIkState,
     safe_joint_limits_rad,
@@ -91,6 +93,7 @@ class FeasibilityLimits:
     maximum_tcp_angular_velocity_rad_s: float
     joint_limit_margin_rad: float
     maximum_target_displacement_m: float
+    joint_limit_avoidance_zone_rad: float = DEFAULT_JOINT_LIMIT_AVOIDANCE_ZONE_RAD
     ik_orientation_tolerance_rad: float = math.pi
     maximum_target_rotation_jump_rad: float = math.pi
     maximum_joint_target_jump_rad: float = math.pi
@@ -116,6 +119,11 @@ class FeasibilityLimits:
             and self.singularity_direction_hysteresis_ratio >= 0.0
         ):
             raise ValueError("singularity feasibility thresholds must be finite and non-negative")
+        if not (
+            math.isfinite(self.joint_limit_avoidance_zone_rad)
+            and self.joint_limit_avoidance_zone_rad >= 0.0
+        ):
+            raise ValueError("joint limit avoidance zone must be finite and non-negative")
         if math.isfinite(self.jacobian_slowdown_condition) and not (
             0.0 < self.jacobian_recovery_condition
             < self.jacobian_slowdown_condition
@@ -148,6 +156,9 @@ class FeasibilityLimits:
             ),
             joint_limit_margin_rad=math.radians(float(values["joint_limit_margin_deg"])),
             maximum_target_displacement_m=maximum_target_displacement_m,
+            joint_limit_avoidance_zone_rad=math.radians(
+                float(values.get("joint_limit_avoidance_zone_deg", 20.0))
+            ),
             ik_orientation_tolerance_rad=math.radians(
                 float(values.get("ik_orientation_tolerance_deg", 180.0))
             ),
@@ -273,6 +284,8 @@ class CandidateMetrics:
     maximum_nonperiodic_joint_velocity_rad_s: float = 0.0
     maximum_nonperiodic_joint_acceleration_rad_s2: float = 0.0
     joint_limit_blockers: tuple[str, ...] = ()
+    joint_limit_risk: float = 0.0
+    joint_limit_outward_indices: tuple[int, ...] = ()
     jacobian_condition: float = 1.0
     minimum_jacobian_singular_value: float = 1.0
     wrist_bend_from_singularity_rad: float = math.pi
@@ -317,6 +330,12 @@ class CandidateMetrics:
     branch_delta_rad: tuple[float, ...] = ()
     branch_equivalent_offset: tuple[int, ...] = ()
     episode_winding_rad: tuple[float, ...] = ()
+    recovery_triggered: bool = False
+    recovery_attempted_seeds: int = 0
+    recovery_solved_candidates: int = 0
+    alternative_branch_available: bool = False
+    far_alternate_branch_found: bool = False
+    recovery_disposition: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +351,7 @@ class CandidateComputationTiming:
     remaining_checks_ms: float = 0.0
     total_ms: float = 0.0
     ik_iterations_completed: int = 0
+    recovery_ms: float = 0.0
 
 
 def classify_candidate(
@@ -422,6 +442,48 @@ def _joint_margin_blockers_allowing_retreat(
         elif value > upper and not (reference > upper and value <= reference + 1e-9):
             blockers.append(f"joint_{index + 1}_above_safe_limit")
     return blockers
+
+
+def _joint_limit_risk_and_outward_indices(
+    candidate_q: np.ndarray,
+    delta_q: np.ndarray,
+    *,
+    margin_rad: float,
+    avoidance_zone_rad: float,
+) -> tuple[float, tuple[int, ...]]:
+    """Return proximity risk and joints whose candidate step is outward."""
+
+    zone = max(0.0, float(avoidance_zone_rad))
+    if zone == 0.0:
+        return 0.0, ()
+    maximum_risk = 0.0
+    outward: list[int] = []
+    for index, (joint, delta, (lower, upper)) in enumerate(
+        zip(candidate_q, delta_q, safe_joint_limits_rad(margin_rad), strict=True)
+    ):
+        joint = float(joint)
+        delta = float(delta)
+        if joint < lower:
+            remaining = 0.0
+            toward_limit = delta < 0.0
+        elif joint > upper:
+            remaining = 0.0
+            toward_limit = delta > 0.0
+        elif delta > 0.0:
+            remaining = upper - joint
+            toward_limit = True
+        elif delta < 0.0:
+            remaining = joint - lower
+            toward_limit = True
+        else:
+            remaining = min(joint - lower, upper - joint)
+            toward_limit = False
+        if remaining < zone:
+            x = float(np.clip(remaining / zone, 0.0, 1.0))
+            maximum_risk = max(maximum_risk, 1.0 - x * x * (3.0 - 2.0 * x))
+        if toward_limit and remaining < zone:
+            outward.append(index)
+    return float(maximum_risk), tuple(outward)
 
 
 def _singularity_risk(
@@ -537,6 +599,7 @@ class ReplayConfig:
     ik_damping: float
     ik_max_step_rad: float
     ik_iterations: int
+    ik_solver_mode: str
     zero_gravity: bool
     axis_analysis: Mapping[str, Any]
     startup_timing_grace_cycles: int
@@ -591,6 +654,9 @@ class ReplayConfig:
             raw["hardware_adapter"]["servo_period_ms"] = 1000.0 / transport_hz
         provisional = ProvisionalMappingConfig.from_mapping(raw["provisional_calibration"])
         simulation = raw["simulation"]
+        ik_solver_mode = str(simulation.get("ik_solver_mode", "directional_limit_dls"))
+        if ik_solver_mode not in IK_SOLVER_MODES:
+            raise ValueError(f"unknown IK solver mode {ik_solver_mode!r}")
         shared_target = raw.get("shared_target_generation", {})
         rates = raw.get("rates", {})
         try:
@@ -684,6 +750,7 @@ class ReplayConfig:
             ik_damping=float(simulation["ik_damping"]),
             ik_max_step_rad=float(simulation["ik_max_step_rad"]),
             ik_iterations=int(simulation["ik_iterations"]),
+            ik_solver_mode=ik_solver_mode,
             zero_gravity=bool(simulation.get("zero_gravity", True)),
             axis_analysis=raw.get("axis_analysis", {}),
             startup_timing_grace_cycles=startup_timing_grace_cycles,
@@ -798,6 +865,10 @@ class SharedJakaTargetGenerator:
             ik_iterations=config.ik_iterations,
             target_workspace_radius_m=0.0,
             joint_limit_margin_rad=config.feasibility.joint_limit_margin_rad,
+            joint_limit_avoidance_zone_rad=(
+                config.feasibility.joint_limit_avoidance_zone_rad
+            ),
+            ik_solver_mode=config.ik_solver_mode,
             orientation_ik_weight=0.0 if not config.mapping.orientation_enabled else 0.35,
             adaptive_damping_sigma_start=float(
                 config.raw.get("simulation", {}).get(
@@ -842,6 +913,16 @@ class SharedJakaTargetGenerator:
         self._synthetic_generated_monotonic_ns = 1_000_000_000
         self._require_contact_free_authoritative_state("configured initial state")
         self.accepted_metrics: list[CandidateMetrics] = []
+        self._normal_ik_durations_ms: deque[float] = deque(maxlen=4096)
+        self._recovery_durations_ms: deque[float] = deque(maxlen=1024)
+        self.joint_limit_recovery_count = 0
+        self.recovery_attempted_seed_count = 0
+        self.recovery_solved_candidate_count = 0
+        self.recovery_selected_alternate_count = 0
+        self.far_alternate_branch_count = 0
+        self.recovery_compute_budget_exhausted_count = 0
+        self.compute_budget_exhausted_count = 0
+        self.hold_count = 0
         self._singularity_slowdown_latched = False
         shared_target = config.raw.get("shared_target_generation", {})
         self.maximum_periodic_joint_winding_rad = float(
@@ -933,13 +1014,11 @@ class SharedJakaTargetGenerator:
         self._episode_winding_fault = False
 
     def observe_episode_winding(self, joints_rad: list[float] | tuple[float, ...]) -> bool:
-        """Accumulate shortest-angle motion since the latest fresh recapture."""
+        """Accumulate total shortest-angle travel for diagnostics only."""
 
         joints = np.asarray(joints_rad, dtype=np.float64)
         if joints.shape != (6,) or not np.all(np.isfinite(joints)):
             raise ValueError("episode winding sample must contain six finite radians")
-        if self._episode_winding_fault:
-            return True
         for index in PERIODIC_JOINT_INDICES:
             delta = shortest_equivalent_delta_rad(
                 joints[index], self._episode_winding_last_rad[index]
@@ -962,12 +1041,14 @@ class SharedJakaTargetGenerator:
         generated_monotonic_ns: int | None = None,
         compute_deadline_ns: int | None = None,
         fresh_measured_joint_position_rad: Sequence[float] | None = None,
+        _allow_recovery: bool = True,
     ) -> FeasibilityResult:
         evaluate_started_ns = time.perf_counter_ns()
         if (
             compute_deadline_ns is not None
             and evaluate_started_ns >= compute_deadline_ns
         ):
+            self.compute_budget_exhausted_count += 1
             return FeasibilityResult(
                 False,
                 FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
@@ -987,19 +1068,6 @@ class SharedJakaTargetGenerator:
                     "fresh measured arm state must contain six finite radians"
                 )
             branch_reference = fresh_measured.copy()
-        if self._episode_winding_fault:
-            return FeasibilityResult(
-                False,
-                FeasibilityReason.EPISODE_WINDING_EXCEEDED,
-                None,
-                CandidateMetrics(
-                    branch_reference_rad=tuple(float(value) for value in branch_reference),
-                    episode_winding_rad=self.episode_winding_rad,
-                ),
-                CandidateComputationTiming(
-                    total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6
-                ),
-            )
         if generated_monotonic_ns is None:
             # Deterministic compatibility for direct IK/offline callers: model
             # an already aligned stationary target before their first trial.
@@ -1045,6 +1113,7 @@ class SharedJakaTargetGenerator:
         ):
             ik_completed = False
         if not ik_completed:
+            self.compute_budget_exhausted_count += 1
             # A partially computed candidate is never observable as the shared
             # authoritative state. Restore the last accepted seed before
             # returning the ordinary HOLD_REJECTED path to the output adapter.
@@ -1075,6 +1144,25 @@ class SharedJakaTargetGenerator:
         raw_candidate_q = self.ik.arm_joints_rad.copy()
         raw_joint_limit_limited = self.ik.joint_limit_limited
         raw_limited_joint_indices = tuple(self.ik.limited_joint_indices_1_based)
+        if raw_candidate_q.shape != (6,) or not np.all(np.isfinite(raw_candidate_q)):
+            self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
+            return FeasibilityResult(
+                False,
+                FeasibilityReason.INPUT_INVALID,
+                None,
+                CandidateMetrics(
+                    ik_seed_rad=tuple(float(value) for value in ik_seed),
+                    ik_candidate_rad=tuple(float(value) for value in raw_candidate_q),
+                ),
+                CandidateComputationTiming(
+                    seed_fk_ms=seed_fk_ns / 1e6,
+                    pre_ik_jacobian_ms=pre_ik_jacobian_ns / 1e6,
+                    ik_iterations_ms=self.ik.last_position_target_ik_iterations_ns / 1e6,
+                    ik_final_fk_ms=self.ik.last_position_target_final_fk_ns / 1e6,
+                    total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6,
+                    ik_iterations_completed=self.ik.last_position_target_iterations_completed,
+                ),
+            )
         try:
             selected_candidate, branch_offsets = select_nearest_equivalent_joint_branch(
                 raw_candidate_q.tolist(),
@@ -1109,6 +1197,14 @@ class SharedJakaTargetGenerator:
         self.ik.set_arm_joints_rad(candidate_q.tolist())
         branch_delta = candidate_q - branch_reference
         joint_target_jump = candidate_q - ik_seed
+        joint_limit_risk, joint_limit_outward_indices = (
+            _joint_limit_risk_and_outward_indices(
+                candidate_q,
+                joint_target_jump,
+                margin_rad=limits.joint_limit_margin_rad,
+                avoidance_zone_rad=limits.joint_limit_avoidance_zone_rad,
+            )
+        )
         joint_velocity = joint_target_jump / dt
         joint_acceleration = (joint_velocity - self.last_safe_joint_velocity) / dt
         target_delta = np.asarray(target.position_m) - np.asarray(previous_target.position_m)
@@ -1262,6 +1358,8 @@ class SharedJakaTargetGenerator:
             output_acceleration_violating_joint_indices=(
                 output_prediction.acceleration_violating_joint_indices
             ),
+            joint_limit_risk=joint_limit_risk,
+            joint_limit_outward_indices=joint_limit_outward_indices,
             self_collision=self_collision,
             environment_collision=environment_collision,
             minimum_new_contact_distance_m=min(contact_distances) if contact_distances else None,
@@ -1321,20 +1419,8 @@ class SharedJakaTargetGenerator:
             # producer deadline.
             if not metrics.hard_stop_required:
                 reason = FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED
+                self.compute_budget_exhausted_count += 1
             self.ik.set_authoritative_arm_joints_rad(ik_seed.tolist())
-        if reason is FeasibilityReason.ACCEPTED:
-            self.output_feasibility.commit_prefilter(
-                candidate_q,
-                generated_monotonic_ns=candidate_generated_ns,
-                prefilter=output_prediction,
-            )
-            self.last_safe_joint_target = candidate_q
-            self.last_safe_joint_velocity = joint_velocity
-            self.last_safe_target = target
-            self.accepted_metrics.append(metrics)
-            joint_target = tuple(float(v) for v in candidate_q)
-        else:
-            joint_target = None
         remaining_checks_ns = time.perf_counter_ns() - remaining_checks_started_ns
         timing = CandidateComputationTiming(
             seed_fk_ms=seed_fk_ns / 1e6,
@@ -1349,13 +1435,289 @@ class SharedJakaTargetGenerator:
             total_ms=(time.perf_counter_ns() - evaluate_started_ns) / 1e6,
             ik_iterations_completed=self.ik.last_position_target_iterations_completed,
         )
-        return FeasibilityResult(
+        result = FeasibilityResult(
             reason is FeasibilityReason.ACCEPTED,
             reason,
-            joint_target,
+            tuple(float(v) for v in candidate_q)
+            if reason is FeasibilityReason.ACCEPTED
+            else None,
             metrics,
             timing,
         )
+        if _allow_recovery:
+            self._normal_ik_durations_ms.append(timing.ik_iterations_ms)
+            if self._should_attempt_joint_limit_recovery(result):
+                recovered = self._try_joint_limit_recovery(
+                    result,
+                    target=target,
+                    dt=dt,
+                    candidate_generated_ns=candidate_generated_ns,
+                    compute_deadline_ns=compute_deadline_ns,
+                    fresh_measured_joint_position_rad=fresh_measured_joint_position_rad,
+                )
+                if recovered is not None:
+                    return recovered
+        if result.accepted:
+            self._commit_accepted_result(
+                result,
+                target=target,
+                dt=dt,
+                generated_monotonic_ns=candidate_generated_ns,
+            )
+        else:
+            self.hold_count += 1
+        return result
+
+    def _should_attempt_joint_limit_recovery(self, result: FeasibilityResult) -> bool:
+        if self.config.ik_solver_mode != "joint_limit_multibranch":
+            return False
+        metrics = result.metrics
+        if metrics.joint_limit_outward_indices:
+            return True
+        seed_risk, _ = _joint_limit_risk_and_outward_indices(
+            np.asarray(metrics.ik_seed_rad, dtype=np.float64),
+            np.zeros(6, dtype=np.float64),
+            margin_rad=self.config.feasibility.joint_limit_margin_rad,
+            avoidance_zone_rad=self.config.feasibility.joint_limit_avoidance_zone_rad,
+        )
+        return (
+            max(metrics.joint_limit_risk, seed_risk) > 0.0
+            and result.reason
+            in {
+                FeasibilityReason.JOINT_LIMIT,
+                FeasibilityReason.IK_POSITION_FAILED,
+                FeasibilityReason.IK_ORIENTATION_FAILED,
+            }
+        )
+
+    def _toward_safe_seed(self, seed: np.ndarray) -> np.ndarray:
+        """Move only risky joints a bounded amount toward their local interior."""
+
+        result = seed.copy()
+        zone = self.config.feasibility.joint_limit_avoidance_zone_rad
+        safe_limits = safe_joint_limits_rad(self.config.feasibility.joint_limit_margin_rad)
+        step = min(self.config.ik_max_step_rad * 2.0, zone * 0.5)
+        if step <= 0.0:
+            return result
+        for index, (joint, (lower, upper)) in enumerate(zip(seed, safe_limits, strict=True)):
+            if joint > upper - zone:
+                result[index] = joint - step
+            elif joint < lower + zone:
+                result[index] = joint + step
+        return result
+
+    def _capture_recovery_state(self) -> dict[str, Any]:
+        return {
+            "last_safe_joint_target": self.last_safe_joint_target.copy(),
+            "last_safe_target": self.last_safe_target,
+            "last_safe_joint_velocity": self.last_safe_joint_velocity.copy(),
+            "output_feasibility": copy.deepcopy(self.output_feasibility),
+            "accepted_metrics": list(self.accepted_metrics),
+            "singularity_latched": self._singularity_slowdown_latched,
+            "synthetic_generated_ns": self._synthetic_generated_monotonic_ns,
+            "ik_joints": self.ik.arm_joints_rad.copy(),
+            "ik_target_position": self.ik.target_palm_position_m.copy(),
+            "ik_target_quaternion": (
+                None
+                if self.ik.target_palm_quaternion_wxyz is None
+                else self.ik.target_palm_quaternion_wxyz.copy()
+            ),
+            "ik_workspace_limited": self.ik.target_workspace_limited,
+            "ik_joint_limit_limited": self.ik.joint_limit_limited,
+            "ik_limited_indices": list(self.ik.limited_joint_indices_1_based),
+            "ik_joint_limit_risk": self.ik.last_joint_limit_risk,
+        }
+
+    def _restore_recovery_state(self, snapshot: dict[str, Any]) -> None:
+        self.last_safe_joint_target = snapshot["last_safe_joint_target"].copy()
+        self.last_safe_target = snapshot["last_safe_target"]
+        self.last_safe_joint_velocity = snapshot["last_safe_joint_velocity"].copy()
+        self.output_feasibility = copy.deepcopy(snapshot["output_feasibility"])
+        self.accepted_metrics = list(snapshot["accepted_metrics"])
+        self._singularity_slowdown_latched = snapshot["singularity_latched"]
+        self._synthetic_generated_monotonic_ns = snapshot["synthetic_generated_ns"]
+        self.ik.set_authoritative_arm_joints_rad(snapshot["ik_joints"].tolist())
+        self.ik.target_palm_position_m = snapshot["ik_target_position"].copy()
+        self.ik.target_palm_quaternion_wxyz = (
+            None
+            if snapshot["ik_target_quaternion"] is None
+            else snapshot["ik_target_quaternion"].copy()
+        )
+        self.ik.target_workspace_limited = snapshot["ik_workspace_limited"]
+        self.ik.joint_limit_limited = snapshot["ik_joint_limit_limited"]
+        self.ik.limited_joint_indices_1_based = list(snapshot["ik_limited_indices"])
+        self.ik.last_joint_limit_risk = snapshot["ik_joint_limit_risk"]
+        self.ik._forward()
+
+    def _candidate_score(self, result: FeasibilityResult) -> float:
+        metrics = result.metrics
+        continuity = max(map(abs, metrics.joint_delta_rad), default=0.0)
+        continuity /= max(self.config.feasibility.maximum_joint_target_jump_rad, 1e-6)
+        branch_penalty = 1.0 if metrics.branch_switch else 0.0
+        if any(metrics.branch_equivalent_offset):
+            branch_penalty += 0.25
+        return (
+            continuity
+            + metrics.joint_limit_risk
+            + metrics.singularity_risk
+            + branch_penalty
+        )
+
+    def _commit_accepted_result(
+        self,
+        result: FeasibilityResult,
+        *,
+        target: Pose6D,
+        dt: float,
+        generated_monotonic_ns: int,
+    ) -> None:
+        assert result.joint_target_rad is not None
+        candidate_q = np.asarray(result.joint_target_rad, dtype=np.float64)
+        previous_q = self.last_safe_joint_target.copy()
+        prefilter = self.output_feasibility.prefilter(
+            candidate_q,
+            generated_monotonic_ns=generated_monotonic_ns,
+        )
+        self.output_feasibility.commit_prefilter(
+            candidate_q,
+            generated_monotonic_ns=generated_monotonic_ns,
+            prefilter=prefilter,
+        )
+        self.ik.set_authoritative_arm_joints_rad(candidate_q.tolist())
+        self.ik.target_palm_position_m = np.asarray(target.position_m, dtype=np.float64)
+        self.ik.target_palm_quaternion_wxyz = (
+            None
+            if not self.config.mapping.orientation_enabled
+            else np.asarray(
+                [target.orientation_xyzw[3], *target.orientation_xyzw[:3]],
+                dtype=np.float64,
+            )
+        )
+        self.ik._forward()
+        self.last_safe_joint_target = candidate_q
+        self.last_safe_joint_velocity = (candidate_q - previous_q) / max(dt, 1e-6)
+        self.last_safe_target = target
+        self.accepted_metrics.append(result.metrics)
+
+    def _try_joint_limit_recovery(
+        self,
+        primary: FeasibilityResult,
+        *,
+        target: Pose6D,
+        dt: float,
+        candidate_generated_ns: int,
+        compute_deadline_ns: int | None,
+        fresh_measured_joint_position_rad: Sequence[float] | None,
+    ) -> FeasibilityResult | None:
+        recovery_started_ns = time.perf_counter_ns()
+        self.joint_limit_recovery_count += 1
+        snapshot = self._capture_recovery_state()
+        base_seed = snapshot["last_safe_joint_target"].copy()
+        seeds = (base_seed, self._toward_safe_seed(base_seed))
+        candidates = [primary]
+        attempted_seeds = 1
+        solved_candidates = int(primary.accepted)
+        far_alternate_found = False
+        recovery_budget_exhausted = False
+
+        for seed in seeds[1:]:
+            if compute_deadline_ns is not None and time.perf_counter_ns() >= compute_deadline_ns:
+                self.recovery_compute_budget_exhausted_count += 1
+                recovery_budget_exhausted = True
+                break
+            self.last_safe_joint_target = seed.copy()
+            self.ik.set_authoritative_arm_joints_rad(seed.tolist())
+            trial = self.evaluate(
+                target,
+                dt_s=dt,
+                generated_monotonic_ns=candidate_generated_ns,
+                compute_deadline_ns=compute_deadline_ns,
+                fresh_measured_joint_position_rad=fresh_measured_joint_position_rad,
+                _allow_recovery=False,
+            )
+            attempted_seeds += 1
+            candidates.append(trial)
+            solved_candidates += int(trial.accepted)
+            if trial.reason in {
+                FeasibilityReason.TARGET_JUMP,
+                FeasibilityReason.JOINT_BRANCH_DISCONTINUITY,
+            }:
+                far_alternate_found = True
+            if trial.reason is FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED:
+                self.recovery_compute_budget_exhausted_count += 1
+                recovery_budget_exhausted = True
+                break
+            self._restore_recovery_state(snapshot)
+
+        self._restore_recovery_state(snapshot)
+        duration_ms = (time.perf_counter_ns() - recovery_started_ns) / 1e6
+        self._recovery_durations_ms.append(duration_ms)
+        self.recovery_attempted_seed_count += attempted_seeds
+        self.recovery_solved_candidate_count += solved_candidates
+        accepted = [candidate for candidate in candidates if candidate.accepted]
+        alternative_available = (
+            len(accepted) > int(primary.accepted) or far_alternate_found
+        )
+        if accepted:
+            best = min(accepted, key=self._candidate_score)
+        else:
+            best = None
+        clearly_better = bool(
+            best is not None
+            and primary.accepted
+            and best is not primary
+            and self._candidate_score(best) + 0.05 < self._candidate_score(primary)
+            and (
+                best.metrics.joint_limit_risk + 0.05 < primary.metrics.joint_limit_risk
+                or best.metrics.singularity_risk + 0.05 < primary.metrics.singularity_risk
+            )
+        )
+        selected = best if best is not None and (not primary.accepted or clearly_better) else primary
+        if selected is primary:
+            disposition = (
+                "ALTERNATE_BRANCH_FOUND_BUT_NOT_CONTINUOUSLY_SWITCHABLE"
+                if far_alternate_found
+                else ("ACCEPTED_PRIMARY" if primary.accepted else "PHYSICALLY/LOCALLY_NO_SAFE_SOLUTION")
+            )
+        else:
+            disposition = "ALTERNATE_SELECTED"
+            self.recovery_selected_alternate_count += 1
+        if far_alternate_found:
+            self.far_alternate_branch_count += 1
+        metrics = replace(
+            selected.metrics,
+            recovery_triggered=True,
+            recovery_attempted_seeds=attempted_seeds,
+            recovery_solved_candidates=solved_candidates,
+            alternative_branch_available=alternative_available,
+            far_alternate_branch_found=far_alternate_found,
+            recovery_disposition=disposition,
+        )
+        if recovery_budget_exhausted and not selected.accepted:
+            selected = replace(
+                selected,
+                reason=FeasibilityReason.CONTROL_COMPUTE_BUDGET_EXHAUSTED,
+            )
+        selected = replace(
+            selected,
+            metrics=metrics,
+            timing=replace(
+                selected.timing,
+                recovery_ms=duration_ms,
+                total_ms=selected.timing.total_ms + duration_ms,
+            ),
+        )
+        if selected.accepted:
+            self._commit_accepted_result(
+                selected,
+                target=target,
+                dt=dt,
+                generated_monotonic_ns=candidate_generated_ns,
+            )
+        else:
+            self.ik.set_authoritative_arm_joints_rad(base_seed.tolist())
+            self.hold_count += 1
+        return selected
 
     def _jacobian_quality(self) -> tuple[float, float, np.ndarray]:
         jacp = np.zeros((3, self.model.nv))
@@ -1380,6 +1742,19 @@ class SharedJakaTargetGenerator:
             sigma_min,
             jacr,
         )
+
+    @staticmethod
+    def _timing_percentiles(values: deque[float]) -> dict[str, float]:
+        if not values:
+            return {"p50": 0.0, "p95": 0.0, "p99": 0.0, "max": 0.0}
+        samples = np.asarray(tuple(values), dtype=np.float64)
+        p50, p95, p99 = np.percentile(samples, (50.0, 95.0, 99.0))
+        return {
+            "p50": float(p50),
+            "p95": float(p95),
+            "p99": float(p99),
+            "max": float(np.max(samples)),
+        }
 
     def metrics_report(self) -> dict[str, Any]:
         metrics = self.accepted_metrics
@@ -1409,7 +1784,26 @@ class SharedJakaTargetGenerator:
             ),
             "maximum_periodic_joint_winding_rad": self.maximum_periodic_joint_winding_rad,
             "episode_winding_rad": self.episode_winding_rad,
+            # Kept under the existing key for report compatibility.  This is
+            # diagnostic threshold state, never a physical position guard.
             "episode_winding_guard_tripped": self._episode_winding_fault,
+            "ik_solver_mode": self.config.ik_solver_mode,
+            "normal_ik_duration_ms": self._timing_percentiles(
+                self._normal_ik_durations_ms
+            ),
+            "recovery_duration_ms": self._timing_percentiles(
+                self._recovery_durations_ms
+            ),
+            "joint_limit_recovery_count": self.joint_limit_recovery_count,
+            "recovery_attempted_seeds": self.recovery_attempted_seed_count,
+            "recovery_solved_candidates": self.recovery_solved_candidate_count,
+            "recovery_selected_alternates": self.recovery_selected_alternate_count,
+            "far_alternate_branches_found": self.far_alternate_branch_count,
+            "recovery_compute_budget_exhausted": (
+                self.recovery_compute_budget_exhausted_count
+            ),
+            "compute_budget_exhausted": self.compute_budget_exhausted_count,
+            "hold_count": self.hold_count,
         }
         if hasattr(self, "tracking_errors_m"):
             report["maximum_desired_to_simulated_tcp_error_m"] = max(

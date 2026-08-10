@@ -16,6 +16,14 @@ DEFAULT_MJCF = Path("assets/jaka_rh56_visual_coacd.xml")
 MJCF_ARM_JOINT_NAMES = [f"jaka_joint_{index}" for index in range(1, 7)]
 PALM_BODY_NAME = "rh56_R_hand_base_link"
 IDENTITY_QUAT_WXYZ = np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+DEFAULT_JOINT_LIMIT_AVOIDANCE_ZONE_RAD = np.deg2rad(20.0)
+DEFAULT_JOINT_LIMIT_REGULARIZATION_GAIN = 0.003
+JOINT_LIMIT_FALLBACK_RISK = 0.9
+IK_SOLVER_MODES = {
+    "continuation_dls",
+    "directional_limit_dls",
+    "joint_limit_multibranch",
+}
 
 
 def safe_joint_limits_rad(
@@ -52,6 +60,42 @@ def joint_limit_margin_blockers(
         elif value > high:
             blockers.append(f"joint_{index + 1}_above_safe_limit")
     return blockers
+
+
+def directional_joint_limit_scale(
+    joints_rad: list[float] | np.ndarray,
+    delta_q: list[float] | np.ndarray,
+    *,
+    margin_rad: float = DEFAULT_JOINT_LIMIT_MARGIN_RAD,
+    avoidance_zone_rad: float = DEFAULT_JOINT_LIMIT_AVOIDANCE_ZONE_RAD,
+) -> float:
+    """Scale a DLS step only when it points toward a joint limit."""
+
+    joints = np.asarray(joints_rad, dtype=np.float64)
+    delta = np.asarray(delta_q, dtype=np.float64)
+    zone = max(0.0, float(avoidance_zone_rad))
+    if zone == 0.0:
+        return 1.0
+
+    scale = 1.0
+    for joint, step, (lower, upper) in zip(
+        joints, delta, safe_joint_limits_rad(margin_rad), strict=True
+    ):
+        if step > 0.0:
+            remaining = upper - float(joint)
+        elif step < 0.0:
+            remaining = float(joint) - lower
+        else:
+            continue
+        if remaining <= 0.0:
+            joint_scale = 0.0
+        elif remaining >= zone:
+            joint_scale = 1.0
+        else:
+            x = remaining / zone
+            joint_scale = x * x * (3.0 - 2.0 * x)
+        scale = min(scale, joint_scale)
+    return float(scale)
 
 
 def _unit_quat_wxyz(values: list[float] | np.ndarray) -> np.ndarray:
@@ -114,6 +158,8 @@ class PalmTargetIkState:
         adaptive_damping_max: float | None = None,
         target_workspace_radius_m: float = 0.0,
         joint_limit_margin_rad: float = DEFAULT_JOINT_LIMIT_MARGIN_RAD,
+        joint_limit_avoidance_zone_rad: float = DEFAULT_JOINT_LIMIT_AVOIDANCE_ZONE_RAD,
+        ik_solver_mode: str = "directional_limit_dls",
         orientation_ik_weight: float = 0.35,
     ) -> None:
         if len(initial_arm_joints_rad) != 6:
@@ -145,6 +191,13 @@ class PalmTargetIkState:
         self.last_effective_damping = self.ik_damping
         self.target_workspace_radius_m = abs(float(target_workspace_radius_m))
         self.joint_limit_margin_rad = abs(float(joint_limit_margin_rad))
+        self.joint_limit_avoidance_zone_rad = max(
+            0.0, float(joint_limit_avoidance_zone_rad)
+        )
+        if ik_solver_mode not in IK_SOLVER_MODES:
+            raise ValueError(f"unknown IK solver mode {ik_solver_mode!r}")
+        self.ik_solver_mode = ik_solver_mode
+        self.last_joint_limit_risk = 0.0
         self.orientation_ik_weight = max(0.0, float(orientation_ik_weight))
         self.last_position_target_ik_iterations_ns = 0
         self.last_position_target_final_fk_ns = 0
@@ -404,10 +457,23 @@ class PalmTargetIkState:
             mujoco.mj_jacBody(self.model, self.data, jacp, jacr, self.palm_body_id)
             arm_jacobian = jacp[:, self.arm_dof_ids]
             damping = self._effective_damping(arm_jacobian)
-            lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(3)
-            delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
+            delta = self._solve_dls_delta(arm_jacobian, error, damping)
             previous_joints = self.arm_joints_rad.copy()
-            self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
+            bounded_delta = np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
+            if self.ik_solver_mode == "directional_limit_dls" or (
+                self.ik_solver_mode == "joint_limit_multibranch"
+                and self.last_joint_limit_risk >= JOINT_LIMIT_FALLBACK_RISK
+            ):
+                # Multibranch recovery owns the normal risk-zone solve.  Keep
+                # the existing directional scale only as a final near-boundary
+                # fallback after regularized DLS has already been attempted.
+                bounded_delta *= directional_joint_limit_scale(
+                    previous_joints,
+                    bounded_delta,
+                    margin_rad=self.joint_limit_margin_rad,
+                    avoidance_zone_rad=self.joint_limit_avoidance_zone_rad,
+                )
+            self.arm_joints_rad += bounded_delta
             self._clip_arm_joints(previous_joints=previous_joints, margin_rad=0.0)
             return
         jacp = np.zeros((3, self.model.nv), dtype=np.float64)
@@ -424,11 +490,94 @@ class PalmTargetIkState:
             return
         arm_jacobian = np.vstack([jacp[:, self.arm_dof_ids], weight * jacr[:, self.arm_dof_ids]])
         damping = self._effective_damping(arm_jacobian)
-        lhs = arm_jacobian @ arm_jacobian.T + (damping**2) * np.eye(6)
-        delta = arm_jacobian.T @ np.linalg.solve(lhs, self.ik_gain * error)
+        delta = self._solve_dls_delta(arm_jacobian, error, damping)
         previous_joints = self.arm_joints_rad.copy()
-        self.arm_joints_rad += np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
+        bounded_delta = np.clip(delta, -self.ik_max_step_rad, self.ik_max_step_rad)
+        if self.ik_solver_mode == "directional_limit_dls" or (
+            self.ik_solver_mode == "joint_limit_multibranch"
+            and self.last_joint_limit_risk >= JOINT_LIMIT_FALLBACK_RISK
+        ):
+            # See the position-only branch above: this is not applied before
+            # the joint-limit-aware solve, only at the final boundary fallback.
+            bounded_delta *= directional_joint_limit_scale(
+                previous_joints,
+                bounded_delta,
+                margin_rad=self.joint_limit_margin_rad,
+                avoidance_zone_rad=self.joint_limit_avoidance_zone_rad,
+            )
+        self.arm_joints_rad += bounded_delta
         self._clip_arm_joints(previous_joints=previous_joints, margin_rad=0.0)
+
+    def _solve_dls_delta(
+        self,
+        jacobian: np.ndarray,
+        error: np.ndarray,
+        damping: float,
+    ) -> np.ndarray:
+        """Solve DLS, adding a local inward preference only in risk zones."""
+
+        rhs = self.ik_gain * error
+        if self.ik_solver_mode != "joint_limit_multibranch":
+            self.last_joint_limit_risk = self._joint_limit_risk(self.arm_joints_rad)
+            return jacobian.T @ np.linalg.solve(
+                jacobian @ jacobian.T + (damping**2) * np.eye(jacobian.shape[0]),
+                rhs,
+            )
+
+        risk, preferred_delta = self._joint_limit_preference(self.arm_joints_rad)
+        self.last_joint_limit_risk = float(np.max(risk, initial=0.0))
+        if not np.any(risk > 0.0):
+            return jacobian.T @ np.linalg.solve(
+                jacobian @ jacobian.T + (damping**2) * np.eye(jacobian.shape[0]),
+                rhs,
+            )
+
+        # Equivalent joint-space regularized DLS:
+        #   min ||J dq - e||² + d²||dq||²
+        #       + sum_i w_i ||dq_i - dq_preferred_i||²
+        # The additional term is zero outside the avoidance zone, so the
+        # healthy-path solution remains the existing continuation DLS.
+        weights = DEFAULT_JOINT_LIMIT_REGULARIZATION_GAIN * risk
+        normal = jacobian.T @ jacobian + (damping**2) * np.eye(6)
+        normal += np.diag(weights)
+        regularized_rhs = jacobian.T @ rhs + weights * preferred_delta
+        return np.linalg.solve(normal, regularized_rhs)
+
+    def _joint_limit_risk(self, joints_rad: np.ndarray) -> np.ndarray:
+        risk, _ = self._joint_limit_preference(joints_rad)
+        return risk
+
+    def _joint_limit_preference(
+        self, joints_rad: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        risk = np.zeros(6, dtype=np.float64)
+        preferred = np.zeros(6, dtype=np.float64)
+        zone = self.joint_limit_avoidance_zone_rad
+        if zone <= 0.0:
+            return risk, preferred
+        inward_step = min(self.ik_max_step_rad, zone * 0.1)
+        for index, (joint, (lower, upper)) in enumerate(
+            zip(joints_rad, safe_joint_limits_rad(self.joint_limit_margin_rad), strict=True)
+        ):
+            joint = float(joint)
+            if joint < lower:
+                remaining = 0.0
+                direction = 1.0
+            elif joint > upper:
+                remaining = 0.0
+                direction = -1.0
+            elif joint - lower < upper - joint:
+                remaining = joint - lower
+                direction = 1.0
+            else:
+                remaining = upper - joint
+                direction = -1.0
+            if remaining >= zone:
+                continue
+            x = np.clip(remaining / zone, 0.0, 1.0)
+            risk[index] = 1.0 - x * x * (3.0 - 2.0 * x)
+            preferred[index] = direction * inward_step * risk[index]
+        return risk, preferred
 
     def _effective_damping(self, jacobian: np.ndarray) -> float:
         """Smoothly increase DLS damping only as solver Jacobian quality falls."""

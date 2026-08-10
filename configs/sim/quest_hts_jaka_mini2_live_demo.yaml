@@ -126,8 +126,9 @@ shared_target_generation:
   # as the July 20 MuJoCo command-shaper acceleration setting; it is not a
   # published Mini2 hardware/controller acceleration maximum.
   maximum_output_joint_acceleration_rad_s2: 12.5663706144
-  # Healthy logs showed per-reference J4/J6 winding below 4.6/3.6 rad. Stop
-  # before a full revolution and require a fresh measured-state recapture.
+  # Diagnostic total periodic-joint travel threshold only. It is not a
+  # physical position limit and cannot trigger a hard stop; absolute measured
+  # joints, manufacturer limits, and the safe margin own that protection.
   maximum_periodic_joint_winding_rad: 5.0
 
 hand_retargeting:
@@ -181,6 +182,9 @@ simulation:
   adaptive_damping_max: 0.10
   ik_max_step_rad: 0.04
   ik_iterations: 24
+  # Primary live experiment: local joint-limit regularization plus bounded
+  # deterministic recovery. Native limits remain authoritative.
+  ik_solver_mode: joint_limit_multibranch
   ik_position_tolerance_m: 0.0025
   # Calibrated from the 0.25 m-scaled 6x6 spatial Jacobian in recorded replay:
   # normal continuous motion ~38-40 / 0.018-0.020; wrist jump ~69 / 0.0109.
@@ -203,6 +207,8 @@ simulation:
   command_maximum_joint_jerk_rad_s3: 62.8318530718
   command_position_tracking_frequency_rad_s: 10.0
   joint_limit_margin_deg: 5.0
+  # Early directional slowdown zone before the final safe joint margin.
+  joint_limit_avoidance_zone_deg: 20.0
   ik_orientation_tolerance_deg: 3.0
   maximum_target_rotation_jump_deg: 8.0
   # Retained for obvious non-periodic candidate jumps. It is not a J1/J4/J6

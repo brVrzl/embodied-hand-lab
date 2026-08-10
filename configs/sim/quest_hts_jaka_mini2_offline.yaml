@@ -39,6 +39,7 @@ simulation:
   ik_damping: 0.05
   ik_max_step_rad: 0.04
   ik_iterations: 24
+  ik_solver_mode: joint_limit_multibranch
   ik_position_tolerance_m: 0.0025
   maximum_jacobian_condition: 40.0
   minimum_jacobian_singular_value: 0.02
@@ -46,6 +47,7 @@ simulation:
   maximum_tcp_velocity_m_s: 0.025
   maximum_tcp_angular_velocity_rad_s: 0.20
   joint_limit_margin_deg: 5.0
+  joint_limit_avoidance_zone_deg: 20.0
   reject_action: disengage_and_hold_last_safe_simulated_target
   collision_policy: reject_new_contacts_relative_to_initial_model_contacts
 

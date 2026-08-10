@@ -130,8 +130,9 @@ def test_authoritative_measured_state_is_not_soft_clipped_at_startup() -> None:
     assert retreat.joint_target_rad[3] > measured[3]
 
     toward_hard_limit = evaluate_wrist_motion(-0.001)
-    assert not toward_hard_limit.accepted
-    assert "joint_4_below_safe_limit" in toward_hard_limit.metrics.joint_limit_blockers
+    assert toward_hard_limit.accepted
+    assert toward_hard_limit.reason is FeasibilityReason.ACCEPTED
+    assert toward_hard_limit.joint_target_rad[3] > measured[3]
 
 
 def _tracker() -> JointOutputFeasibilityTracker:

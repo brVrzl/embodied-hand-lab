@@ -9,6 +9,10 @@ from embodiment_core.robot_limits import (
     PERIODIC_JOINT_INDICES,
     select_nearest_equivalent_joint_branch,
 )
+from jaka_driver_adapter.palm_target_ik import (
+    directional_joint_limit_scale,
+    safe_joint_limits_rad,
+)
 from quest_jaka_sim import ReplayConfig, SharedJakaTargetGenerator
 from quest_jaka_sim.simulation import FeasibilityReason
 
@@ -71,19 +75,28 @@ def test_fresh_measured_recapture_resets_branch_and_winding_reference() -> None:
     assert generator.episode_winding_rad == pytest.approx((0.0,) * 6)
 
 
-def test_winding_guard_rejects_and_holds_before_a_full_turn() -> None:
+def test_total_periodic_travel_is_diagnostic_not_a_hard_stop() -> None:
     generator = SharedJakaTargetGenerator(ReplayConfig.load(CONFIG))
     start = np.asarray(generator.last_safe_joint_target, dtype=float)
     generator.synchronize_authoritative_arm_joints(start.tolist())
-    for step in range(1, 6):
-        generator.observe_episode_winding(
-            [*start[:3], start[3] + step * 1.02, start[4], start[5] - 0.02]
+    samples = []
+    for _ in range(2):
+        samples.extend(
+            [
+                [*start[:5], start[5] + math.radians(60.0)],
+                start.tolist(),
+                [*start[:5], start[5] - math.radians(60.0)],
+                start.tolist(),
+            ]
         )
+    for sample in samples:
+        generator.observe_episode_winding(sample)
     result = generator.evaluate(generator.current_tcp_pose, dt_s=1.0 / 60.0)
-    assert not result.accepted
-    assert result.reason is FeasibilityReason.EPISODE_WINDING_EXCEEDED
-    assert result.joint_target_rad is None
-    assert result.metrics.episode_winding_rad[3] > 5.0
+    assert result.accepted
+    assert result.reason is FeasibilityReason.ACCEPTED
+    assert result.metrics.episode_winding_rad[5] > 5.0
+    lower, upper = safe_joint_limits_rad(generator.config.feasibility.joint_limit_margin_rad)[5]
+    assert all(lower <= sample[5] <= upper for sample in samples)
 
 
 def test_large_periodic_candidate_step_is_not_a_branch_hard_stop() -> None:
@@ -166,3 +179,52 @@ def test_no_legal_equivalent_branch_is_terminal() -> None:
 
 def test_periodic_joint_scope_matches_jaka_full_range_axes() -> None:
     assert PERIODIC_JOINT_INDICES == (0, 3, 5)
+
+
+def test_directional_joint_limit_scale_covers_all_six_joints() -> None:
+    margin = math.radians(5.0)
+    zone = math.radians(20.0)
+    safe_limits = safe_joint_limits_rad(margin)
+    for index, (lower, upper) in enumerate(safe_limits):
+        far_upper = upper - zone - math.radians(1.0)
+        near_upper = upper - zone * 0.5
+        far_lower = lower + zone + math.radians(1.0)
+        near_lower = lower + zone * 0.5
+
+        joints = np.zeros(6)
+        joints[index] = far_upper
+        assert directional_joint_limit_scale(
+            joints, np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(1.0)
+
+        joints[index] = near_upper
+        outward = directional_joint_limit_scale(
+            joints, np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        )
+        assert 0.0 < outward < 1.0
+        assert directional_joint_limit_scale(
+            joints, -np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(1.0)
+
+        joints[index] = upper
+        assert directional_joint_limit_scale(
+            joints, np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(0.0)
+
+        joints[index] = far_lower
+        assert directional_joint_limit_scale(
+            joints, -np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(1.0)
+        joints[index] = near_lower
+        inward = directional_joint_limit_scale(
+            joints, -np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        )
+        assert 0.0 < inward < 1.0
+        assert directional_joint_limit_scale(
+            joints, np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(1.0)
+
+        joints[index] = lower
+        assert directional_joint_limit_scale(
+            joints, -np.eye(6)[index] * 0.01, margin_rad=margin, avoidance_zone_rad=zone
+        ) == pytest.approx(0.0)

@@ -7,6 +7,7 @@ import mujoco
 import numpy as np
 import pytest
 
+from jaka_driver_adapter.palm_target_ik import safe_joint_limits_rad
 from motion_input import Pose6D
 from quest_jaka_sim.se3 import compose_pose, rotvec_to_quaternion_xyzw
 from quest_jaka_sim.simulation import (
@@ -192,7 +193,7 @@ def test_near_wrist_singularity_roll_uses_jacobian_not_fixed_j5_guard() -> None:
     assert result.metrics.minimum_jacobian_singular_value > 0.0125
 
 
-def test_j6_near_safe_limit_rejects_without_wrap_or_branch_flip() -> None:
+def test_j6_near_safe_limit_recovers_without_wrap_or_branch_flip() -> None:
     simulation = _simulation()
     joints = np.asarray(simulation.config.initial_arm_joints_rad, dtype=float)
     joints[5] = math.radians(353.8)
@@ -211,8 +212,12 @@ def test_j6_near_safe_limit_rejects_without_wrap_or_branch_flip() -> None:
         ),
         dt_s=CONTROL_DT_S,
     )
-    assert not second.accepted
-    assert second.reason is FeasibilityReason.JOINT_LIMIT
+    assert second.accepted
+    assert second.reason is FeasibilityReason.ACCEPTED
+    assert second.joint_target_rad[5] <= safe_joint_limits_rad(
+        simulation.config.feasibility.joint_limit_margin_rad
+    )[5][1]
+    assert second.metrics.recovery_triggered
     assert not second.metrics.branch_switch
     assert max(abs(value) for value in second.metrics.joint_delta_rad) < math.radians(1.1)
 
