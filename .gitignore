@@ -31,7 +31,12 @@ MUJOCO_LOG.TXT
 *.avi
 *.MOV
 artifacts/
+outputs/
 tmp/
+.cache/
+wandb/
+runs/
+events.out.tfevents.*
 /*.jpg
 /*.jpeg
 /*.png
@@ -39,6 +44,7 @@ tmp/
 *.npz
 *.pt
 *.pth
+*.safetensors
 *.onnx
 *.zip
 *.tar

@@ -6,6 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
+import yaml
+
 from .exporters import export_act_hdf5, export_lerobot_v3
 from .inspection import inspect_episode, play_episode, write_inspection_plot
 from .lerobot_staging import (
@@ -14,6 +16,13 @@ from .lerobot_staging import (
     stage_review_html,
 )
 from .manifest import build_dataset_manifest, compute_train_statistics
+from .synchronization import synchronize_staging_episode
+from .training_materialization import (
+    materialize_training_dataset,
+    validate_training_dataset,
+)
+from .training_views import smoke_act_dataset
+from .openpi_adapter import smoke_openpi_dataset
 from .validation import validate_episode, validation_exit_code
 
 
@@ -110,6 +119,52 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
     convert_staging.add_argument("dataset_root", type=Path)
     convert_staging.add_argument("episode")
     convert_staging.add_argument("output_root", type=Path)
+
+    sync_staging = commands.add_parser(
+        "sync-staging",
+        help="check causal 30 Hz synchronization for one staging episode",
+    )
+    sync_staging.add_argument("dataset_root", type=Path)
+    sync_staging.add_argument("episode")
+    sync_staging.add_argument("--camera-tolerance-ms", type=float, default=100.0)
+    sync_staging.add_argument("--fps", type=int)
+    sync_staging.add_argument("--output", type=Path)
+
+    materialize_training = commands.add_parser(
+        "materialize-training",
+        help="materialize an immutable physical episode manifest into one training master",
+    )
+    materialize_training.add_argument("--config", type=Path, required=True)
+    materialize_training.add_argument(
+        "--replace",
+        action="store_true",
+        help="replace only an existing generated training root with a different fingerprint",
+    )
+
+    validate_training = commands.add_parser(
+        "validate-training",
+        help="validate a generated physical training master and its videos",
+    )
+    validate_training.add_argument("dataset_root", type=Path)
+    validate_training.add_argument("--output", type=Path)
+
+    act_smoke = commands.add_parser(
+        "act-smoke",
+        help="load representative samples through the local ACT view adapter",
+    )
+    act_smoke.add_argument("--config", type=Path, required=True)
+
+    act_force_smoke = commands.add_parser(
+        "act-force-smoke",
+        help="load representative samples through the local ACT+Force view adapter",
+    )
+    act_force_smoke.add_argument("--config", type=Path, required=True)
+
+    openpi_smoke = commands.add_parser(
+        "openpi-smoke",
+        help="dry-run the thin repository-specific openpi data mapping",
+    )
+    openpi_smoke.add_argument("--config", type=Path, required=True)
     return parser
 
 
@@ -141,6 +196,20 @@ def _label_episode(
     metadata["notes"] = notes
     _write_report(metadata_path, metadata)
     return metadata_path
+
+
+def _load_policy_view_config(config_path: Path) -> tuple[Path, dict[str, object]]:
+    config_path = config_path.resolve()
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("policy view config must be a mapping")
+    dataset_value = value.get("dataset_root")
+    if not isinstance(dataset_value, str):
+        raise ValueError("policy view config requires dataset_root")
+    dataset_root = Path(dataset_value)
+    if not dataset_root.is_absolute():
+        dataset_root = (config_path.parent / dataset_root).resolve()
+    return dataset_root, value
 
 
 def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
@@ -195,6 +264,47 @@ def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             args.dataset_root, args.episode, args.output_root
         )
         print(result)
+        return 0
+    if args.command == "sync-staging":
+        result = synchronize_staging_episode(
+            args.dataset_root,
+            args.episode,
+            camera_tolerance_ms=args.camera_tolerance_ms,
+            fps=args.fps,
+        )
+        if args.output is not None:
+            _write_report(args.output, result)
+            print(args.output)
+        else:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "materialize-training":
+        result = materialize_training_dataset(args.config, replace=args.replace)
+        payload = {
+            "output_root": str(result.output_root),
+            "report_path": None if result.report_path is None else str(result.report_path),
+            "reused": result.reused,
+            "summary": result.summary,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-training":
+        result = validate_training_dataset(args.dataset_root)
+        if args.output is not None:
+            _write_report(args.output, result)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "passed" else 1
+    if args.command in {"act-smoke", "act-force-smoke", "openpi-smoke"}:
+        dataset_root, view_config = _load_policy_view_config(args.config)
+        split = str(view_config.get("split", "train"))
+        horizon = int(view_config.get("action_horizon", 16))
+        if args.command == "act-smoke":
+            result = smoke_act_dataset(dataset_root, split=split, action_horizon=horizon)
+        elif args.command == "act-force-smoke":
+            result = smoke_act_dataset(dataset_root, split=split, action_horizon=horizon, force=True)
+        else:
+            result = smoke_openpi_dataset(dataset_root, split=split, action_horizon=horizon)
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     if args.command == "manifest":
         result = build_dataset_manifest(
