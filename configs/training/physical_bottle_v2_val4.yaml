@@ -1,0 +1,9 @@
+schema_version: embodied_lab.training_validation.v1
+name: physical_bottle_v2_val4
+source_episode_ids: [89, 98, 114, 116]
+validation_source_episodes: [89, 98, 114, 116]
+eval_split: 0.16
+notes: >-
+  Hold out the four reviewed clean demonstrations as episode-level validation
+  episodes. The derived LeRobot view orders all training episodes first and
+  these four validation episodes last for LeRobot 0.6.2 eval_split semantics.

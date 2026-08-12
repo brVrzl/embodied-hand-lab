@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -61,3 +62,17 @@ def test_shadow_adapter_has_no_robot_or_hand_command_calls() -> None:
         "enable_robot(",
     )
     assert not any(token in source for token in forbidden)
+
+
+def test_training_envelope_accepts_lerobot_action_stats(tmp_path: Path) -> None:
+    tool = _load_tool()
+    path = tmp_path / "stats.json"
+    path.write_text(
+        json.dumps({"action": {"min": [0.0] * 12, "max": [1.0] * 12}}),
+        encoding="utf-8",
+    )
+    minimum, maximum = tool._load_training_envelope(path)
+    assert minimum.shape == (12,)
+    assert maximum.shape == (12,)
+    assert np.all(minimum == 0.0)
+    assert np.all(maximum == 1.0)

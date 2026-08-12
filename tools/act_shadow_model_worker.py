@@ -19,6 +19,7 @@ import numpy as np
 WORKSPACE_KEY = "observation.images.workspace"
 WRIST_KEY = "observation.images.wrist"
 STATE_KEY = "observation.state"
+ENVIRONMENT_STATE_KEY = "observation.environment_state"
 
 
 def _recv_exact(connection: socket.socket, size: int) -> bytes:
@@ -43,7 +44,9 @@ def _send(connection: socket.socket, value: Any) -> None:
     connection.sendall(struct.pack("!Q", len(payload)) + payload)
 
 
-def _validate_observation(request: dict[str, Any]) -> None:
+def _validate_observation(
+    request: dict[str, Any], *, requires_environment_state: bool
+) -> None:
     for key in (WORKSPACE_KEY, WRIST_KEY):
         value = request[key]
         if not isinstance(value, np.ndarray) or value.shape != (3, 240, 320):
@@ -55,6 +58,14 @@ def _validate_observation(request: dict[str, Any]) -> None:
         raise ValueError("observation.state must be [12]")
     if state.dtype != np.float32 or not np.isfinite(state).all():
         raise ValueError("observation.state must be finite float32")
+    if requires_environment_state:
+        environment_state = request.get(ENVIRONMENT_STATE_KEY)
+        if not isinstance(environment_state, np.ndarray) or environment_state.shape != (6,):
+            raise ValueError("observation.environment_state must be [6]")
+        if environment_state.dtype != np.float32 or not np.isfinite(environment_state).all():
+            raise ValueError("observation.environment_state must be finite float32")
+    elif ENVIRONMENT_STATE_KEY in request:
+        raise ValueError("standard ACT checkpoint must not receive environment state")
 
 
 def main() -> int:
@@ -72,6 +83,7 @@ def main() -> int:
 
     checkpoint = args.checkpoint.resolve()
     config = PreTrainedConfig.from_pretrained(checkpoint)
+    requires_environment_state = ENVIRONMENT_STATE_KEY in config.input_features
     if not torch.cuda.is_available():
         raise RuntimeError("Thor CUDA is required for the shadow benchmark")
     config.device = "cuda"
@@ -107,12 +119,19 @@ def main() -> int:
                     break
                 request_started_ns = time.perf_counter_ns()
                 try:
-                    _validate_observation(request)
+                    _validate_observation(
+                        request,
+                        requires_environment_state=requires_environment_state,
+                    )
                     batch = {
                         WORKSPACE_KEY: torch.from_numpy(request[WORKSPACE_KEY]),
                         WRIST_KEY: torch.from_numpy(request[WRIST_KEY]),
                         STATE_KEY: torch.from_numpy(request[STATE_KEY]),
                     }
+                    if requires_environment_state:
+                        batch[ENVIRONMENT_STATE_KEY] = torch.from_numpy(
+                            request[ENVIRONMENT_STATE_KEY]
+                        )
                     torch.cuda.synchronize()
                     preprocessing_started_ns = time.perf_counter_ns()
                     processed = preprocessor(batch)
@@ -178,6 +197,7 @@ def main() -> int:
             "gpu_peak_memory_reserved_bytes": torch.cuda.max_memory_reserved(),
             "normalization_loaded_from_checkpoint": True,
             "command_api_present": False,
+            "environment_state_input": requires_environment_state,
             "pid": os.getpid(),
         }
         args.summary.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

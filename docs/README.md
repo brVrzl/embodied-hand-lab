@@ -63,6 +63,10 @@ low-dimensional robot state/action table. Quest packets, TCP, and depth are
 not stored in the default training view; conversion happens only after human
 review.
 
+## Training
+
+- [LeRobot ACT and ACT+Force training](training/lerobot/README.md)
+
 ## Reference and status
 
 - [Log schemas](reference/log_schemas.md)
@@ -138,6 +142,10 @@ review.
 - [Quest 控制器传输](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)
 
 当前维护的真机采集格式是人工 review 优先的 RGB 视频加低维机器人 state/action 表。默认训练视图不保存 Quest packet、TCP 和深度数据，只有人工确认后才离线转换。
+
+## 训练
+
+- [LeRobot ACT 与 ACT+Force 训练](training/lerobot/README.md)
 
 ## 参考与状态
 

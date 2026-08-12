@@ -77,6 +77,26 @@ and 70 are enabled; 68 is excluded as recovery/reclutch-heavy; 71 remains
 review-required and disabled by default. This is a data-processing choice,
 not a claim that the excluded raw episodes are useless.
 
+## Current v2 LeRobot training entrypoint
+
+The current reviewed physical-bottle materialization is
+`data/training/physical_bottle_v2/`. Its two master trees contain the same
+20,744 logical samples from 25 accepted logical segments. The repository-owned
+LeRobot bridge is documented in [training/lerobot/README.md](../training/lerobot/README.md)
+and is launched with:
+
+```bash
+scripts/train_physical_bottle_lerobot.sh both
+```
+
+The command runs inside the pinned LeRobot 0.6.2 container, creates disposable
+views under `outputs/training/physical_bottle_v2/`, validates them with the
+actual LeRobot loader, and starts ACT followed by ACT+Force. The ACT+Force
+view exposes raw six-channel force as LeRobot's separate
+`observation.environment_state`; it does not alter the master 12-D state or
+the absolute/native 12-D action. Generated views and checkpoints are ignored
+outputs; `data/raw_episodes/` and the master source trees are read-only.
+
 ## 中文说明
 
 `data/raw_episodes/` 下的 physical staging 数据是不可变的源数据。离线
@@ -89,3 +109,10 @@ force timestamp/age/validity、两路图像和 timing provenance。ACT 忽略 fo
 ACT+Force 额外读取 force；第一版 openpi adapter 不读取 force。裁剪使用已保存的
 task-release timestamp，不盲目减去五秒；如果 timestamp 缺失则进入 review-required，
 不会静默猜测。
+
+当前 v2 的 LeRobot 训练入口是仓库内的
+`scripts/train_physical_bottle_lerobot.sh both`。它在固定的 LeRobot 0.6.2
+Docker 环境中构建和验证临时 view，然后从仓库入口依次启动 ACT 和 ACT+Force；生成的
+view/checkpoint 位于 `outputs/training/physical_bottle_v2/`，原始数据和 master 源数据保持不变。
+ACT+Force 通过单独的 `observation.environment_state` 提供六维 raw force，不会把 force
+拼入 12-D state。

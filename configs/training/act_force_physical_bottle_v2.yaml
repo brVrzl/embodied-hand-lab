@@ -1,0 +1,17 @@
+schema_version: embodied_lab.policy_view_config.v1
+dataset_root: ../../data/training/physical_bottle_v2/act_force
+view: act_force
+split: train
+action_horizon: 16
+short_horizon_policy: repeat_last_with_mask
+action_semantics: absolute_native_target
+observation:
+  images: [workspace, wrist]
+  state: observation.state
+  force: observation.force
+  force_age: force_age_s
+  force_valid: force_valid
+normalization:
+  state: ../../data/training/physical_bottle_v2/stats/state_stats.json
+  action: ../../data/training/physical_bottle_v2/stats/action_stats.json
+  force: ../../data/training/physical_bottle_v2/stats/force_stats.json

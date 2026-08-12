@@ -1,0 +1,131 @@
+schema_version: embodied_lab.physical_bottle_collection_config.v1
+source_root: ../../data/raw_episodes
+output_root: ../../data/training/physical_bottle_v2
+audit_report: ../../research_log/physical_bottle_collection_audit_v2.md
+materialization_report: ../../research_log/physical_bottle_training_dataset_v2.md
+task:
+  id: place_bottle_on_cardboard_box
+  prompt: Pick up the bottle and place it on the cardboard box.
+fps: 30
+action_horizon: 16
+minimum_episode_id: 71
+
+# Reviewed source inventory for the newly collected batch. Raw files remain
+# the source of truth; this list records only offline audit decisions.
+source_reviews:
+  - {id: 71, classification: CLEAN_FULL_TASK, notes: approach, grasp, lift, place, and release visible; reset tail cropped by release event}
+  - {id: 74, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 81, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 82, classification: CORRUPT_OR_UNUSABLE, notes: partial metadata only; no finalized row/video payload}
+  - {id: 83, classification: CLEAN_FULL_TASK, notes: complete bottle task; selected rows and both videos decode}
+  - {id: 84, classification: CORRUPT_OR_UNUSABLE, notes: metadata exists but finalized row/video payload is absent; rejected sidecar present}
+  - {id: 85, classification: CORRUPT_OR_UNUSABLE, notes: partial metadata only; no finalized row/video payload}
+  - {id: 86, classification: CORRUPT_OR_UNUSABLE, notes: metadata records control_source_timestamp_regression:jaka_command and no finalized payload}
+  - {id: 87, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 88, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 89, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 90, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 91, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 92, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 93, classification: CORRUPT_OR_UNUSABLE, notes: metadata exists but finalized row/video payload is absent; rejected sidecar present}
+  - {id: 94, classification: CORRUPT_OR_UNUSABLE, notes: metadata exists but finalized row/video payload is absent}
+  - {id: 95, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 96, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 97, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 98, classification: CLEAN_FULL_TASK, notes: complete bottle task; reset tail cropped by release event}
+  - {id: 99, classification: MERGED_MULTIPLE_EPISODES, notes: two complete tasks separated by a clear human reset/idle interval around source frames 1170-1619}
+  - {id: 100, classification: CORRUPT_OR_UNUSABLE, notes: metadata exists but finalized row/video payload is absent; rejected sidecar present}
+  - {id: 101, classification: CORRUPT_OR_UNUSABLE, notes: metadata exists but finalized row/video payload is absent}
+  - {id: 102, classification: MERGED_MULTIPLE_EPISODES, notes: two complete tasks separated by a clear human reset/idle interval around source frames 1005-1319}
+  - {id: 103, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 104, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 105, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 106, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 107, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 108, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 109, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 110, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 111, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 112, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 113, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 114, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 115, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 116, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 117, classification: CLEAN_FULL_TASK, notes: open gripper and bottle approach are present; complete task}
+  - {id: 118, classification: INCOMPLETE_START, notes: first frame already holds bottle; missing approach is not present in source payload}
+  - {id: 119, classification: CORRUPT_OR_UNUSABLE, notes: partial metadata only; no finalized row/video payload}
+
+segments:
+  - {id: ep071_seg0, source_episode: 71, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep074_seg0, source_episode: 74, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep081_seg0, source_episode: 81, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep083_seg0, source_episode: 83, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep087_seg0, source_episode: 87, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep088_seg0, source_episode: 88, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep089_seg0, source_episode: 89, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep090_seg0, source_episode: 90, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep091_seg0, source_episode: 91, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep092_seg0, source_episode: 92, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep095_seg0, source_episode: 95, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep096_seg0, source_episode: 96, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep097_seg0, source_episode: 97, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep098_seg0, source_episode: 98, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep099_seg0, source_episode: 99, start_frame: 0, end_frame: 1169, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: reviewed first-task boundary before human reset}
+  - {id: ep099_seg1, source_episode: 99, start_frame: 1620, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: reviewed post-reset approach; authoritative release crop}
+  - {id: ep102_seg0, source_episode: 102, start_frame: 0, end_frame: 1004, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: reviewed first-task boundary before human reset}
+  - {id: ep102_seg1, source_episode: 102, start_frame: 1320, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: reviewed post-reset approach; authoritative release crop}
+  - {id: ep105_seg0, source_episode: 105, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep108_seg0, source_episode: 108, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep109_seg0, source_episode: 109, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep113_seg0, source_episode: 113, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep114_seg0, source_episode: 114, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep116_seg0, source_episode: 116, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep117_seg0, source_episode: 117, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: authoritative release crop}
+  - {id: ep103_seg0, source_episode: 103, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep104_seg0, source_episode: 104, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep106_seg0, source_episode: 106, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep107_seg0, source_episode: 107, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep110_seg0, source_episode: 110, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep111_seg0, source_episode: 111, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep112_seg0, source_episode: 112, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep115_seg0, source_episode: 115, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep118_seg0, source_episode: 118, classification: INCOMPLETE_START, include: false, notes: partial trajectory retained in excluded manifest}
+  - {id: ep082_seg0, source_episode: 82, classification: CORRUPT_OR_UNUSABLE, include: false, notes: partial metadata only}
+  - {id: ep084_seg0, source_episode: 84, classification: CORRUPT_OR_UNUSABLE, include: false, notes: source payload absent}
+  - {id: ep085_seg0, source_episode: 85, classification: CORRUPT_OR_UNUSABLE, include: false, notes: partial metadata only}
+  - {id: ep086_seg0, source_episode: 86, classification: CORRUPT_OR_UNUSABLE, include: false, notes: invalid timestamp regression and source payload absent}
+  - {id: ep093_seg0, source_episode: 93, classification: CORRUPT_OR_UNUSABLE, include: false, notes: source payload absent}
+  - {id: ep094_seg0, source_episode: 94, classification: CORRUPT_OR_UNUSABLE, include: false, notes: source payload absent}
+  - {id: ep100_seg0, source_episode: 100, classification: CORRUPT_OR_UNUSABLE, include: false, notes: source payload absent}
+  - {id: ep101_seg0, source_episode: 101, classification: CORRUPT_OR_UNUSABLE, include: false, notes: source payload absent}
+  - {id: ep119_seg0, source_episode: 119, classification: CORRUPT_OR_UNUSABLE, include: false, notes: partial metadata only}
+
+splits:
+  train:
+    - ep071_seg0
+    - ep074_seg0
+    - ep081_seg0
+    - ep083_seg0
+    - ep087_seg0
+    - ep088_seg0
+    - ep089_seg0
+    - ep090_seg0
+    - ep091_seg0
+    - ep092_seg0
+    - ep095_seg0
+    - ep096_seg0
+    - ep097_seg0
+    - ep098_seg0
+    - ep099_seg0
+    - ep099_seg1
+    - ep102_seg0
+    - ep102_seg1
+    - ep105_seg0
+    - ep108_seg0
+    - ep109_seg0
+    - ep113_seg0
+    - ep114_seg0
+    - ep116_seg0
+    - ep117_seg0
+  val: []
+  test: []

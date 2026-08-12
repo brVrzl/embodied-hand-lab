@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Protocol
+from typing import Protocol, Sequence
 
 from teleoperation.accepted_target import AcceptedArmTarget, ArmControlHeartbeat
 
@@ -58,6 +58,43 @@ class JakaAcceptedJointTargetAdapter:
             joint_position_rad=target.joint_position_rad,
             local_receive_ns=target.input_receive_monotonic_ns,
             processing_ns=target.generated_monotonic_ns,
+            dispatch_ns=dispatch_ns,
+            allow_motion=self.allow_motion,
+        )
+        sent = self.runtime.dispatch_packet(packet)
+        if sent:
+            self.applied_count += 1
+        return sent
+
+    def apply_joint_position(
+        self,
+        joint_position_rad: Sequence[float],
+        *,
+        source_capture_ns: int = 0,
+        local_receive_ns: int | None = None,
+        processing_ns: int | None = None,
+    ) -> bool:
+        """Publish an already-authoritative absolute J1..J6 target.
+
+        Policy deployment has no TCP/IK target to wrap in ``AcceptedArmTarget``.
+        It still crosses this same representation-only adapter and the same
+        bounded native transport; it does not create a second JAKA command
+        path or alter teleoperation targets.
+        """
+
+        if self.stopped:
+            return False
+        now_ns = time.monotonic_ns()
+        receive_ns = now_ns if local_receive_ns is None else int(local_receive_ns)
+        process_ns = receive_ns if processing_ns is None else int(processing_ns)
+        dispatch_ns = max(now_ns, process_ns)
+        self.last_sequence += 1
+        packet = joint_position_target_packet(
+            sequence=self.last_sequence,
+            joint_position_rad=tuple(float(value) for value in joint_position_rad),
+            source_capture_ns=int(source_capture_ns),
+            local_receive_ns=receive_ns,
+            processing_ns=process_ns,
             dispatch_ns=dispatch_ns,
             allow_motion=self.allow_motion,
         )

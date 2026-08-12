@@ -1,0 +1,4142 @@
+{
+  "approaches_impossible": 9,
+  "approaches_recovered": 0,
+  "clean_full_task_count": 25,
+  "complete_payload_episode_count": 32,
+  "config": "/home/thor/projects/embodied_lab/configs/training/physical_bottle_v2.yaml",
+  "incomplete_start_count": 9,
+  "logical_payload_trajectory_count": 34,
+  "manifest_entry_count": 43,
+  "merged_source_episode_count": 2,
+  "raw_episode_count": 41,
+  "raw_inventory": {
+    "100": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000100.json",
+        "sha256": "5240d8c009e4e8ac740ed8facf952b90c65c2e6ae09499a8f8d27f93ec29d632",
+        "size": 11359
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000100.json.partial"
+      },
+      "rejected": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000100.json",
+        "sha256": "b18348d33ea993ceb2e26ae0cb7403021c99209ccefbc26c007aade03f862415",
+        "size": 221
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000100.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000100.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000100.mp4"
+      }
+    },
+    "101": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000101.json",
+        "sha256": "27c9391be539fa7efdbe0441c711b29b28eff9c5de0f4871bf07bdf3ab34b07f",
+        "size": 11516
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000101.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000101.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000101.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000101.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000101.mp4"
+      }
+    },
+    "102": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000102.json",
+        "sha256": "43934fa95812a4308932c8e50c32899a123bd96531fb192836a838d6b869fcbb",
+        "size": 11533
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000102.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000102.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000102.jsonl",
+        "sha256": "bdbdd7d3735c195dda018f72c60c37114a1bd9bb21bbb3a01fc8763334945fe1",
+        "size": 6003180
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000102.mp4",
+        "sha256": "dab9720ff31cb732aac860dc7226582b1d8be673cd3dae07a2536b35385d6c44",
+        "size": 15177604
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000102.mp4",
+        "sha256": "7dab5688253721eabdccca7e0722d9f28db14eb6e7b46e3e28cfdd6d50d6817f",
+        "size": 16400961
+      }
+    },
+    "103": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000103.json",
+        "sha256": "7187ba701e3cc918313fd7b2728850540daf1b3316a81dd865ea9ee0eed9942e",
+        "size": 11514
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000103.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000103.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000103.jsonl",
+        "sha256": "cbc85b60e0c064c6aa4aa74fd227660319d42a0bd957552e1dad04f490303979",
+        "size": 1494032
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000103.mp4",
+        "sha256": "81bce31ad2b247352575d820cc60d7c40f3aed97cf77494d032aeb36a2c372fa",
+        "size": 4399805
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000103.mp4",
+        "sha256": "e176de4d12b2aec77979cc78d2f51f6e05c76d4d44ef9ae49054e6382003fa7f",
+        "size": 4350769
+      }
+    },
+    "104": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000104.json",
+        "sha256": "73120a566f6516293ac462f0512d9af045b888e2ef7a75eda155b4a385f9364c",
+        "size": 11513
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000104.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000104.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000104.jsonl",
+        "sha256": "903603c776fe273b67f0e11337ab1c306f23d7c2c69369430b345904ef296f23",
+        "size": 1464285
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000104.mp4",
+        "sha256": "d3c63f0a04c010b4cbb07bb13e12026c4f43afbbb3a5b009af994642f2a3243f",
+        "size": 4444468
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000104.mp4",
+        "sha256": "b8d714d4a9f9482dbf78bd9c8d1e445904458262c9bab5cdf61b3b241695c6ea",
+        "size": 4690751
+      }
+    },
+    "105": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000105.json",
+        "sha256": "6e484c2c1f6c5ac715f86b89614b7c426c0ee0a08ad70af43f1aa1c8fa740704",
+        "size": 11364
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000105.json.partial"
+      },
+      "rejected": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000105.json",
+        "sha256": "493b11a5735231c827339a59ce0c3173aad63bbfd068783e05416ad14ce63e52",
+        "size": 189
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000105.jsonl",
+        "sha256": "5c8fc1086b42b890efaf5f5b620d1f6e7ca4d8ac59bd351d4be4ddc8480ff8dc",
+        "size": 2447854
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000105.mp4",
+        "sha256": "fa570ffbe7c3c847fd1155f5fa9dfefb9f87f09898c83f35ed786ecf49544cad",
+        "size": 6452193
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000105.mp4",
+        "sha256": "9b31d405b7462eabb44b500b5538365ed2f9866354c0e485ca6986be07fbb6ba",
+        "size": 6872994
+      }
+    },
+    "106": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000106.json",
+        "sha256": "d7977668bd80f52ef8ab66db6526604a3cc7bd68ce4f062da26108d798a18b74",
+        "size": 11518
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000106.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000106.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000106.jsonl",
+        "sha256": "b424e6be07a28a6cc008250aefd8026ed221344be1e9efefb313f92faebba6de",
+        "size": 1512910
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000106.mp4",
+        "sha256": "6450d75790be4107177632874e928f3caf0a840e6ff2fd6ce445540722193ba0",
+        "size": 4356185
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000106.mp4",
+        "sha256": "2e33b3f5e66f43038afa2450ae6f4c2fd5748a68e7b276ea1df271526162a7b4",
+        "size": 4097491
+      }
+    },
+    "107": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000107.json",
+        "sha256": "df5483074ce940ca7da4c681b15209b6b0d46e2f829a9df7a5f256d627e44890",
+        "size": 11516
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000107.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000107.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000107.jsonl",
+        "sha256": "44f13cc4afd1e175f9b65ea51b6ce7ab4e85870583c3a08d2044604819b4841c",
+        "size": 2085854
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000107.mp4",
+        "sha256": "13c33dd751ac5bde7aa120b61c9a8be3b4308a09664742acbf581ee5dc098538",
+        "size": 5600657
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000107.mp4",
+        "sha256": "a897011d6c1d502e2cd7dc7c834f47c18a7964e92fbaa2b4cd29320dc918a928",
+        "size": 5752297
+      }
+    },
+    "108": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000108.json",
+        "sha256": "d0198ce73db0ffa82e2ecdf27bed9e28c2bf7e39901f893721fd4f51f9fb085b",
+        "size": 11356
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000108.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000108.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000108.jsonl",
+        "sha256": "53558cab620cf4427710d31e21bbe509442d9cd94b065ccd0ef6a569fa9de41f",
+        "size": 2478510
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000108.mp4",
+        "sha256": "9a37e193dfd0f2a257ce504815a05019cf577fdc7803fbe1dfdeba4f29e4f694",
+        "size": 7158012
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000108.mp4",
+        "sha256": "30f9eef0332aa25e15fd67fda94879c25f221ab2ab91b4eaef15eafe4e505a2e",
+        "size": 6841396
+      }
+    },
+    "109": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000109.json",
+        "sha256": "7ad496c9c2de7844f61ad5785b9db920709ac76ef31a8e2f4384e7ecac99f1f2",
+        "size": 11513
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000109.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000109.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000109.jsonl",
+        "sha256": "3cece99e46bab72129f271277c9117d9a1a4a698d6f35af3c2271bb3a96b0c26",
+        "size": 2220562
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000109.mp4",
+        "sha256": "0f4f6e78e6b0917e99fe8dd45074d68256a9bf5bf90f4423b1e1ba2e6eff24c7",
+        "size": 5859422
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000109.mp4",
+        "sha256": "27ba803a817048d0da63816d7f57eb9797438d105c730a79374abd7cfb8b9d5a",
+        "size": 6829403
+      }
+    },
+    "110": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000110.json",
+        "sha256": "4e60779de6a947f2251aba798767674534545d1147e82c5d85af05f3b4851667",
+        "size": 11514
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000110.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000110.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000110.jsonl",
+        "sha256": "56ee326773d21ad07e240c0777e4683235c6bd3f2f98df82787c022bbb52d036",
+        "size": 1577477
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000110.mp4",
+        "sha256": "309e8ad2f77d60da88801c0e731dd2aab51cc99d2384591fefc3046230784ab2",
+        "size": 4398960
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000110.mp4",
+        "sha256": "87bceb7d606d5fbb9c0af1b2d27150897be636ee451b5fb89911cb79303f851e",
+        "size": 4348420
+      }
+    },
+    "111": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000111.json",
+        "sha256": "1e1fb14e6d13c801d34221440dddceaae660f4f7d0dc32fa9f31d882180e9eab",
+        "size": 11534
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000111.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000111.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000111.jsonl",
+        "sha256": "693da4311fe4b51b3e7b06c04f7d7562dad29a7d2f8aac040eabd21c7b713bcf",
+        "size": 2951878
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000111.mp4",
+        "sha256": "e51b98325e6f4860e02a875143fbb0d4f705de4ad782aebb9e490298cbf48a28",
+        "size": 7818430
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000111.mp4",
+        "sha256": "bb3b59fb602cbddd1307efadb0777b23eebabee221f6702443f59f42706f5f9a",
+        "size": 8211108
+      }
+    },
+    "112": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000112.json",
+        "sha256": "92732004f1c2d2707563e3366d3fe3fd7f3e49d5b9140069cf9b03556436312c",
+        "size": 11488
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000112.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000112.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000112.jsonl",
+        "sha256": "fab38b26cbbc12ea10abc8de722dd8bdc8e74690bc10d14ae9fe23c145d34433",
+        "size": 1699475
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000112.mp4",
+        "sha256": "666eb084ebb0a57a5971acb61ff47fbf8e36b04d4cd48faaa172d2b95fa5f71d",
+        "size": 4890759
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000112.mp4",
+        "sha256": "f71ce1d4b96347efb001a7d84b9bf0ee8534375006efe086727a536de0d97070",
+        "size": 4781974
+      }
+    },
+    "113": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000113.json",
+        "sha256": "0c93a5e742beac3ae616f3d8e703e93f2ff09f87dd958fcfe1a7ebf2b752eeb4",
+        "size": 11516
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000113.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000113.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000113.jsonl",
+        "sha256": "4700dc35a6c1ec61ac29a899c92d8e8adf338c83710cc846e88c1018daf2adb1",
+        "size": 2153565
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000113.mp4",
+        "sha256": "1146d469854a89e8bc87a421d5e6159413aff8c6efddc501c02b469430b14f6d",
+        "size": 5823267
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000113.mp4",
+        "sha256": "ce59f1482d4723b42b6d935a7e6d18e299f11b869828f401bf9cd572c4182de3",
+        "size": 6064801
+      }
+    },
+    "114": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000114.json",
+        "sha256": "b539661c7c93cddd087060bb700e874a5ad65deb492405af80c683fa532af606",
+        "size": 11364
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000114.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000114.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000114.jsonl",
+        "sha256": "3b1d7ae6b88bcf01ca09b75bc005dbbbc0d62f976d8e32efe05e7926c36c2e08",
+        "size": 2126156
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000114.mp4",
+        "sha256": "2de2cefae81e9db719e0117268e62ed3752c14c6ed2222219b150869ea05d80e",
+        "size": 5721457
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000114.mp4",
+        "sha256": "5b54709a2bd721a0069803544667e737739008a6c8e3e7a153836a741b3c6e85",
+        "size": 6100688
+      }
+    },
+    "115": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000115.json",
+        "sha256": "0ca5aac43db1ad3c8f68be4bb27b3a3c762d3ba3472d4efb213dbd95d4fb7519",
+        "size": 11488
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000115.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000115.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000115.jsonl",
+        "sha256": "a375b93f94f3e43709885792755c4faae91a4e631470e7d6d9ea2c573397758e",
+        "size": 1420546
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000115.mp4",
+        "sha256": "0b1aa1c300c681e03ff72452697bb77be16ae79a6d76dfd8a6b16b1d3a8d3748",
+        "size": 3884535
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000115.mp4",
+        "sha256": "bf45157ae1ebd219001ef81b9b9442af6992d9139e87ce1434bc7184076dffa3",
+        "size": 3750359
+      }
+    },
+    "116": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000116.json",
+        "sha256": "abe5e3676e6a129d3a37cfa75df6a9053462d0f18ea60e6949b9275abad16be3",
+        "size": 11360
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000116.json.partial"
+      },
+      "rejected": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000116.json",
+        "sha256": "fe355dcf1f8994014d45a6978027b124cb6adeb0c510b6e2ffb3747359ce1fdb",
+        "size": 189
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000116.jsonl",
+        "sha256": "8e07727a343c86939eed2b21136f2993bd33c3be98883038a9f900f94af1d113",
+        "size": 2013012
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000116.mp4",
+        "sha256": "1fc37546b6fdbe9282e5e0581d7bb9f2cad6c7cef120f20042a757a3baaa7991",
+        "size": 5598125
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000116.mp4",
+        "sha256": "8979f61d038e4fcfdf88199bfeb2c7d963989ba583ffa339fcbcd566145a2c2f",
+        "size": 5553104
+      }
+    },
+    "117": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000117.json",
+        "sha256": "939a2b0c1ee4d62934cdf7b5c753ac943356c10d1238ff9e146bc8e01b1ca958",
+        "size": 11514
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000117.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000117.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000117.jsonl",
+        "sha256": "c292ad8a774faf282439968baf65cdfaa6d0fbf268c0a424de8255c0fcfa6faf",
+        "size": 2447867
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000117.mp4",
+        "sha256": "34dedf06d56173bc5e692b55c88a0a398334523c4e4f6153504b1f2f73451599",
+        "size": 7057623
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000117.mp4",
+        "sha256": "04ce9f683c5715a9fce1af7ccfbe41fe8df8c5f9350345f09ee2668836ba2667",
+        "size": 6861310
+      }
+    },
+    "118": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000118.json",
+        "sha256": "e6914cc7e374d4098f484d211f3962d44a596b7a54d31c45fd2172405660e33d",
+        "size": 11514
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000118.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000118.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000118.jsonl",
+        "sha256": "a82454a17287ede44674961b48505f9fbd01ceb4ea91d9f801b55ea396cde937",
+        "size": 1914322
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000118.mp4",
+        "sha256": "a9480fbe6fc63b1229a2f5d80ef0aacb3e46b71a65d683796814fa17c13fc343",
+        "size": 5556911
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000118.mp4",
+        "sha256": "de762d00b3152a8cc1ae4d681218a3a0b3e284a20548fedfe6d4e12ed4e425de",
+        "size": 4883510
+      }
+    },
+    "119": {
+      "metadata": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000119.json"
+      },
+      "metadata_partial": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000119.json.partial",
+        "sha256": "11b76a30207ad5176daf2e0123e752be46d911ece0dca5b312a86f68d6b60c56",
+        "size": 7524
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000119.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000119.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000119.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000119.mp4"
+      }
+    },
+    "71": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000071.json",
+        "sha256": "5ada53daa1b0c8881e3b57b727d17f831aa3245076c9eb1c9b08b386cc062c9e",
+        "size": 11532
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000071.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000071.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000071.jsonl",
+        "sha256": "3092d34a9cb2e997587661f80079067262a50f2760c8cddc7dba0728ae8481ee",
+        "size": 3079033
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000071.mp4",
+        "sha256": "9247e92a01a82f994af80a88e80af69763bcf083f9dacc7b6f06e257a666fa2b",
+        "size": 8614081
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000071.mp4",
+        "sha256": "69326d6cdd7d23b4ca2b3c9330f37cdce8e4aa05e7ab9739f1d321f69fdfe4ce",
+        "size": 10643068
+      }
+    },
+    "74": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000074.json",
+        "sha256": "be06e440686c56b6064c2479155303ce029272e9add7bc606f4978236d2ed977",
+        "size": 11530
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000074.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000074.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000074.jsonl",
+        "sha256": "7d43660052ae039821838184080047116243262eb462bab2b43f68379aaa7d60",
+        "size": 3382158
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000074.mp4",
+        "sha256": "ed6df5907dc91209d1efa9bc2af4652ce49e1d7772fd4dc2b18691fb068b814a",
+        "size": 9123942
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000074.mp4",
+        "sha256": "60643d09de8502bf705dfc31cb9c7e6f2a1cdb3f63ec8e3fd54c40c0f7205e3d",
+        "size": 9506391
+      }
+    },
+    "81": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000081.json",
+        "sha256": "f62d19bb8e7069fb01b77064bb9680562ab6ca9550d01ae4e8e1c3f60ab0524f",
+        "size": 11380
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000081.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000081.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000081.jsonl",
+        "sha256": "21aa1042f274db80b01d806fdee41b8398a821eaea1bf2b8d549e7be349053af",
+        "size": 3165980
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000081.mp4",
+        "sha256": "af1693477bb2430ce5fa14396ea59ff3e4efd4686b1dfce6d1e6f7bbcb6f5d38",
+        "size": 8442354
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000081.mp4",
+        "sha256": "5086052a7844ce1957090dbe3bbc99e62cb799e8480142673c5ca5ef1708e252",
+        "size": 8231786
+      }
+    },
+    "82": {
+      "metadata": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000082.json"
+      },
+      "metadata_partial": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000082.json.partial",
+        "sha256": "956067abda3af5282618a9c84673ae50ff6705c3101e8791af2dcb951fc97bb3",
+        "size": 7524
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000082.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000082.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000082.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000082.mp4"
+      }
+    },
+    "83": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000083.json",
+        "sha256": "3a5dc02c0520a022d65945e3caaf62572263eb330bfdf098258a8b7c6548f0cb",
+        "size": 11382
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000083.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000083.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000083.jsonl",
+        "sha256": "93dac7a2af41b53e2d74a18e8413873090400f159589c9fb1c5ff45510c73578",
+        "size": 4350916
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000083.mp4",
+        "sha256": "08a1f8fb657ef0fe997a941e4050c9ac673c64d26f206045f572ed8fd49b1f8d",
+        "size": 10504346
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000083.mp4",
+        "sha256": "637718571c2a3b6b531deb4235a97cf19b8be633c02990524076b5e98148292e",
+        "size": 10843205
+      }
+    },
+    "84": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000084.json",
+        "sha256": "4d569c17cd4f5fe91feacd12b3bf8042f4766538633b7b267112aeb69495c328",
+        "size": 11380
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000084.json.partial"
+      },
+      "rejected": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000084.json",
+        "sha256": "867d1c314b4d36906a8625dc5c2f4f8e272618ca5221fdcbf0157ba2c6121e84",
+        "size": 226
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000084.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000084.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000084.mp4"
+      }
+    },
+    "85": {
+      "metadata": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000085.json"
+      },
+      "metadata_partial": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000085.json.partial",
+        "sha256": "ae55de8c3b58570e0d19c122579df0fdcd8aa9b6151fd5ed28e88e4047a20f7c",
+        "size": 7523
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000085.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000085.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000085.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000085.mp4"
+      }
+    },
+    "86": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000086.json",
+        "sha256": "6233505def20f2fea51cbb46b0ae83a45fe61e78317bf9d208b0bd03ff3a439e",
+        "size": 11398
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000086.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000086.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000086.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000086.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000086.mp4"
+      }
+    },
+    "87": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000087.json",
+        "sha256": "cbfe95cbea6fd756c9d34d6a844712a3b1011db76327b5babc64ebffa0e5c8a2",
+        "size": 11359
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000087.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000087.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000087.jsonl",
+        "sha256": "6cda6af2d31ad7c6a3e001f3348b9837c58e3230e516abe08e90018aafa93273",
+        "size": 2696446
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000087.mp4",
+        "sha256": "194e089a01d71f58fbded11ae9b2b64b8d9494c9cd635912a33d2f7a959dca24",
+        "size": 6723686
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000087.mp4",
+        "sha256": "557ba569fa1104e5c0f4f34438a27ea64d5d9886d8f9b592ec680549c3d2c06c",
+        "size": 7598852
+      }
+    },
+    "88": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000088.json",
+        "sha256": "fce32341d51e37f15be65e447a636679e50dbef1e9e4e179b178f25a11a8393b",
+        "size": 11515
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000088.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000088.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000088.jsonl",
+        "sha256": "c4017625bf05fa1a2c491d56801351930bbf075331829d9328e2a27e8fba8365",
+        "size": 2579196
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000088.mp4",
+        "sha256": "1776c4120d6aa3b3a162a9bd6b7f484f8197128b321846e41a0cf1c8ffb58217",
+        "size": 6769364
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000088.mp4",
+        "sha256": "18aebec5d8506f41e09090ce6c814bb7cae50eb23efc081db7f1efc9181c5568",
+        "size": 6868815
+      }
+    },
+    "89": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000089.json",
+        "sha256": "aaf2b4b5575c3f77367fb27e51c872709ffe49bf5901f13a4a9b6da403b031e4",
+        "size": 11515
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000089.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000089.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000089.jsonl",
+        "sha256": "ad57fd8ec7fab44f3d1693d685e42927a0e00c81594f1c7ff3bd40482e912321",
+        "size": 2652308
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000089.mp4",
+        "sha256": "a33261c1201552049f12c420d7eaabb1f34662a2922666160d80f42b7ba2a233",
+        "size": 7231925
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000089.mp4",
+        "sha256": "280fa9164db98e3d7e2dd67694e78c90f095505691aad01fad1df2486e53c68d",
+        "size": 7686189
+      }
+    },
+    "90": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000090.json",
+        "sha256": "b5d2a8e249464915d475658e0238034d98381ace174b69f4601c1a0a11c5a2bc",
+        "size": 11515
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000090.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000090.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000090.jsonl",
+        "sha256": "04abdb9ddf43b0bf59b857b2af4b3ae5722c50d391c30a9397586a1db06cdcd0",
+        "size": 2667382
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000090.mp4",
+        "sha256": "0850f7401221b64ae66395aa4fd677490b21c1588db7f6344e87ecdf302ffec0",
+        "size": 7235734
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000090.mp4",
+        "sha256": "a2dd0c9f767b78baabf79c8e281d9cdf8d0ca2b1ac4e49016bce17f5fe3ac30f",
+        "size": 7137339
+      }
+    },
+    "91": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000091.json",
+        "sha256": "9b2dc16562cda69c20092c4f81fa64eb3a4442ade0055bbf1f1a6c87318ba7bf",
+        "size": 11530
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000091.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000091.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000091.jsonl",
+        "sha256": "92be9b8ed4cab5ef09c111bbbfdc39d78cf30f41c3ec44d08d4b317e3a04fe17",
+        "size": 2958819
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000091.mp4",
+        "sha256": "dcf3ef4ae4cae2ad5d0cbc89cc0e8cbde712076eebe1f610d2b7273f0e371be1",
+        "size": 8130749
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000091.mp4",
+        "sha256": "63e8fa990e4e55bffc66b8cc38890f52cb969fb87284ac230307cff59e86f099",
+        "size": 8458807
+      }
+    },
+    "92": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000092.json",
+        "sha256": "c0424a646080ca76e123d5e759ee2bd5f0216afd357ef4ca4a8ce1f54aa31b4a",
+        "size": 11376
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000092.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000092.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000092.jsonl",
+        "sha256": "e91f816ac4da9659ec64c284884a11321485e68e8b76e8629aa6e033a8b33714",
+        "size": 4737397
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000092.mp4",
+        "sha256": "6d603f2d871e03392079f4fe96cdff7289a8090bc71a2902e5196a82c2a960b1",
+        "size": 12327254
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000092.mp4",
+        "sha256": "eea517db5e2b50cb90adaa710fa50e1505e5e01632af7cb4a0a5ef5d0a04e624",
+        "size": 11168888
+      }
+    },
+    "93": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000093.json",
+        "sha256": "c6a7e70372c57c71ab738d1e50b5ca2fbc900323af76f6d3714fa2958fe70b0f",
+        "size": 11363
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000093.json.partial"
+      },
+      "rejected": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000093.json",
+        "sha256": "38c8987829d0073ef59dffbc7958466a4e025652afa18469bff93777fe506e4c",
+        "size": 221
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000093.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000093.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000093.mp4"
+      }
+    },
+    "94": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000094.json",
+        "sha256": "4eb9c2a6791d748715533c406eebac2bc7ad0871c9f6d2729867695db6e3f12a",
+        "size": 11513
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000094.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000094.json"
+      },
+      "rows": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000094.jsonl"
+      },
+      "workspace": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000094.mp4"
+      },
+      "wrist": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000094.mp4"
+      }
+    },
+    "95": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000095.json",
+        "sha256": "3103dbcda604ea53dbeb314c56f4b4cef4aaa27a7f445a20b591e63539914887",
+        "size": 11363
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000095.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000095.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000095.jsonl",
+        "sha256": "cbe37776da92d1ca4279b6bd3e1f1459e6a4c94d79391c348ebf72590c273d86",
+        "size": 2381121
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000095.mp4",
+        "sha256": "e665efcade25bfeaa0df788400fac668a62dc399ceb5a71d7be0b21d7116263e",
+        "size": 6457308
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000095.mp4",
+        "sha256": "867cf11f2847e26e5fc24116441f0e862d131eb8836e0ef4da0e0ee5099869f5",
+        "size": 6415950
+      }
+    },
+    "96": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000096.json",
+        "sha256": "9b4ac0b911812c5e750a73888bce1f11151d79009fe9ec2ea6f0fd731294d34f",
+        "size": 11481
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000096.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000096.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000096.jsonl",
+        "sha256": "6cf801e929bbfca143a2672539d416b51551533ca48141a66b4138c1da283c82",
+        "size": 2545022
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000096.mp4",
+        "sha256": "9f5b75eaa9afca7763b9f13e8ec5339a42ca8c0c2b9a56d7b57e57bf42d72afb",
+        "size": 6989626
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000096.mp4",
+        "sha256": "6f9c56810919c3e8e5d119adba50fa3602ff635729b2f9ae607f2cef2b3ffef6",
+        "size": 6445414
+      }
+    },
+    "97": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000097.json",
+        "sha256": "3fc8d4dc7ea833bbb5a59625dcfc516d081b7798ad69e0645f48fd6bbb391486",
+        "size": 11528
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000097.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000097.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000097.jsonl",
+        "sha256": "e16c593b44eca252df0e1a174ce1c03d5d897d3988aad054e120d9d90eca6798",
+        "size": 2941128
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000097.mp4",
+        "sha256": "51a2a3028bf3e0067de090b49dd3f6a5aa5e68a09be596565c92b57c99729d37",
+        "size": 8162359
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000097.mp4",
+        "sha256": "c50d61f622c08906a11e1dc67ebba544a98e108d2523ad9a6ea9fa29ad8674fb",
+        "size": 7443045
+      }
+    },
+    "98": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000098.json",
+        "sha256": "0fd2f654855c8483a464f1930dabd2900f944971e701077b5cfd074c7db6fc78",
+        "size": 11513
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000098.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000098.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000098.jsonl",
+        "sha256": "187cdcd961a7ae1fd0d8440765c0a473e7a6c74c33552f9107923bb4ad85b0aa",
+        "size": 2631316
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000098.mp4",
+        "sha256": "dc7093e8e6512288631f1188f87b530f0d4a01881a008d2ae9d784d9ea81849e",
+        "size": 7349317
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000098.mp4",
+        "sha256": "62fccb3bab9ad47306306d337ac4a514ca4793a9d500b3b3f471f2c087cf0a3b",
+        "size": 7149277
+      }
+    },
+    "99": {
+      "metadata": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000099.json",
+        "sha256": "53a056314398b8baa024e75ac6868852a32abacf160d09c0e18bf5ee0f138d40",
+        "size": 11380
+      },
+      "metadata_partial": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000099.json.partial"
+      },
+      "rejected": {
+        "missing": true,
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/rejected/episode_000099.json"
+      },
+      "rows": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/data/chunk-000/episode_000099.jsonl",
+        "sha256": "dbf30ab72187e33ef7b81f936d221fb4ab9cd9db3855ae04e16ee2884eae7a32",
+        "size": 7208265
+      },
+      "workspace": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.workspace/chunk-000/episode_000099.mp4",
+        "sha256": "404ed019260043610a0144a821c79278971a99da21fb8feb48ff719249348741",
+        "size": 18605199
+      },
+      "wrist": {
+        "path": "/home/thor/projects/embodied_lab/data/raw_episodes/videos/observation.images.wrist/chunk-000/episode_000099.mp4",
+        "sha256": "6b6eb5471f3ac8a948130e41db0c97fc811479a8731fd6f88bb5ebd2a1446f8a",
+        "size": 16028712
+      }
+    }
+  },
+  "schema_version": "embodied_lab.physical_bottle_training.v2",
+  "segments": [
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep071_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 71,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep074_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 74,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep081_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 81,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep083_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 83,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep087_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 87,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep088_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 88,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep089_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 89,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep090_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 90,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep091_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 91,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep092_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 92,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep095_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 95,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep096_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 96,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep097_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 97,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep098_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 98,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "end_frame": 1169,
+      "id": "ep099_seg0",
+      "include": true,
+      "notes": "reviewed first-task boundary before human reset",
+      "source_episode": 99,
+      "start_frame": 0,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep099_seg1",
+      "include": true,
+      "notes": "reviewed post-reset approach; authoritative release crop",
+      "source_episode": 99,
+      "start_frame": 1620,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "end_frame": 1004,
+      "id": "ep102_seg0",
+      "include": true,
+      "notes": "reviewed first-task boundary before human reset",
+      "source_episode": 102,
+      "start_frame": 0,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep102_seg1",
+      "include": true,
+      "notes": "reviewed post-reset approach; authoritative release crop",
+      "source_episode": 102,
+      "start_frame": 1320,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep105_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 105,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep108_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 108,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep109_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 109,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep113_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 113,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep114_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 114,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep116_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 116,
+      "success_label": "success"
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "id": "ep117_seg0",
+      "include": true,
+      "notes": "authoritative release crop",
+      "source_episode": 117,
+      "success_label": "success"
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep103_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 103
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep104_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 104
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep106_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 106
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep107_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 107
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep110_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 110
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep111_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 111
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep112_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 112
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep115_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 115
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "id": "ep118_seg0",
+      "include": false,
+      "notes": "partial trajectory retained in excluded manifest",
+      "source_episode": 118
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep082_seg0",
+      "include": false,
+      "notes": "partial metadata only",
+      "source_episode": 82
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep084_seg0",
+      "include": false,
+      "notes": "source payload absent",
+      "source_episode": 84
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep085_seg0",
+      "include": false,
+      "notes": "partial metadata only",
+      "source_episode": 85
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep086_seg0",
+      "include": false,
+      "notes": "invalid timestamp regression and source payload absent",
+      "source_episode": 86
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep093_seg0",
+      "include": false,
+      "notes": "source payload absent",
+      "source_episode": 93
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep094_seg0",
+      "include": false,
+      "notes": "source payload absent",
+      "source_episode": 94
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep100_seg0",
+      "include": false,
+      "notes": "source payload absent",
+      "source_episode": 100
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep101_seg0",
+      "include": false,
+      "notes": "source payload absent",
+      "source_episode": 101
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "id": "ep119_seg0",
+      "include": false,
+      "notes": "partial metadata only",
+      "source_episode": 119
+    }
+  ],
+  "slip_drop_count": 0,
+  "source_episodes": [
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 35.499999645,
+      "episode": 71,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1066,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000071.json",
+      "operator_classification_notes": "approach",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 103190713,
+        "angle_update_count": 533,
+        "canonical_duration_s": 35.499999645,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1066,
+        "force_interval_max_ns": 109337852,
+        "force_update_count": 356,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1066,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2318065882323032,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1066,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1066,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 39.066666276,
+      "episode": 74,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1173,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000074.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133397452,
+        "angle_update_count": 580,
+        "canonical_duration_s": 39.066666276,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1173,
+        "force_interval_max_ns": 107088246,
+        "force_update_count": 392,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1173,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2341882135573210,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1173,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1173,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 36.533332968,
+      "episode": 81,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1097,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000081.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 103172321,
+        "angle_update_count": 549,
+        "canonical_duration_s": 36.533332968,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1097,
+        "force_interval_max_ns": 111384276,
+        "force_update_count": 366,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1097,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2342623690922762,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1097,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1097,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": null,
+        "ring_reference_expired_count": null,
+        "workspace_drop_count": null,
+        "wrist_drop_count": null,
+        "writer_failed_count": null
+      },
+      "duration_s": null,
+      "episode": 82,
+      "metadata_completion_status": null,
+      "metadata_frame_count": 0,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000082.json.partial",
+      "operator_classification_notes": "partial metadata only; no finalized row/video payload",
+      "quality_state": null,
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": null,
+      "trigger_release_timestamp_ns": null,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 8,
+        "writer_failed_count": 0
+      },
+      "duration_s": 50.799999492,
+      "episode": 83,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1525,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000083.json",
+      "operator_classification_notes": "complete bottle task; selected rows and both videos decode",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 100192377,
+        "angle_update_count": 763,
+        "canonical_duration_s": 50.799999492,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1525,
+        "force_interval_max_ns": 128993407,
+        "force_update_count": 509,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1525,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2394316885197629,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1525,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1525,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 9,
+        "writer_failed_count": 0
+      },
+      "duration_s": 78.833332545,
+      "episode": 84,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 2366,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000084.json",
+      "operator_classification_notes": "metadata exists but finalized row/video payload is absent; rejected sidecar present",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": true,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2394430759965595,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": null,
+        "ring_reference_expired_count": null,
+        "workspace_drop_count": null,
+        "wrist_drop_count": null,
+        "writer_failed_count": null
+      },
+      "duration_s": null,
+      "episode": 85,
+      "metadata_completion_status": null,
+      "metadata_frame_count": 0,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000085.json.partial",
+      "operator_classification_notes": "partial metadata only; no finalized row/video payload",
+      "quality_state": null,
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": null,
+      "trigger_release_timestamp_ns": null,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 9,
+        "writer_failed_count": 0
+      },
+      "duration_s": 71.099999289,
+      "episode": 86,
+      "metadata_completion_status": "invalid",
+      "metadata_frame_count": 2134,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000086.json",
+      "operator_classification_notes": "metadata records control_source_timestamp_regression:jaka_command and no finalized payload",
+      "quality_state": "aborted_robot_safety",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "control_source_timestamp_regression:jaka_command",
+      "trigger_release_timestamp_ns": null,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 9,
+        "writer_failed_count": 0
+      },
+      "duration_s": 31.266666354,
+      "episode": 87,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 939,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000087.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133214953,
+        "angle_update_count": 465,
+        "canonical_duration_s": 31.266666354,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 939,
+        "force_interval_max_ns": 119467715,
+        "force_update_count": 314,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 939,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404384045077465,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 939,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 939,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 29.766666369,
+      "episode": 88,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 894,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000088.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 129457605,
+        "angle_update_count": 446,
+        "canonical_duration_s": 29.766666369,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 894,
+        "force_interval_max_ns": 118573961,
+        "force_update_count": 298,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 894,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404426034584722,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 894,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 894,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 30.499999695,
+      "episode": 89,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 916,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000089.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133344238,
+        "angle_update_count": 451,
+        "canonical_duration_s": 30.499999695,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 916,
+        "force_interval_max_ns": 108133196,
+        "force_update_count": 306,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 916,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404465619002068,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 916,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 916,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 30.833333025,
+      "episode": 90,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 926,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000090.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133518771,
+        "angle_update_count": 456,
+        "canonical_duration_s": 30.833333025,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 926,
+        "force_interval_max_ns": 108105210,
+        "force_update_count": 309,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 926,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404505391091765,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 926,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 926,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 34.266666324,
+      "episode": 91,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1029,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000091.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 104023738,
+        "angle_update_count": 514,
+        "canonical_duration_s": 34.266666324,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1029,
+        "force_interval_max_ns": 107746018,
+        "force_update_count": 343,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1029,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404550051902780,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1029,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1029,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 54.499999455,
+      "episode": 92,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1636,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000092.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133136194,
+        "angle_update_count": 814,
+        "canonical_duration_s": 54.499999455,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1636,
+        "force_interval_max_ns": 130377501,
+        "force_update_count": 546,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1636,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404611471662709,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1636,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1636,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 10,
+        "writer_failed_count": 0
+      },
+      "duration_s": 13.133333202,
+      "episode": 93,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 395,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000093.json",
+      "operator_classification_notes": "metadata exists but finalized row/video payload is absent; rejected sidecar present",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": true,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404710358967536,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 28.599999714,
+      "episode": 94,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 858,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000094.json",
+      "operator_classification_notes": "metadata exists but finalized row/video payload is absent",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404744485269443,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 27.466666392,
+      "episode": 95,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 825,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000095.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 106550576,
+        "angle_update_count": 413,
+        "canonical_duration_s": 27.466666392,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 825,
+        "force_interval_max_ns": 109425428,
+        "force_update_count": 275,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 825,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404775515103791,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 825,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 825,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 29.399999706,
+      "episode": 96,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 883,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000096.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 136115673,
+        "angle_update_count": 436,
+        "canonical_duration_s": 29.399999706,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 883,
+        "force_interval_max_ns": 108128495,
+        "force_update_count": 295,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 883,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404808090835198,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 883,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 883,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 33.933332994,
+      "episode": 97,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1019,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000097.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 102859696,
+        "angle_update_count": 510,
+        "canonical_duration_s": 33.933332994,
+        "canonical_hz": 30.000000300000007,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1019,
+        "force_interval_max_ns": 111437113,
+        "force_update_count": 340,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1019,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404848343956555,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1019,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1019,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 30.366666363,
+      "episode": 98,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 911,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000098.json",
+      "operator_classification_notes": "complete bottle task; reset tail cropped by release event",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 110169327,
+        "angle_update_count": 457,
+        "canonical_duration_s": 30.366666363,
+        "canonical_hz": 29.967069454445667,
+        "canonical_monotonic": true,
+        "canonical_row_count": 911,
+        "force_interval_max_ns": 117300821,
+        "force_update_count": 305,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 911,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404883951928988,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 911,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 911,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "MERGED_MULTIPLE_EPISODES",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 83.266665834,
+      "episode": 99,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 2498,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000099.json",
+      "operator_classification_notes": "two complete tasks separated by a clear human reset/idle interval around source frames 1170-1619",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133529559,
+        "angle_update_count": 1241,
+        "canonical_duration_s": 83.266665834,
+        "canonical_hz": 29.987990692193762,
+        "canonical_monotonic": true,
+        "canonical_row_count": 2498,
+        "force_interval_max_ns": 110098018,
+        "force_update_count": 833,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 2498,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2404971316703229,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 2498,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 2498,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 9,
+        "writer_failed_count": 0
+      },
+      "duration_s": 11.99999988,
+      "episode": 100,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 361,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000100.json",
+      "operator_classification_notes": "metadata exists but finalized row/video payload is absent; rejected sidecar present",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": true,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405032530035312,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 20.433333129,
+      "episode": 101,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 614,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000101.json",
+      "operator_classification_notes": "metadata exists but finalized row/video payload is absent",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405063888654328,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    },
+    {
+      "classification": "MERGED_MULTIPLE_EPISODES",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 69.466665972,
+      "episode": 102,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 2085,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000102.json",
+      "operator_classification_notes": "two complete tasks separated by a clear human reset/idle interval around source frames 1005-1319",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133170422,
+        "angle_update_count": 1042,
+        "canonical_duration_s": 69.466665972,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 2085,
+        "force_interval_max_ns": 118577484,
+        "force_update_count": 695,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 2085,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405137380331557,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 2085,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 2085,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 17.233333161,
+      "episode": 103,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 518,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000103.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 100569770,
+        "angle_update_count": 260,
+        "canonical_duration_s": 17.233333161,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 518,
+        "force_interval_max_ns": 105843599,
+        "force_update_count": 173,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 518,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405169371024394,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 518,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 518,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 16.99999983,
+      "episode": 104,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 511,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000104.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 96581723,
+        "angle_update_count": 256,
+        "canonical_duration_s": 16.99999983,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 511,
+        "force_interval_max_ns": 106205734,
+        "force_update_count": 171,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 511,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405199355233939,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 511,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 511,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 10,
+        "writer_failed_count": 0
+      },
+      "duration_s": 28.566666381,
+      "episode": 105,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 857,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000105.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": true,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 123831281,
+        "angle_update_count": 429,
+        "canonical_duration_s": 28.566666381,
+        "canonical_hz": 29.964994465344226,
+        "canonical_monotonic": true,
+        "canonical_row_count": 857,
+        "force_interval_max_ns": 124970396,
+        "force_update_count": 287,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 857,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405251667281467,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 857,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 857,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 17.466666492,
+      "episode": 106,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 525,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000106.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 107225456,
+        "angle_update_count": 263,
+        "canonical_duration_s": 17.466666492,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 525,
+        "force_interval_max_ns": 113858380,
+        "force_update_count": 176,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 525,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405281082631136,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 525,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 525,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 24.099999759,
+      "episode": 107,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 724,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000107.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133340969,
+        "angle_update_count": 359,
+        "canonical_duration_s": 24.099999759,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 724,
+        "force_interval_max_ns": 113447307,
+        "force_update_count": 242,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 724,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405318819052227,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 724,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 724,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 28.533333048,
+      "episode": 108,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 857,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000108.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 105334032,
+        "angle_update_count": 429,
+        "canonical_duration_s": 28.533333048,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 857,
+        "force_interval_max_ns": 115877841,
+        "force_update_count": 286,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 857,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405351246404749,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 857,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 857,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 25.66666641,
+      "episode": 109,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 771,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000109.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 102909631,
+        "angle_update_count": 386,
+        "canonical_duration_s": 25.66666641,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 771,
+        "force_interval_max_ns": 113547730,
+        "force_update_count": 257,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 771,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405381744536612,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 771,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 771,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 18.166666485,
+      "episode": 110,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 545,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000110.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133325045,
+        "angle_update_count": 268,
+        "canonical_duration_s": 18.166666485,
+        "canonical_hz": 29.94495442788991,
+        "canonical_monotonic": true,
+        "canonical_row_count": 545,
+        "force_interval_max_ns": 114349910,
+        "force_update_count": 182,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 545,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405413161677240,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 545,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 545,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 33.99999966,
+      "episode": 111,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 1021,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000111.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 103539024,
+        "angle_update_count": 511,
+        "canonical_duration_s": 33.99999966,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 1021,
+        "force_interval_max_ns": 114069533,
+        "force_update_count": 341,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 1021,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405457296321887,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1021,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 1021,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 19.499999805,
+      "episode": 112,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 586,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000112.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 125026844,
+        "angle_update_count": 292,
+        "canonical_duration_s": 19.499999805,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 586,
+        "force_interval_max_ns": 116416027,
+        "force_update_count": 196,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 586,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405490307455545,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 586,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 586,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 24.799999752,
+      "episode": 113,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 745,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000113.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 105852791,
+        "angle_update_count": 373,
+        "canonical_duration_s": 24.799999752,
+        "canonical_hz": 30.0000003,
+        "canonical_monotonic": true,
+        "canonical_row_count": 745,
+        "force_interval_max_ns": 118544245,
+        "force_update_count": 249,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 745,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405520507341883,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 745,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 745,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 10,
+        "writer_failed_count": 0
+      },
+      "duration_s": 24.833333085,
+      "episode": 114,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 746,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000114.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 104410025,
+        "angle_update_count": 374,
+        "canonical_duration_s": 24.833333085,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 746,
+        "force_interval_max_ns": 111262964,
+        "force_update_count": 249,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 746,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405567354252727,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 746,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 746,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 16.399999836,
+      "episode": 115,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 493,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000115.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133383403,
+        "angle_update_count": 246,
+        "canonical_duration_s": 16.399999836,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 493,
+        "force_interval_max_ns": 104145789,
+        "force_update_count": 165,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 493,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405596010800273,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 493,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 493,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 15,
+        "wrist_drop_count": 9,
+        "writer_failed_count": 0
+      },
+      "duration_s": 23.499999765,
+      "episode": 116,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 706,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000116.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": true,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133347709,
+        "angle_update_count": 352,
+        "canonical_duration_s": 23.499999765,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 706,
+        "force_interval_max_ns": 109707887,
+        "force_update_count": 236,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 706,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405642342749243,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 706,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 706,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CLEAN_FULL_TASK",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 28.233333051,
+      "episode": 117,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 848,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000117.json",
+      "operator_classification_notes": "open gripper and bottle approach are present; complete task",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 104568694,
+        "angle_update_count": 424,
+        "canonical_duration_s": 28.233333051,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 848,
+        "force_interval_max_ns": 110362613,
+        "force_update_count": 283,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 848,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405677759267273,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 848,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 848,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "INCOMPLETE_START",
+      "data_quality_counters": {
+        "recorder_dropped_count": 0,
+        "ring_reference_expired_count": 0,
+        "workspace_drop_count": 0,
+        "wrist_drop_count": 0,
+        "writer_failed_count": 0
+      },
+      "duration_s": 22.266666444,
+      "episode": 118,
+      "metadata_completion_status": "completed",
+      "metadata_frame_count": 669,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000118.json",
+      "operator_classification_notes": "first frame already holds bottle; missing approach is not present in source payload",
+      "quality_state": "completed_valid",
+      "rejected_sidecar_present": false,
+      "row_read_errors": [],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": 133298368,
+        "angle_update_count": 334,
+        "canonical_duration_s": 22.266666444,
+        "canonical_hz": 30.000000300000004,
+        "canonical_monotonic": true,
+        "canonical_row_count": 669,
+        "force_interval_max_ns": 107959565,
+        "force_update_count": 224,
+        "force_valid_ratio": 1.0,
+        "force_valid_rows": 669,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "payload_inspected",
+      "task_progression": null,
+      "termination_reason": "both_clutches_released_5s",
+      "trigger_release_timestamp_ns": 2405718009213255,
+      "videos": {
+        "workspace": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 669,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        },
+        "wrist": {
+          "first_frame_shape": [
+            640,
+            480,
+            3
+          ],
+          "fps": 30.0,
+          "frame_count": 669,
+          "height": 480,
+          "readable": true,
+          "width": 640
+        }
+      }
+    },
+    {
+      "classification": "CORRUPT_OR_UNUSABLE",
+      "data_quality_counters": {
+        "recorder_dropped_count": null,
+        "ring_reference_expired_count": null,
+        "workspace_drop_count": null,
+        "wrist_drop_count": null,
+        "writer_failed_count": null
+      },
+      "duration_s": null,
+      "episode": 119,
+      "metadata_completion_status": null,
+      "metadata_frame_count": 0,
+      "metadata_path": "/home/thor/projects/embodied_lab/data/raw_episodes/meta/episodes/chunk-000/episode_000119.json.partial",
+      "operator_classification_notes": "partial metadata only; no finalized row/video payload",
+      "quality_state": null,
+      "rejected_sidecar_present": false,
+      "row_read_errors": [
+        "missing row file"
+      ],
+      "rows": {
+        "action_invalid_rows": 0,
+        "angle_interval_max_ns": null,
+        "angle_update_count": 0,
+        "canonical_duration_s": 0.0,
+        "canonical_hz": null,
+        "canonical_monotonic": true,
+        "canonical_row_count": 0,
+        "force_interval_max_ns": null,
+        "force_update_count": 0,
+        "force_valid_ratio": null,
+        "force_valid_rows": 0,
+        "future_source_count": 0,
+        "required_invalid_rows": 0,
+        "state_invalid_rows": 0,
+        "timestamp_domain_or_source_errors": 0
+      },
+      "status": "no_complete_payload",
+      "task_progression": null,
+      "termination_reason": null,
+      "trigger_release_timestamp_ns": null,
+      "videos": {
+        "workspace": {
+          "missing": true,
+          "readable": false
+        },
+        "wrist": {
+          "missing": true,
+          "readable": false
+        }
+      }
+    }
+  ],
+  "source_root": "/home/thor/projects/embodied_lab/data/raw_episodes",
+  "unusable_source_count": 9
+}

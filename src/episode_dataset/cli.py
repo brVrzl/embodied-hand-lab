@@ -23,6 +23,11 @@ from .training_materialization import (
 )
 from .training_views import smoke_act_dataset
 from .openpi_adapter import smoke_openpi_dataset
+from .physical_bottle_materialization import (
+    audit_physical_bottle,
+    materialize_physical_bottle,
+    validate_physical_bottle,
+)
 from .validation import validate_episode, validation_exit_code
 
 
@@ -165,6 +170,26 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         help="dry-run the thin repository-specific openpi data mapping",
     )
     openpi_smoke.add_argument("--config", type=Path, required=True)
+
+    audit_physical = commands.add_parser(
+        "audit-physical-bottle",
+        help="audit reviewed physical bottle episodes and logical segmentation",
+    )
+    audit_physical.add_argument("--config", type=Path, required=True)
+
+    materialize_physical = commands.add_parser(
+        "materialize-physical-bottle",
+        help="materialize matched ACT and ACT+Force physical bottle views",
+    )
+    materialize_physical.add_argument("--config", type=Path, required=True)
+    materialize_physical.add_argument("--replace", action="store_true")
+
+    validate_physical = commands.add_parser(
+        "validate-physical-bottle",
+        help="validate matched physical bottle training views",
+    )
+    validate_physical.add_argument("dataset_root", type=Path)
+    validate_physical.add_argument("--output", type=Path)
     return parser
 
 
@@ -290,6 +315,25 @@ def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
         return 0
     if args.command == "validate-training":
         result = validate_training_dataset(args.dataset_root)
+        if args.output is not None:
+            _write_report(args.output, result)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "passed" else 1
+    if args.command == "audit-physical-bottle":
+        result = audit_physical_bottle(args.config)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "materialize-physical-bottle":
+        result = materialize_physical_bottle(args.config, replace=args.replace)
+        payload = {
+            "output_root": str(result.output_root),
+            "reused": result.reused,
+            "summary": result.summary,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-physical-bottle":
+        result = validate_physical_bottle(args.dataset_root)
         if args.output is not None:
             _write_report(args.output, result)
         print(json.dumps(result, indent=2, sort_keys=True))

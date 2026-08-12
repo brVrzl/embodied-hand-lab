@@ -38,6 +38,7 @@ from rh56_driver.serial_backend import RH56SerialBackend
 WORKSPACE_KEY = "observation.images.workspace"
 WRIST_KEY = "observation.images.wrist"
 STATE_KEY = "observation.state"
+ENVIRONMENT_STATE_KEY = "observation.environment_state"
 JAKA_LOWER = np.asarray([-6.28, -2.09, -2.27, -6.28, -2.09, -6.28], dtype=np.float64)
 JAKA_UPPER = np.asarray([6.28, 2.09, 2.27, 6.28, 2.09, 6.28], dtype=np.float64)
 
@@ -187,6 +188,23 @@ class CameraReader:
                     raise TimeoutError(f"timed out waiting for a new {self.role} frame")
                 self._condition.wait(remaining)
 
+    def latest(self) -> CameraSample:
+        """Return the newest acquired frame without waiting for another frame."""
+
+        with self._condition:
+            if self._error is not None:
+                raise RuntimeError(f"{self.role} camera failed") from self._error
+            if self._sample is None:
+                raise RuntimeError(f"{self.role} camera frame is not yet available")
+            sample = self._sample
+            return CameraSample(
+                sequence=sample.sequence,
+                frame_number=sample.frame_number,
+                device_timestamp_ms=sample.device_timestamp_ms,
+                host_monotonic_ns=sample.host_monotonic_ns,
+                rgb=sample.rgb.copy(),
+            )
+
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=3.0)
@@ -268,6 +286,7 @@ class JakaReadOnlyStream:
                     raise TimeoutError("JAKA sample stream was not created")
                 time.sleep(0.02)
             with self.sample_file.open("r", encoding="utf-8") as handle:
+                partial_line = ""
                 while not self._stop.is_set():
                     line = handle.readline()
                     if not line:
@@ -275,6 +294,11 @@ class JakaReadOnlyStream:
                             raise RuntimeError(f"JAKA read-only diagnostic exited {self.process.returncode}")
                         time.sleep(0.002)
                         continue
+                    if not line.endswith("\n"):
+                        partial_line += line
+                        continue
+                    line = partial_line + line
+                    partial_line = ""
                     row = json.loads(line)
                     joints = np.asarray(row["joint_position_rad"], dtype=np.float64)
                     if joints.shape != (6,) or not np.isfinite(joints).all():
@@ -423,9 +447,14 @@ class RH56ReadOnlyStream:
 
 def _load_training_envelope(path: Path) -> tuple[np.ndarray, np.ndarray]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    stats = payload.get("action_stats", payload.get("action", payload))
+    minimum = stats.get("min", stats.get("minimum"))
+    maximum = stats.get("max", stats.get("maximum"))
+    if minimum is None or maximum is None:
+        raise ValueError(f"{path} does not contain action min/max statistics")
     return (
-        np.asarray(payload["action_stats"]["min"], dtype=np.float64),
-        np.asarray(payload["action_stats"]["max"], dtype=np.float64),
+        np.asarray(minimum, dtype=np.float64),
+        np.asarray(maximum, dtype=np.float64),
     )
 
 
@@ -443,6 +472,11 @@ def main() -> int:
     parser.add_argument("--queries", type=int, default=300)
     parser.add_argument("--warmup-queries", type=int, default=20)
     parser.add_argument("--query-rate-hz", type=float, default=30.0)
+    parser.add_argument(
+        "--environment-state-input",
+        action="store_true",
+        help="send the six raw FORCE_ACT values to an ACT+Force model worker",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not (300 <= args.queries <= 1000):
@@ -556,6 +590,10 @@ def main() -> int:
                 WRIST_KEY: wrist_chw,
                 STATE_KEY: state,
             }
+            if args.environment_state_input:
+                if force is None:
+                    raise RuntimeError("ACT+Force shadow requires a fresh FORCE_ACT sample")
+                observation[ENVIRONMENT_STATE_KEY] = np.asarray(force, dtype=np.float32)
             roundtrip_started_ns = time.perf_counter_ns()
             response = _model_request(connection, observation)
             roundtrip_ended_ns = time.perf_counter_ns()
@@ -653,6 +691,7 @@ def main() -> int:
         "schema_version": "act_live_shadow.v1",
         "command_disabled": True,
         "command_api_present": False,
+        "environment_state_input": args.environment_state_input,
         "queries": len(predictions),
         "warmup_queries": args.warmup_queries,
         "requested_query_rate_hz": args.query_rate_hz,
