@@ -103,6 +103,21 @@ hardware SDK. See [simulation operation](docs/operation/simulation_demo.md).
   act-hdf5 <episode.hdf5>
 ```
 
+For the physical LeRobot staging rows, `observation.state` and `action` stay
+12-D; `observation.force` is six raw RH56 `FORCE_ACT` counts. ACT ignores that
+feature, while ACT+Force uses it with the saved timing validity mask. Check a
+reviewed episode offline with:
+
+```bash
+.venv/bin/embodied-lab dataset sync-staging <root> episode_000000 \
+  --camera-tolerance-ms 100 --output sync_check.json
+```
+
+Physical collection defaults to `collection_profile: production` in
+`configs/data_collection/physical_collection.yaml`: sparse events, compact
+native status, canonical rows, and bounded diagnostics. Use `diagnostic` only
+for short commissioning runs when detailed RH56/native/event logs are needed.
+
 Canonical schema, atomic completion, missing-frame semantics, collection
 limits, review, and framework adapters are documented in the
 [dataset collection entry](docs/data/DATA_COLLECTION.md) and

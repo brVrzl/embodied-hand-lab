@@ -83,13 +83,19 @@ raw_episodes/
 
 `episode_000000.jsonl` is the aligned 30 Hz robot table. Row `i` and decoded
 video frame `i` share the same episode sample. Its columns include
-`frame_index`, `timestamp_ns`, `observation.state` (12 values), and `action`
-(12 values):
+`frame_index`, `timestamp_ns`, `observation.state` (12 values),
+`observation.force` (six raw `FORCE_ACT` counts), and `action` (12 values):
 
 - `observation.state[0:6]`: measured JAKA joint position in radians;
 - `observation.state[6:12]`: measured RH56 six-channel normalized state;
 - `action[0:6]`: accepted arm joint target sent to the adapter;
 - `action[6:12]`: accepted RH56 target in normalized units.
+
+Each row also preserves the canonical host clock, JAKA observation/command
+timestamps, RH56 `ANGLE_ACT`/`FORCE_ACT` timestamps, camera host/device
+timestamps, timestamp domains, frame numbers, source age/offset/validity
+masks, and repeated-source-frame annotations. `observation.force` is raw RH56
+counts; it is ignored by ACT and consumed, with its validity mask, by ACT+Force.
 
 TCP, Quest packets/events, and depth are deliberately not part of this
 training view. Quest remains a live control input, but the maintained control
@@ -98,6 +104,22 @@ streams.
 TCP can be derived offline from a reviewed model/calibration if later needed.
 The RealSense workers run RGB-only (`capture_depth: false`), so no depth stream
 or depth-sized payload is read or persisted.
+
+Run the offline synchronization check without opening hardware or reading
+images:
+
+```bash
+.venv/bin/embodied-lab dataset sync-staging <root> episode_000000 \
+  --camera-tolerance-ms 100 --output sync_check.json
+```
+
+The physical runtime YAML has one collection switch, `collection_profile`.
+`production` is the ACT/ACT+Force path: continuous RH56 JSONL, native cycle
+telemetry, event extract, preview, and duplicate state audits are disabled;
+camera descriptors and low-dimensional samples use separate bounded channels.
+`diagnostic` restores detailed commissioning telemetry for short review runs.
+Neither profile changes teleoperation, safety, serial polling, or timestamp
+semantics.
 
 Camera frames are still produced in independent processes and selected through
 the bounded shared-memory rings; selection and video/JSONL writing remain
@@ -224,17 +246,30 @@ raw_episodes/
 ```
 
 `episode_000000.jsonl` 是对齐的 30 Hz 机器人表。第 `i` 行与两个视频解码出的第 `i` 帧属于同一个
-episode sample。核心字段是 `frame_index`、`timestamp_ns`、`observation.state` 和 `action`：
+episode sample。核心字段是 `frame_index`、`timestamp_ns`、`observation.state`、`observation.force`
+和 `action`：
 
 - `observation.state[0:6]`：实测 JAKA 六关节弧度；
 - `observation.state[6:12]`：实测 RH56 六通道归一化状态；
 - `action[0:6]`：发送给 arm adapter 的 accepted arm joint target；
 - `action[6:12]`：accepted RH56 normalized target。
+- `observation.force[0:6]`：已经轮询得到的 `FORCE_ACT` 六通道 raw count；ACT 忽略它，ACT+Force
+  使用它并检查 timing validity mask。
+
+每行还保存 canonical host clock、JAKA observation/command、RH56 `ANGLE_ACT`/`FORCE_ACT` 时间戳、两路
+相机 host/device timestamp、timestamp domain、frame number、source age/offset/validity mask 和重复帧标记。
 
 默认训练视图不记录 Quest packet/event、TCP 和 depth。TCP 可以基于审核过的模型和标定离线计算；
 当前 RealSense 采集配置关闭 depth，只保存 RGB MP4。stale frame、ring overwrite、recorder
 queue drop 和 preview lag 记录为数据质量事件，不应停止健康的 robot control；持续的相机采集或
 writer 故障可以停止 recording，但不能自动把健康机器人升级为 emergency stop。
+
+离线同步检查不会打开硬件或读取图像：
+
+```bash
+.venv/bin/embodied-lab dataset sync-staging <root> episode_000000 \
+  --camera-tolerance-ms 100 --output sync_check.json
+```
 
 ## Episode 分割、review 和转换
 

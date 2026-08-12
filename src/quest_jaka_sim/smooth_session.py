@@ -220,17 +220,18 @@ class SmoothQuestJakaSession:
         self.last_desired = target_generator.current_tcp_pose
         self.last_reason = FeasibilityReason.DISENGAGED.value
         self.rejections: Counter[str] = Counter()
-        self.input_timestamps_ns: list[int] = []
-        self.head_timestamps_ns: list[int] = []
-        self.index_timestamps_ns: list[int] = []
-        self.grip_timestamps_ns: list[int] = []
-        self.control_timestamps_ns: list[int] = []
-        self.ik_timestamps_ns: list[int] = []
-        self.hand_timestamps_ns: list[int] = []
-        self.arm_capture_durations_ns: list[int] = []
-        self.hand_retarget_durations_ns: list[int] = []
-        self.arm_engagement_latencies_ns: list[int] = []
-        self.hand_engagement_latencies_ns: list[int] = []
+        diagnostic_history_capacity = 4096
+        self.input_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.head_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.index_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.grip_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.control_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.ik_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.hand_timestamps_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.arm_capture_durations_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.hand_retarget_durations_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.arm_engagement_latencies_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
+        self.hand_engagement_latencies_ns: deque[int] = deque(maxlen=diagnostic_history_capacity)
         # Detailed records are sampled or emitted for rejects/faults only.
         # The hardware wrapper reads latest_event_record for its one current
         # dispatch decision, so normal ticks do not grow an event history.

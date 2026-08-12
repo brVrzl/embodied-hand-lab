@@ -1,0 +1,52 @@
+# Force/tactile policy timing parameter audit
+
+Audit date: 2026-08-11 (Asia/Shanghai)
+
+## Scope and method
+
+This audit uses the original paper PDFs, not summaries. A value appears below only when the paper explicitly states it; otherwise the entry is **not reported**. Calculated durations are marked as calculations rather than quoted paper parameters. These systems use different robots, sensors, actions, and control interfaces, so their rates are precedents and bounds—not drop-in parameters for the JAKA/RH56 system.
+
+Primary sources:
+
+- [Reactive Diffusion Policy (RDP), arXiv:2503.02881v3](https://arxiv.org/abs/2503.02881)
+- [FACTR, arXiv:2502.17432v2](https://arxiv.org/abs/2502.17432)
+- [FACTR 2 / NEXT / FIRST, arXiv:2606.12406v1](https://arxiv.org/abs/2606.12406)
+- [Phase-Conditioned Imitation Learning with Autonomous Failure Recovery, arXiv:2605.29407v1](https://arxiv.org/abs/2605.29407)
+- [RH56DFX characterization and hybrid force control, arXiv:2603.08988v1](https://arxiv.org/abs/2603.08988)
+- [Master–Micro Residual Correction (M²-ResiPolicy), arXiv:2603.15152v1](https://arxiv.org/abs/2603.15152)
+- [TacDiffusion, arXiv:2409.11047v2](https://arxiv.org/abs/2409.11047)
+
+## Timing comparison
+
+| System | Acquisition/data rate | Policy inference | Action/control execution | Chunk/horizon | History | Exact source location |
+|---|---|---|---|---|---|---|
+| RDP | Force/torque streamed at 120 Hz and downsampled to 24 FPS; GelSight Mini 25 FPS; MCTac 30 FPS; policy action sequences are 12 FPS | Slow LDP 1–2 Hz; fast asymmetric tokenizer 24 FPS; paper reports 100 ms LDP and <1 ms fast-policy inference on RTX 4090 | Actions interpolated and sent through Flexiv RDK at >500 Hz | Appendix F: default deployed chunk about 0.67 s. Table VII separately lists AT prediction horizon 32 at 24 Hz and downsample ratio 4; it does not state one universal integer executed chunk size | LDP observation horizon 2 at 12 Hz. Exact fast-force lookback is not reported | Sec. IV-C, Sec. V-A5, Appendix B/F/I, Tables I/VII |
+| FACTR | Policy demonstration/sample rate **not reported**. The leader-arm friction compensation control loop is 500 Hz, but that is not the learned-policy rate | **not reported** | **not reported** for learned policy | ACT action chunk 100 | Current image and external joint torque at time `t`; no multi-frame policy history reported | Sec. IV-A, Appendix IX-A, Appendix X/Table IV |
+| FACTR 2 / FIRST | NEXT free-space data 100 Hz | NEXT measured 1.76 ms/forward on one i9-10920X CPU thread, run at 100 Hz. Learned behavior-policy inference rate **not reported** | Learned behavior-policy execution rate **not reported** | Flow-matching and ACT chunks are both 30 | NEXT history `H=50` at 100 Hz. This is 0.5 s by calculation, not a separately reported duration. FIRST pre-contact label is the 1 s before contact onset | Sec. 4–6, Appendix A.1–A.2 Tables 3–4, Appendix C.2 Table 6 |
+| Phase-conditioned ACT | Demonstrations recorded at 30 Hz | ACT target pose predicted at 15 Hz; phase predictor runs in the same system, but a separate phase-predictor rate is not stated | High-frequency interpolation and impedance control are described; numeric low-level rate **not reported** | `N_h=50` actions; 20-D dual-arm action | Instantaneous four-camera/pose/wrench observation; no numeric temporal observation history. Phase decisions have a 1 s low-pass filter | Sec. III-A–C, Sec. IV-A–B. Dynamic-operation discussion reports that taking every third/fifth chunk action degraded smoothness and precision |
+| RH56DFX characterization | Sensors read and hand commanded at 163 Hz during characterization | No learned policy | Classical bimodal fast-position/slow-contact force controller; same 163 Hz read/command statement is the only numeric loop rate | No action chunk | No force-history window reported | Sec. II, Fig. 2, Sec. II-A |
+| M²-ResiPolicy | RGB, visuotactile and end-effector actions at 10 Hz; TCP wrench at 60 Hz | Master Guidance Policy 10 Hz; Micro-Residual Corrector 60 Hz | Force-mixed PBIC 125 Hz | `H`-step 7-D end-effector chunk; numeric `H` **not reported** | GRU accumulates “short-horizon” wrench history after strided temporal convolution; numeric history length **not reported** | Sec. III-A–D, Figs. 2–3 |
+| TacDiffusion | Demonstrations recorded at 1000 Hz | Evaluated models: 503.8, 297.5, 141.8, and 51.2 Hz; the selected DF3 is 141.8 Hz | Dynamic-system filter supplies 1000 Hz feed-forward wrench to a 1000 Hz impedance loop | Single 6-D wrench output; diffusion denoising horizon `T=50` is not an environment action chunk | Current and immediately previous 18-D observations (two observations) | Sec. III-A/B/D, Sec. IV-B, Tables I–II |
+
+## Modality, force use, and preprocessing
+
+| System | Sensing and dimensionality | How force/tactile is used | Explicit preprocessing/latency treatment | Hardware |
+|---|---|---|---|---|
+| RDP | Optical tactile marker deformation (GelSight Mini or MCTac) and Flexiv estimated TCP force/torque. TCP wrench is 6-D; a single numeric input dimension for every tactile variant is not reported | Force/tactile conditions the slow policy and directly conditions the fast decoder that autoregressively corrects the latent action chunk | Marker flow/PCA representation; Flexiv wrench 120→24 Hz downsampling; relative EE trajectories; “latency matching” discards initial predicted steps corresponding to inference/execution delay. Reported sensor/internal pipeline figures: force sensor <1 ms, optical tactile 10–60 ms, marker-flow tracking about 10 ms, network 1–6 ms | Flexiv Rizon 4, GelSight Mini/MCTac, Meta Quest 3, RTX 4090 |
+| FACTR | External joint torque vector from Franka arm(s); gripper motor current for the fruit task. The policy’s numeric force-vector dimension is not stated | Direct ACT conditioning through an MLP force token. Curriculum deliberately degrades vision during training so the policy attends to force. Force/contact is also used by the human teleoperation feedback system | Policy-force calibration/normalization/filtering **not reported**. The separate teleoperation gripper-current feedback uses EMA `alpha=0.1`; this must not be misreported as policy preprocessing. Training uses `RandomResizeCrop` | Franka Panda arm(s), OpenManipulator-X gripper(s), ZED2/front or wrist RGB, RTX 4090 |
+| FACTR 2 / FIRST | Motor current, joint position, velocity, commanded-position error, and inferred external joint torque. Numeric joint-torque dimension is not explicitly enumerated | NEXT estimates external torque; it is a direct policy input. FIRST also applies hysteretic contact detection and uses force only to relabel/reweight free/pre-contact/contact training samples. Appendix D.5 shows FIRST can resample data without force at policy inference | Motor current converted with torque constant; learned free-space LSTM predicts motor torque; external torque is measured minus predicted free-space torque. History `(q, qdot, delta_qd)` with `H=50`. Hysteresis thresholds are described, but numeric thresholds are not reported | Bimanual AgileX Piper and four RGB cameras for policy study; Franka/Piper for estimator comparisons; A6000 for policy training |
+| Phase-conditioned ACT | Four RGB views, dual-arm EE pose `R20`, dual-arm wrench `R12` | Wrench directly conditions FiLM-ACT and the phase predictor; the predictor performs contact/failure/phase estimation and triggers recovery. A hybrid impedance layer performs compliant execution | Pose and wrench are linearly projected. A 1 s low-pass filter suppresses phase switches and the ACT temporal ensemble is reset at a phase transition. Wrench calibration/normalization and end-to-end latency are **not reported** | Two DENSO VS-087 arms, two ATI Axia80-M8 F/T sensors, Robotiq 2F-85 grippers, D405 wrist cameras plus D435i/D455 scene cameras; RTX 4090 inference host |
+| RH56DFX characterization | Six intrinsic RH56 force channels, raw range 0–1000. Metric calibration is reported for index, middle, and thumb-bend channels | Classical direct force control and contact/release thresholding; not a learned policy | Per-finger linear conversion `F=a*Lraw+b`, with `R²>0.98` for the three reported channels. Measured command-to-first-sensor-reading latency is about 66 ms. No filtering/history is reported | Inspire RH56DFX and Shimpo FGV-10XY gauge |
+| M²-ResiPolicy | Two RGB cameras, two XENSE-G1 visuotactile sensors, UR7e built-in 6-D TCP wrench, proprioception | Wrench contributes to master conditioning/contact confidence; 60 Hz wrench drives a fast learned residual; measured force is also mixed into 125 Hz PBIC execution | Visuotactile frame differencing; timestamp alignment; strided temporal convolution over wrench; GRU history; master actions and residuals represented in normalized action space. Latency **not reported** | UR7e, GELLO, two D435, two XENSE-G1 |
+| TacDiffusion | 18-D observation: 6-D external wrench, 6-D internal wrench, 6-D EE speed; 6-D force-domain action | Direct policy conditioning and direct wrench action/control | Current plus previous observation; a normalization layer is shown but exact statistics are not stated; dynamic-system filter interpolates to 1000 Hz | Robot and force-sensing model are not explicitly named in the paper text; do not infer them from a figure |
+
+## What the literature does and does not support here
+
+Directly supported precedents are:
+
+- slow task policy plus faster physical feedback is a real design pattern: RDP uses 1–2 Hz planning with 24 Hz correction, and M²-ResiPolicy uses 10/60/125 Hz master/residual/execution;
+- a 15 Hz ACT policy on 30 Hz demonstrations exists in the phase-conditioned work, but that paper uses a different dual-arm pose/wrench action and `N_h=50`;
+- force may be a direct policy input (FACTR, FACTR 2, phase-conditioned ACT), a fast residual (RDP, M²), a phase/failure detector (phase-conditioned ACT), a direct force action (TacDiffusion), or training-only weighting/resampling (FIRST);
+- high-rate low-level execution can be decoupled from lower-rate learned inference (RDP, M², TacDiffusion).
+
+The literature does **not** establish an RH56 effective force-update rate, a suitable ForceGuard threshold for this bottle task, or that executing this ACT model’s complete 16-step chunk is safe. In particular, the RH56 paper’s 163 Hz statement is a host read/command rate; it does not report the hand firmware’s unique register-update rate or analog sensor bandwidth.

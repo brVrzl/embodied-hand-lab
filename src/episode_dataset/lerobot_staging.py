@@ -31,7 +31,7 @@ from .episode import (
 from .raw_episode import _camera_key, _load_video_dependencies, _materialize_camera
 
 
-LEROBOT_STAGING_FORMAT_VERSION = "lerobot_episode_staging_v1"
+LEROBOT_STAGING_FORMAT_VERSION = "lerobot_episode_staging_v2"
 
 
 def _staging_episode_name(episode: str | int) -> str:
@@ -217,6 +217,10 @@ def materialize_staging_episode(
                 [row["observation.state"] for row in rows],
                 type=pa.list_(pa.float32(), 12),
             ),
+            "observation.force": pa.array(
+                [row.get("observation.force", [0.0] * 6) for row in rows],
+                type=pa.list_(pa.float32(), 6),
+            ),
             "action": pa.array(
                 [row["action"] for row in rows],
                 type=pa.list_(pa.float32(), 12),
@@ -224,6 +228,14 @@ def materialize_staging_episode(
             "arm_trigger": pa.array([bool(row["arm_trigger"]) for row in rows], type=pa.bool_()),
             "hand_grip": pa.array([bool(row["hand_grip"]) for row in rows], type=pa.bool_()),
             "action_status": pa.array([str(row["action_status"]) for row in rows], type=pa.string()),
+            "timing": pa.array(
+                [json.dumps(row.get("timing", {}), sort_keys=True, separators=(",", ":")) for row in rows],
+                type=pa.string(),
+            ),
+            "camera": pa.array(
+                [json.dumps(row.get("camera", {}), sort_keys=True, separators=(",", ":")) for row in rows],
+                type=pa.string(),
+            ),
         }
     )
     parquet.write_table(table, data_path, compression="zstd")
@@ -249,7 +261,7 @@ def materialize_staging_episode(
     info = dict(metadata)
     info.update(
         {
-            "format_version": "lerobot_parquet_shard_v1",
+            "format_version": "lerobot_parquet_shard_v2",
             "parquet_materialized": True,
             "source_staging_root": str(dataset_root),
             "files": {
@@ -266,7 +278,7 @@ def materialize_staging_episode(
         output_info = json.loads(source_info.read_text(encoding="utf-8"))
     output_info.update(
         {
-            "format": "lerobot_parquet_shard_v1",
+            "format": "lerobot_parquet_shard_v2",
             "parquet_materialized": True,
             "total_episodes": 1,
             "source_staging_root": str(dataset_root),
@@ -309,6 +321,7 @@ class LeRobotStagingWriter:
         dataset_fps: int = 30,
         metadata: Mapping[str, Any] | None = None,
         video_codec: str = "mp4v",
+        persist_audit_streams: bool = True,
     ) -> None:
         self.dataset_root = Path(root).resolve()
         self.episode_index = int(episode_index)
@@ -326,6 +339,7 @@ class LeRobotStagingWriter:
         if len(self.video_codec) != 4:
             raise ValueError("video_codec must be a four-character OpenCV codec")
         self._metadata_extra = dict(metadata or {})
+        self._persist_audit_streams = bool(persist_audit_streams)
         self._started = False
         self._finalized = False
         self._start_ns: int | None = None
@@ -429,6 +443,14 @@ class LeRobotStagingWriter:
                             "hand_h4_actual", "hand_h5_actual", "hand_h6_actual",
                         ],
                     },
+                    "observation.force": {
+                        "dtype": "float32",
+                        "shape": [6],
+                        "names": [
+                            "force_act_1", "force_act_2", "force_act_3",
+                            "force_act_4", "force_act_5", "force_act_6",
+                        ],
+                    },
                     "action": {
                         "dtype": "float32",
                         "shape": [12],
@@ -445,6 +467,7 @@ class LeRobotStagingWriter:
                     "observation.state.hand": "normalized_0_1",
                     "action.arm_q": "rad",
                     "action.hand": "normalized_0_1",
+                    "observation.force": "rh56_force_act_raw_count",
                 },
                 "files": {
                     "data": f"data/chunk-000/{self.episode_name}.jsonl",
@@ -472,7 +495,7 @@ class LeRobotStagingWriter:
         if stream == "data_quality":
             self._quality_count += 1
             self._append_quality(record)
-        elif stream in {"jaka_state", "rh56_feedback"}:
+        elif stream in {"jaka_state", "rh56_feedback"} and self._persist_audit_streams:
             self._append_audit(stream, record)
         return True
 
@@ -515,6 +538,10 @@ class LeRobotStagingWriter:
             "timestamp": (int(sample.timestamp_ns) - start_ns) / 1e9,
             "timestamp_ns": int(sample.timestamp_ns),
             "observation.state": [*control.arm_q_measured, *control.hand_observation],
+            # Keep the physical RH56 register units.  The zero vector is only
+            # a fixed-shape placeholder for offline/non-RH56 rows; its timing
+            # validity is false when no FORCE_ACT snapshot was available.
+            "observation.force": list(control.force_observation or (0.0,) * 6),
             "action": [*control.accepted_arm_q, *control.hand_target],
             "arm_trigger": bool(control.arm_trigger),
             "hand_grip": bool(control.hand_grip),
@@ -528,6 +555,78 @@ class LeRobotStagingWriter:
                 "wrist": int(wrist.host_monotonic_ns),
             },
         }
+        source_timestamps = {
+            **dict(control.source_timestamps_ns or {}),
+            "control": int(control.host_monotonic_ns),
+            "workspace": int(workspace.host_monotonic_ns),
+            "wrist": int(wrist.host_monotonic_ns),
+        }
+        source_domains = {
+            **dict(control.source_timestamp_domains or {}),
+            "control": "host_monotonic_ns",
+            "workspace": "host_monotonic_ns",
+            "wrist": "host_monotonic_ns",
+        }
+        signed_offsets: dict[str, int | None] = dict(sample.source_offsets_ns)
+        source_age_ns: dict[str, int | None] = {}
+        source_validity: dict[str, bool] = {}
+        for name, timestamp in source_timestamps.items():
+            comparable = (
+                timestamp is not None
+                and source_domains.get(name) == "host_monotonic_ns"
+            )
+            if name not in signed_offsets:
+                signed_offsets[name] = (
+                    int(timestamp) - int(sample.timestamp_ns)
+                    if comparable
+                    else None
+                )
+            source_age_ns[name] = (
+                max(0, int(sample.timestamp_ns) - int(timestamp))
+                if comparable
+                else None
+            )
+            source_validity[name] = bool(
+                comparable and int(timestamp) <= int(sample.timestamp_ns)
+            )
+        camera_rows: dict[str, dict[str, object]] = {}
+        for role, camera in (("workspace", workspace), ("wrist", wrist)):
+            host_timestamp = int(camera.host_monotonic_ns)
+            camera_rows[role] = {
+                "host_monotonic_ns": host_timestamp,
+                "host_signed_offset_ns": host_timestamp - int(sample.timestamp_ns),
+                "host_age_ns": max(0, int(sample.timestamp_ns) - host_timestamp),
+                "valid": host_timestamp <= int(sample.timestamp_ns),
+                "rgb_device_timestamp_ms": float(camera.device_rgb_timestamp_ms),
+                "depth_device_timestamp_ms": float(camera.device_depth_timestamp_ms),
+                "rgb_timestamp_domain": camera.rgb_timestamp_domain,
+                "depth_timestamp_domain": camera.depth_timestamp_domain,
+                "rgb_frame_number": int(camera.rgb_frame_number),
+                "depth_frame_number": int(camera.depth_frame_number),
+                "ring_sequence": camera.ring_sequence,
+                "repeated_source_frame": role in sample.repeated_sources,
+            }
+        force_timestamp = source_timestamps.get("rh56_force_act")
+        row["timing"] = {
+            "canonical_host_monotonic_ns": int(sample.timestamp_ns),
+            "source_timestamps_ns": source_timestamps,
+            "source_timestamp_domains": source_domains,
+            "signed_offsets_ns": signed_offsets,
+            "source_age_ns": source_age_ns,
+            "source_validity": source_validity,
+            "synchronization_valid": bool(sample.synchronization_valid),
+            "stale_sources": list(sample.stale_sources),
+            "dropped_sources": list(sample.dropped_sources),
+            "repeated_source_frames": list(sample.repeated_sources),
+            "rh56_angle_act_timestamp_ns": source_timestamps.get("rh56_angle_act"),
+            "rh56_force_act_timestamp_ns": force_timestamp,
+            "rh56_force_act_age_ns": source_age_ns.get("rh56_force_act"),
+            "rh56_force_act_valid": source_validity.get("rh56_force_act", False),
+            "nominal_slot_index": sample.nominal_slot_index,
+            "missed_slots_before": int(sample.missed_slots_before),
+            "missed_slots_after": int(sample.missed_slots_after),
+        }
+        row["camera"] = camera_rows
         assert self._sample_handle is not None
         self._sample_handle.write(
             json.dumps(row, allow_nan=False, separators=(",", ":"), sort_keys=True)
@@ -673,21 +772,25 @@ class LeRobotStagingWriter:
 
     def _write_batch_metadata(self) -> None:
         info = self._meta_dir / "info.json"
-        if not info.exists():
-            self._write_json(
-                info,
-                {
-                    "format": LEROBOT_STAGING_FORMAT_VERSION,
-                    "fps": self._dataset_fps,
-                    "features": ["timestamp", "observation.state", "action"],
-                    "video_features": [
-                        "observation.images.workspace",
-                        "observation.images.wrist",
-                    ],
-                    "parquet_materialized": False,
-                    "code": _git_state(Path(__file__).resolve().parents[2]),
-                },
-            )
+        payload = json.loads(info.read_text(encoding="utf-8")) if info.exists() else {}
+        features = list(payload.get("features", []))
+        for feature in ("timestamp", "observation.state", "observation.force", "action"):
+            if feature not in features:
+                features.append(feature)
+        payload.update(
+            {
+                "format": LEROBOT_STAGING_FORMAT_VERSION,
+                "fps": self._dataset_fps,
+                "features": features,
+                "video_features": [
+                    "observation.images.workspace",
+                    "observation.images.wrist",
+                ],
+                "parquet_materialized": False,
+                "code": _git_state(Path(__file__).resolve().parents[2]),
+            }
+        )
+        self._write_json(info, payload)
         tasks = self._meta_dir / "tasks.jsonl"
         task_row = {"task_index": 0, "task": self.task_name}
         existing = tasks.read_text(encoding="utf-8") if tasks.exists() else ""

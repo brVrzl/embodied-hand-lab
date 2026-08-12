@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 import json
+import queue
+import threading
 import time
 from typing import Any, Callable, TextIO
 
@@ -25,9 +27,8 @@ class BoundedJsonlRecorder:
     """Bounded, periodic JSONL buffering with immediate fault persistence.
 
     File failures are retained as logging failures and never reclassified as
-    serial failures.  The recorder is intentionally synchronous and is called
-    only by the single RH56 worker/entry thread; it creates no second serial or
-    logging thread.
+    serial failures.  The physical production path does not instantiate this
+    synchronous primitive; commissioning wraps it with AsyncJsonlRecorder.
     """
 
     def __init__(
@@ -142,3 +143,79 @@ class BoundedJsonlRecorder:
         self.failures.append(
             LoggingFailure(operation, type(exc).__name__, str(exc))
         )
+
+
+class AsyncJsonlRecorder:
+    """Bounded asynchronous wrapper for explicit commissioning diagnostics."""
+
+    def __init__(self, recorder: BoundedJsonlRecorder, *, capacity: int = 64) -> None:
+        if capacity <= 0:
+            raise ValueError("asynchronous recorder capacity must be positive")
+        self.recorder = recorder
+        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=capacity)
+        self._thread = threading.Thread(
+            target=self._run,
+            name="rh56-diagnostic-log",
+            daemon=True,
+        )
+        self._started = False
+        self._closed = False
+        self.dropped_record_count = 0
+        self.error_count = 0
+
+    def start(self) -> None:
+        if self._started:
+            raise RuntimeError("asynchronous recorder already started")
+        self._started = True
+        self._thread.start()
+
+    def __call__(self, row: dict[str, Any]) -> None:
+        if not self._started or self._closed:
+            return
+        try:
+            self._queue.put_nowait(row)
+        except queue.Full:
+            self.dropped_record_count += 1
+
+    def close(self, timeout_s: float = 5.0) -> bool:
+        if self._closed:
+            return self.recorder.close()
+        self._closed = True
+        if self._started:
+            try:
+                self._queue.put(None, timeout=timeout_s)
+            except queue.Full:
+                self.dropped_record_count += self._queue.qsize()
+            self._thread.join(timeout=timeout_s)
+            if self._thread.is_alive():
+                self.error_count += 1
+        return self.recorder.close()
+
+    @property
+    def telemetry_record_count(self) -> int:
+        return self.recorder.telemetry_record_count
+
+    @property
+    def last_telemetry_record(self) -> dict[str, Any] | None:
+        return self.recorder.last_telemetry_record
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            **self.recorder.summary(),
+            "async": True,
+            "async_queue_capacity": self._queue.maxsize,
+            "async_queue_dropped_record_count": self.dropped_record_count,
+            "async_error_count": self.error_count,
+        }
+
+    def _run(self) -> None:
+        while True:
+            row = self._queue.get()
+            try:
+                if row is None:
+                    return
+                self.recorder(row)
+            except BaseException:
+                self.error_count += 1
+            finally:
+                self._queue.task_done()

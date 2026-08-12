@@ -4,7 +4,8 @@
 
 This page documents the dataset code that currently exists in
 `src/episode_dataset/`. The maintained physical collection entry uses the
-review-first `lerobot_staging_v1` contract; its JSONL/MP4 tree and approval
+review-first `lerobot_staging_v1` entry with the `lerobot_episode_staging_v2`
+row schema; its JSONL/MP4 tree and approval
 workflow are documented in [DATA_COLLECTION.md](DATA_COLLECTION.md). The
 compact `raw_episode_v1` contract below is retained for offline compatibility.
 The remainder of this page documents the older canonical contracts for
@@ -27,6 +28,15 @@ camera payloads, causal clock, vector ordering, and lifecycle while declaring
 physical RH56 normalized actuator units and retaining raw register telemetry.
 The physical producer is wired only into the separately authorized combined
 JAKA/RH56 gate. Implementation and offline tests are not a physical PASS.
+
+The staging JSONL keeps `observation.state` and `action` as fixed 12-value
+vectors and adds `observation.force` as six raw RH56 `FORCE_ACT` counts. Each
+row stores causal source timestamps, domains, signed offsets, ages, validity
+masks, camera device timestamps/frame numbers, and repeated-source-frame
+annotations. `dataset sync-staging` fits each RGB device clock to host
+monotonic time and produces a causal 30 Hz check; it never interpolates images
+or selects a future force sample. Parquet materialization carries the force
+vector and serialized timing/camera metadata.
 
 ## Compact physical `raw_episode_v1`
 
@@ -563,10 +573,15 @@ raw_episodes/
 
 - `observation.state[0:6]`：实测 JAKA `arm_q_measured`，单位弧度；
 - `observation.state[6:12]`：实测 RH56 `hand_observation[6]`，归一化值；
+- `observation.force[0:6]`：已经轮询得到的 RH56 `FORCE_ACT` raw count；
 - `action[0:6]`：`accepted_arm_q[6]`，即提交给 arm adapter 的 accepted target；
 - `action[6:12]`：`hand_target[6]`，归一化 RH56 target。
 
 `observation` 是 measured state，`action` 是 accepted target，不能用 action 回填 observation。
+staging row 同时保存 causal source timestamp、domain、signed offset、age、validity mask、相机 device
+timestamp/frame number 和重复 source frame 标记。`dataset sync-staging` 会把每路 RGB device clock
+映射到 host monotonic，建立 30 Hz timeline；不插值图像，也不选用未来的 force sample。Parquet 保留
+force vector 和序列化 timing/camera metadata。
 TCP 可以基于审核过的模型和标定离线计算。默认真机训练视图不包含 Quest packet/event、TCP
 或 depth；相机保存 workspace/wrist RGB MP4。
 

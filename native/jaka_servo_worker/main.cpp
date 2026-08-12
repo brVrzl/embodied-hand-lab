@@ -150,6 +150,7 @@ struct Options {
   std::string metrics_file;
   std::string emitted_points_file;
   std::string cycle_telemetry_file;
+  std::uint32_t status_every_cycles = 13;
   double duration_s = 5.0;
   std::uint32_t servo_step_num = 1;
   std::uint64_t servo_period_ns = kControllerServoPeriodNs;
@@ -307,6 +308,7 @@ Options parse_options(int argc, char** argv) {
     else if (a == "--metrics-file") o.metrics_file = value_after(i, argc, argv);
     else if (a == "--emitted-points-file") o.emitted_points_file = value_after(i, argc, argv);
     else if (a == "--cycle-telemetry-file") o.cycle_telemetry_file = value_after(i, argc, argv);
+    else if (a == "--status-every-cycles") o.status_every_cycles = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--duration-s") o.duration_s = std::stod(value_after(i, argc, argv));
     else if (a == "--servo-step-num") o.servo_step_num = static_cast<std::uint32_t>(std::stoul(value_after(i, argc, argv)));
     else if (a == "--expected-tool-id") o.expected_tool_id = std::stoi(value_after(i, argc, argv));
@@ -381,6 +383,8 @@ Options parse_options(int argc, char** argv) {
   if (!(o.duration_s > 0.0 && o.duration_s <= 2000.0)) throw std::runtime_error("duration must be in (0, 2000] s");
   if (o.servo_step_num < 1 || o.servo_step_num > 16)
     throw std::runtime_error("servo step number must be in [1, 16]");
+  if (o.status_every_cycles == 0)
+    throw std::runtime_error("status publication cadence must be positive");
   if (o.servo_step_num >
       std::numeric_limits<std::uint64_t>::max() / kControllerServoPeriodNs)
     throw std::runtime_error("servo step number overflows servo period");
@@ -2136,6 +2140,7 @@ void write_metrics(const Options& o, const Samples& s, std::uint64_t accepted, s
       << "  \"stop_classification\":\""
       << stop_classification(outcome, error_code) << "\",\n"
       << "  \"requested_period_ns\":" << o.servo_period_ns << ",\n"
+      << "  \"status_every_cycles\":" << o.status_every_cycles << ",\n"
       << "  \"configured_control_cpu\":" << o.control_cpu << ",\n"
       << "  \"configured_control_realtime_priority\":"
       << o.control_realtime_priority << ",\n"
@@ -3187,7 +3192,7 @@ int run(const Options& o) {
         if (completion_schedule_realign) previous = cycle_end;
         ++samples.schedule_realignments;
       }
-      if ((i % 13) == 0 || output_acceleration_hold_status_pending ||
+      if ((i % o.status_every_cycles) == 0 || output_acceleration_hold_status_pending ||
           output_acceleration_recovery_status_pending) {
         std::uint32_t flags = kStatusConnected;
         if (backend->edg_active()) flags |= kStatusEdgActive;

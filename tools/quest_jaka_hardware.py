@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from collections import deque
 import json
 import math
 import os
@@ -56,7 +57,7 @@ from rh56_driver.pc_direct_control import (
 )
 from rh56_driver.pc_direct_worker import RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend
-from rh56_driver.telemetry import BoundedJsonlRecorder
+from rh56_driver.telemetry import AsyncJsonlRecorder, BoundedJsonlRecorder
 
 
 COMBINED_CONTROL_REALTIME_PRIORITY = 10
@@ -256,7 +257,7 @@ def _component_placement_snapshot(
         "boundary": boundary,
         "monotonic_ns": time.monotonic_ns(),
         "tasks": tasks,
-        "logging_execution": "synchronous_on_rh56_serial_worker",
+        "logging_execution": "diagnostic_async_only; production_disabled",
     }
 
 
@@ -369,6 +370,8 @@ def _parser() -> argparse.ArgumentParser:
         operator=None,
         output_generator=None,
         recover_output_acceleration_transition=False,
+        collection_profile="production",
+        native_status_every_cycles=4,
         rh56_config=None,
         rh56_device=None,
         rh56_log=None,
@@ -423,6 +426,7 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
             "device, control, and collection values are YAML-owned"
         )
     runtime: dict[str, object] = {}
+    document: dict[str, object] = {}
     if args.runtime_config is not None:
         try:
             document = load_yaml(args.runtime_config)
@@ -434,6 +438,10 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         if not isinstance(candidate, dict):
             raise SystemExit("runtime config must contain a mapping at root.runtime")
         runtime = candidate
+    profile = document.get("collection_profile", runtime.get("collection_profile", "production"))
+    if profile not in {"production", "diagnostic"}:
+        raise SystemExit("collection_profile must be production or diagnostic")
+    args.collection_profile = str(profile)
 
     duration_key = (
         "duration_sec"
@@ -520,10 +528,19 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
     args.allow_direct_ch341_device = bool(runtime.get("allow_direct_ch341_device", False))
     if bool(runtime.get("allow_direct_ch341_device", False)):
         args.allow_direct_ch341_device = True
-    if bool(runtime.get("episode_preview", False)):
+    if args.collection_profile == "diagnostic" and bool(runtime.get("episode_preview", False)):
         args.episode_preview = True
     if bool(runtime.get("recover_output_acceleration_transition", False)):
         args.recover_output_acceleration_transition = True
+    configured_status_period = runtime.get("native_status_every_cycles")
+    if configured_status_period is None:
+        configured_status_period = 4 if args.collection_profile == "production" else 13
+    try:
+        args.native_status_every_cycles = int(configured_status_period)
+    except (TypeError, ValueError) as exc:
+        raise SystemExit("native_status_every_cycles must be a positive integer") from exc
+    if args.native_status_every_cycles <= 0:
+        raise SystemExit("native_status_every_cycles must be positive")
     if "enforce_clutch_target_displacement_limit" in runtime:
         value = runtime["enforce_clutch_target_displacement_limit"]
         if type(value) is not bool:
@@ -560,12 +577,26 @@ def _apply_runtime_config(args: argparse.Namespace) -> None:
         "log": f"{prefix}.events.jsonl",
         "summary": f"{prefix}.summary.json",
         "metrics": f"{prefix}.native_metrics.json",
-        "native_telemetry": f"{prefix}.native_cycles.jsonl",
-        "event_extract": f"{prefix}.event_extract.jsonl",
-        "rh56_log": f"{prefix}.rh56.jsonl",
+        "native_telemetry": (
+            f"{prefix}.native_cycles.jsonl"
+            if args.collection_profile == "diagnostic"
+            else None
+        ),
+        "event_extract": (
+            f"{prefix}.event_extract.jsonl"
+            if args.collection_profile == "diagnostic"
+            else None
+        ),
+        "rh56_log": (
+            f"{prefix}.rh56.jsonl"
+            if args.collection_profile == "diagnostic"
+            else None
+        ),
     }
     for name, path in generated_outputs.items():
-        if getattr(args, name) is None:
+        if path is None:
+            setattr(args, name, None)
+        elif getattr(args, name) is None:
             setattr(args, name, Path(path))
 
     if args.robot_ip is None:
@@ -831,8 +862,8 @@ def main() -> int:
         realtime_preflight = _require_realtime_priority_limit(
             args.native_control_realtime_priority
         )
-        if args.rh56_device is None or args.rh56_log is None:
-            raise SystemExit("combined teleoperation requires --rh56-device and --rh56-log")
+        if args.rh56_device is None:
+            raise SystemExit("combined teleoperation requires --rh56-device")
         try:
             require_serial_by_id_path(
                 args.rh56_device,
@@ -860,6 +891,9 @@ def main() -> int:
         hand_config["mode"] = "real"
         hand_config["backend_type"] = "serial_protocol"
         hand_config.setdefault("serial", {})["port"] = args.rh56_device
+        hand_config.setdefault("diagnostics", {})["enabled"] = (
+            args.collection_profile == "diagnostic"
+        )
     clutch_behavior = "release left-index to pause; press again to resume"
     if args.stage == "combined-normal-teleop" and args.episode_data_config is not None:
         print(
@@ -937,25 +971,30 @@ def main() -> int:
         rh56_control: RH56PcDirectControl | None = None
         rh56_backend: RH56SerialBackend | None = None
         rh56_log = None
-        rh56_recorder: BoundedJsonlRecorder | None = None
+        rh56_recorder: AsyncJsonlRecorder | None = None
         if args.stage == "combined-normal-teleop":
-            assert hand_config is not None and args.rh56_log is not None
+            assert hand_config is not None
             rh56_backend = RH56SerialBackend(hand_config)
             rh56_control = RH56PcDirectControl(rh56_backend, hand_config)
-            rh56_log = args.rh56_log.open("x", encoding="utf-8")
-            rh56_diagnostics = hand_config.get("diagnostics", {})
-            rh56_recorder = BoundedJsonlRecorder(
-                rh56_log,
-                capacity=int(
-                    rh56_diagnostics.get("telemetry_buffer_capacity", 64)
-                ),
-                flush_every_records=int(
-                    rh56_diagnostics.get("telemetry_flush_every_records", 16)
-                ),
-                flush_interval_sec=float(
-                    rh56_diagnostics.get("telemetry_flush_interval_sec", 1.0)
-                ),
-            )
+            if args.collection_profile == "diagnostic":
+                assert args.rh56_log is not None
+                rh56_log = args.rh56_log.open("x", encoding="utf-8")
+                rh56_diagnostics = hand_config.get("diagnostics", {})
+                sync_recorder = BoundedJsonlRecorder(
+                    rh56_log,
+                    capacity=int(rh56_diagnostics.get("telemetry_buffer_capacity", 64)),
+                    flush_every_records=int(
+                        rh56_diagnostics.get("telemetry_flush_every_records", 16)
+                    ),
+                    flush_interval_sec=float(
+                        rh56_diagnostics.get("telemetry_flush_interval_sec", 1.0)
+                    ),
+                )
+                rh56_recorder = AsyncJsonlRecorder(
+                    sync_recorder,
+                    capacity=int(rh56_diagnostics.get("telemetry_buffer_capacity", 64)),
+                )
+                rh56_recorder.start()
             rh56_worker = RH56PcDirectWorker(
                 rh56_control, record=rh56_recorder
             )
@@ -1016,6 +1055,9 @@ def main() -> int:
         ]
         worker_args.extend(_native_velocity_limit_args(config))
         worker_args.append("--monitor-controller-health-each-cycle")
+        worker_args.extend(
+            ("--status-every-cycles", str(args.native_status_every_cycles))
+        )
         if args.native_telemetry is not None:
             worker_args.extend(("--cycle-telemetry-file", str(args.native_telemetry)))
         if args.recover_output_acceleration_transition:
@@ -1043,11 +1085,11 @@ def main() -> int:
         minimum_continuation_fraction = 1.0
         clutch_release_monotonic_ns: int | None = None
         arm_clutch_pause_count = 0
-        measured_joint_samples: list[tuple[float, ...]] = []
+        measured_joint_samples: deque[tuple[float, ...]] = deque(maxlen=256)
         native_output_acceleration_hold_status_count = 0
         native_output_acceleration_recovery_status_count = 0
         native_output_acceleration_hold_active = False
-        producer_timing_rows: list[dict[str, float]] = []
+        producer_timing_rows: deque[dict[str, float]] = deque(maxlen=512)
         pending_receiver_drain_and_ingest_ns = 0
         arm_commands_while_index_released = 0
         native_started = False
@@ -1059,14 +1101,13 @@ def main() -> int:
         episode_quality_diagnostics: dict[str, object] | None = None
         episode_preview_diagnostics: dict[str, object] | None = None
         event_log_diagnostics: dict[str, int] = {"drop_count": 0, "error_count": 0}
-        episode_record_next_ns: int | None = None
-        episode_record_period_ns = 1_000_000_000 // 30
         episode_capture_active = True
         episode_idle_started_ns: int | None = None
         episode_rotation_in_flight = False
         episode_rotation_count = 0
         episode_boundary_release_ns = 5_000_000_000
-        event_log_next_ns: int | None = None
+        event_health_next_ns: int | None = None
+        event_boundary_pending = False
         rh56_full_diagnostics_next_ns: int | None = None
         previous_episode_q: tuple[float, ...] | None = None
         previous_episode_observation_ns: int | None = None
@@ -1113,17 +1154,13 @@ def main() -> int:
                             "emitted_arm_command_125hz": "measured_external_native_log",
                             "jaka_arm_q": "measured",
                             "jaka_arm_dq": "estimated_finite_difference",
-                            "native_telemetry": "measured_external_native_log",
-                            "rh56_target": (
-                                "unavailable"
-                                if args.rh56_log is None
-                                else "commanded"
+                            "native_telemetry": (
+                                "disabled_production"
+                                if args.native_telemetry is None
+                                else "measured_external_native_log"
                             ),
-                            "rh56_feedback": (
-                                "unavailable"
-                                if args.rh56_log is None
-                                else "measured_raw_registers"
-                            ),
+                            "rh56_target": "canonical_action.hand",
+                            "rh56_feedback": "canonical_observation.hand_and_force",
                             "workspace_rgbd": "measured",
                             "wrist_rgbd": "measured",
                             "fault_events": "measured",
@@ -1131,7 +1168,11 @@ def main() -> int:
                         "simulation_only": False,
                         "physically_validated": False,
                         "physical_log_paths": {
-                            "native_telemetry": str(args.native_telemetry.resolve()),
+                            "native_telemetry": (
+                                None
+                                if args.native_telemetry is None
+                                else str(args.native_telemetry.resolve())
+                            ),
                             "rh56_telemetry": (
                                 None
                                 if args.rh56_log is None
@@ -1141,14 +1182,9 @@ def main() -> int:
                         },
                     },
                 )
-                # The control producer normally runs at about 60 Hz, while
-                # the dataset clock is 30 Hz.  Recorder work (raw JSONL
-                # enqueueing and state snapshot assembly) must not consume the
-                # spare half-cycle needed by Quest/IK control.  Keep camera
-                # draining continuous, but submit one recorder control sample
-                # per dataset period; the native/JAKA/RH56 control loop remains
-                # unchanged.
-                episode_record_period_ns = episode_runtime.collector.clock.period_ns
+                # Publish compact source snapshots at the 60 Hz producer rate.
+                # The recorder remains the sole fixed 30 Hz canonical selector,
+                # which gives it phase margin without changing control output.
                 print(
                     f"EPISODE_CAPTURE=IDLE id={episode_runtime.collector.writer.temporary_id} "
                     f"root={episode_runtime.collector.writer.root}",
@@ -1213,7 +1249,7 @@ def main() -> int:
                             break
                         receiver.raise_if_failed()
                         receiver_started_ns = time.perf_counter_ns()
-                        for datagram in receiver.drain():
+                        for datagram in receiver.drain(max_controller_packets=32):
                             router.ingest(datagram, session)
                         pending_receiver_drain_and_ingest_ns += (
                             time.perf_counter_ns() - receiver_started_ns
@@ -1226,25 +1262,15 @@ def main() -> int:
                         if (
                             episode_runtime is not None
                             and not episode_capture_failed
-                            and not episode_rotation_in_flight
                         ):
-                            try:
-                                episode_runtime.ingest_cameras()
-                                collector = episode_runtime.collector
-                                if (
-                                    collector.state is CaptureState.DONE
-                                    and collector.completion_status is not EpisodeStatus.COMPLETED
-                                ):
-                                    mark_episode_capture_failed(
-                                        collector.termination_reason
-                                        or "episode_capture_failure"
-                                    )
-                            except BaseException as exc:
-                                # Camera/recorder infrastructure is outside
-                                # the native heartbeat and cannot turn a
-                                # healthy robot into a control fault.
+                            collector = episode_runtime.collector
+                            if (
+                                collector.state is CaptureState.DONE
+                                and collector.completion_status is not EpisodeStatus.COMPLETED
+                            ):
                                 mark_episode_capture_failed(
-                                    f"recording_runtime_failure:{type(exc).__name__}:{exc}"
+                                    collector.termination_reason
+                                    or "episode_capture_failure"
                                 )
                         outer_tick_started_ns = time.perf_counter_ns()
                         poll_started_ns = time.perf_counter_ns()
@@ -1363,16 +1389,27 @@ def main() -> int:
                             and tick.output_applied
                             and not engaged
                         )
+                        latest_event = session.latest_event_record
                         event_log_due = (
-                            episode_runtime is None
-                            or event_log_next_ns is None
-                            or now_ns >= event_log_next_ns
+                            args.collection_profile == "diagnostic"
+                            or event_health_next_ns is None
+                            or now_ns >= event_health_next_ns
                             or dispatch_failed
                             or clutch_edge_reason is not None
+                            or event_boundary_pending
                         )
+                        boundary_event = event_boundary_pending
+                        event_boundary_pending = False
+                        if event_log_due:
+                            event_health_next_ns = now_ns + 1_000_000_000
                         rh56_include_diagnostics = bool(
                             rh56_control is not None
                             and event_log_due
+                            and (
+                                args.collection_profile == "diagnostic"
+                                or dispatch_failed
+                                or clutch_edge_reason is not None
+                            )
                             and (
                                 rh56_full_diagnostics_next_ns is None
                                 or now_ns >= rh56_full_diagnostics_next_ns
@@ -1383,7 +1420,6 @@ def main() -> int:
                         outer_event_diagnostic_started_ns = time.perf_counter_ns()
                         rh56_feedback_duration_ns = 0
                         episode_metadata_duration_ns = 0
-                        event = dict(session.latest_event_record)
                         arm_released = (
                             session.arm_clutch.state.value == "disengaged"
                         )
@@ -1391,9 +1427,9 @@ def main() -> int:
                             session.hand_clutch.state.value == "disengaged"
                         )
                         release_inputs_valid = bool(
-                            event.get("right_wrist_valid")
-                            and event.get("hand_skeleton_valid")
-                            and not event.get("input_recovery_active")
+                            latest_event.get("right_wrist_valid")
+                            and latest_event.get("hand_skeleton_valid")
+                            and not latest_event.get("input_recovery_active")
                             and not dispatch_failed
                         )
                         both_clutches_released = (
@@ -1419,6 +1455,7 @@ def main() -> int:
                                         "both_clutches_released_5s",
                                         release_ns=episode_idle_started_ns,
                                     )
+                                    event_boundary_pending = True
                                     episode_rotation_in_flight = True
                                     episode_rotation_count += 1
                                     episode_idle_started_ns = None
@@ -1451,7 +1488,7 @@ def main() -> int:
                                 ):
                                     episode_rotation_in_flight = False
                                     episode_capture_active = True
-                        operator_delta = event.get("operator_delta")
+                        operator_delta = latest_event.get("operator_delta")
                         if operator_delta is not None:
                             maximum_quest_displacement_m = max(
                                 maximum_quest_displacement_m,
@@ -1460,13 +1497,13 @@ def main() -> int:
                                     for value in operator_delta["translation_m"]
                                 )),
                             )
-                        if event.get("continuation_fraction") is not None:
+                        if latest_event.get("continuation_fraction") is not None:
                             minimum_continuation_fraction = min(
                                 minimum_continuation_fraction,
-                                float(event["continuation_fraction"]),
+                                float(latest_event["continuation_fraction"]),
                             )
                         rh56_telemetry = None
-                        if rh56_control is not None:
+                        if rh56_include_diagnostics:
                             rh56_feedback_started_ns = time.perf_counter_ns()
                             rh56_telemetry = rh56_control.episode_record(
                                 now_ns,
@@ -1475,58 +1512,69 @@ def main() -> int:
                             rh56_feedback_duration_ns += (
                                 time.perf_counter_ns() - rh56_feedback_started_ns
                             )
-                        event.update(
-                            physical_stage=args.stage,
-                            measured_joint_position_rad=None if status is None else list(status.joint_position_rad),
-                            accepted_endpoint_minus_measured_joint_rad=None if status is None or tick.accepted_target is None else [
-                                command - measured
-                                for command, measured in zip(
-                                    tick.accepted_target.joint_position_rad,
-                                    status.joint_position_rad,
-                                    strict=True,
-                                )
-                            ],
-                            command_timestamp_ns=None if status is None else status.command_monotonic_ns,
-                            native_output_acceleration_hold=(
-                                False
-                                if status is None
-                                else bool(
-                                    StatusFlags(status.flags)
-                                    & StatusFlags.OUTPUT_ACCELERATION_HOLD
-                                )
-                            ),
-                            native_output_acceleration_recovered=(
-                                False
-                                if status is None
-                                else bool(
-                                    StatusFlags(status.flags)
-                                    & StatusFlags.OUTPUT_ACCELERATION_RECOVERED
-                                )
-                            ),
-                            stop_or_abort_reason=(
-                                stop_reason
-                                if dispatch_failed
-                                else clutch_edge_reason
-                            ),
-                            rh56_telemetry=rh56_telemetry,
-                        )
+                        event = None if not event_log_due else dict(latest_event)
+                        if event is not None:
+                            event.update(
+                                physical_stage=args.stage,
+                                measured_joint_position_rad=None if status is None else list(status.joint_position_rad),
+                                accepted_endpoint_minus_measured_joint_rad=None if status is None or tick.accepted_target is None else [
+                                    command - measured
+                                    for command, measured in zip(
+                                        tick.accepted_target.joint_position_rad,
+                                        status.joint_position_rad,
+                                        strict=True,
+                                    )
+                                ],
+                                command_timestamp_ns=None if status is None else status.command_monotonic_ns,
+                                native_output_acceleration_hold=(
+                                    False
+                                    if status is None
+                                    else bool(
+                                        StatusFlags(status.flags)
+                                        & StatusFlags.OUTPUT_ACCELERATION_HOLD
+                                    )
+                                ),
+                                native_output_acceleration_recovered=(
+                                    False
+                                    if status is None
+                                    else bool(
+                                        StatusFlags(status.flags)
+                                        & StatusFlags.OUTPUT_ACCELERATION_RECOVERED
+                                    )
+                                ),
+                                stop_or_abort_reason=(
+                                    stop_reason
+                                    if dispatch_failed
+                                    else clutch_edge_reason
+                                ),
+                                collection_boundary_event=boundary_event,
+                                rh56_telemetry=rh56_telemetry,
+                            )
                         record_episode_sample = (
                             episode_runtime is not None
                             and status is not None
                             and not episode_capture_failed
                             and episode_runtime.collector.state
                             is not CaptureState.DONE
-                            and episode_capture_active
                             and (
-                                episode_record_next_ns is None
-                                or now_ns >= episode_record_next_ns
+                                episode_capture_active
+                                or (
+                                    episode_runtime.collector.state
+                                    is CaptureState.REC
+                                    and not episode_rotation_in_flight
+                                )
                             )
                         )
                         if record_episode_sample:
+                            feedback_snapshot = (
+                                None
+                                if rh56_worker is None
+                                else rh56_worker.latest_dataset_feedback
+                            )
                             feedback = (
                                 None
-                                if rh56_control is None
-                                else rh56_control.last_feedback
+                                if feedback_snapshot is None
+                                else feedback_snapshot.feedback
                             )
                             held_target = (
                                 tick.accepted_target
@@ -1561,21 +1609,6 @@ def main() -> int:
                                 tcp = held_target.filtered_tcp
                                 arm_action_source = "accepted_target"
                                 accepted_target_sequence = held_target.sequence_number
-                            raw_records = {
-                                "jaka_state": {
-                                    "read_host_monotonic_ns": observation_ns,
-                                    "record_host_monotonic_ns": now_ns,
-                                    "command_host_monotonic_ns": status.command_monotonic_ns,
-                                    "accepted_joint_target_rad": list(arm_target),
-                                    "joint_target_source": arm_action_source,
-                                    "measured_joint_position_rad": list(measured_q),
-                                    "estimated_joint_velocity_rad_s": list(measured_dq),
-                                    "commanded_tcp_pose_xyzw": [
-                                        *tcp.position_m,
-                                        *tcp.orientation_xyzw,
-                                    ],
-                                },
-                            }
                             if feedback is None:
                                 hand_observation = (0.0,) * 6
                                 hand_target = hand_observation
@@ -1593,14 +1626,14 @@ def main() -> int:
                                     "reacquire",
                                     "engaged",
                                 }
-                                rh56_feedback_started_ns = time.perf_counter_ns()
-                                rh56_record = rh56_control.episode_record(
-                                    now_ns, include_diagnostics=False
-                                )
-                                rh56_feedback_duration_ns += (
-                                    time.perf_counter_ns() - rh56_feedback_started_ns
-                                )
-                                raw_records["rh56_feedback"] = rh56_record
+                            register_timestamps_ns = (
+                                {
+                                    "ANGLE_ACT": feedback_snapshot.angle_act_timestamp_ns,
+                                    "FORCE_ACT": feedback_snapshot.force_act_timestamp_ns,
+                                }
+                                if feedback_snapshot is not None
+                                else {}
+                            )
                             source_timestamps_ns = {
                                 "jaka_observation": observation_ns,
                                 "jaka_command": status.command_monotonic_ns,
@@ -1610,13 +1643,22 @@ def main() -> int:
                                 "jaka_command": "host_monotonic_ns",
                             }
                             if feedback is not None:
-                                source_timestamps_ns["rh56_angle_act"] = feedback.monotonic_ns
+                                source_timestamps_ns["rh56_angle_act"] = (
+                                    register_timestamps_ns.get("ANGLE_ACT")
+                                    or feedback.monotonic_ns
+                                )
+                                source_timestamps_ns["rh56_force_act"] = (
+                                    register_timestamps_ns.get("FORCE_ACT")
+                                )
                                 source_timestamp_domains["rh56_angle_act"] = "host_monotonic_ns"
+                                source_timestamp_domains["rh56_force_act"] = "host_monotonic_ns"
                             episode_metadata_started_ns = time.perf_counter_ns()
                             try:
+                                capture_state_before = episode_runtime.collector.state
+                                dataset_snapshot_ns = time.monotonic_ns()
                                 episode_runtime.collector.ingest_control(
                                     ControlSample(
-                                        host_monotonic_ns=now_ns,
+                                        host_monotonic_ns=dataset_snapshot_ns,
                                         accepted_arm_q=arm_target,
                                         arm_q_measured=measured_q,
                                         arm_dq_measured=measured_dq,
@@ -1631,9 +1673,14 @@ def main() -> int:
                                         hand_target=hand_target,
                                         arm_trigger=engaged,
                                         hand_grip=hand_grip,
+                                        force_observation=(
+                                            None
+                                            if feedback is None
+                                            else feedback.load_or_force_raw_count
+                                        ),
                                         arm_action_status=(
                                             "held_rejected"
-                                            if event.get("control_state") == "HOLD_REJECTED"
+                                            if latest_event.get("control_state") == "HOLD_REJECTED"
                                             else "accepted"
                                         ),
                                         arm_action_source=arm_action_source,
@@ -1644,14 +1691,19 @@ def main() -> int:
                                         controller_fault=bool(status.error_code),
                                     ),
                                     reference_established=True,
-                                    capture_active=episode_capture_active,
-                                    raw_records=raw_records,
+                                    capture_active=(
+                                        True
+                                        if capture_state_before is CaptureState.REC
+                                        else episode_capture_active
+                                    ),
+                                    raw_records=None,
                                 )
+                                if episode_runtime.collector.state is not capture_state_before:
+                                    event_boundary_pending = True
                                 episode_runtime.update_preview(
                                     arm_trigger=engaged,
                                     hand_grip=hand_grip,
                                 )
-                                episode_record_next_ns = now_ns + episode_record_period_ns
                             except BaseException as exc:
                                 mark_episode_capture_failed(
                                     f"recording_runtime_failure:{type(exc).__name__}:{exc}"
@@ -1659,7 +1711,7 @@ def main() -> int:
                             episode_metadata_duration_ns += (
                                 time.perf_counter_ns() - episode_metadata_started_ns
                             )
-                        event["producer_outer_timing_ms"] = {
+                        timing_row = {
                             "receiver_drain_and_router_ingest": (
                                 pending_receiver_drain_and_ingest_ns / 1e6
                             ),
@@ -1670,16 +1722,17 @@ def main() -> int:
                             ),
                             "pre_log_outer_tick": (
                                 time.perf_counter_ns() - outer_tick_started_ns
-                            )
-                            / 1e6,
+                            ) / 1e6,
                         }
+                        if event is not None:
+                            event["producer_outer_timing_ms"] = timing_row
                         receiver_ingest_duration_ns = (
                             pending_receiver_drain_and_ingest_ns
                         )
                         pending_receiver_drain_and_ingest_ns = 0
                         serialize_ns = 0
                         write_ns = 0
-                        if event_log_due:
+                        if event is not None:
                             log_record = dict(event)
                             # JSON encoding and filesystem writes run in the
                             # bounded event-log worker, outside control.
@@ -1687,8 +1740,6 @@ def main() -> int:
                             write_started_ns = time.perf_counter_ns()
                             log.write(log_record)
                             write_ns = time.perf_counter_ns() - write_started_ns
-                            if episode_runtime is not None:
-                                event_log_next_ns = now_ns + episode_record_period_ns
                         outer_event_diagnostic_duration_ns = max(
                             0,
                             time.perf_counter_ns()
@@ -1738,7 +1789,7 @@ def main() -> int:
                             }
                         )
                         producer_timing_rows.append({
-                            **event["producer_outer_timing_ms"],
+                            **timing_row,
                             "event_json_serialize": serialize_ns / 1e6,
                             "event_log_write": write_ns / 1e6,
                             "complete_outer_tick": (
@@ -1754,7 +1805,8 @@ def main() -> int:
                         # their event history for report generation; only this
                         # streaming hardware path releases persisted records.
                         session.event_records.clear()
-                        event.clear()
+                        if event is not None:
+                            event.clear()
                         if dispatch_failed or pause_failed:
                             break
                         skipped = max(0, int((now - next_tick) * target_hz))
@@ -1813,6 +1865,7 @@ def main() -> int:
                 rh56_log.close()
             if episode_runtime is not None:
                 try:
+                    episode_runtime.stop_camera_forwarder()
                     if episode_runtime.collector.state is CaptureState.REC:
                         if (
                             abort_reason is None
@@ -1848,6 +1901,9 @@ def main() -> int:
                     }
                     episode_quality_diagnostics = (
                         episode_runtime.collector.diagnostics()
+                    )
+                    episode_quality_diagnostics["camera_forwarder_error"] = (
+                        episode_runtime.camera_forwarder_error
                     )
                     episode_preview_diagnostics = (
                         None
@@ -1898,6 +1954,8 @@ def main() -> int:
         "runtime_config": (
             None if args.runtime_config is None else str(args.runtime_config)
         ),
+        "collection_profile": args.collection_profile,
+        "native_status_every_cycles": args.native_status_every_cycles,
         "target_displacement_limit_enabled": (
             config.feasibility.target_displacement_limit_enabled
         ),
@@ -1972,6 +2030,9 @@ def main() -> int:
         "mujoco_plant_instantiated": False,
         "shared_continuation_enabled": session.continuation_enabled,
         "quest_receive_dropped": 0 if receiver is None else receiver.dropped,
+        "quest_receive_diagnostics": (
+            None if receiver is None else receiver.diagnostics()
+        ),
         "arm_transport_packets_sent": runtime.publisher.sent,
         "arm_transport_packets_dropped": runtime.publisher.dropped,
         "stop_reason": stop_reason,

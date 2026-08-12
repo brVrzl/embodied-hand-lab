@@ -20,6 +20,15 @@ class PendingTarget:
     measured_activation: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class PcDirectDatasetFeedback:
+    """One coherent, already-polled RH56 dataset snapshot."""
+
+    feedback: PcDirectFeedback
+    angle_act_timestamp_ns: int | None
+    force_act_timestamp_ns: int | None
+
+
 class RH56PcDirectWorker:
     """Own the one PC-direct controller without blocking the arm producer."""
 
@@ -44,6 +53,7 @@ class RH56PcDirectWorker:
         self._hold_reason = "startup"
         self._terminal_reason: str | None = None
         self._feedback: PcDirectFeedback | None = None
+        self._dataset_feedback: PcDirectDatasetFeedback | None = None
         self._failure: BaseException | None = None
         self._failure_record: dict[str, object] | None = None
         self._logging_failures: deque[dict[str, object]] = deque(maxlen=16)
@@ -146,6 +156,7 @@ class RH56PcDirectWorker:
         startup_end_ns = self._monotonic_ns()
         with self._lock:
             self._feedback = feedback
+            self._dataset_feedback = self._make_dataset_feedback(feedback)
         self._note_feedback(feedback.monotonic_ns)
         for name in self._feedback_schedule:
             schedule = self._feedback_schedule[name]
@@ -272,6 +283,13 @@ class RH56PcDirectWorker:
     def latest_feedback(self) -> PcDirectFeedback | None:
         with self._lock:
             return self._feedback
+
+    @property
+    def latest_dataset_feedback(self) -> PcDirectDatasetFeedback | None:
+        """Return values and register timestamps from one worker publication."""
+
+        with self._lock:
+            return self._dataset_feedback
 
     @property
     def failed(self) -> bool:
@@ -522,6 +540,7 @@ class RH56PcDirectWorker:
                     schedule["warning_active"] = False
                 with self._lock:
                     self._feedback = feedback
+                    self._dataset_feedback = self._make_dataset_feedback(feedback)
                 if register == "ANGLE":
                     self._note_feedback(actual_end_ns)
         self._update_feedback_ages(self._monotonic_ns())
@@ -577,6 +596,19 @@ class RH56PcDirectWorker:
         if self.diagnostics_enabled:
             self._cycle_duration_ms.append(cycle_duration_ms)
         return True
+
+    def _make_dataset_feedback(
+        self, feedback: PcDirectFeedback
+    ) -> PcDirectDatasetFeedback:
+        return PcDirectDatasetFeedback(
+            feedback=feedback,
+            angle_act_timestamp_ns=self.control.feedback_register_timestamp_ns(
+                "ANGLE_ACT"
+            ),
+            force_act_timestamp_ns=self.control.feedback_register_timestamp_ns(
+                "FORCE_ACT"
+            ),
+        )
 
     def diagnostics_snapshot(self, *, include_windows: bool = True) -> dict[str, object]:
         with self._lock:
@@ -639,7 +671,9 @@ class RH56PcDirectWorker:
             },
             "serial_utilization_estimate": self._serial_utilization(),
             "telemetry_emission_policy": (
-                "compact_each_command_full_snapshot_each_angle_feedback"
+                "disabled"
+                if self.record is None
+                else "compact_each_command_full_snapshot_each_angle_feedback"
             ),
             "feedback": self._feedback_diagnostics(self._monotonic_ns()),
         }

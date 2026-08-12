@@ -126,6 +126,29 @@ def test_command_deadline_intervals_follow_requested_rate() -> None:
         worker.cleanup()
 
 
+def test_dataset_feedback_values_and_register_timestamps_are_one_publication() -> None:
+    worker, _control, backend, clock, _first = _worker()
+    try:
+        initial = worker.latest_dataset_feedback
+        assert initial is not None
+        assert initial.force_act_timestamp_ns == clock()
+        assert initial.feedback.load_or_force_raw_count == (0.0,) * 6
+
+        backend.load = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+        clock.advance_ms(100.0)
+        for _ in range(5):
+            worker.run_cycle()
+            if backend.operations and backend.operations[-1] == "FORCE":
+                break
+        assert backend.operations.count("FORCE") == 1
+        updated = worker.latest_dataset_feedback
+        assert updated is not None
+        assert updated.force_act_timestamp_ns == clock()
+        assert updated.feedback.load_or_force_raw_count == tuple(backend.load)
+    finally:
+        worker.cleanup()
+
+
 def test_command_priority_then_status_error_max_age_prevents_starvation() -> None:
     worker, _control, backend, clock, first = _worker()
     try:

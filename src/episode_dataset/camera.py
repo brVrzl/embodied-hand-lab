@@ -195,6 +195,8 @@ class AsyncRGBDCamera:
         self._dropped = 0
         self._queue_overflow = 0
         self._previous_numbers: tuple[int, int] | None = None
+        self._rgb_frame_number_gap_count = 0
+        self._depth_frame_number_gap_count = 0
         self._receive_times: deque[int] = deque(maxlen=90)
 
     def start(self) -> None:
@@ -281,6 +283,11 @@ class AsyncRGBDCamera:
             "role": self.role,
             "actual_fps": self.actual_fps,
             "dropped_frame_count": self.dropped_frames,
+            "rgb_frame_number_gap_count": self._rgb_frame_number_gap_count,
+            "depth_frame_number_gap_count": self._depth_frame_number_gap_count,
+            "frame_number_gap_count": (
+                self._rgb_frame_number_gap_count + self._depth_frame_number_gap_count
+            ),
             **timing,
             "queue_capacity": self._frames.maxlen,
             "queue_depth": self.queue_depth,
@@ -309,6 +316,8 @@ class AsyncRGBDCamera:
                     if self._previous_numbers is not None:
                         color_gap = max(numbers[0] - self._previous_numbers[0] - 1, 0)
                         depth_gap = max(numbers[1] - self._previous_numbers[1] - 1, 0)
+                        self._rgb_frame_number_gap_count += color_gap
+                        self._depth_frame_number_gap_count += depth_gap
                         self._dropped += max(color_gap, depth_gap)
                     self._previous_numbers = numbers
                     self._frames.append(reference)

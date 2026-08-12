@@ -21,6 +21,7 @@ assets/correll_rh56dfx/assets/h1_2_meshes
 !assets/meshes/
 !assets/meshes/**
 papers/
+paper/
 selected_papers/*.pdf
 Photos/
 URDF/

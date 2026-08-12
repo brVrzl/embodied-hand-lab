@@ -31,6 +31,7 @@ struct Options {
   Mode mode = Mode::DryRun;
   std::string robot_ip;
   std::string metrics_file;
+  std::string sample_stream_file;
   double duration_s = 5.0;
   double poll_hz = 10.0;
   double slow_poll_hz = 1.0;
@@ -62,6 +63,7 @@ Options parse(int argc, char** argv) {
       else throw std::runtime_error("mode must be dry-run, fake, or connected");
     } else if (argument == "--robot-ip") options.robot_ip = next_value(i, argc, argv);
     else if (argument == "--metrics-file") options.metrics_file = next_value(i, argc, argv);
+    else if (argument == "--sample-stream-file") options.sample_stream_file = next_value(i, argc, argv);
     else if (argument == "--duration-s") options.duration_s = std::stod(next_value(i, argc, argv));
     else if (argument == "--poll-hz") options.poll_hz = std::stod(next_value(i, argc, argv));
     else if (argument == "--slow-poll-hz") options.slow_poll_hz = std::stod(next_value(i, argc, argv));
@@ -275,6 +277,12 @@ int execute(const Options& options) {
   }
   std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler); std::signal(SIGHUP, signal_handler);
   Results results(options.max_samples); jaka_readonly::State state;
+  std::ofstream sample_stream;
+  if (!options.sample_stream_file.empty()) {
+    sample_stream.open(options.sample_stream_file, std::ios::out | std::ios::trunc);
+    if (!sample_stream) throw std::runtime_error("cannot open sample stream file");
+    sample_stream << std::setprecision(17);
+  }
   results.baseline_thread_count = process_thread_count();
   std::string backend_name, outcome = "completed";
   rusage usage_start{}, usage_end{}; getrusage(RUSAGE_SELF, &usage_start); const auto total_start = Clock::now();
@@ -304,6 +312,14 @@ int execute(const Options& options) {
       previous_cycle = cycle_start; batch = {};
       const bool fast_ok = backend->read_fast(state, batch);
       const auto fast_complete = Clock::now();
+      if (fast_ok && state.joint_position_available && sample_stream) {
+        const auto timestamp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            fast_complete.time_since_epoch()).count();
+        sample_stream << "{\"host_monotonic_ns\":" << timestamp_ns << ",\"joint_position_rad\":";
+        write_array(sample_stream, state.joint_position_rad);
+        sample_stream << "}\n";
+        sample_stream.flush();
+      }
       if (fast_ok && !first_success) {
         results.first_read_latency.add(static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::nanoseconds>(fast_complete - login_complete).count()));

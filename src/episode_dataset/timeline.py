@@ -2,10 +2,25 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Generic, TypeVar
 
 
 T = TypeVar("T")
+
+
+def advance_fixed_deadline(deadline_ns: int, period_ns: int, now_ns: int) -> int:
+    """Advance a periodic deadline without re-anchoring or catch-up bursts."""
+
+    deadline_ns = int(deadline_ns)
+    period_ns = int(period_ns)
+    now_ns = int(now_ns)
+    if period_ns <= 0:
+        raise ValueError("period_ns must be positive")
+    next_ns = deadline_ns + period_ns
+    if next_ns <= now_ns:
+        next_ns += ((now_ns - next_ns) // period_ns + 1) * period_ns
+    return next_ns
 
 
 class TimestampRegression(ValueError):
@@ -46,10 +61,21 @@ class CausalTimeline(Generic[T]):
         self._items.append((timestamp_ns, value))
 
     def latest_at_or_before(self, canonical_timestamp_ns: int) -> SourceSelection[T]:
+        return self.latest_matching_at_or_before(
+            canonical_timestamp_ns, lambda _value: True
+        )
+
+    def latest_matching_at_or_before(
+        self,
+        canonical_timestamp_ns: int,
+        predicate: Callable[[T], bool],
+    ) -> SourceSelection[T]:
+        """Select the latest available value satisfying a causal predicate."""
+
         canonical_timestamp_ns = int(canonical_timestamp_ns)
         selected: tuple[int, T] | None = None
         for timestamp_ns, value in reversed(self._items):
-            if timestamp_ns <= canonical_timestamp_ns:
+            if timestamp_ns <= canonical_timestamp_ns and predicate(value):
                 selected = (timestamp_ns, value)
                 break
         if selected is None:

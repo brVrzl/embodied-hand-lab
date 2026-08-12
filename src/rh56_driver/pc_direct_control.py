@@ -994,6 +994,16 @@ class RH56PcDirectControl:
             self.transport_state = "CLOSED"
             self.next_command_monotonic_ns = None
 
+    def feedback_register_timestamp_ns(self, register: str) -> int | None:
+        """Return the cached successful-read timestamp without polling."""
+
+        name = str(register).upper()
+        aliases = {"ANGLE_ACT": "ANGLE", "FORCE_ACT": "FORCE"}
+        name = aliases.get(name, name)
+        if name not in self._feedback_success_ns:
+            raise ValueError(f"unknown RH56 feedback register {register!r}")
+        return self._feedback_success_ns[name]
+
     def episode_record(
         self,
         monotonic_ns: int,

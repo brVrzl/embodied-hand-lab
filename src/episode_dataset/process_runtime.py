@@ -55,6 +55,14 @@ def _current_cpu() -> int | None:
     return None
 
 
+def _frame_number_gap(previous: int, current: int) -> int:
+    """Return missing source frame numbers for one monotonic frame counter."""
+
+    if previous < 0 or current < 0 or current <= previous:
+        return 0
+    return max(current - previous - 1, 0)
+
+
 def process_placement(role: str) -> dict[str, object]:
     """Return lightweight process placement evidence."""
 
@@ -468,6 +476,9 @@ def _camera_process_main(
     ring = SharedMemoryCameraFrameRing.attach(ring_spec)
     received = 0
     dropped_descriptors = 0
+    rgb_frame_number_gap_count = 0
+    depth_frame_number_gap_count = 0
+    previous_frame_numbers: tuple[int, int] | None = None
     publish_durations: deque[int] = deque(maxlen=4096)
     interframe_intervals: deque[int] = deque(maxlen=4096)
     previous_frame_ns: int | None = None
@@ -477,6 +488,18 @@ def _camera_process_main(
         while not stop_event.is_set():
             frame = camera.capture()
             sample = camera_sample_from_rgbd(role, frame, copy_arrays=False)
+            current_frame_numbers = (
+                int(sample.rgb_frame_number),
+                int(sample.depth_frame_number),
+            )
+            if previous_frame_numbers is not None:
+                rgb_frame_number_gap_count += _frame_number_gap(
+                    previous_frame_numbers[0], current_frame_numbers[0]
+                )
+                depth_frame_number_gap_count += _frame_number_gap(
+                    previous_frame_numbers[1], current_frame_numbers[1]
+                )
+            previous_frame_numbers = current_frame_numbers
             sequence = received
             started_ns = time.perf_counter_ns()
             reference = ring.publish(sample, sequence)
@@ -511,6 +534,11 @@ def _camera_process_main(
                 "kind": "stopped",
                 "received": received,
                 "dropped_descriptors": dropped_descriptors,
+                "rgb_frame_number_gap_count": rgb_frame_number_gap_count,
+                "depth_frame_number_gap_count": depth_frame_number_gap_count,
+                "frame_number_gap_count": (
+                    rgb_frame_number_gap_count + depth_frame_number_gap_count
+                ),
                 "camera_publish_duration_ns": _summary(list(publish_durations)),
                 "camera_interframe_interval_ns": _summary(list(interframe_intervals)),
                 "camera_frame_age_ns": {
@@ -781,8 +809,8 @@ class ProcessEpisodeCollectorProxy:
         if self.state is CaptureState.DONE:
             return
         try:
-            self._recorder.send(
-                "camera",
+            self._recorder.send_camera(
+                frame.role,
                 FrameReferenceDescriptor.from_reference(frame),
                 int(skipped_frames),
             )
@@ -818,6 +846,7 @@ class ProcessEpisodeCollectorProxy:
         self.state = CaptureState.DONE
         if self._recorder.error is None:
             try:
+                self._recorder.send("flush_camera")
                 self._recorder.send("finish", reason, release_ns)
             except OSError:
                 pass
@@ -826,6 +855,7 @@ class ProcessEpisodeCollectorProxy:
         self.state = CaptureState.DONE
         if self._recorder.error is None:
             try:
+                self._recorder.send("flush_camera")
                 self._recorder.send("abort", reason, invalid, detail)
             except OSError:
                 pass
@@ -833,6 +863,7 @@ class ProcessEpisodeCollectorProxy:
     def discard_current(self, reason: str) -> None:
         if self._recorder.error is None:
             try:
+                self._recorder.send("flush_camera")
                 self._recorder.send("discard_current", reason)
             except OSError:
                 pass
@@ -842,6 +873,7 @@ class ProcessEpisodeCollectorProxy:
             self.state = CaptureState.DONE
         if self._recorder.error is None:
             try:
+                self._recorder.send("flush_camera")
                 self._recorder.send("shutdown", reason)
             except OSError:
                 pass
@@ -862,6 +894,7 @@ class ProcessEpisodeCollectorProxy:
         if self._recorder.error is not None:
             return
         try:
+            self._recorder.send("flush_camera")
             self._recorder.send("rotate", reason, release_ns)
         except OSError as exc:
             self._mark_failed(str(exc))
@@ -869,7 +902,10 @@ class ProcessEpisodeCollectorProxy:
     def diagnostics(self) -> dict[str, object]:
         self._recorder.poll()
         self._sync()
-        return dict(self._diagnostics)
+        return {
+            **dict(self._diagnostics),
+            "recorder_queues": self._recorder.queue_diagnostics(),
+        }
 
     def _sync(self) -> None:
         latest = self._recorder.latest_status
@@ -931,13 +967,26 @@ class ProcessEpisodeRecorder:
         episode_index: int = 0,
         schema_version: str = SCHEMA_VERSION,
     ) -> None:
-        self._commands = context.Queue(maxsize=max(8, int(dataset.get("recorder_queue_capacity", 16))))
+        command_capacity = max(8, int(dataset.get("recorder_queue_capacity", 16)))
+        self._command_capacity = command_capacity
+        self._control_commands = context.Queue(maxsize=command_capacity)
+        self._camera_commands = {
+            role: context.Queue(maxsize=command_capacity)
+            for role in ("workspace", "wrist")
+        }
+        self._camera_queue_drops = {"workspace": 0, "wrist": 0}
+        self._camera_queue_high_watermark = {"workspace": 0, "wrist": 0}
+        self._control_queue_high_watermark = 0
+        self._control_queue_drop_count = 0
+        self._camera_pending = context.Value("i", 0)
         self._status = context.Queue(maxsize=32)
         self._process = context.Process(
             target=_recorder_process_main,
             args=(
                 dict(ring_specs),
-                self._commands,
+                self._control_commands,
+                self._camera_commands,
+                self._camera_pending,
                 self._status,
                 {
                     "episode_root": str(episode_root or dataset.get("root", "data/episodes")),
@@ -1024,18 +1073,84 @@ class ProcessEpisodeRecorder:
         if self.error is not None:
             raise OSError(f"recorder process failed: {self.error}")
         try:
-            self._commands.put_nowait((kind, payload, None))
+            self._control_commands.put_nowait((kind, payload, None))
+            try:
+                self._control_queue_high_watermark = max(
+                    self._control_queue_high_watermark,
+                    int(self._control_commands.qsize()),
+                )
+            except (AttributeError, NotImplementedError, OSError):
+                pass
         except queue.Full as exc:
+            self._control_queue_drop_count += 1
             self._error = "recorder command queue full"
             raise OSError(self._error) from exc
+
+    def send_camera(self, role: str, *payload: object) -> None:
+        if role not in self._camera_commands:
+            raise ValueError(f"unknown camera role {role!r}")
+        self.poll()
+        if self.error is not None:
+            raise OSError(f"recorder process failed: {self.error}")
+        command = ("camera", payload, None)
+        commands = self._camera_commands[role]
+        with self._camera_pending.get_lock():
+            self._camera_pending.value += 1
+        try:
+            commands.put_nowait(command)
+        except queue.Full:
+            # Camera traffic is latest-oriented and must never consume the
+            # low-dimensional control queue.  Drop the oldest descriptor and
+            # retain the newest one, with a bounded diagnostic counter.
+            try:
+                commands.get_nowait()
+            except queue.Empty:
+                pass
+            else:
+                with self._camera_pending.get_lock():
+                    self._camera_pending.value -= 1
+            self._camera_queue_drops[role] += 1
+            try:
+                commands.put_nowait(command)
+            except queue.Full:
+                with self._camera_pending.get_lock():
+                    self._camera_pending.value -= 1
+                self._camera_queue_drops[role] += 1
+                return
+        try:
+            self._camera_queue_high_watermark[role] = max(
+                self._camera_queue_high_watermark[role], int(commands.qsize())
+            )
+        except (AttributeError, NotImplementedError, OSError):
+            pass
+
+    def queue_diagnostics(self) -> dict[str, object]:
+        return {
+            "control_queue_capacity": self._command_capacity,
+            "control_queue_high_watermark": self._control_queue_high_watermark,
+            "control_queue_drop_count": self._control_queue_drop_count,
+            "camera_queue_capacity": {
+                role: self._command_capacity for role in self._camera_commands
+            },
+            "camera_queue_drop_count": dict(self._camera_queue_drops),
+            "camera_queue_high_watermark": dict(self._camera_queue_high_watermark),
+        }
 
     def request(self, kind: str, *payload: object, timeout_s: float = 8.0) -> Mapping[str, object]:
         self.poll()
         request_id = self._next_request_id
         self._next_request_id += 1
         try:
-            self._commands.put((kind, payload, request_id), timeout=timeout_s)
+            self._control_commands.put((kind, payload, request_id), timeout=timeout_s)
+            try:
+                self._control_queue_high_watermark = max(
+                    self._control_queue_high_watermark,
+                    int(self._control_commands.qsize()),
+                )
+            except (AttributeError, NotImplementedError, OSError):
+                pass
         except queue.Full as exc:
+            self._control_queue_drop_count += 1
             self._error = "recorder request queue remained full"
             raise TimeoutError(self._error) from exc
         deadline = time.monotonic() + timeout_s
@@ -1072,7 +1187,7 @@ class ProcessEpisodeRecorder:
         try:
             if self._process.pid is not None and self._process.is_alive():
                 try:
-                    self._commands.put(("stop", (), None), timeout=timeout_s)
+                    self._control_commands.put(("stop", (), None), timeout=timeout_s)
                 except queue.Full:
                     pass
                 self._process.join(timeout=timeout_s)
@@ -1084,20 +1199,31 @@ class ProcessEpisodeRecorder:
                 self._process.join(timeout=timeout_s)
             self.poll()
         finally:
-            self._commands.close()
+            self._control_commands.close()
+            for commands in self._camera_commands.values():
+                commands.close()
             self._status.close()
             self._closed = True
 
 
 def _recorder_process_main(
     ring_specs: Mapping[str, SharedCameraRingSpec],
-    commands: Any,
+    control_commands: Any,
+    camera_commands: Mapping[str, Any],
+    camera_pending: Any,
     status_queue: Any,
     config: Mapping[str, Any],
 ) -> None:
     """Report child startup failures instead of turning them into a timeout."""
     try:
-        _recorder_process_main_impl(ring_specs, commands, status_queue, config)
+        _recorder_process_main_impl(
+            ring_specs,
+            control_commands,
+            camera_commands,
+            camera_pending,
+            status_queue,
+            config,
+        )
     except BaseException as exc:
         _queue_put_latest(
             status_queue,
@@ -1107,7 +1233,9 @@ def _recorder_process_main(
 
 def _recorder_process_main_impl(
     ring_specs: Mapping[str, SharedCameraRingSpec],
-    commands: Any,
+    control_commands: Any,
+    camera_commands: Mapping[str, Any],
+    camera_pending: Any,
     status_queue: Any,
     config: Mapping[str, Any],
 ) -> None:
@@ -1142,6 +1270,7 @@ def _recorder_process_main_impl(
                 dataset_fps=int(dataset.get("fps", 30)),
                 metadata=writer_metadata,
                 video_codec=str(dataset.get("video_codec", "mp4v")),
+                persist_audit_streams=bool(dataset.get("persist_audit_streams", True)),
             )
         elif writer_format == "raw_episode_v1":
             episode_writer = RawEpisodeWriter(
@@ -1245,15 +1374,113 @@ def _recorder_process_main_impl(
             message["error"] = f"{type(error).__name__}: {error}"
         _queue_put_latest(status_queue, message)
 
+    camera_burst = 0
+    next_camera_role = 0
+
+    def pending_camera_count() -> int:
+        with camera_pending.get_lock():
+            return int(camera_pending.value)
+
+    def take_camera(role: str) -> tuple[str, tuple[object, ...], int | None] | None:
+        try:
+            command = camera_commands[role].get_nowait()
+        except queue.Empty:
+            if pending_camera_count() <= 0:
+                return None
+            try:
+                command = camera_commands[role].get(timeout=0.002)
+            except queue.Empty:
+                return None
+        return command
+
+    def mark_camera_processed() -> None:
+        with camera_pending.get_lock():
+            camera_pending.value = max(0, int(camera_pending.value) - 1)
+
+    def next_command() -> tuple[str, tuple[object, ...], int | None]:
+        """Keep camera/control channels separate without starving control."""
+
+        nonlocal camera_burst, next_camera_role
+        roles = ("workspace", "wrist")
+        if pending_camera_count() > 0:
+            for offset in range(len(roles)):
+                role_index = (next_camera_role + offset) % len(roles)
+                command = take_camera(roles[role_index])
+                if command is None:
+                    continue
+                next_camera_role = (role_index + 1) % len(roles)
+                camera_burst = min(camera_burst + 1, 2)
+                return command
+            return ("idle", (), None)
+        if camera_burst < 2:
+            for offset in range(len(roles)):
+                role_index = (next_camera_role + offset) % len(roles)
+                command = take_camera(roles[role_index])
+                if command is None:
+                    continue
+                next_camera_role = (role_index + 1) % len(roles)
+                camera_burst += 1
+                return command
+        try:
+            command = control_commands.get_nowait()
+            camera_burst = 0
+            return command
+        except queue.Empty:
+            pass
+        for offset in range(len(roles)):
+            role_index = (next_camera_role + offset) % len(roles)
+            command = take_camera(roles[role_index])
+            if command is None:
+                continue
+            next_camera_role = (role_index + 1) % len(roles)
+            camera_burst = min(camera_burst + 1, 2)
+            return command
+        try:
+            command = control_commands.get(timeout=0.01)
+            camera_burst = 0
+            return command
+        except queue.Empty:
+            return ("idle", (), None)
+
+    def flush_camera_commands() -> None:
+        while True:
+            drained = False
+            for role in ("workspace", "wrist"):
+                try:
+                    kind, payload, request_id = camera_commands[role].get_nowait()
+                except queue.Empty:
+                    continue
+                drained = True
+                if kind != "camera":
+                    raise ValueError(f"unexpected camera command {kind!r}")
+                descriptor, skipped = payload
+                reference = descriptor.to_reference(rings[descriptor.role])
+                collector.ingest_camera(reference, skipped_frames=int(skipped))
+                mark_camera_processed()
+            if not drained:
+                return
+
+    deferred_control: tuple[str, tuple[object, ...], int | None] | None = None
     try:
         while True:
-            kind, payload, request_id = commands.get()
+            if deferred_control is not None and pending_camera_count() <= 0:
+                kind, payload, request_id = deferred_control
+                deferred_control = None
+            else:
+                kind, payload, request_id = next_command()
+            if kind == "idle":
+                time.sleep(0.001)
+                continue
+            if kind != "camera" and pending_camera_count() > 0:
+                deferred_control = (kind, payload, request_id)
+                continue
             error: BaseException | None = None
             try:
                 if kind == "camera":
                     descriptor, skipped = payload
                     reference = descriptor.to_reference(rings[descriptor.role])
                     collector.ingest_camera(reference, skipped_frames=int(skipped))
+                    mark_camera_processed()
                 elif kind == "control":
                     sample, reference_established, raw_records, capture_active = payload
                     collector.ingest_control(
@@ -1262,6 +1489,8 @@ def _recorder_process_main_impl(
                         raw_records=raw_records,
                         capture_active=capture_active,
                     )
+                elif kind == "flush_camera":
+                    flush_camera_commands()
                 elif kind == "finish":
                     reason, release_ns = payload
                     collector.finish(str(reason), release_ns=release_ns)

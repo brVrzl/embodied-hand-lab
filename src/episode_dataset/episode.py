@@ -92,6 +92,10 @@ class ControlSample:
     control_heartbeat_valid: bool = True
     tracking_hard_fault: bool = False
     controller_fault: bool = False
+    # Raw RH56 FORCE_ACT counts from the already-polled feedback snapshot.
+    # ``None`` means that the hand snapshot was unavailable; staging records
+    # that absence through its timing validity mask.
+    force_observation: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "accepted_arm_q", _six(self.accepted_arm_q, "accepted_arm_q"))
@@ -99,6 +103,7 @@ class ControlSample:
         object.__setattr__(self, "arm_dq_measured", _six(self.arm_dq_measured, "arm_dq_measured"))
         object.__setattr__(self, "hand_observation", _six(self.hand_observation, "hand_observation"))
         object.__setattr__(self, "hand_target", _six(self.hand_target, "hand_target"))
+        object.__setattr__(self, "force_observation", _six(self.force_observation, "force_observation"))
         if self.tcp_pose_xyzw is not None:
             pose = tuple(float(value) for value in self.tcp_pose_xyzw)
             if len(pose) != 7 or not all(np.isfinite(pose)):
@@ -283,6 +288,7 @@ class CanonicalSample:
     nominal_slot_index: int | None = None
     missed_slots_before: int = 0
     missed_slots_after: int = 0
+    repeated_sources: tuple[str, ...] = ()
 
 
 class CanonicalEpisodeWriter:
@@ -801,6 +807,7 @@ class CanonicalEpisodeWriter:
                 "synchronization_valid": sample.synchronization_valid,
                 "stale_sources": list(sample.stale_sources),
                 "dropped_sources": list(sample.dropped_sources),
+                "repeated_source_frames": list(sample.repeated_sources),
                 "nominal_slot_index": (
                     sample.frame_index
                     if sample.nominal_slot_index is None

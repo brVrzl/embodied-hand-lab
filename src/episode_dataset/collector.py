@@ -19,6 +19,14 @@ from .episode import (
 from .timeline import CanonicalClock, CausalTimeline, TimestampRegression
 
 
+_CAUSAL_CONTROL_SOURCES = (
+    "jaka_observation",
+    "jaka_command",
+    "rh56_angle_act",
+    "rh56_force_act",
+)
+
+
 class CaptureState(str, Enum):
     IDLE = "IDLE"
     ARMING = "ARMING"
@@ -92,6 +100,12 @@ class SingleEpisodeCollector:
         self._state_listener: Callable[[CaptureState], None] | None = None
         self.clock = CanonicalClock(writer.dataset_fps)
         self.control = CausalTimeline[ControlSample](max_age_ns=control_max_age_ns)
+        # A control snapshot can contain feedback sampled on several independent
+        # schedules. The bounded outer history is searched independently for
+        # each source so both acquisition and snapshot-availability times are
+        # causal at a canonical deadline.
+        self._causal_source_enabled: set[str] = set()
+        self._last_indexed_source_timestamp: dict[str, int] = {}
         # Camera arrays are large and the recorder already persists every
         # frame to the raw layer.  Keep only a short causal window for
         # canonical selection instead of retaining an entire episode in RAM.
@@ -106,6 +120,7 @@ class SingleEpisodeCollector:
         self._last_control_segment_mode: str | None = None
         self._trigger_press_ns: int | None = None
         self._last_camera_clock: dict[str, tuple[float, float, int, int, str, str]] = {}
+        self._last_canonical_camera_id: dict[str, tuple[object, ...]] = {}
         self._last_control_source_timestamps: dict[str, int] = {}
         self.result: Path | None = None
         self.termination_reason: str | None = None
@@ -119,6 +134,7 @@ class SingleEpisodeCollector:
         self._camera_consecutive_stale = {"workspace": 0, "wrist": 0}
         self._camera_stale_count = {"workspace": 0, "wrist": 0}
         self._camera_drop_count = {"workspace": 0, "wrist": 0}
+        self._camera_repeated_source_count = {"workspace": 0, "wrist": 0}
         self._camera_valid_count = {"workspace": 0, "wrist": 0}
         self._camera_invalid_count = {"workspace": 0, "wrist": 0}
         self._camera_invalid_run = {"workspace": 0, "wrist": 0}
@@ -210,6 +226,8 @@ class SingleEpisodeCollector:
             control_segment_id=self._control_segment_id,
             control_segment_mode=segment_mode,
         )
+        if not self._index_control_sources(sample):
+            return
         try:
             self.control.append(sample.host_monotonic_ns, sample)
         except TimestampRegression as exc:
@@ -431,6 +449,9 @@ class SingleEpisodeCollector:
     ) -> bool:
         if not reference_established or sample.accepted_arm_q is None:
             return False
+        sample = self._causal_control_at(sample, sample.host_monotonic_ns)
+        if sample.arm_q_measured is None or sample.hand_observation is None:
+            return False
         workspace = self.workspace.latest_at_or_before(sample.host_monotonic_ns)
         wrist = self.wrist.latest_at_or_before(sample.host_monotonic_ns)
         if not workspace.valid or not wrist.valid:
@@ -508,6 +529,11 @@ class SingleEpisodeCollector:
             self._canonical_metadata_only_slots += 1
             self.abort("stale_or_missing_source:control")
             return
+        assert control.value is not None
+        control = replace(
+            control,
+            value=self._causal_control_at(control.value, timestamp_ns),
+        )
         invalid_cameras = [
             role for role in ("workspace", "wrist") if not selections[role].valid
         ]
@@ -624,34 +650,42 @@ class SingleEpisodeCollector:
                 )
             return
         self._canonical_required_field_invalid_run = 0
+        repeated_sources: list[str] = []
+        for role, camera in (("workspace", workspace.value), ("wrist", wrist.value)):
+            camera_id = _camera_source_id(camera)
+            if self._last_canonical_camera_id.get(role) == camera_id:
+                repeated_sources.append(role)
+                self._camera_repeated_source_count[role] += 1
+            self._last_canonical_camera_id[role] = camera_id
         try:
             canonical_sample = CanonicalSample(
-                    frame_index=frame_index,
-                    timestamp_ns=timestamp_ns,
-                    control=control.value,
-                    workspace=workspace.value,
-                    wrist=wrist.value,
-                    source_offsets_ns={
-                        name: int(selection.signed_offset_ns or 0)
-                        for name, selection in selections.items()
-                    },
-                    synchronization_valid=True,
-                    nominal_slot_index=(
-                        0
-                        if frame_index == 0
-                        else self.clock.last_nominal_slot_index
-                    ),
-                    missed_slots_before=(
-                        0
-                        if frame_index == 0
-                        else self.clock.last_missed_slots_before
-                    ),
-                    missed_slots_after=(
-                        0
-                        if frame_index == 0
-                        else self.clock.last_missed_slots_after
-                    ),
-                )
+                frame_index=frame_index,
+                timestamp_ns=timestamp_ns,
+                control=control.value,
+                workspace=workspace.value,
+                wrist=wrist.value,
+                source_offsets_ns={
+                    name: int(selection.signed_offset_ns or 0)
+                    for name, selection in selections.items()
+                },
+                synchronization_valid=True,
+                repeated_sources=tuple(repeated_sources),
+                nominal_slot_index=(
+                    0
+                    if frame_index == 0
+                    else self.clock.last_nominal_slot_index
+                ),
+                missed_slots_before=(
+                    0
+                    if frame_index == 0
+                    else self.clock.last_missed_slots_before
+                ),
+                missed_slots_after=(
+                    0
+                    if frame_index == 0
+                    else self.clock.last_missed_slots_after
+                ),
+            )
             accepted = self.writer.append_sample(canonical_sample)
             if accepted is False:
                 # This is a recorder queue drop, not a camera acquisition
@@ -664,6 +698,108 @@ class SingleEpisodeCollector:
             self.abort("recording_writer_failure", detail=str(exc))
         finally:
             self._canonical_durations_ns.append(time.perf_counter_ns() - started_ns)
+
+    def _index_control_sources(self, sample: ControlSample) -> bool:
+        timestamps = dict(sample.source_timestamps_ns or {})
+        domains = dict(sample.source_timestamp_domains or {})
+        for name in _CAUSAL_CONTROL_SOURCES:
+            if name not in timestamps:
+                continue
+            self._causal_source_enabled.add(name)
+            timestamp_ns = timestamps[name]
+            if timestamp_ns is None:
+                continue
+            if domains.get(name) != "host_monotonic_ns":
+                self.abort(
+                    f"control_source_timestamp_domain_mismatch:{name}",
+                    invalid=True,
+                )
+                return False
+            timestamp_ns = int(timestamp_ns)
+            previous = self._last_indexed_source_timestamp.get(name)
+            if previous is not None and timestamp_ns < previous:
+                self.abort(f"control_source_timestamp_regression:{name}", invalid=True)
+                return False
+            if previous == timestamp_ns:
+                continue
+            self._last_indexed_source_timestamp[name] = timestamp_ns
+        return True
+
+    def _causal_control_at(
+        self, base: ControlSample, timestamp_ns: int
+    ) -> ControlSample:
+        source_timestamps = dict(base.source_timestamps_ns or {})
+        source_domains = dict(base.source_timestamp_domains or {})
+        replacements: dict[str, object] = {}
+        for name in _CAUSAL_CONTROL_SOURCES:
+            if name not in self._causal_source_enabled:
+                continue
+            selected = self.control.latest_matching_at_or_before(
+                timestamp_ns,
+                lambda sample, source=name: (
+                    (sample.source_timestamp_domains or {}).get(source)
+                    == "host_monotonic_ns"
+                    and (sample.source_timestamps_ns or {}).get(source) is not None
+                    and int((sample.source_timestamps_ns or {})[source])
+                    <= timestamp_ns
+                ),
+            )
+            selected_sample = selected.value
+            selected_source_timestamp = (
+                None
+                if selected_sample is None
+                else (selected_sample.source_timestamps_ns or {}).get(name)
+            )
+            source_timestamps[name] = selected_source_timestamp
+            source_domains[name] = "host_monotonic_ns"
+            if name == "jaka_observation":
+                replacements.update(
+                    arm_q_measured=(
+                        None
+                        if selected_sample is None
+                        else selected_sample.arm_q_measured
+                    ),
+                    arm_dq_measured=(
+                        None
+                        if selected_sample is None
+                        else selected_sample.arm_dq_measured
+                    ),
+                    arm_q_source=(
+                        "unavailable"
+                        if selected_sample is None
+                        else selected_sample.arm_q_source
+                    ),
+                    arm_dq_source=(
+                        "unavailable"
+                        if selected_sample is None
+                        else selected_sample.arm_dq_source
+                    ),
+                )
+            elif name == "rh56_angle_act":
+                replacements.update(
+                    hand_observation=(
+                        None
+                        if selected_sample is None
+                        else selected_sample.hand_observation
+                    ),
+                    hand_source=(
+                        "unavailable"
+                        if selected_sample is None
+                        else selected_sample.hand_source
+                    ),
+                )
+            elif name == "rh56_force_act":
+                replacements["force_observation"] = (
+                    None
+                    if selected_sample is None
+                    else selected_sample.force_observation
+                )
+        return replace(
+            base,
+            source_timestamps_ns=source_timestamps,
+            source_timestamp_domains=source_domains,
+            **replacements,
+        )
 
     def _finish_completed(self, release_ns: int) -> None:
         if self.defer_finalization:
@@ -776,6 +912,8 @@ class SingleEpisodeCollector:
                 "wrist_stale_count": self._camera_stale_count["wrist"],
                 "workspace_drop_count": self._camera_drop_count["workspace"],
                 "wrist_drop_count": self._camera_drop_count["wrist"],
+                "workspace_repeated_source_frame_count": self._camera_repeated_source_count["workspace"],
+                "wrist_repeated_source_frame_count": self._camera_repeated_source_count["wrist"],
                 "workspace_frame_age_ns": _summary(self._camera_age_ns["workspace"]),
                 "wrist_frame_age_ns": _summary(self._camera_age_ns["wrist"]),
                 "canonical_compute_duration_ns": _summary(self._canonical_durations_ns),
@@ -823,6 +961,18 @@ class SingleEpisodeCollector:
         ):
             return "completed_degraded"
         return "completed_valid"
+
+
+def _camera_source_id(camera: CameraRecord) -> tuple[object, ...]:
+    sequence = getattr(camera, "sequence", None)
+    if sequence is not None:
+        return ("ring", int(sequence))
+    return (
+        "frame",
+        int(camera.host_monotonic_ns),
+        int(camera.rgb_frame_number),
+        int(camera.depth_frame_number),
+    )
 
 
 def _summary(values: deque[int]) -> dict[str, int]:

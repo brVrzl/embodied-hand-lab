@@ -86,6 +86,16 @@ def test_vendor_boundary_calls_only_approved_read_lifecycle_api() -> None:
     assert not any(name in implementation for name in forbidden)
 
 
+def test_fake_sample_stream_contains_only_measured_joint_observations(tmp_path) -> None:
+    stream = tmp_path / "samples.jsonl"
+    result, _ = run_fake(tmp_path, "--sample-stream-file", str(stream))
+    assert result.returncode == 0
+    rows = [json.loads(line) for line in stream.read_text().splitlines()]
+    assert rows
+    assert set(rows[0]) == {"host_monotonic_ns", "joint_position_rad"}
+    assert len(rows[0]["joint_position_rad"]) == 6
+
+
 def test_fake_repeated_initialization_and_cleanup(tmp_path) -> None:
     result, payload = run_fake(tmp_path, "--sessions", "3")
     assert result.returncode == 0

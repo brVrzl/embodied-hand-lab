@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import multiprocessing as mp
 from pathlib import Path
 import time
+import threading
 from typing import Any, Mapping
 
 from embodiment_core.config import load_yaml
@@ -57,6 +58,9 @@ class EpisodeDataRuntime:
     recorder: ProcessEpisodeRecorder
     last_camera_timestamp_ns: dict[str, int]
     dataset_format: str
+    camera_forwarder: threading.Thread | None = None
+    camera_forwarder_stop: threading.Event | None = None
+    camera_forwarder_error: str | None = None
 
     @classmethod
     def start(
@@ -93,9 +97,14 @@ class EpisodeDataRuntime:
         if len(set(serials.values())) != 2:
             raise ValueError("workspace and wrist must bind different RealSense serial numbers")
 
-        dataset = data_config.get("dataset", {})
-        if not isinstance(dataset, dict):
+        configured_dataset = data_config.get("dataset", {})
+        if not isinstance(configured_dataset, dict):
             raise ValueError("episode data config dataset must be a mapping")
+        collection_profile = str(data_config.get("collection_profile", "production"))
+        if collection_profile not in {"production", "diagnostic"}:
+            raise ValueError("collection_profile must be production or diagnostic")
+        dataset = dict(configured_dataset)
+        dataset["persist_audit_streams"] = collection_profile == "diagnostic"
         resolved_episode_root = Path(
             episode_root or dataset.get("root", "data/episodes")
         )
@@ -176,7 +185,7 @@ class EpisodeDataRuntime:
                     preview_failure_reason = (
                         f"preview_start_failure:{type(exc).__name__}:{exc}"
                     )
-            return cls(
+            runtime = cls(
                 collector=collector,
                 cameras=workers,
                 preview=preview,
@@ -185,6 +194,8 @@ class EpisodeDataRuntime:
                 last_camera_timestamp_ns={"workspace": -1, "wrist": -1},
                 dataset_format=str(dataset.get("format", "canonical_v2")),
             )
+            runtime.start_camera_forwarder()
+            return runtime
         except BaseException:
             if preview is not None:
                 preview.stop()
@@ -195,6 +206,8 @@ class EpisodeDataRuntime:
             raise
 
     def ingest_cameras(self) -> None:
+        if self.camera_forwarder is not None:
+            return
         if self.collector.state is CaptureState.DONE:
             return
         for role, camera in self.cameras.items():
@@ -205,6 +218,64 @@ class EpisodeDataRuntime:
             if frame is not None:
                 self.collector.ingest_camera(frame, skipped_frames=skipped)
                 self.last_camera_timestamp_ns[role] = frame.host_monotonic_ns
+
+    def start_camera_forwarder(self) -> None:
+        if self.camera_forwarder is not None:
+            return
+        stop = threading.Event()
+        self.camera_forwarder_stop = stop
+        self.camera_forwarder = threading.Thread(
+            target=self._camera_forward_loop,
+            args=(stop,),
+            name="episode-camera-forwarder",
+            daemon=True,
+        )
+        self.camera_forwarder.start()
+
+    def stop_camera_forwarder(self, timeout_s: float = 2.0) -> None:
+        stop = self.camera_forwarder_stop
+        thread = self.camera_forwarder
+        if stop is None or thread is None:
+            return
+        stop.set()
+        thread.join(timeout=timeout_s)
+        if thread.is_alive():
+            self.camera_forwarder_error = "camera_forwarder_stop_timeout"
+        self.camera_forwarder = None
+        self.camera_forwarder_stop = None
+
+    def _camera_forward_loop(self, stop: threading.Event) -> None:
+        try:
+            self._camera_forward_loop_body(stop)
+        except BaseException as exc:
+            self.camera_forwarder_error = (
+                f"camera_forwarder_failure:{type(exc).__name__}:{exc}"
+            )
+            try:
+                self.collector.abort(
+                    "camera_forwarder_failure",
+                    detail=self.camera_forwarder_error,
+                )
+            except BaseException:
+                pass
+
+    def _camera_forward_loop_body(self, stop: threading.Event) -> None:
+        while not stop.is_set():
+            if self.collector.state is CaptureState.DONE:
+                return
+            forwarded = False
+            for role, camera in self.cameras.items():
+                if camera.error is not None:
+                    self.collector.camera_fault(role, str(camera.error))
+                    continue
+                frame, skipped = camera.latest_after(self.last_camera_timestamp_ns[role])
+                if frame is None:
+                    continue
+                forwarded = True
+                self.collector.ingest_camera(frame, skipped_frames=skipped)
+                self.last_camera_timestamp_ns[role] = frame.host_monotonic_ns
+            if not forwarded:
+                stop.wait(0.001)
 
     def update_preview(self, *, arm_trigger: bool, hand_grip: bool) -> None:
         if self.preview is None:
@@ -234,6 +305,7 @@ class EpisodeDataRuntime:
             )
 
     def close(self) -> None:
+        self.stop_camera_forwarder()
         if self.preview is not None:
             self.preview.stop()
         self.recorder.stop()

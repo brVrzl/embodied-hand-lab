@@ -2,6 +2,7 @@
 # simulation-backed RGB capture entry points. The runtime wrapper consumes
 # `runtime`; the episode recorder consumes `dataset`, `cameras`, and
 # `calibration` from this same document.
+collection_profile: production
 runtime:
   config: configs/sim/quest_hts_jaka_mini2_live_demo.yaml
   # The live-demo file retains maximum_target_displacement_m for simulation and
