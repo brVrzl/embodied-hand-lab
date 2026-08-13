@@ -1020,3 +1020,894 @@ No large implementation is warranted until F1--F3 reorder—or fail to
 reorder—the roadmap. A negative result is actionable: quality-insensitive
 performance kills the scorer track; event-balanced failure redirects effort to
 history/action observability; no ImageNet gain kills the encoder tour.
+
+## BENCHMARK AND UNDERACTUATED-SIMULATION STRATEGY
+
+Date of this continuation: 2026-08-13. This section preserves the earlier
+survey as history but supersedes its nominal16 planning assumptions. The
+current real-data authority is now `physical_bottle_v4_nominal52`: 52
+human-audited logical trajectories, 33,111 trimmed rows, approximately 1,102 s
+of real JAKA + RH56 behavior, dual RGB, RH56 position and native actuator-load
+feedback. No raw data, paper text, controller code or physical device was
+changed or used during this audit.
+
+### Executive platform decision
+
+The smallest credible architecture is a **conditional Option 4**:
+
+1. use **ManiSkill 3** as the single standardized simulation/evaluation layer;
+2. add a JAKA + RH56 agent and 3--6 underactuated tasks there;
+3. retain the repository's native MuJoCo JAKA + RH56 model as a
+   **fidelity oracle and migration test**, not as a second benchmark suite; and
+4. validate the selected learning claim on the real JAKA + RH56 using
+   `physical_bottle_v4_nominal52` plus only the minimum additional real tasks.
+
+This recommendation is conditional because current ManiSkill unexpectedly
+already contains an official-framework `RH56DFX-2L/R` Inspire-hand asset, but
+its authors explicitly say that mimic offsets and limits still need system
+identification. Its linear URDF mimic relations are not equivalent to this
+repository's nonlinear MuJoCo thumb coupling. The first action is therefore a
+semantic-parity gate, not a platform port.
+
+If that gate fails, the fallback is **native MuJoCo + robosuite/MimicGen +
+real RH56**. This sacrifices some benchmark throughput and leaderboard value
+but preserves the known embodiment semantics at much lower engineering risk.
+RoboTwin remains useful as a standard-policy reference and XPolicy evaluation
+ecosystem; it is not the cheapest RH56 simulator. Isaac Lab is the strongest
+long-term actuator-uncertainty engine, but converting the current nonlinear
+coupling and building a separate imitation stack is not justified before a
+specific sim-to-real hypothesis needs it.
+
+The strongest resulting paper direction is also **not force-dependent**:
+learning rare grasp/release transitions through an underactuation-aware hand
+action interface, tested across standard tasks, custom RH56 simulation and the
+real nominal52 data. Load can be an optional observation/calibration ablation.
+
+### Audit basis and version boundary
+
+Current behavior was checked in official source rather than inferred from
+marketing pages. Read-only reference checkouts were inspected at:
+
+| Project | Inspected revision | Primary source / license |
+|---|---:|---|
+| RoboTwin 2.0 | `266f3aadf505` | [official repository](https://github.com/RoboTwin-Platform/RoboTwin), MIT; [project](https://robotwin-platform.github.io/) |
+| XPolicyLab | `c37109c500be` vendored in the checkout | [official policy/evaluation repository](https://github.com/RoboTwin-Platform/RoboTwin/tree/main/XPolicyLab), Apache-2.0 |
+| Isaac Lab | `2e44ddb2e195` | [official repository](https://github.com/isaac-sim/IsaacLab), BSD-3-Clause; Mimic files Apache-2.0 |
+| ManiSkill | `62ff3a5896b4` | [official repository](https://github.com/haosulab/ManiSkill), Apache-2.0 code; assets have separate terms |
+| robosuite | `5ce6643f3092` | [official repository](https://github.com/ARISE-Initiative/robosuite), MIT |
+| DexMimicGen | `940e8a1b3ad7` | [official repository](https://github.com/NVlabs/dexmimicgen), NVIDIA research/noncommercial source license |
+
+The Isaac Lab checkout identifies itself as a 3.0.0 beta targeting Isaac Sim
+6.0.1; its documentation recommends stable releases for projects. ManiSkill's
+ACT/DP pages still label results and benchmark setup **WIP**. DexVerse is a July
+2026 preprint with an active release roadmap, not yet a mature primary
+dependency. These version boundaries matter more than nominal feature lists.
+
+### A. RH56 simulation audit
+
+#### Maintained integrated model
+
+The maintained simulation is **MuJoCo MJCF**:
+
+- source: `assets/jaka_rh56.xml`;
+- runtime collision-qualified derivative:
+  `assets/jaka_rh56_visual_coacd.xml`;
+- 6-DoF JAKA Mini2 plus a 12-joint RH56 hand;
+- 12 actuators total: six arm position actuators and six hand position
+  actuators;
+- 18 generalized positions/velocities, 22 bodies, 169 geoms, six equality
+  constraints, no declared sensor, site or camera elements;
+- simulation timestep 0.002 s;
+- arm actuator `kp=40`; hand actuator `kp=8`;
+- arm runtime supports a 500 Hz plant step and a 125 Hz accepted-target option
+  through the existing `JakaMujocoSimulation` adapter;
+- the command interface is six accepted JAKA joint targets plus six independent
+  native RH56 actuator targets.
+
+The hand is underactuated geometrically through six rigid MuJoCo joint
+equalities. Four finger DIP joints track their MCP parents linearly. The thumb
+uses nonlinear cubic joint-equality polynomials:
+
+- PIP = `0.9093 q + 0.386918399052 q^2 - 0.111910868472 q^3`;
+- DIP = `1.33911 q - 0.623601534642 q^2 - 0.0274541095051 q^3`.
+
+The default runtime has 13 collision-disabled vendor visual geoms, 148 active
+CoACD convex collision geoms and seven reviewed adjacent-link contact
+exclusions. Default contact friction is `[1, 0.005, 0.0001]`; hand contact uses
+`[1.8, 0.08, 0.004]`, `condim=4`, `solref=[0.004, 1]` and
+`solimp=[0.92, 0.98, 0.002]`. Joint ranges and actuator control ranges are
+explicit.
+
+MuJoCo exposes `actuator_force`, `qfrc_actuator`, `cfrc_ext` and per-contact
+wrenches, but the model declares no calibrated load sensors. These values are
+**simulation forces**, not a validated proxy for the RH56 native actuator-load
+channels. Camera simulation, objects, resets, success predicates and benchmark
+tasks are not present in the integrated asset; current uses are teleoperation,
+replay and an offline self-test.
+
+#### Separate hand-only test bench
+
+The independent `/home/thor/projects/exp/rh56dfx_hand.xml` is also MuJoCo MJCF.
+It contains the same 12 joints, six actuators and six rigid equalities, with 163
+geoms and a fixed test object. It supports contact/force diagnostics and
+controlled mass/friction changes, but no JAKA, cameras, standardized task,
+dataset writer or policy environment. It provides useful contact evidence but
+does not add tendon compliance, cable elasticity, backlash, hysteresis or
+measured load sharing.
+
+Therefore “high fidelity” is defensible for **geometry, collision decomposition
+and the currently modeled kinematic coupling**. It is not yet evidence of
+actuator/load fidelity. Future claims must keep those two meanings separate.
+
+#### Semantic fidelity still to validate
+
+Before using any simulator for a scientific claim, validate:
+
+1. fingertip forward kinematics over a fixed grid of the six native commands;
+2. driven-to-passive joint curves, especially both thumb couplings;
+3. collision geometry and contact-onset ordering on common primitives;
+4. joint/command range, sign and zero-pose correspondence to the real hand;
+5. actuator transient, delay, deadband/backlash and saturation only if the
+   paper claims dynamics transfer; and
+6. load mapping only if simulated effort is used as a policy input.
+
+#### Migration-cost audit
+
+| Target | Asset path | Expected semantic loss | Cost | Verdict |
+|---|---|---|---:|---|
+| Current MuJoCo | None | None relative to current model; actuator/load realism remains unvalidated | **E0** | Fidelity reference |
+| robosuite | Wrap/compose native MJCF and implement JAKA/RH56 controller/action formatting | Low for MuJoCo equality/contact; task/controller naming work remains | **E2--E3** | Best fallback |
+| ManiSkill hand-only | Use shipped RH56DFX URDF/BaseAgent | Linear, not cubic, mimic; offsets/limits explicitly uncalibrated | **E2** | Parity gate first |
+| ManiSkill JAKA+RH56 | Add JAKA URDF/BaseAgent, mount, cameras, controllers and tasks | Same hand issue plus cross-engine contacts | **E3**; **E4** if a custom nonlinear actuator/constraint is required | Conditional primary |
+| Isaac Lab | MJCF/URDF to USD/PhysX; articulation, tendons/custom actuator, sensors and tasks | Cubic equality is not directly represented by a fixed tendon; import preservation UNKNOWN | **E3--E4** | Stretch for actuator study |
+| RoboTwin 2.0 | Build SAPIEN-compatible URDF embodiment, CuRobo config and replace scalar-gripper stack | Likely linear mimic/contact differences; broad schema/controller rewrite | **E4** | Do not start now |
+| DexVerse | First do the Isaac Lab port, then fit an incompletely released cross-embodiment suite | Same Isaac gap plus release risk | **E4--E5** | Monitor only |
+
+Asset licensing is a separate gate. The repository's vendor mesh
+redistribution terms are **UNKNOWN** and must be resolved before publishing an
+RH56 benchmark asset. ManiSkill labels its Inspire asset CC BY-NC-SA 4.0, which
+also prevents silently copying it into a differently licensed benchmark.
+
+### B. Platform comparison
+
+#### Physics, embodiment and sensing
+
+| Platform | Custom robot / dexterous hand | Underactuation / actuator extensibility | Contact / load observability | Cameras / 3D | Parallelism and randomization | Sim-to-real tools |
+|---|---|---|---|---|---|---|
+| **RoboTwin 2.0** | URDF embodiments in SAPIEN; five supplied bimanual embodiments. Custom hands possible, but the framework's hand abstraction is scalar | URDF mimic is possible at the physics level, but RoboTwin control expands one normalized gripper scalar through fixed multipliers/offsets. No released RH56 actuator model | SAPIEN joint/contact information is available, but the standard dataset/action schema does not expose calibrated multi-actuator hand loads | Multi-camera RGB, depth and point clouds are native | Large seed/task generation and multi-process orchestration; collection inspected here plans/replays seeds serially per worker, not an Isaac-style vectorized GPU environment. Broad scene/camera/light/object DR | Randomization and evaluation transfer help; no turnkey real JAKA/RH56 bridge |
+| **Isaac Lab / Sim** | Strong USD/URDF/MJCF articulation support; Allegro/Shadow and current DexSuite examples; custom articulation is a first-class path | Strongest option: implicit and explicit actuator APIs, IdealPD/DCMotor/delayed/remotized/ActuatorNet MLP/LSTM; PhysX fixed/spatial tendons. A fixed tendon is linear, so current cubic equality needs a custom solution. Newton backend currently does not supply equivalent tendon support | Contact sensors, filtered net forces, articulation applied/computed efforts. None is automatically a calibrated RH56 load | RTX RGB/depth/segmentation and ray/contact sensors | GPU-vectorized physics/rendering and event-based domain randomization including masses, materials, gains and fixed-tendon parameters | Excellent DR and actuator-system-identification hooks; real transfer remains project-owned |
+| **ManiSkill 3** | URDF/MJCF custom agents; already ships fixed/floating RH56DFX-2L/R BaseAgents and product-family URDFs | Six active finger controls plus six passive mimic joints. Current RH56 asset uses linear mimics and high-gain PD. Custom controllers are straightforward; nonlinear coupling needs additional work. Current MJCF loader does not preserve this repository's solver/actuator/contact/equality semantics | Pairwise/net contact forces, generalized forces and joint state; no calibrated native-load model | GPU RGB/depth/segmentation/point cloud; agent and external cameras | GPU SAPIEN/PhysX, heterogeneous parallel envs, domain randomization and recorded reconfiguration metadata | Digital-twin/real2sim examples and `BaseRealAgent`; no JAKA/RH56 ready-made bridge |
+| **robosuite + MimicGen** | Native MuJoCo composition; already has an Inspire hand class, although its six-to-twelve mapping is not this calibrated asset | Preserves MuJoCo equality/contact semantics; custom composite controllers and observables. Existing Inspire implementation manually duplicates controls and is not a fidelity substitute | MuJoCo contact/force/torque observables; explicit observable sampling rate/delay supports multi-rate studies | RGB/depth/segmentation cameras; point cloud can be derived | CPU MuJoCo is less scalable than GPU suites; domain-randomization wrappers exist | Highest-fidelity continuation from the current asset, but task/real bridge remains project-owned |
+| **DexVerse (emerging)** | Isaac Lab suite claims 100 tasks, three arms and six hands | Inherits Isaac capabilities | Inherits Isaac capabilities | Visual randomization and teleoperation data | Intended GPU scale | Only Shadow assets/data were released in the inspected roadmap; other embodiments/baselines remain staged |
+
+#### Demonstrations, policies and benchmark value
+
+| Platform | Automated experts | Human teleoperation | IL / policy support | Evaluation and public suite | License / maintenance | **Standard benchmark value** | **RH56 research value** |
+|---|---|---|---|---|---|---:|---:|
+| **RoboTwin 2.0** | Strong task-specific CuRobo/MPLib generation, seed filtering and replay; 100k+ stated demos across 50 tasks | External/custom; not the main strength | XPolicyLab converts HDF5 to LeRobot and lists ACT, DP, SmolVLA, pi0/pi0-FAST/pi0.5, OpenVLA-OFT, RDT and others | Strong: 50 bimanual tasks, randomized evaluation, multi-GPU/remote policy server | MIT, active through Aug 2026; object/data licenses need per-asset review | **HIGH** | **LOW--MEDIUM** until hand stack is replaced |
+| **Isaac Lab** | Isaac Lab Mimic transforms/stitches source subtasks; it is not a generic planner. Source demos, boundaries, object poses and success logic are required | Keyboard, SpaceMouse, XR/CloudXR including Quest-class workflows, Manus; custom retargeting | Native robomimic BC/BC-RNN/BCQ path. No official native ACT/DP implementation located. GR00T/LeRobot and RLinf VLA integrations are experimental | Many environments and strong metrics, but no single mature IL leaderboard comparable with RoboTwin | BSD-3; Mimic Apache-2.0; Isaac Sim/cuRobo have separate terms. Very active, current main is beta | **MEDIUM** | **HIGH** for actuator/contact uncertainty |
+| **ManiSkill 3** | Engineer-written motion-planning demos for selected robots/tasks; trajectory replay/recording. No generic multi-finger expert generator | Mouse/keyboard/SpaceMouse examples; community VR, official direct VR support limited | Native ACT and DP code for state/RGB, RGB-D variants, BC/RL; VLA examples reference Octo/RDT/RT-X but are external. Official baseline results are WIP | Strong standardized Gym API, `success_once`, `success_at_end`, fail/return metrics, trajectory source/backend metadata; broad public tasks | Apache-2.0 code, active; general assets often CC BY-NC 4.0, Inspire asset CC BY-NC-SA 4.0 | **HIGH** | **MEDIUM--HIGH** after fidelity validation |
+| **robosuite + MimicGen** | MimicGen object-relative subtask transformation; DexMimicGen demonstrates dexterous task composition, but released DexMimicGen repo omits the generation core | Mature keyboard/SpaceMouse/device framework | robomimic BC-RNN/BC/BCQ and dataset conventions; no maintained native ACT/DP/VLA benchmark | Stable task/success API, but classic suite is dominated by parallel-gripper tasks and has less modern leaderboard comparability | robosuite MIT; MimicGen/DexMimicGen code is NVIDIA research/noncommercial | **MEDIUM** | **HIGH** for preserving native MuJoCo semantics |
+| **DexVerse** | Demonstrations and baselines are announced for 19 tasks | VR teleoperation is a central claim | DP/DP3/OpenVLA/pi0.5 are reported | Potentially high cross-hand comparability, but the inspected release still withholds most embodiment assets/instructions/demos | BSD-3 code; gated asset terms separate; July 2026 preprint/active roadmap | **MEDIUM now; potentially HIGH** | **MEDIUM, long-horizon** |
+
+The two value columns should not be collapsed. RoboTwin is the strongest
+general-policy comparison suite in this set while being a poor low-cost RH56
+host. The native MuJoCo/robosuite route is the reverse. ManiSkill is the best
+current compromise only because it combines a standardized evaluation layer,
+native ACT/DP examples and an existing RH56-family asset.
+
+### C. RoboTwin RH56 data-generation feasibility
+
+#### Actual released path
+
+The relevant RoboTwin path is:
+
+```text
+task play_once()
+  -> task-specific target poses and grasp_actor/open/close calls
+  -> Action(stage, target_pose, gripper=scalar target)
+  -> CuRobo or MPLib plans arm joint positions
+  -> Robot maps one normalized gripper scalar through mimic multipliers/offsets
+  -> first pass retains only successful seed/path pairs
+  -> second pass replays the same seed/path while cameras/state/actions are written
+  -> task-specific check_success() accepts or rejects the episode
+  -> HDF5, then optional XPolicyLab/LeRobot conversion
+```
+
+This is not a generic “language task to dexterous expert” system. The task
+author writes the semantic stages and grasp target. CuRobo plans the arm; the
+gripper primitive remains one scalar. `Robot.get_obs()` likewise records a
+scalar left/right gripper state plus a derived vector. A six-channel RH56 cannot
+be made faithful by changing only the URDF.
+
+#### What can remain and what must change
+
+| Component | Reuse for JAKA+RH56? | Required work |
+|---|---|---|
+| Scene/task randomization and deterministic seeds | **Yes** | Add objects/tasks that exercise distinct RH56 grasp types; retain seed provenance |
+| CuRobo arm planning | **Mostly** | Supply a JAKA kinematic model, joint limits, retract pose and collision spheres; verify planning scene and tool frame |
+| Stage/task scripts | **Conceptually** | Replace each scalar `grasp_actor/open/close` call with a pregrasp, synergy/hand primitive and possibly closure-until-condition stage |
+| Scalar `Action.gripper` | **No** | Introduce a six-native-channel or low-dimensional synergy hand action while preserving arm action semantics |
+| Gripper mimic expansion | **No** | Replace fixed scalar multiplier/offset logic with an RH56 controller; do not pretend passive-joint mimic is actuator load sharing |
+| Task success predicates | **Mostly** | Object pose/containment predicates remain useful; remove scalar-open gates and add task-level release/retention predicates where needed |
+| First-pass plan filtering | **Yes, with caution** | Arm-plan success is not grasp success. Hand/contact execution must run before a seed is labeled expert |
+| Camera/depth/point-cloud capture | **Yes** | Define workspace/wrist cameras matched enough for a controlled sim-to-real study |
+| Dataset writer/converters | **Partial** | Extend observation/action metadata and normalization for 6-D RH56 command, 12 physical joints and optional simulated effort/load |
+| XPolicy policy server/evaluator | **Yes after schema work** | Add the embodiment/action adapter and enforce per-policy timing/action-unit contracts |
+
+#### Effort and scientific use
+
+An honest custom RoboTwin embodiment is **E4**: URDF/SAPIEN model, JAKA
+CuRobo configuration, six-channel hand schema, grasp-primitive library,
+dataset/converter changes and task revalidation. Preserving CuRobo, seeds,
+success predicates and capture saves work, but does not eliminate the hard
+part: generating valid multi-actuator hand behavior.
+
+RoboTwin is therefore appropriate in two narrower roles:
+
+1. run a standard-embodiment policy baseline if the paper truly needs
+   general-policy evidence; or
+2. reuse its task/evaluation ideas after a hand expert exists elsewhere.
+
+It should not be the first RH56 implementation. A paper that compares a
+RoboTwin scalar gripper to the real RH56 would confound embodiment, action
+space, expert quality and physics.
+
+### D. Isaac Lab RH56 feasibility
+
+Isaac Lab is the technically strongest platform for a paper specifically
+about **actuator/contact uncertainty**:
+
+- `ArticulationCfg` makes custom robots first-class;
+- implicit and explicit actuators support ideal PD, DC-motor limits, delay,
+  remoting and learned MLP/LSTM dynamics;
+- custom actuator subclasses can implement deadband, asymmetric saturation,
+  rate limits or history dependence;
+- PhysX fixed/spatial tendons and randomization of fixed-tendon parameters can
+  represent linear coupling and uncertainty;
+- contact sensors can cover all fingertip bodies or selected pairs; applied and
+  computed joint efforts are observable;
+- event-based randomization covers material, mass, gains, actuator parameters
+  and scene/camera properties; and
+- GPU parallelism makes contact/actuator ablations substantially cheaper than
+  CPU MuJoCo.
+
+The import caveat is decisive. A fixed tendon constrains a weighted linear sum
+of joint positions. It does not reproduce the current cubic thumb equalities.
+Official MJCF import does not establish that MuJoCo `polycoef` joint equalities,
+contact solver settings or position-actuator behavior survive in USD/PhysX.
+The Newton backend also cannot currently be assumed to supply equivalent
+tendon behavior. “The file imported” is not a fidelity test.
+
+A credible port would require:
+
+1. convert geometry/inertia/collision to USD and mount it to JAKA;
+2. implement either a validated nonlinear constraint approximation or a custom
+   actuator/controller that produces the same passive-joint trajectories;
+3. reproduce six native command channels and the real command ranges;
+4. add cameras, contact/effort sensors, task resets and success conditions;
+5. replay the semantic-parity suite against the MuJoCo reference; and
+6. only then identify/randomize delay, friction, backlash or load mapping.
+
+Isaac Lab Mimic can transform and stitch object-relative subtask segments from
+the 52 real trajectories or a few sim teleoperation traces, but it needs
+subtask boundaries, object poses, a success predicate and environment-specific
+methods. It is not automatic planning from a blank task specification. This is
+still attractive for the existing approach/grasp/lift/transport/place/release
+structure, particularly if event labels are derived automatically.
+
+Native official imitation support found in the inspected tree is robomimic
+BC/BC-RNN/BCQ. No maintained native ACT or Diffusion Policy implementation was
+located. GR00T/LeRobot/RLinf connections exist but remain experimental and do
+not remove the custom-action integration. Overall cost is **E3** for a
+geometric prototype and **E4** for a paper-grade fidelity/IL environment.
+
+Verdict: **do not make Isaac Lab primary now**. Upgrade it if a first experiment
+shows that actuator delay/coupling/contact randomization, rather than policy
+learning, is the scientific bottleneck.
+
+### E. ManiSkill RH56 feasibility
+
+ManiSkill has the shortest surprising path because it already registers:
+
+- fixed and floating left/right Inspire `RH56DFX-2L/R` agents;
+- six active hand joints and six passive mimic joints, plus two wrist joints in
+  floating variants;
+- absolute and delta joint-position control configurations;
+- tuned axis/sign conventions intended to match the real product family; and
+- an explicit asset note documenting remaining system-identification issues.
+
+The shipped finger mimic multiplier/offset is `1.06399/-0.167348`; the thumb
+chain uses `1.3333` and `0.5` linear relations. The controllers use high-gain PD
+(`stiffness=1e3`, `damping=1e2`, nominal force limit 20) and add small mimic
+damping for PhysX stability. Those choices differ materially from our native
+MuJoCo `kp=8` and nonlinear thumb equality. They are a useful starting asset,
+not ground truth.
+
+ManiSkill's generic MJCF loader is not a shortcut: in the inspected source,
+joint solver/stiffness/actuator properties are not directly imported, contact
+tags are unsupported, tendon parsing is commented out, and equality behavior
+is explicitly caveated. Importing `jaka_rh56_visual_coacd.xml` directly would
+silently discard the semantics we care about.
+
+#### Required integration
+
+1. build or legally reference a JAKA URDF/agent, then mount the existing
+   Inspire hand at the validated transform;
+2. define a 12-D native command controller matching real JAKA/RH56 units, plus
+   lower-dimensional hand-action variants for ablations;
+3. calibrate or replace the linear mimic relations using the MuJoCo/real
+   fingertip and joint curves;
+4. attach workspace/wrist cameras and expose RGB, optional depth, joint state,
+   contact/generalized force and optional effort proxy;
+5. implement task `evaluate()` outputs, reset distributions and failure-stage
+   metrics;
+6. add motion-planning/teleop demonstrations for RH56 tasks; and
+7. write explicit trajectory metadata: source (human/planner/RL/Mimic), physics
+   backend, action semantics and randomization seed.
+
+#### Learning and evaluation advantages
+
+ManiSkill supplies native, inspectable ACT and Diffusion Policy example stacks,
+including RGB and RGB-D variants, plus standard motion-planning demonstration
+recording and Gymnasium evaluation. Metrics distinguish success at any time,
+success at the end, explicit failure and episode return. The trajectory record
+also preserves source and backend provenance. These are exactly the controls
+needed to avoid comparing policies trained on different expert generators.
+
+However, official ACT/DP benchmark tables are WIP, VLA examples depend on
+external Octo/RDT/RT-X code, and the existing Inspire hand is not assigned to a
+released dexterity task. Rotate-object tasks target Allegro, RotateValve targets
+DClaw and InsertFlower has its own embodiment assumptions. Custom task work is
+still required.
+
+Cost is **E2** for a hand-only kinematic/contact parity environment and **E3**
+for JAKA + RH56, cameras, tasks and a demonstration path. It becomes **E4** if
+matching the cubic coupling requires changes below the controller layer.
+
+Verdict: **recommended conditional primary**, with a strict two-stage gate:
+
+- **Gate M1:** static/dynamic hand parity without a learned policy;
+- **Gate M2:** one task, one expert source, ACT/DP data and evaluation smoke
+  test.
+
+Only after both gates pass should task expansion or GPU training begin.
+
+### Other platform findings that change the decision
+
+#### robosuite / MimicGen / DexMimicGen
+
+robosuite is the only current alternative that can preserve the native MuJoCo
+equality/contact representation without an engine conversion. It provides
+composable robot/gripper models, controllers, cameras, observables with
+configurable sampling rate/delay, domain randomization, demonstration capture
+and stable task success APIs. Its built-in Inspire hand uses a separate manual
+six-to-twelve mapping and must not replace our asset without validation.
+
+MimicGen's reusable idea is object-relative transformation and stitching of
+subtask segments. DexMimicGen (ICRA 2025) demonstrates that the idea extends to
+dexterous/bimanual tasks and reports 21k demos from 60 sources across nine
+tasks. The inspected DexMimicGen repository releases environments, datasets and
+BC-RNN configs but not the generation core; the generic MimicGen generator or
+Isaac Lab Mimic must supply it. NVIDIA's source license is research/
+noncommercial, so a clean reimplementation needs legal review and attribution.
+
+This stack is the **fidelity-first fallback**, cost **E2--E3**. Its weaknesses
+are CPU throughput, fewer modern policy baselines and weaker current benchmark
+comparability.
+
+#### DexVerse
+
+[DexVerse](https://github.com/ycyao216/DexVerse) is a promising Isaac-Lab-based
+cross-embodiment suite (July 2026 preprint) claiming 100 dexterous tasks, six
+hands, VR demonstrations and DP/DP3/OpenVLA/pi0.5 evaluation. The inspected
+official roadmap currently releases the task framework and Shadow subset while
+other embodiments, cross-embodiment assets/instructions/demos and parts of the
+baseline suite remain staged. It is **not yet a stable primary dependency**.
+Monitor releases; do not build the paper schedule around them.
+
+### F. Recommended experiment architecture
+
+| Requested option | Scientific coverage | Engineering / data cost | Main confound | Decision |
+|---|---|---|---|---|
+| **1. RoboTwin standard + Isaac RH56 + real** | Highest standard-plus-fidelity breadth | **E5**, D2--D4; two simulator stacks and two policy/data interfaces | Results can differ because expert generator, engine, embodiment and policy adapter all change | **REJECT NOW**; too broad for the smallest ICRA claim |
+| **2. Isaac Lab RH56 + real** | Strong actuator/contact uncertainty and GPU scale | **E4**, D2--D4 | Cubic coupling/import fidelity and missing native ACT/DP path | **HOLD** for an explicitly dynamics-centered paper |
+| **3. RoboTwin custom JAKA+RH56 + real** | Strong benchmark branding and XPolicy breadth | **E4**, D2--D4 | Scalar-gripper assumptions require invasive replacement; SAPIEN fidelity unknown | **REJECT NOW**; preserve RoboTwin only as a reference suite |
+| **4. ManiSkill RH56 + real** | Best one-platform mix of standard tasks, native ACT/DP, GPU scale and exact product-family asset | **E3** after gates, D1--D3 | Linear uncalibrated mimic versus nonlinear native model | **RECOMMEND CONDITIONALLY** |
+
+#### Recommended Option 4+
+
+“Option 4+” does not add another benchmark. It uses:
+
+```text
+ManiSkill standard tasks
+    -> general learning/evaluation control
+ManiSkill JAKA+RH56 tasks
+    -> underactuation and multi-stage mechanism study
+native MuJoCo JAKA+RH56
+    -> asset/controller semantic oracle and selected replay checks
+real JAKA+RH56 + nominal52
+    -> physical validity and sim-to-real/generalization evidence
+```
+
+The minimum ICRA-scale claim needs all three evidence tiers only if the method
+claims generality beyond RH56. A standard task subset tests whether the learning
+idea is a generic action-chunk or sampling improvement; the custom simulator
+tests its underactuation mechanism; real results test physical relevance. Do
+not force standard tasks into the custom RH56 embodiment when their expert and
+controller assumptions make that comparison meaningless.
+
+For a purely sim-to-real actuator paper, select the fidelity-first fallback
+(native MuJoCo/robosuite + real) instead. For a broad VLA benchmark paper, use
+RoboTwin standard embodiments, but that is a different project and should not
+be combined with an RH56 fidelity claim.
+
+### G/H. Algorithm opportunity map around underactuation
+
+The open problem is not “use a dexterous hand.” RH56 exposes six commands but
+realizes them through coupled passive joints, contact-dependent configurations
+and uncertain actuator response. A reusable learning question is how a policy
+should represent and infer the controllable hand state at rare multi-stage
+transitions. The following map separates existing solutions from the remaining
+RH56 claim.
+
+| Method / source | What is already solved | Reusable component | What remains open | Mapping to RH56 | Standard-benchmark test? | Force/load required? | License / cost |
+|---|---|---|---|---|---|---|---|
+| **Critical-event BC** (this survey's ACT failure evidence; phase/change-point literature) | Event-centered sampling and phase labels are standard tools; short history can reduce temporal aliasing | Self-supervised hand-command change points, event-window sampler, phase/stage metrics | Whether chunk policies systematically learn persistence instead of rare approach-to-grasp/release transitions, and whether the fix transfers across embodiments/tasks | Direct: six native hand command transitions are observable in all 52 trajectories | **Yes**: apply identical sampler/history to ManiSkill PickCube, StackCube, PegInsertion and custom RH56 tasks | **No** | Repository-owned E1--E2; novelty risk HIGH alone, MEDIUM if tied to underactuation/action interface |
+| **DQ-RISE**, ICRA 2026, [paper/code](https://github.com/rise-policy/DQ-RISE) | Quantizes dexterous hand state with a residual VQ-VAE and jointly generates ordered hand codes with arm motion; real 6-DoF OyMotion hand on six tasks | Hand-only codebook, ordered discrete/continuous gesture index and arm/hand loss balancing | Released full policy assumes calibrated RGB-D point clouds and RISE; no evidence that quantization helps a six-channel hand whose main issue is rare transition timing | Train the codebook only on RH56 position/command trajectories; compare native absolute, delta and code actions with the same ACT/DP visual backbone | **Partly**: codebook can be tested on an RH56 sim task; standard scalar-gripper tasks are a negative control | **No** | CC BY-NC-SA 4.0; clean adapter/reimplementation E2, full RISE E4 |
+| **CrossDex**, ICLR 2025, [paper](https://proceedings.iclr.cc/paper_files/paper/2025/file/ca8c6f28d8ba1e732e3f217ab05c4ec0-Paper-Conference.pdf), [code](https://github.com/PKU-RL/CrossDex) | Human-hand eigengrasp action and fingertip/palm observations support shared policies across four hands and zero-shot tests on two | Low-dimensional eigengrasp/synergy prior and explicit retargeting interface | Grasping-focused, privileged/state-heavy RL; official repo TODO still lists parts of eigengrasp processing, randomization, RL/DAgger; code license absent | Learn/fit a 2--6D controllable RH56 synergy basis over nominal52 and map it to native commands; do not import the full RL stack | **Yes only for cross-hand simulation**, not ordinary gripper tasks | **No** | License **UNKNOWN**; concept-only E2, full reproduction E4 |
+| **DexFormer**, 2026 preprint, [project](https://davidlxu.github.io/DexFormer-web/) | History-conditioned transformer infers morphology/dynamics across 300 randomized hands and transfers to LEAP/Allegro/RAPID grasping | Hypothesis that short histories reveal hidden embodiment/dynamics without an explicit ID | Code and license not released on the inspected project; high-scale RL/grasping does not establish low-data multi-stage IL | Test two/four-frame vision+state history and commanded/measured residuals before any morphology transformer | **Yes** in multi-hand sim after a large port; cheap history ablation is general | **No** | Code/license UNKNOWN; cheap derived test E2, reproduction E4--E5 |
+| **DexTrack**, ICLR 2025, [code](https://github.com/Meowuu7/DexTrack) | Tracks human references using cumulative residual position targets with kinematic bias or relative targets on Allegro and LEAP+Franka | Residual action around a kinematic/reference continuation | Needs a reference trajectory and privileged tracking pipeline; released authors say specialist-generalist pieces are too messy to release | Use nearest nominal continuation or chunk start as a reference and predict bounded RH56 residuals; compare with absolute targets | **Yes** as a reference-conditioned policy baseline | **No** | BSD-3-Clause repository; E2 retrieval/residual probe, full system E4 |
+| **MimicGen / DexMimicGen / Isaac Lab Mimic**, CoRL 2023 / ICRA 2025 | Generates data by transforming object-relative subtask segments and stitching/interpolating them; demonstrated dexterous/bimanual generation | Phase boundaries, object-relative segment transforms, success filtering and provenance | Requires object poses, reliable segment annotations and a simulator that survives transformed contact; dexterity generator core is not in the DexMimicGen repo | Derive approach/grasp/lift/place/release boundaries, replay only geometrically valid segments, preserve six-channel hand trajectory | **Yes** on standard and RH56 tasks if the same source-budget protocol is used | **No** | Isaac Mimic Apache-2.0; NVIDIA generators research/noncommercial. E2 phase audit, E3 generation |
+| **DemoGrasp**, ICLR 2026, [code](https://github.com/BeingBeyond/DemoGrasp) | One-demo object-centric replay plus massive RL produces grasp policies across hands; released Inspire checkpoint/data generation to LeRobot v2 | Inspire configuration, object-centric demonstration replay, sim data writer | Grasp-only, Isaac Gym Preview 4, 3,200-object/6,400+ env scale; no clear repository license located | Reference for Inspire geometry/data semantics and a grasp-initialization baseline, not a monolithic policy replacement | **Only on grasping** | **No** | License UNKNOWN; E4 and substantial compute; HOLD |
+| **DexUMI**, CoRL 2025, [project/code](https://github.com/real-stanford/DexUMI) | Human-hand universal interface, Inspire/XHand exoskeletons, robot-hand inpainting and real Diffusion Policy; force input is optional | Exact Inspire linkage optimization data/results, feasible hand-action capture interface, optional FSR conditioning | Requires new wearable hardware/data pipeline; not an automatic sim expert or benchmark | Valuable independent evidence for Inspire kinematic linkage and feasible actions; reuse code/data only with provenance | **No direct standard benchmark** | **Optional** | MIT; E3--E4 to adopt collection, E0 reference now |
+| **ManipTrans**, CVPR 2025, [code](https://github.com/ManipTrans/ManipTrans) | Residual RL transfers human-reference dexterous/bimanual trajectories; provides Inspire configurations but withholds some URDFs | Residual correction around retargeted references and reference-state initialization | Old Isaac Gym, reference trajectories, large RL; Inspire asset access restricted | Conceptual residual baseline only; do not import GPL components into permissive code without deliberate licensing | **Cross-hand dexterity only** | **No** | GPL-3.0; E4, REJECT now |
+| **Actuator dynamics + randomization** (Isaac Lab actuator APIs; [2026 force-based sim-to-real preprint](https://arxiv.org/abs/2601.02778)) | Delayed/learned motor models and randomized saturation/backlash can close actuation gaps; the preprint reports current-to-torque calibration and zero-shot force tasks | Identified command-to-joint dynamics, delay/deadband/saturation randomization and asymmetric critic during sim training | Exact RH56 parameter identification, whether dynamics matter for vision IL, and whether simple history is sufficient | Fit only parameters supported by offline/authorized evidence; use native load only for optional calibration/observation studies | **Yes** in custom sim; not meaningful on a default scalar gripper | **Optional for calibration; not required for action uncertainty** | Isaac BSD-3; cited preprint code/license UNKNOWN. E2 identification audit, E4 full sim-to-real RL |
+| **Multi-rate contact conditioning** (robosuite observable delays; existing nominal52 streams) | Frameworks can sample/hold modalities at distinct rates; multimodal policies can mask unavailable sensors | Timestamp-aware history, last-value/age token, modality dropout, simulated rate/delay sweeps | Whether sparse/lagged load adds information beyond hand command/position and contact history | Preserve raw load rate and timing rather than upsampling it as if synchronous; compare no-load/held-load/age-aware-load | **Yes** in RH56 sim, with force-free standard tasks as control | **Optional** | Repository-owned E2; Thread B owns load-specific implementation |
+
+#### What is worth testing first
+
+The most defensible combination is:
+
+```text
+self-supervised transition events
+  + short observation/command history
+  + underactuation-aware hand action (delta/residual or small learned codebook)
+```
+
+The components complement one another: event sampling fixes rarity, history
+reduces phase/dynamics aliasing, and the hand interface prevents long static
+absolute targets from dominating arm-hand learning. The hypothesis is falsified
+if each component fails under a matched update/parameter budget on both a
+standard manipulation task and nominal52 offline metrics. Force/load is absent
+from the core claim.
+
+Two more ambitious combinations remain conditional:
+
+- **Mimic-generated phase segments + the transition-aware policy** tests
+  whether data coverage or objective imbalance is the real bottleneck. It is
+  justified only after the base sampler/history/action factorial.
+- **Identified actuator randomization + history-conditioned policy** tests
+  whether temporal context implicitly adapts to underactuation uncertainty. It
+  requires a passed simulation-fidelity gate and more physical evidence.
+
+Do not combine DQ-RISE, CrossDex, DexFormer, MimicGen and load in one model.
+Each represents an alternative explanation; the experiment should expose
+which explanation survives.
+
+### I. Benchmark task selection
+
+#### A. Ten standard tasks for general policy evaluation
+
+Use ManiSkill's supplied Panda/Panda-wristcam embodiment and official
+motion-planning demonstrations for this tier. Do **not** replace the standard
+gripper with RH56 merely to claim task count.
+
+| Task | Why selected | Main property / event |
+|---|---|---|
+| `PickCube-v1` | Minimal grasp/lift control and a saturation check | approach -> close -> lift |
+| `PlaceSphere-v1` | Placement target with shape-induced grasp ambiguity | grasp retention -> precise release |
+| `StackCube-v1` | Longer horizon than pick; support-surface contact | grasp -> transport -> alignment -> release |
+| `StackPyramid-v1` | Repeated multi-stage composition | repeated pick/place and error accumulation |
+| `PegInsertionSide-v1` | Contact-rich spatial precision | grasp -> align -> insertion |
+| `PlugCharger-v1` | Tight pose tolerance and geometry-specific grasp | multimodal pregrasp -> insertion |
+| `PullCube-v1` | Non-prehensile trajectory control | contact acquisition -> persistent pull |
+| `PullCubeTool-v1` | Tool acquisition plus use | grasp tool -> reorient -> tool-object contact |
+| `PushCube-v1` | Non-grasp baseline for separating hand-transition gains | sustained contact without closure |
+| `LiftPegUpright-v1` | Reorientation during/after acquisition | grasp type and orientation robustness |
+
+This set is deliberately not “ten variations of pick.” It contains prehensile,
+non-prehensile, insertion, tool and repeated-composition cases. Run the official
+embodiment and expert source, fixed train/evaluation seed sets, and report
+`success_once`, `success_at_end`, explicit failure, episode length and the
+task-specific stage at failure. A method aimed at grasp transitions should
+improve Pick/Place/Stack without being expected to improve PushCube equally;
+that negative control improves causal clarity.
+
+If official demonstration quality or task support is incomplete at the chosen
+stable ManiSkill release, reduce the list rather than silently mixing planner,
+human and RL experts. Eight well-controlled tasks are better than ten with
+different supervision.
+
+#### B. Six underactuated/dexterous simulation tasks
+
+| Proposed task | Grasp/contact variation | Scientific role |
+|---|---|---|
+| **RH-GraspLift** | cylinder, cuboid and compliant-looking-but-rigid object; pinch/wrap variants | Isolate grasp initiation, retention and action-interface efficiency |
+| **RH-RelocatePlace** | bottle/can/mug to box, coaster or bin | Multi-stage analogue of the real task with object/goal pose shifts |
+| **RH-HandlePull** | drawer or hinged handle; hook/wrap grasp | Persistent contact and arm-hand coordination under passive coupling |
+| **RH-ValveTurn** | knobs/valves with two radii and resistance levels | Continuous contact, regrasp or changing hand posture |
+| **RH-ToolPress** | acquire a handled tool, then press/poke a target | Two contact modes and a critical skill boundary |
+| **RH-HoldUncertain** | lift/transport objects across mass, friction, coupling and delay ranges | Sim-to-real/action-uncertainty stress; load remains optional |
+
+Each environment must expose stage predicates independently of the reward:
+reached, acquired/contacted, grasped/retained, lifted, transported/aligned,
+placed/actuated and released. Training must not consume privileged stage labels
+unless the method declares that input and supplies a deployable estimator.
+
+Core generalization splits should vary object XY/yaw, one held-out geometry,
+mass/friction, camera extrinsics and coupling/command delay. Avoid a Cartesian
+product explosion: predeclare one geometric split and one dynamics split per
+task. Report both nominal and shifted success.
+
+#### C. Three core real RH56 tasks plus one stretch task
+
+1. **Bottle -> box** using the existing nominal52 dataset. Vary bottle and box
+   XY and one held-out bottle appearance/geometry.
+2. **Handled mug relocation** to a coaster or bin. This adds a handle-aware
+   pinch/hook or body-wrap choice and different release geometry without a new
+   sensor.
+3. **Drawer/handle pull then object exposure or retrieval.** A simple bounded
+   tabletop fixture supplies sustained contact and a different terminal
+   predicate.
+4. **Stretch: grasp a simple tool and press a large target.** Run only if the
+   first three support the method; it is the clearest multi-contact-mode test
+   but has the highest collection/setup cost.
+
+No collection is authorized by this plan. Before any later physical work, task
+fixtures, ranges, success predicates, trial counts, resets and safety boundaries
+must be separately reviewed. The real suite should be two strong tasks rather
+than four weakly powered ones if robot time is tight.
+
+### Evaluation protocol shared by all packages
+
+- Keep demonstration source and count fixed within a comparison. Label planner,
+  teleop, RL and generated trajectories explicitly.
+- Train at least three seeds for learned policies; evaluate on a fixed hidden
+  seed set and report binomial trial counts rather than only percentages.
+- Report full-task success **and** stage-transition recall/latency, retention,
+  wrong-transition rate and recovery after a missed event.
+- Match observation/action horizon, execution scheme, visual initialization,
+  normalization and update budget when comparing ACT and DP.
+- Use nested real-data subsets of nominal52, for example 8/16/32/52 logical
+  trajectories grouped by source; do not turn trimmed frames into independent
+  “demonstrations.”
+- Treat excluded/mixed-quality data as an explicitly named robustness or
+  quality-estimation set, never as silent expert augmentation.
+- Predeclare sim-to-real randomizations. Include a no-randomization control and
+  an oracle/full-joint simulation upper bound where scientifically meaningful.
+- Measure inference latency and actual command rate. A slower model is not a
+  fair action-representation win if it changes closed-loop timing.
+
+### J. Top three viable ICRA-scale packages
+
+#### Package 1 — Critical transitions in underactuated imitation (**recommended**)
+
+**Central scientific question.** Why do chunked imitation policies miss rare
+but task-critical grasp/release/contact transitions, and can a transition-aware
+objective plus minimal temporal context solve the problem across standard and
+underactuated embodiments?
+
+**Platforms.** ManiSkill standard tier + conditional ManiSkill JAKA/RH56 tier +
+real nominal52; native MuJoCo is the fidelity oracle.
+
+**Baseline policies.** ACT, Diffusion Policy, frame-balanced versus
+episode-balanced BC; scratch/ImageNet perception held fixed. SmolVLA gets a
+schema/one-task transfer audit only after the causal ACT/DP study.
+
+**Proposed algorithm family.** Self-supervised change points from command/state
+derivatives; event-balanced sampling or loss; two/four-frame history; optional
+hand delta/residual output. No deployment-time oracle phase label.
+
+**Simulation tasks.** Standard PickCube, StackCube, PlaceSphere,
+PegInsertionSide, PullCubeTool and PushCube negative control; RH-GraspLift,
+RH-RelocatePlace, RH-HandlePull and RH-ToolPress.
+
+**Real tasks.** Bottle -> box and handled mug; add handle pull only if the
+first two reproduce the transition mechanism.
+
+**Ablations.** Uniform/event sampler; one/two/four frames; true/shuffled/
+duplicated history; absolute/delta/residual hand action; event window width;
+ACT/DP; phase-label oracle only as an upper bound.
+
+**Generalization and sim-to-real.** Held-out object/goal pose and geometry;
+camera shift; coupling/delay shift in simulation. The method itself trains on
+real data; simulation establishes mechanism and scale rather than pretending
+synthetic pixels transfer directly.
+
+**Role of load.** None in the core. Optional event detector or observation
+ablation owned separately; the main claim must stand without it.
+
+**Role of underactuation.** It creates delayed/contact-dependent consequences
+from a low-dimensional command and makes transition timing/short history a
+physical, not merely sequence-modeling, issue.
+
+**Novelty risk.** **MEDIUM--HIGH.** Sampling/history are known individually.
+The paper must demonstrate a systematic event-persistence failure, an
+underactuation mechanism and cross-task/embodiment transfer, not present a new
+sampler name.
+
+**Engineering/data cost.** **E2--E3, D1--D3.** Fastest first falsification on
+nominal52 requires no new robot data.
+
+**Likely reviewer criticism.** “This is class rebalancing plus frame stacking.”
+Counter only with event-specific diagnostics, non-grasp negative controls,
+multiple policy families, standard tasks and real physical stage outcomes.
+
+#### Package 2 — A controllable action interface for underactuated hands
+
+**Central scientific question.** What policy action representation best
+captures the controllable manifold of a tendon/mimic-coupled hand: raw absolute
+actuator targets, deltas, bounded residuals, analytic synergies or learned
+discrete hand codes?
+
+**Platforms.** ManiSkill JAKA/RH56 after parity gates + real nominal52; a small
+standard task tier tests whether gains are hand-specific. Native MuJoCo supplies
+the nonlinear-coupling reference.
+
+**Baseline policies.** ACT and DP with identical visual/history settings;
+absolute native 6-D hand action, delta, chunk-start residual, DQ-RISE-inspired
+codebook and a low-dimensional PCA/eigengrasp baseline. A privileged 12-joint
+sim-only controller is an upper bound, not a deployable baseline.
+
+**Proposed algorithm family.** A learned or analytic low-dimensional
+underactuation-aware hand interface with a deterministic, bounded decoder to
+native six-channel commands; possibly a separate discrete grasp-mode and
+continuous arm/residual head.
+
+**Simulation tasks.** RH-GraspLift across pinch/wrap shapes,
+RH-RelocatePlace, RH-ValveTurn and RH-HoldUncertain.
+
+**Real tasks.** Bottle -> box, handled mug and handle pull.
+
+**Ablations.** Codebook size/dimension; analytic versus learned synergy;
+absolute/delta/residual; shared versus separate arm/hand loss; with/without
+history; same decoder with randomized coupling; raw-command reconstruction
+error versus policy success.
+
+**Generalization and sim-to-real.** Held-out grasp geometry, mass/friction and
+coupling/delay; train-sim/test-real with and without a small real fine-tune;
+report decoder feasibility and saturation.
+
+**Role of load.** Optional feedback/calibration ablation; not required.
+
+**Role of underactuation.** Central: the proposed interface must encode the
+controllable six-channel manifold and uncertainty in passive-joint outcomes.
+
+**Novelty risk.** **MEDIUM--HIGH** because CrossDex and DQ-RISE already cover
+eigengrasps and quantized hand state. Novelty must be the multi-stage,
+realizable-command interface under passive coupling and its causal comparison,
+not “a VQ-VAE for RH56.”
+
+**Engineering/data cost.** **E3, D1--D3.** The offline action study is E2; the
+full claim needs simulation and at least two real task types.
+
+**Likely reviewer criticism.** Six RH56 channels may be too low-dimensional to
+need a latent space; observed gains may be regularization or action smoothing.
+Include PCA/linear and matched-smoothing controls and be willing to kill the
+learned-code route.
+
+#### Package 3 — Fidelity-gated simulation data for real underactuated IL
+
+**Central scientific question.** When do transformed or randomized simulation
+demonstrations help a mature real dataset, and which embodiment errors make
+synthetic data harmful for underactuated multi-stage manipulation?
+
+**Platforms.** Native MuJoCo/robosuite + Mimic-style generation is the
+fidelity-first version; conditional ManiSkill provides GPU scale and standard
+tasks only after parity. Real nominal52 is the anchor.
+
+**Baseline policies.** Real-only ACT/DP; sim-only; naive mixed real+sim;
+real+geometric randomization; real+actuator/contact randomization; transformed
+phase segments; optional pretrained SmolVLA as a transfer boundary.
+
+**Proposed algorithm family.** Fidelity-gated synthetic-data selection or
+weighting: accept simulated segments only when kinematic/contact/action
+statistics lie inside a validated real envelope, with explicit phase/source
+metadata.
+
+**Simulation tasks.** RH-RelocatePlace, RH-HandlePull, RH-ToolPress and
+RH-HoldUncertain. Standard StackCube/PegInsertion provide a generator sanity
+check.
+
+**Real tasks.** Bottle -> box and handle/mug task, with held-out initial pose and
+object geometry.
+
+**Ablations.** No sim; naive sim; geometry-only; dynamics-only; both; Mimic
+segments versus full episodes; accepted/rejected weighting; exact versus
+perturbed coupling; amount of real data.
+
+**Generalization and sim-to-real.** Object pose/geometry plus mass/friction,
+command delay and camera shift. Report where simulation hurts as a first-class
+result.
+
+**Role of load.** Optional for defining/validating an actuator/contact envelope;
+not required for policy input or core data-selection claim.
+
+**Role of underactuation.** Central source of structured simulator mismatch:
+the same actuator command can yield different passive joint/contact outcomes.
+
+**Novelty risk.** **MEDIUM.** Domain randomization and Mimic generation are
+known. The contribution must be a measurable fidelity gate or data-selection
+principle with negative-transfer evidence, not “we mixed sim and real.”
+
+**Engineering/data cost.** **E3--E4, D2--D4.** Highest cost and therefore third
+ranked.
+
+**Likely reviewer criticism.** Simulator tuning may consume real test data;
+Mimic transformations may leak object pose; gains may come from simply more
+data; one hand may not establish a general fidelity principle. Use a locked
+calibration/evaluation split, equal sample budgets and at least two simulated
+coupling models.
+
+### Package ranking and force decision
+
+| Rank | Package | Robotics significance | Learning significance | Fast falsification | Force dependence | ICRA fit | Decision |
+|---:|---|---|---|---|---|---|---|
+| 1 | Critical transitions | HIGH | HIGH if mechanism transfers | VERY SHORT on nominal52 | NONE | ROBOT-LEARNING | **DO NOW offline** |
+| 2 | Underactuated action interface | HIGH | MEDIUM--HIGH | SHORT via offline representation controls | NONE / optional | BALANCED | **NEXT after parity gate** |
+| 3 | Fidelity-gated sim data | HIGH | HIGH if negative transfer is explained | MEDIUM | OPTIONAL | ROBOT-LEARNING | **HOLD until sim task exists** |
+
+The force-centered story is not the default. Load is scientifically useful if
+it explains otherwise hidden contact/actuator state or calibrates a simulation
+uncertainty model. It should be removed from the central claim if position,
+history and action representation explain the same failures.
+
+### Living idea-matrix update after nominal52 and simulation audit
+
+This is an update to the earlier matrix, not a reset. “Effect” is expected
+effect on the scientific decision, not a promised success gain.
+
+| ID | Direction | Change | E / D | First falsification | Effect | Generality / ICRA fit | Physical dependence | Force | New demos | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C1 | Transition-aware sampling + short history | **UPGRADE**: nominal52 can support event statistics and clean training | E1--E2 / D0--D1 | VERY SHORT | HIGH | HIGH / HIGH | LOW initially | NONE | NONE | **DO NOW offline** |
+| C2 | Absolute vs delta/residual/synergy hand action | **UPGRADE**: underactuated sim supplies mechanism tests | E2--E3 / D0--D2 | SHORT | HIGH/UNKNOWN | HIGH / HIGH | MEDIUM for final claim | NONE | NONE initially | **DO NEXT** |
+| C3 | ManiSkill JAKA+RH56 benchmark | **NEW/UPGRADE** after finding a shipped RH56DFX-family asset | E3 / D1--D3 | SHORT parity gate | HIGH | HIGH / HIGH | MEDIUM | NONE | SMALL for full real suite | **AUDIT FIRST** |
+| C4 | Fidelity-gated sim/Mimic augmentation | **UPGRADE** because a native MuJoCo oracle exists | E3--E4 / D1--D4 | MEDIUM | HIGH/UNKNOWN | HIGH / HIGH | HIGH | OPTIONAL | SMALL--MODERATE | **HOLD after gates** |
+| C5 | ImageNet/pretrained vision on nominal52 | **KEEP**, now better powered; not a benchmark architecture by itself | E1--E2 / D1 | VERY SHORT | MEDIUM | MEDIUM / MEDIUM | LOW | NONE | NONE | **DO NOW control** |
+| C6 | Matched Diffusion Policy baseline | **KEEP**; ManiSkill supplies an additional standard implementation | E1--E2 / D1 | SHORT | MEDIUM | HIGH / HIGH as baseline | LOW initially | NONE | NONE | **NEXT baseline** |
+| C7 | SmolVLA/generalist transfer boundary | **KEEP narrow**; schema/one-task audit only | E2--E3 / D1 | SHORT | UNKNOWN | HIGH / MEDIUM | LOW initially | NONE | NONE | **AUDIT, do not sweep** |
+| C8 | Custom RoboTwin JAKA+RH56 | **KILL**: scalar-gripper pipeline makes it E4 | E4 / D2--D4 | LONG | UNKNOWN | HIGH standard / MEDIUM RH56 | HIGH | NONE | MODERATE | **REJECT NOW** |
+| C9 | Isaac Lab primary RH56 platform | **DOWNGRADE** until an actuator-uncertainty hypothesis needs it | E4 / D2--D4 | MEDIUM--LONG | HIGH/UNKNOWN | HIGH / HIGH | HIGH | OPTIONAL | SMALL--MODERATE | **STRETCH** |
+| C10 | DP3/point-cloud policy | **DOWNGRADE**: no current real depth and it does not target the diagnosed transition problem | E3--E4 / D4 | LONG | UNKNOWN | MEDIUM / MEDIUM | HIGH | NONE | MODERATE | **REJECT NOW** |
+| C11 | Native load as central story | **DOWNGRADE to optional**; simulated effort is not calibrated load | E2--E4 / D1--D3 | SHORT offline | UNKNOWN | MEDIUM / MEDIUM | HIGH for final load claim | REQUIRED only for that ablation | NONE initially | **OPTIONAL, Thread B-owned** |
+
+The architecture choice does not displace the cheapest nominal52 controls.
+Those offline experiments should run before simulation expansion because they
+can kill an action-interface or representation story without paying E3.
+
+### K. Concrete next implementation step
+
+Do one **offline ManiSkill semantic-parity gate**, not a task port or training
+run.
+
+#### Gate M0 — provenance and static model map (E0)
+
+Create a comparison artifact that maps, by semantic name:
+
+- six native RH56 command channels;
+- all driven/passive joints, axes, signs, zeros and limits;
+- mount/wrist frames and fingertip frames;
+- mimic/equality formulas;
+- collision geom counts/materials; and
+- applicable source/mesh licenses.
+
+Exit immediately if JAKA or RH56 publication/redistribution terms cannot be
+resolved. Research use of an asset is not publication permission.
+
+#### Gate M1 — command-to-hand parity probe (E1--E2, D0)
+
+Using only offline simulators, evaluate a fixed grid containing open, midpoint,
+closed and one-channel sweeps. Record from native MuJoCo and ManiSkill:
+
+1. active/passive joint positions and velocities after settling;
+2. fingertip and palm poses in the hand frame;
+3. control targets/applied effort and settling behavior;
+4. self-collision and contact onset against the same sphere/cylinder/box
+   primitives; and
+5. determinism across repeated resets.
+
+Plot errors by command and joint, with the nonlinear thumb shown separately.
+Do not invent a universal numerical tolerance before observing the physical
+scale and task sensitivity. Predeclare task-relevant tolerances after the
+static model map, then use them without retuning on benchmark outcomes.
+
+Decision:
+
+- if a controller/parameter adapter restores task-relevant parity without an
+  engine patch, proceed with ManiSkill Option 4+;
+- if parity requires replacing PhysX constraint semantics or contact geometry,
+  stop the port and use native MuJoCo/robosuite;
+- if only actuator transients disagree while kinematics/contact geometry agree,
+  proceed for the transition/action-representation package but do **not** make
+  sim-to-real dynamics claims.
+
+This probe requires no robot, no new demonstration, no policy training and no
+raw-data change. Any one-off diagnostic code should be removed after the gate
+unless it protects a stable published asset contract.
+
+#### Gate M2 — one-task learning smoke test (only after M1)
+
+Implement RH-GraspLift with one cylinder and one success predicate, generate a
+small explicitly sourced demonstration set, and verify that ManiSkill's ACT and
+DP loaders consume the exact same observation/action contract. Run only a tiny
+overfit/evaluation smoke test. Do not create the six-task suite, launch GPU
+sweeps or collect physical data until this gate shows a viable end-to-end path.
+
+In parallel, the cheapest learning falsification remains offline on nominal52:
+measure event occupancy and compare native absolute, hand-delta and simple
+linear/PCA synergy reconstruction. That result can kill Package 2 before any
+simulator integration.
+
+### Directions explicitly downgraded or killed by this audit
+
+- **RoboTwin as the sole RH56 platform — KILL.** The scalar-gripper action,
+  state and expert primitives make this an E4 rewrite, not a robot config.
+- **Two independent simulator stacks from day one — KILL.** It increases task,
+  expert, engine and policy confounds faster than scientific coverage.
+- **Direct MJCF import into ManiSkill/Isaac as proof of fidelity — KILL.** The
+  current cubic equality/actuator/contact semantics are not guaranteed to
+  survive.
+- **Isaac Lab because it is fastest — DOWNGRADE.** Its throughput is valuable
+  only after the model and imitation path are correct.
+- **DexVerse as a primary 2026 dependency — DOWNGRADE to monitor.** The public
+  release is not yet complete enough for the project critical path.
+- **Full CrossDex/DexFormer/DemoGrasp reproduction — KILL for now.** These are
+  large-scale grasping/RL projects and do not directly answer the nominal52
+  multi-stage IL failure.
+- **DQ-RISE full port — KILL; retain its hand-code hypothesis.** Its released
+  policy brings an RGB-D/RISE stack and a restrictive noncommercial share-alike
+  license that are unnecessary for the first test.
+- **Simulated effort presented as real RH56 load — KILL.** A calibrated mapping
+  is absent.
+- **A FORCE_ACT-only fallback — KILL as default narrative.** Nothing in the
+  platform audit makes force necessary. Load remains an optional modality and
+  calibration signal.
+
+### Primary-source ledger for this continuation
+
+- **RoboTwin 2.0:** [official project](https://robotwin-platform.github.io/),
+  [paper](https://arxiv.org/abs/2506.18088),
+  [repository](https://github.com/RoboTwin-Platform/RoboTwin), and the shipped
+  XPolicyLab action/data/evaluation code at the revision listed above.
+- **Isaac Lab:** [official repository and documentation
+  source](https://github.com/isaac-sim/IsaacLab), including actuator,
+  articulation, sensor, teleoperation, domain-randomization and
+  `isaaclab_mimic` implementations; [Isaac Lab
+  paper](https://arxiv.org/abs/2511.04831).
+- **ManiSkill 3:** [official repository](https://github.com/haosulab/ManiSkill),
+  [RSS 2025 paper](https://arxiv.org/abs/2410.00425),
+  [RH56DFX asset notes](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/assets/robots/inspire_hand/README.md),
+  [ACT baseline](https://github.com/haosulab/ManiSkill/tree/main/examples/baselines/act),
+  and [Diffusion Policy baseline](https://github.com/haosulab/ManiSkill/tree/main/examples/baselines/diffusion_policy).
+- **robosuite/MimicGen:** [robosuite](https://github.com/ARISE-Initiative/robosuite),
+  [MimicGen](https://github.com/NVlabs/mimicgen),
+  [DexMimicGen project](https://dexmimicgen.github.io/),
+  [paper](https://arxiv.org/abs/2410.24185), and
+  [released repository](https://github.com/NVlabs/dexmimicgen).
+- **DexVerse:** [official project](https://ycyao216.github.io/DexVerse.site/),
+  [paper](https://arxiv.org/abs/2607.08751), and
+  [repository](https://github.com/ycyao216/DexVerse).
+- **Underactuation/action methods:**
+  [DQ-RISE](https://github.com/rise-policy/DQ-RISE),
+  [CrossDex](https://github.com/PKU-RL/CrossDex),
+  [DexFormer](https://davidlxu.github.io/DexFormer-web/),
+  [DexTrack](https://github.com/Meowuu7/DexTrack),
+  [DemoGrasp](https://github.com/BeingBeyond/DemoGrasp),
+  [DexUMI](https://github.com/real-stanford/DexUMI), and
+  [ManipTrans](https://github.com/ManipTrans/ManipTrans).
+
+All license statements apply only to the specific code checkout named here.
+Datasets, object assets, robot meshes, vendor SDKs, Isaac Sim/cuRobo and model
+weights may have different terms. **UNKNOWN** remains the correct status until
+the exact artifact is audited.
