@@ -174,6 +174,65 @@ The authoritative curation and exact source frame/timestamp boundaries are in
 ignored by Git. See `research_log/physical_bottle_nominal33_audit.md` and
 `research_log/physical_bottle_nominal33_materialization.md` for the results.
 
+## Human-audited nominal52 expansion (2026-08-13)
+
+`physical_bottle_v4_nominal52` extends nominal33 with the accepted recordings
+150--180. The operator-marked unusable recordings remain excluded. Source 172
+is split into `172_a`, `172_b`, and `172_c`; source 174 contributes `174_a` and
+`174_b`, while its incomplete third task is excluded. The reset/manual-recovery
+intervals are gaps in the derived view, not part of either neighboring task.
+
+The 52 included logical trajectories contain 33,111 matched rows and about
+1,102.1 seconds after removing reviewed setup holds and stationary/manual-reset
+tails. The train/validation split is acquisition-session grouped (37/15
+trajectories); all corrected segments from source 172/174 stay together in the
+validation group. Episode 161 is included under the operator's "other episodes
+normal" instruction, but its raw `aborted_robot_safety` metadata warning is
+preserved in the audit. Episode 153 is excluded despite locally present files
+because it was reported missing by the operator.
+
+Rebuild and validate the immutable-source derived view with:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
+  --config configs/training/physical_bottle_v4_nominal52.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
+  --config configs/training/physical_bottle_v4_nominal52.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
+  data/training/physical_bottle_v4_nominal52
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-smoke \
+  --config configs/training/act_physical_bottle_v4_nominal52.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
+  --config configs/training/act_force_physical_bottle_v4_nominal52.yaml
+```
+
+The exact decisions and source frame/timestamp ranges are in
+`configs/training/physical_bottle_v4_nominal52.yaml` and
+`research_log/physical_bottle_nominal52_materialization.md`.
+
+### Strong ACT baseline
+
+The repository-owned strong vision/state ACT baseline uses the frozen
+session-grouped nominal52 split, ImageNet-pretrained ResNet18, a 60-action
+prediction chunk, the canonical-size 512/3200 transformer, and a 100k-step
+budget. `n_action_steps=2` is only the pinned LeRobot inference-queue prefix;
+the physical adapter's execution horizon remains independently controlled by
+`--consume-actions`. Starting training never starts a robot:
+
+```bash
+scripts/train_physical_bottle_lerobot.sh strong-act
+scripts/evaluate_physical_bottle_nominal52_checkpoints.sh
+```
+
+The exact split is
+`configs/training/physical_bottle_v4_nominal52_split.yaml`, the trainer config
+is `configs/training/lerobot/act_physical_bottle_v4_nominal52_strong.json`, and
+the audit/selection protocol is in
+`research_log/physical_bottle_nominal52_strong_act_20260813.md`. Checkpoints and
+derived LeRobot views stay under ignored `outputs/training/`; do not commit
+them. ACT+Force training remains gated until the strong ACT configuration and
+checkpoint-selection result are fixed.
+
 ## Historical v2 LeRobot training entrypoint
 
 The retained mixed-quality physical-bottle materialization is

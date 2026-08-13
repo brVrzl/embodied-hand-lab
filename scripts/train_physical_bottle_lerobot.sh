@@ -20,7 +20,7 @@ die() {
 }
 
 case "$MODE" in
-  act|act-force|both|val4|clean-scratch|clean-pretrained) ;;
+  act|act-force|both|val4|clean-scratch|clean-pretrained|strong-act) ;;
   strong-pretrained)
     die "strong-pretrained on the mixed-quality val4 dataset is retired; run clean-scratch first"
     ;;
@@ -29,6 +29,7 @@ case "$MODE" in
 Usage: scripts/train_physical_bottle_lerobot.sh [act|act-force|both|val4]
        scripts/train_physical_bottle_lerobot.sh clean-scratch
        scripts/train_physical_bottle_lerobot.sh clean-pretrained
+       scripts/train_physical_bottle_lerobot.sh strong-act
 
 Builds and validates the disposable LeRobot v3 view, then starts the pinned
 official LeRobot 0.6.2 ACT trainer. `both` runs ACT and ACT+Force sequentially.
@@ -38,10 +39,12 @@ validation report. Existing training output directories are never overwritten.
 task-trimmed nominal16 view. `clean-pretrained` uses the exact same rows and
 split with cached ImageNet ResNet18 initialization, and is gated on completion
 and offline transition analysis of clean-scratch. The launcher is network-disabled.
+`strong-act` trains the fixed nominal52 session split for 100k steps with the
+canonical-size ACT and a 60-step prediction horizon. It does not run a robot.
 EOF
     exit 0
     ;;
-  *) die "mode must be act, act-force, both, val4, clean-scratch, or clean-pretrained" ;;
+  *) die "mode must be act, act-force, both, val4, clean-scratch, clean-pretrained, or strong-act" ;;
 esac
 if [[ $# -gt 1 ]]; then
   die "training stages beyond the controlled 2k budget require a separate reviewed config"
@@ -49,7 +52,10 @@ fi
 
 command -v docker >/dev/null 2>&1 || die "docker is required"
 [[ -d "$CONTAINER_HOME" ]] || die "container home does not exist: $CONTAINER_HOME"
-if [[ "$MODE" == clean-* ]]; then
+if [[ "$MODE" == "strong-act" ]]; then
+  [[ -d "$ROOT_DIR/data/training/physical_bottle_v4_nominal52/act" ]] || \
+    die "materialize physical_bottle_v4_nominal52 first"
+elif [[ "$MODE" == clean-* ]]; then
   [[ -d "$ROOT_DIR/data/training/physical_bottle_v2_nominal16/act" ]] || \
     die "materialize physical_bottle_v2_nominal16 first"
 else
@@ -77,6 +83,7 @@ run_one() {
   local view_name="${kind}_view"
   local run_name="${kind}_run"
   local config_name="act_physical_bottle_v2.json"
+  local chunk_size=16
   local split_args=()
   if [[ "$variant" == "val4" ]]; then
     view_name="${kind}_val4_view"
@@ -108,6 +115,21 @@ run_one() {
     [[ -f "$analysis" ]] || \
       die "clean-scratch offline transition analysis is required before clean-pretrained: $analysis"
   fi
+  if [[ "$variant" == "strong" ]]; then
+    [[ "$kind" == "act" ]] || die "strong baseline is defined only for standard ACT"
+    dataset_name="physical_bottle_v4_nominal52"
+    master="$ROOT_DIR/data/training/$dataset_name/act/master"
+    view_name="act_strong_view"
+    run_name="act_strong_run"
+    config_name="act_physical_bottle_v4_nominal52_strong.json"
+    chunk_size=60
+    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_v4_nominal52_split.yaml)
+    local weights="$CONTAINER_HOME/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
+    local expected_weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
+    [[ -f "$weights" ]] || die "cached ImageNet ResNet18 weights are missing: $weights"
+    [[ "$(sha256sum "$weights" | awk '{print $1}')" == "$expected_weights_sha256" ]] || \
+      die "cached ImageNet ResNet18 weights failed the pinned checksum"
+  fi
   local view="$ROOT_DIR/outputs/training/$dataset_name/lerobot/$view_name"
   local config="/workspace/embodied_lab/configs/training/lerobot/$config_name"
   local label="act"
@@ -132,11 +154,12 @@ run_one() {
       --kind "$kind" "${split_args[@]}"
   fi
   run_container python tools/lerobot_physical_bottle.py validate-view \
-    --view "/workspace/embodied_lab/outputs/training/$dataset_name/lerobot/$view_name"
+    --view "/workspace/embodied_lab/outputs/training/$dataset_name/lerobot/$view_name" \
+    --chunk-size "$chunk_size"
   local output="$ROOT_DIR/outputs/training/$dataset_name/$run_name"
   [[ ! -e "$output" ]] || die "training output already exists: $output"
   local log="$ROOT_DIR/outputs/training/$dataset_name/logs/${label}_${variant}_training.log"
-  run_container python -m lerobot.scripts.lerobot_train "${trainer_args[@]}" 2>&1 | tee "$log"
+  run_container python -m lerobot.scripts.lerobot_train "${trainer_args[@]}" 2>&1 | tee -a "$log"
 }
 
 if [[ "$MODE" == "act" || "$MODE" == "both" ]]; then
@@ -154,6 +177,9 @@ if [[ "$MODE" == "clean-scratch" ]]; then
 fi
 if [[ "$MODE" == "clean-pretrained" ]]; then
   run_one act clean-pretrained
+fi
+if [[ "$MODE" == "strong-act" ]]; then
+  run_one act strong
 fi
 
 echo "Training completed under $ROOT_DIR/outputs/training"

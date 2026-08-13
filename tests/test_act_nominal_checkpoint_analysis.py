@@ -39,3 +39,33 @@ def test_transition_recall_distinguishes_future_closure_from_copy_state() -> Non
     assert result["transition"]["queries"] == 14
     assert result["transition"]["recall"] == 1.0
     assert result["current_state_persistence"]["copy_state_transition_recall"] == 0.0
+
+
+def test_transition_analysis_accepts_long_horizon_and_reports_sessions() -> None:
+    count = 20
+    truth = np.zeros((count, 60, 12), dtype=np.float32)
+    for row in range(count):
+        truth[row, max(0, 30 - row) :, 6:11] = 0.4
+    arrays = {
+        "predictions": truth.copy(),
+        "ground_truth": truth,
+        "state": np.zeros((count, 12), dtype=np.float32),
+        "valid": np.ones((count, 60), dtype=bool),
+        "source_frame": np.arange(count, dtype=np.int64),
+        "logical_segment": np.asarray(["episode"] * count),
+    }
+    curation = {"episodes": {"episode": {
+        "grasp_onset_source_frame": 30,
+        "open_baseline_rh56": [0.0] * 5,
+        "closure_threshold": 0.1,
+        "session_group": "session_a",
+        "release_onset_source_frame": 50,
+    }}}
+
+    result = tool.checkpoint_summary(arrays, curation)
+
+    assert result["chunk_size"] == 60
+    assert result["transition_by_session"]["session_a"]["recall"] == 1.0
+    assert len(result["current_state_persistence"]["predicted_rh56_chunk_peak_to_peak_by_channel"]) == 6
+    assert result["prediction_domain"]["rh56_below_legal_zero_fraction"] == [0.0] * 6
+    assert "grasp_transition" in result["phase_conditioned_first_action_error"]

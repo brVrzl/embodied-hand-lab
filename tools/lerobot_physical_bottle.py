@@ -552,6 +552,9 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
     source_episode: list[np.ndarray] = []
     source_frame: list[np.ndarray] = []
     logical_segments: list[np.ndarray] = []
+    validation_losses: list[float] = []
+    validation_l1: list[float] = []
+    validation_kld: list[float] = []
     logical_by_episode = {
         int(record["lerobot_episode_index"]): str(record["logical_segment_id"])
         for record in episode_map
@@ -574,6 +577,11 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
             for key in (WORKSPACE_KEY, WRIST_KEY):
                 batch[key] = batch[key].float() / 255.0
             processed = preprocessor(batch)
+            loss, loss_parts = policy.forward(processed)
+            validation_losses.append(float(loss.item()))
+            validation_l1.append(float(loss_parts["l1_loss"]))
+            if "kld_loss" in loss_parts:
+                validation_kld.append(float(loss_parts["kld_loss"]))
             native = postprocessor(policy.predict_action_chunk(processed))
             predictions.append(native.detach().cpu().numpy())
     prediction_array = np.concatenate(predictions)
@@ -596,6 +604,9 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
         source_episode=episode_array,
         source_frame=frame_array,
         logical_segment=logical_array,
+        validation_loss=np.asarray(validation_losses, dtype=np.float64),
+        validation_l1_loss=np.asarray(validation_l1, dtype=np.float64),
+        validation_kld_loss=np.asarray(validation_kld, dtype=np.float64),
     )
     error = np.abs(prediction_array - ground_truth_array)
     report = {
@@ -608,6 +619,14 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
         "rows": len(indices),
         "output_shape": list(prediction_array.shape),
         "finite": True,
+        "validation_loss": {
+            "aggregate": float(np.mean(validation_losses)),
+            "l1": float(np.mean(validation_l1)),
+            "kld": None if not validation_kld else float(np.mean(validation_kld)),
+            "definition": "mean of deterministic fixed-seed validation batch losses",
+            "batch_size": args.batch_size,
+            "batches": len(validation_losses),
+        },
         "first_action_mae": {
             "jaka": float(np.mean(error[:, 0, :6])),
             "rh56": float(np.mean(error[:, 0, 6:])),

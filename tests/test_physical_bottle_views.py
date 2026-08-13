@@ -150,3 +150,44 @@ def test_nominal33_manifest_adds_only_reviewed_task_trimmed_trajectories() -> No
     for group in config["split_groups"]:
         assert len({split_for[segment] for segment in group["segments"]}) == 1
     assert {split_for[f"ep{value}"] for value in range(138, 143)} == {"val"}
+
+
+def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
+    config = yaml.safe_load(
+        (Path(__file__).parents[1] / "configs/training/physical_bottle_v4_nominal52.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    segments = {value["id"]: value for value in config["segments"]}
+    included = {name for name, value in segments.items() if value.get("include")}
+
+    assert len(included) == 52
+    assert {"ep172_a", "ep172_b", "ep172_c", "ep174_a", "ep174_b"} <= included
+    assert not {"ep153", "ep174_c"} & included
+    assert (segments["ep172_a"]["end_frame"], segments["ep172_b"]["start_frame"]) == (503, 802)
+    assert (segments["ep172_b"]["end_frame"], segments["ep172_c"]["start_frame"]) == (1326, 1664)
+    assert (segments["ep174_a"]["end_frame"], segments["ep174_b"]["start_frame"]) == (519, 845)
+
+    split_for = {
+        segment: split
+        for split, values in config["splits"].items()
+        for segment in values
+    }
+    assert {split_for[name] for name in ("ep172_a", "ep172_b", "ep172_c", "ep174_a", "ep174_b")} == {"val"}
+    for group in config["split_groups"]:
+        assert len({split_for[segment] for segment in group["segments"]}) == 1
+
+    strong_split = yaml.safe_load(
+        (Path(__file__).parents[1] / "configs/training/physical_bottle_v4_nominal52_split.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert strong_split["expected"] == {
+        "train_trajectories": 37,
+        "validation_trajectories": 15,
+        "train_rows": 23802,
+        "validation_rows": 9309,
+    }
+    assert set(strong_split["validation_source_episodes"]) == {
+        87, 88, 108, 109, 138, 139, 140, 141, 142, 172, 173, 174
+    }

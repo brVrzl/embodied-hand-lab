@@ -1,0 +1,10 @@
+schema_version: embodied_lab.training_split.v1
+dataset: physical_bottle_v4_nominal52
+unit: acquisition_session
+method: locked_manifest_session_groups
+validation_source_episodes: [87, 88, 108, 109, 138, 139, 140, 141, 142, 172, 173, 174]
+expected:
+  train_trajectories: 37
+  validation_trajectories: 15
+  train_rows: 23802
+  validation_rows: 9309
