@@ -547,17 +547,30 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
     )
     predictions: list[np.ndarray] = []
     ground_truth: list[np.ndarray] = []
+    states: list[np.ndarray] = []
     valid: list[np.ndarray] = []
     source_episode: list[np.ndarray] = []
     source_frame: list[np.ndarray] = []
+    logical_segments: list[np.ndarray] = []
+    logical_by_episode = {
+        int(record["lerobot_episode_index"]): str(record["logical_segment_id"])
+        for record in episode_map
+    }
     policy.eval()
     torch.manual_seed(0)
     with torch.inference_mode():
         for batch in loader:
             ground_truth.append(batch[ACTION_KEY].numpy())
+            states.append(batch[STATE_KEY].numpy())
             valid.append((~batch[f"{ACTION_KEY}_is_pad"]).numpy())
             source_episode.append(batch["source_episode_index"].numpy().reshape(-1))
             source_frame.append(batch["source_frame_index"].numpy().reshape(-1))
+            logical_segments.append(
+                np.asarray(
+                    [logical_by_episode[int(value)] for value in batch["episode_index"]],
+                    dtype=np.str_,
+                )
+            )
             for key in (WORKSPACE_KEY, WRIST_KEY):
                 batch[key] = batch[key].float() / 255.0
             processed = preprocessor(batch)
@@ -565,9 +578,11 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
             predictions.append(native.detach().cpu().numpy())
     prediction_array = np.concatenate(predictions)
     ground_truth_array = np.concatenate(ground_truth)
+    state_array = np.concatenate(states)
     valid_array = np.concatenate(valid)
     episode_array = np.concatenate(source_episode).astype(np.int64, copy=False)
     frame_array = np.concatenate(source_frame).astype(np.int64, copy=False)
+    logical_array = np.concatenate(logical_segments)
     if prediction_array.shape != (len(indices), args.chunk_size, 12):
         raise ValueError(f"invalid checkpoint output shape {prediction_array.shape}")
     if not np.isfinite(prediction_array).all():
@@ -576,9 +591,11 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
         output / "teacher_forced_arrays.npz",
         predictions=prediction_array,
         ground_truth=ground_truth_array,
+        state=state_array,
         valid=valid_array,
         source_episode=episode_array,
         source_frame=frame_array,
+        logical_segment=logical_array,
     )
     error = np.abs(prediction_array - ground_truth_array)
     report = {
@@ -587,6 +604,7 @@ def evaluate_checkpoint(args: argparse.Namespace) -> None:
         "view": str(view),
         "device": policy_config.device,
         "validation_source_episodes": sorted(np.unique(episode_array).tolist()),
+        "validation_logical_segments": sorted(np.unique(logical_array).tolist()),
         "rows": len(indices),
         "output_shape": list(prediction_array.shape),
         "finite": True,

@@ -1,5 +1,14 @@
 # Physical bottle ACT baseline diagnosis
 
+> Superseded dataset interpretation (2026-08-13): the operator's subsequent
+> human audit established that this checkpoint was trained on a mixed-quality,
+> malformed-segmentation view, not 25 clean expert demonstrations. The 0/56
+> transition result below remains an observed property of that checkpoint, but
+> the old `89,98,114,116` val4 split is retired for clean-model conclusions.
+> See `research_log/physical_bottle_nominal16_training_audit_20260813.md` for
+> the immutable-source nominal16 curation, corrected 99/102 boundaries, clean
+> split, and controlled scratch/pretrained comparison.
+
 Date: 2026-08-13 (Asia/Shanghai)
 
 Audit base: `dev` at `c50a1c5f318ce54b92af591fb4943d014357e312`.

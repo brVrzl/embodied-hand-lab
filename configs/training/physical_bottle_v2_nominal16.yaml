@@ -1,0 +1,108 @@
+schema_version: embodied_lab.physical_bottle_collection_config.v1
+name: physical_bottle_v2_nominal16
+source_root: ../../data/raw_episodes
+output_root: ../../data/training/physical_bottle_v2_nominal16
+audit_report: ../../research_log/physical_bottle_nominal16_audit.md
+materialization_report: ../../research_log/physical_bottle_nominal16_materialization.md
+task:
+  id: place_bottle_on_cardboard_box
+  prompt: Pick up the bottle and place it on the cardboard box.
+fps: 30
+action_horizon: 16
+
+# This explicit scope freezes the human-reviewed historical cohort. Collection
+# of a later raw episode must not silently change this derived view.
+source_episode_ids: [67, 70, 71, 74, 81, 83, 87, 88, 89, 90, 91, 92, 95, 96, 97, 98, 99, 102, 105, 108, 109, 113, 114, 116, 117]
+audit_provenance:
+  authority: human_operator
+  date: "2026-08-13"
+  statement: Manual review of full bottle-task demonstrations.
+audit_notes:
+  - The human audit supersedes the earlier description of this cohort as 25 clean expert demonstrations.
+  - Episodes 99 and 102 each contain two demonstrations. Exact derived boundaries use synchronized trigger/action state and visual reset evidence; no raw row or video is rewritten.
+  - All trajectories outside the 16 nominal segments are retained with the generic manual_audit_non_nominal reason unless direct evidence supports a more specific label.
+  - The nominal baseline contains only approach, grasp, lift/transport, place, and release trajectories accepted by the operator audit.
+
+source_reviews:
+  - {id: 67, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 70, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 71, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 74, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 81, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 83, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 87, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 88, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 89, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 90, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 91, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 92, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 95, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 96, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 97, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 98, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 99, classification: MERGED_MULTIPLE_EPISODES, notes: two human-audited nominal demonstrations separated by a short reset interval}
+  - {id: 102, classification: MERGED_MULTIPLE_EPISODES, notes: first demonstration non-nominal; second human-audited nominal}
+  - {id: 105, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 108, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 109, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 113, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 114, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 116, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 117, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+
+segments:
+  - {id: ep067, source_episode: 67, start_frame: 62, end_frame: 856, start_timestamp_ns: 2317856744169863, end_timestamp_ns: 2317883210836265, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task starts one causal row before first accepted target change after 2.07 s pre-task hold; ends at persisted task release}
+  - {id: ep070, source_episode: 70, start_frame: 14, end_frame: 698, start_timestamp_ns: 2318001093887527, end_timestamp_ns: 2318023893887299, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task starts one causal row before first accepted target change after 0.47 s pre-task hold; ends at persisted task release}
+  - {id: ep071, source_episode: 71, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep074, source_episode: 74, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep081, source_episode: 81, start_frame: 0, end_frame: 946, start_timestamp_ns: 2342592147350680, end_timestamp_ns: 2342623680683698, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep083, source_episode: 83, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep087, source_episode: 87, start_frame: 0, end_frame: 788, start_timestamp_ns: 2404357760287536, end_timestamp_ns: 2404384026953940, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep088, source_episode: 88, start_frame: 61, end_frame: 743, start_timestamp_ns: 2404403271463799, end_timestamp_ns: 2404426004796905, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task starts one causal row before first accepted target change after 2.03 s pre-task hold; ends at persisted task release}
+  - {id: ep089, source_episode: 89, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep090, source_episode: 90, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep091, source_episode: 91, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep092, source_episode: 92, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep095, source_episode: 95, start_frame: 0, end_frame: 674, start_timestamp_ns: 2404753029846935, end_timestamp_ns: 2404775496513377, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep096, source_episode: 96, start_frame: 0, end_frame: 733, start_timestamp_ns: 2404783654778592, end_timestamp_ns: 2404808088111681, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task begins at recording start; ends at persisted task release}
+  - {id: ep097, source_episode: 97, start_frame: 29, end_frame: 868, start_timestamp_ns: 2404820366558516, end_timestamp_ns: 2404848333224903, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task starts one causal row before first accepted target change after 0.97 s pre-task hold; ends at persisted task release}
+  - {id: ep098, source_episode: 98, start_frame: 22, end_frame: 760, start_timestamp_ns: 2404859289810094, end_timestamp_ns: 2404883923143181, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task starts one causal row before first accepted target change after 0.73 s pre-task hold; ends at persisted task release}
+  - {id: ep099_a, source_episode: 99, pretrim_start_frame: 0, pretrim_end_frame: 1334, start_frame: 0, end_frame: 965, start_timestamp_ns: 2404893007618902, end_timestamp_ns: 2404925174285247, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: first nominal demonstration ends at first post-release row; frames 966-1334 are reset/recovery and belong to neither task}
+  - {id: ep099_b, source_episode: 99, pretrim_start_frame: 1335, pretrim_end_frame: 2497, start_frame: 1335, end_frame: 2348, start_timestamp_ns: 2404937507618457, end_timestamp_ns: 2404971307618119, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: second nominal demonstration starts at post-reset arm-reference press and ends at authoritative release row; frames 2349-2497 are post-task tail}
+  - {id: ep102_a, source_episode: 102, start_frame: 0, end_frame: 877, start_timestamp_ns: 2405072900344610, end_timestamp_ns: 2405102133677651, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: first logical demonstration retained outside nominal baseline; frames 878-1208 are reset/recovery and belong to neither task}
+  - {id: ep102_b, source_episode: 102, pretrim_start_frame: 1209, pretrim_end_frame: 2084, start_frame: 1209, end_frame: 1934, start_timestamp_ns: 2405113200344207, end_timestamp_ns: 2405137367010632, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: second nominal demonstration starts after excluded reset/recovery frames 878-1208 and ends at authoritative release row; frames 1935-2084 are post-task tail}
+  - {id: ep105, source_episode: 105, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep108, source_episode: 108, start_frame: 0, end_frame: 706, start_timestamp_ns: 2405327682784452, end_timestamp_ns: 2405351216117550, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep109, source_episode: 109, start_frame: 0, end_frame: 620, start_timestamp_ns: 2405361049368151, end_timestamp_ns: 2405381716034611, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep113, source_episode: 113, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep114, source_episode: 114, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal, notes: retained outside nominal baseline}
+  - {id: ep116, source_episode: 116, start_frame: 0, end_frame: 556, start_timestamp_ns: 2405623805688230, end_timestamp_ns: 2405642339021378, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+  - {id: ep117, source_episode: 117, start_frame: 0, end_frame: 698, start_timestamp_ns: 2405654486489959, end_timestamp_ns: 2405677753156393, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: task motion begins at recording start; ends at persisted task release}
+
+# Groups are acquisition sessions inferred from the persisted workspace camera
+# process identity and source chronology. Groups are sorted chronologically.
+# SHA-256(seed) interpreted as an integer gives offset 2 modulo stride 3; taking
+# every third group selects session_87_88 and session_108_109 (four trajectories).
+split_selection:
+  unit: acquisition_session
+  method: chronological_session_stride_v1
+  seed: physical_bottle_v2_nominal16_v1
+  seed_sha256: 9d74f8846471b87eaea1928e997931defd81e346b7b0566055c561750ee183ab
+  zero_based_offset: 2
+  stride: 3
+  target_validation_trajectories: 4
+  selection_hash_payload: physical_bottle_v2_nominal16_v1:session_87_88,session_108_109
+  selected_subset_sha256: fbc11d4f4536a1db68588126d41265eba8a1ce793287e6e474a8090907d123f4
+split_groups:
+  - {id: session_67_70, segments: [ep067, ep070], evidence: workspace camera process 2813164}
+  - {id: session_81, segments: [ep081], evidence: workspace camera process 2478812}
+  - {id: session_87_88, segments: [ep087, ep088], evidence: workspace camera process 2860328}
+  - {id: session_95_99, segments: [ep095, ep096, ep097, ep098, ep099_a, ep099_b], evidence: workspace camera process 2860963}
+  - {id: session_102, segments: [ep102_b], evidence: workspace camera process 2862516; ep102_a excluded but remains in the same source session}
+  - {id: session_108_109, segments: [ep108, ep109], evidence: workspace camera process 2863071}
+  - {id: session_116_117, segments: [ep116, ep117], evidence: workspace camera process 2864140}
+
+splits:
+  train: [ep067, ep070, ep081, ep095, ep096, ep097, ep098, ep099_a, ep099_b, ep102_b, ep116, ep117]
+  val: [ep087, ep088, ep108, ep109]
+  test: []

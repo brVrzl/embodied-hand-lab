@@ -106,9 +106,9 @@ def test_val4_manifest_holds_out_the_requested_good_demonstrations() -> None:
     assert config["eval_split"] == 0.16
 
 
-def test_strong_pretrained_is_a_controlled_backbone_initialization_experiment() -> None:
-    pilot = _config("act_physical_bottle_v2_val4.json")
-    strong = _config("act_physical_bottle_v2_strong_pretrained_val4.json")
+def test_nominal16_pretrained_is_controlled_against_clean_scratch() -> None:
+    pilot = _config("act_physical_bottle_v2_nominal16_clean_scratch.json")
+    strong = _config("act_physical_bottle_v2_nominal16_clean_pretrained.json")
     for key in (
         "chunk_size",
         "n_action_steps",
@@ -129,4 +129,28 @@ def test_strong_pretrained_is_a_controlled_backbone_initialization_experiment() 
     assert strong["policy"]["optimizer_lr_backbone"] == 1e-5
     assert strong["policy"]["optimizer_lr"] == pilot["policy"]["optimizer_lr"]
     assert strong["steps"] == 2_000
-    assert strong["save_freq"] == 2_000
+    assert strong["save_freq"] == pilot["save_freq"] == 1_000
+    assert strong["dataset"]["root"] == pilot["dataset"]["root"]
+    assert strong["dataset"]["eval_split"] == pilot["dataset"]["eval_split"] == 2800 / 12177
+
+
+def test_nominal16_split_is_session_grouped_and_old_dirty_pretrained_is_retired() -> None:
+    import hashlib
+    import yaml
+
+    split = yaml.safe_load(
+        (ROOT / "configs/training/physical_bottle_v2_nominal16_split.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert split["validation_source_episodes"] == [87, 88, 108, 109]
+    assert split["selected_groups"] == ["session_87_88", "session_108_109"]
+    assert split["selection_method"] == "chronological_session_stride_v1"
+    assert int(hashlib.sha256(split["selection_seed"].encode()).hexdigest(), 16) % 3 == 2
+    assert (
+        hashlib.sha256(split["selection_hash_payload"].encode()).hexdigest()
+        == split["selected_subset_sha256"]
+    )
+    script = (ROOT / "scripts/train_physical_bottle_lerobot.sh").read_text(encoding="utf-8")
+    assert 'die "strong-pretrained on the mixed-quality val4 dataset is retired' in script
+    assert "clean-scratch offline transition analysis is required" in script

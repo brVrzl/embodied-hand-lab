@@ -77,9 +77,68 @@ and 70 are enabled; 68 is excluded as recovery/reclutch-heavy; 71 remains
 review-required and disabled by default. This is a data-processing choice,
 not a claim that the excluded raw episodes are useless.
 
-## Current v2 LeRobot training entrypoint
+## Human-audited nominal16 baseline (2026-08-13)
 
-The current reviewed physical-bottle materialization is
+The earlier `physical_bottle_v2` view is retained for reproducibility but is a
+mixed-quality diagnostic dataset, not 25 clean expert demonstrations. The
+current nominal-success baseline is the derived, immutable-source view:
+
+```text
+data/training/physical_bottle_v2_nominal16/
+```
+
+Its authority is
+`configs/training/physical_bottle_v2_nominal16.yaml`: 13 direct nominal source
+episodes plus two nominal segments from source 99 and the second nominal
+segment from source 102. Source 102's first segment and all other reviewed
+trajectories are excluded as `manual_audit_non_nominal`; they remain untouched
+in raw storage. Sources 99 and 102 have explicit demonstration/reset/
+demonstration boundaries, and no action chunk crosses those boundaries.
+
+Task trimming is provenance-preserving. Normal episodes end at the persisted
+task-release row, before the approximately five-second manual recovery tail.
+The few significant pre-task holds end one row before the first accepted target
+change, without removing approach motion. Sources 99 and 102 use reviewed frame
+and timestamp boundaries because their first completion was not independently
+persisted. Rebuild and audit with:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
+  --config configs/training/physical_bottle_v2_nominal16.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
+  --config configs/training/physical_bottle_v2_nominal16.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
+  data/training/physical_bottle_v2_nominal16
+PYTHONPATH=src .venv/bin/python tools/analyze_physical_bottle_curation.py \
+  --config configs/training/physical_bottle_v2_nominal16.yaml \
+  --mixed-master data/training/physical_bottle_v2/act/master \
+  --nominal-master data/training/physical_bottle_v2_nominal16/act/master \
+  --output outputs/training/physical_bottle_v2_nominal16/analysis/curation
+```
+
+The clean validation split is deterministic at acquisition-session level:
+sessions containing sources 87/88 and 108/109 are held out (2,800 rows), and
+the other 12 trajectories are training data (9,377 rows). Both source-99
+segments stay together. Start the controlled scratch comparison first:
+
+```bash
+scripts/train_physical_bottle_lerobot.sh clean-scratch
+```
+
+`clean-pretrained` uses exactly the same rows and split and is refused until
+the clean-scratch 2k checkpoint and its offline transition report exist:
+
+```bash
+scripts/train_physical_bottle_lerobot.sh clean-pretrained
+```
+
+Both commands use the pinned LeRobot 0.6.2, network-disabled container. The
+old `strong-pretrained` mode on mixed-quality `val4` is retired. No physical
+rollout is authorized by these offline commands.
+
+## Historical v2 LeRobot training entrypoint
+
+The retained mixed-quality physical-bottle materialization is
 `data/training/physical_bottle_v2/`. Its two master trees contain the same
 20,744 logical samples from 25 accepted logical segments. The repository-owned
 LeRobot bridge is documented in [training/lerobot/README.md](../training/lerobot/README.md)
@@ -116,3 +175,16 @@ Docker 环境中构建和验证临时 view，然后从仓库入口依次启动 A
 view/checkpoint 位于 `outputs/training/physical_bottle_v2/`，原始数据和 master 源数据保持不变。
 ACT+Force 通过单独的 `observation.environment_state` 提供六维 raw force，不会把 force
 拼入 12-D state。
+
+2026-08-13 人工审核后，`physical_bottle_v2` 仅保留为混合质量诊断数据，不能再称为
+“25 条干净专家示教”。当前 nominal baseline 是
+`data/training/physical_bottle_v2_nominal16/`，由 13 条直接 nominal episode、99
+的两段和 102 的第二段组成。99/102 的人工恢复区间不属于任何派生 episode；普通
+episode 在持久化 task-release 行结束，约 5 秒人工 reset 尾段不进入训练。少数明显的
+任务前静止段也通过清单中的精确 frame/timestamp 边界排除，但不会裁掉 approach。
+
+clean split 按采集 session 划分：87/88 与 108/109 为验证集（2,800 行），其余 12
+条为训练集（9,377 行）；99 的两段始终同 split。先运行
+`scripts/train_physical_bottle_lerobot.sh clean-scratch`，完成离线 transition 诊断后才允许
+`clean-pretrained`。旧 mixed val4 上的 `strong-pretrained` 已停用。以上均为离线训练，
+不会授权真机运动。

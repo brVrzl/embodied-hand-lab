@@ -151,6 +151,71 @@ def _load_config(config_path: str | Path) -> tuple[Path, dict[str, Any]]:
     return path, value
 
 
+def _configured_source_ids(config: Mapping[str, Any], discovered: Sequence[int]) -> list[int]:
+    """Return the explicit audit scope when one is declared.
+
+    A human-curated historical view must not silently expand when newer raw
+    episodes are collected. Older manifests retain their minimum-id behavior.
+    """
+
+    values = config.get("source_episode_ids")
+    if values is None:
+        minimum_episode_id = int(config.get("minimum_episode_id", 0))
+        return [episode_id for episode_id in discovered if episode_id >= minimum_episode_id]
+    if not isinstance(values, list):
+        raise ValueError("source_episode_ids must be a list")
+    ids = [int(value) for value in values]
+    if len(ids) != len(set(ids)):
+        raise ValueError("source_episode_ids must be unique")
+    missing = sorted(set(ids) - set(discovered))
+    if missing:
+        raise ValueError(f"configured source episodes are not present in raw data: {missing}")
+    return ids
+
+
+def _validate_split_groups(
+    config: Mapping[str, Any],
+    *,
+    segment_to_index: Mapping[str, int],
+    split_names_by_segment: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """Reject source/session leakage for manifests that declare split groups."""
+
+    configured = config.get("split_groups")
+    if configured is None:
+        return []
+    if not isinstance(configured, list):
+        raise ValueError("split_groups must be a list")
+    groups: list[dict[str, Any]] = []
+    assigned: set[str] = set()
+    for value in configured:
+        if not isinstance(value, Mapping) or not value.get("id"):
+            raise ValueError("each split group needs an id")
+        segments = [str(item) for item in value.get("segments", [])]
+        if not segments:
+            raise ValueError(f"split group {value['id']} has no segments")
+        unknown = sorted(set(segments) - set(segment_to_index))
+        if unknown:
+            raise ValueError(f"split group {value['id']} references non-included segments: {unknown}")
+        overlap = sorted(set(segments) & assigned)
+        if overlap:
+            raise ValueError(f"split group {value['id']} repeats segments: {overlap}")
+        split_names = {split_names_by_segment[segment] for segment in segments}
+        if len(split_names) != 1:
+            raise ValueError(f"split group {value['id']} leaks across splits: {sorted(split_names)}")
+        assigned.update(segments)
+        groups.append({
+            "id": str(value["id"]),
+            "segments": segments,
+            "split": next(iter(split_names)),
+            "evidence": value.get("evidence"),
+        })
+    missing = sorted(set(segment_to_index) - assigned)
+    if missing:
+        raise ValueError(f"split_groups do not cover included segments: {missing}")
+    return groups
+
+
 def _video_info(path: Path) -> dict[str, Any]:
     try:
         import cv2
@@ -330,9 +395,9 @@ def _audit_markdown(summary: Mapping[str, Any]) -> str:
         f"- Audit manifest entries (including excluded no-payload records): **{summary['manifest_entry_count']}**",
         f"- Clean full-task logical segments: **{summary['clean_full_task_count']}**",
         f"- Raw merged episodes split: **{summary['merged_source_episode_count']}**",
-        f"- Incomplete-start trajectories: **{summary['incomplete_start_count']}**",
-        f"- Approaches recovered: **{summary['approaches_recovered']}**; impossible to recover: **{summary['approaches_impossible']}**",
-        f"- Retained slip/drop trajectories with defensible raw evidence: **{summary['slip_drop_count']}**",
+        f"- Explicitly classified incomplete-start trajectories: **{summary['incomplete_start_count']}** (generic non-nominal entries were not relabelled)",
+        f"- Explicitly adjudicated approaches recovered: **{summary['approaches_recovered']}**; impossible to recover: **{summary['approaches_impossible']}**",
+        f"- Specifically labelled slip/drop trajectories with defensible raw evidence: **{summary['slip_drop_count']}**",
         "",
         "## Source episode audit",
         "",
@@ -361,27 +426,26 @@ def _audit_markdown(summary: Mapping[str, Any]) -> str:
         "",
         "### Review conclusions",
         "",
-        "Episodes 99 and 102 have clear reset gaps and are represented as two logical segments each. Their first segments use the explicit visual/reset boundary in the manifest because the first task's release event was not separately persisted; the second segments end at the authoritative persisted release timestamp. No rows are synthesized, copied, or interpolated.",
-        "",
-        "Episodes 103, 104, 106, 107, 110, 111, 112, 115, and 118 begin with the bottle already grasped. The missing approach is not present in a recoverable prefix or an adjacent continuous source, so these remain available in the excluded manifest but are not in the clean full-task set.",
-        "",
-        "No retained payload in the current raw root provided defensible evidence for a slip/drop label. Missing/partial/invalid source records were not relabelled from metadata alone; the failure manifest is therefore empty and preserves this uncertainty.",
-        "",
-        "All complete payload rows passed finite state/action/force checks, canonical timestamp monotonicity, causal source timestamp checks, and video decode checks. Force repetition is retained as native lower-rate zero-order hold data.",
-        "",
     ])
+    notes = summary.get("audit_notes") or [
+        "No rows are synthesized, copied, or interpolated. Raw recordings remain the source of truth."
+    ]
+    for note in notes:
+        lines.extend([str(note), ""])
     return "\n".join(lines)
 
 
 def audit_physical_bottle(config_path: str | Path) -> dict[str, Any]:
     config_path, config = _load_config(config_path)
     source_root = _resolve(config_path, str(config["source_root"]))
-    minimum_episode_id = int(config.get("minimum_episode_id", 0))
-    ids = [episode_id for episode_id in _discover_ids(source_root) if episode_id >= minimum_episode_id]
+    ids = _configured_source_ids(config, _discover_ids(source_root))
     reviews = _review_map(config)
     missing_reviews = sorted(set(ids) - set(reviews))
     if missing_reviews:
         raise ValueError(f"source_reviews missing discovered episode ids: {missing_reviews}")
+    extra_reviews = sorted(set(reviews) - set(ids))
+    if config.get("source_episode_ids") is not None and extra_reviews:
+        raise ValueError(f"source_reviews outside configured source_episode_ids: {extra_reviews}")
     source_records = [_audit_record(source_root, episode_id, reviews[episode_id]) for episode_id in ids]
     segments = [dict(value) for value in config["segments"]]
     segment_ids = [str(value.get("id")) for value in segments]
@@ -394,7 +458,6 @@ def audit_physical_bottle(config_path: str | Path) -> dict[str, Any]:
         if segment.get("include") and int(segment["source_episode"]) not in payload_ids:
             raise ValueError(f"included segment {segment['id']} has no complete source payload")
     clean_count = sum(1 for value in segments if value.get("include") and value.get("classification") == "CLEAN_FULL_TASK")
-    merged_sources = {int(value["source_episode"]) for value in segments if value.get("classification") == "MERGED_MULTIPLE_EPISODES"}
     # Logical entries for a split source are clean, while the source audit keeps
     # the MERGED_MULTIPLE_EPISODES classification.  Count source IDs, not rows.
     merged_sources = {record["episode"] for record in source_records if record["classification"] == "MERGED_MULTIPLE_EPISODES"}
@@ -418,6 +481,8 @@ def audit_physical_bottle(config_path: str | Path) -> dict[str, Any]:
         "unusable_source_count": sum(1 for record in source_records if record["classification"] == "CORRUPT_OR_UNUSABLE"),
         "source_episodes": source_records,
         "segments": segments,
+        "audit_provenance": config.get("audit_provenance"),
+        "audit_notes": config.get("audit_notes", []),
         "raw_inventory": _source_inventory(source_root, ids),
     }
     report = _resolve(config_path, str(config["audit_report"]))
@@ -496,6 +561,12 @@ def _crop_segment(
     selected = [(index, dict(rows[index])) for index in range(start_frame, end_frame + 1)]
     start_ns = int(selected[0][1]["timestamp_ns"])
     end_ns = int(selected[-1][1]["timestamp_ns"])
+    declared_start_ns = segment.get("start_timestamp_ns")
+    declared_end_ns = segment.get("end_timestamp_ns")
+    if declared_start_ns is not None and int(declared_start_ns) != start_ns:
+        return [], {"crop_review_required": True, "reason": "start_timestamp_boundary_mismatch"}, []
+    if declared_end_ns is not None and int(declared_end_ns) != end_ns:
+        return [], {"crop_review_required": True, "reason": "end_timestamp_boundary_mismatch"}, []
     excluded = [
         {
             "source_episode": int(metadata.get("episode_index", segment["source_episode"])),
@@ -830,6 +901,16 @@ def materialize_physical_bottle(config_path: str | Path, *, replace: bool = Fals
         assigned = [value for values in splits.values() for value in values]
         if sorted(assigned) != sorted(rows_by_segment):
             raise ValueError("splits must assign every included logical segment exactly once")
+        split_names_by_segment = {
+            segment_id: split_name
+            for split_name, segment_ids in splits_config.items()
+            for segment_id in segment_ids
+        }
+        split_groups = _validate_split_groups(
+            config,
+            segment_to_index=segment_to_index,
+            split_names_by_segment=split_names_by_segment,
+        )
         train_rows = [row for index in splits["train"] for row in rows_by_segment[index]]
         force_train_rows = [row for row in train_rows if row["force_valid"]]
         stats = {
@@ -867,6 +948,7 @@ def materialize_physical_bottle(config_path: str | Path, *, replace: bool = Fals
             "matched_samples": True,
             "duration_s": sum((int(rows[-1]["timestamp_ns"]) - int(rows[0]["timestamp_ns"])) / 1e9 for rows in rows_by_segment.values()),
             "splits": splits,
+            "split_groups": split_groups,
             "segments": segment_reports,
             "normalization": {"source_split": "train", "train_segments": splits["train"], "force_valid_rows": len(force_train_rows)},
             "raw_episodes_immutable": True,
@@ -979,18 +1061,43 @@ def validate_physical_bottle(root: str | Path) -> dict[str, Any]:
         from .training_views import ActDatasetAdapter, ActForceDatasetAdapter
         act_root = root / "act"
         force_root = root / "act_force"
-        act = ActDatasetAdapter(act_root, action_horizon=16)
-        force = ActForceDatasetAdapter(force_root, action_horizon=16)
-        if len(act) != len(force) or len(act) != summary["row_count"]:
+        split_names = tuple(
+            _read_json(act_root / "manifests/splits.json")["splits"].keys()
+        )
+        act_adapters = [
+            ActDatasetAdapter(act_root, split=split, action_horizon=16)
+            for split in split_names
+        ]
+        force_adapters = [
+            ActForceDatasetAdapter(force_root, split=split, action_horizon=16)
+            for split in split_names
+        ]
+        act_count = sum(len(adapter) for adapter in act_adapters)
+        force_count = sum(len(adapter) for adapter in force_adapters)
+        if act_count != force_count or act_count != summary["row_count"]:
             errors.append("ACT adapters do not expose the same row count")
-        if len(act):
+        nonempty = [
+            (act, force)
+            for act, force in zip(act_adapters, force_adapters)
+            if len(act)
+        ]
+        if nonempty:
+            act, force = nonempty[len(nonempty) // 2]
             act_sample = act[len(act) // 2]
             force_sample = force[len(force) // 2]
             if act_sample["action"].shape != (16, 12) or force_sample["action"].shape != (16, 12):
                 errors.append("ACT action chunk shape mismatch")
             if force_sample["observation"]["force"].shape != (6,):
                 errors.append("ACT+Force force shape mismatch")
-        loader_checks = {"status": "passed", "act_rows": len(act), "act_force_rows": len(force)}
+        loader_checks = {
+            "status": "passed",
+            "act_rows": act_count,
+            "act_force_rows": force_count,
+            "split_rows": {
+                split: len(adapter)
+                for split, adapter in zip(split_names, act_adapters)
+            },
+        }
     except Exception as exc:  # adapter compatibility is reported, not hidden
         loader_checks = {"status": "failed", "error": str(exc)}
         errors.append(f"local ACT adapter check failed: {exc}")
