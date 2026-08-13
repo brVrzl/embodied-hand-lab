@@ -1,0 +1,168 @@
+schema_version: embodied_lab.physical_bottle_collection_config.v1
+name: physical_bottle_v3_nominal33
+source_root: ../../data/raw_episodes
+output_root: ../../data/training/physical_bottle_v3_nominal33
+audit_report: ../../research_log/physical_bottle_nominal33_audit.md
+materialization_report: ../../research_log/physical_bottle_nominal33_materialization.md
+task:
+  id: place_bottle_on_cardboard_box
+  prompt: Pick up the bottle and place it on the cardboard box.
+fps: 30
+action_horizon: 16
+
+# Versioned union of the immutable nominal16 view and the operator-reviewed
+# 2026-08-13 collection cohort. Later collection must not silently expand it.
+source_episode_ids: [67, 70, 71, 74, 81, 83, 87, 88, 89, 90, 91, 92, 95, 96, 97, 98, 99, 102, 105, 108, 109, 113, 114, 116, 117, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149]
+audit_provenance:
+  authority: human_operator_plus_offline_boundary_review
+  date: "2026-08-13"
+  statement: Operator workspace-video audit, followed by offline synchronized row and task-boundary review.
+audit_notes:
+  - The nominal16 source decisions and corrected 99/102 segmentation are preserved unchanged.
+  - Episodes 122-129 and 132 are excluded by the operator audit; episode 130 has partial metadata but no complete training payload.
+  - Episodes 135 and 136 remain review-required because a person is visible during the actual task interval, so tail cropping cannot remove that visual nuisance without deleting task behavior.
+  - New nominal tasks retain complete approach, grasp, lift/transport, place, release, and final robot motion, while excluding pre-task hold and post-task stationary/manual-reset intervals.
+  - Raw rows and videos are never rewritten; every included row keeps its source episode, frame, and timestamp provenance.
+
+source_reviews:
+  - {id: 67, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 70, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 71, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 74, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 81, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 83, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 87, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 88, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 89, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 90, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 91, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 92, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 95, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 96, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 97, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 98, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 99, classification: MERGED_MULTIPLE_EPISODES, notes: two human-audited nominal demonstrations separated by reset}
+  - {id: 102, classification: MERGED_MULTIPLE_EPISODES, notes: first demonstration non-nominal; second human-audited nominal}
+  - {id: 105, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 108, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 109, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 113, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 114, classification: MANUAL_AUDIT_NON_NOMINAL, notes: manual_audit_non_nominal}
+  - {id: 116, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 117, classification: CLEAN_FULL_TASK, notes: human-audited nominal full task}
+  - {id: 121, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 122, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 123, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 124, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 125, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 126, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 127, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 128, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 129, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 130, classification: CORRUPT_OR_UNUSABLE, notes: partial metadata only; no complete row/video payload}
+  - {id: 131, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 132, classification: MANUAL_AUDIT_NON_NOMINAL, notes: operator_review_unusable}
+  - {id: 133, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 134, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 135, classification: REVIEW_REQUIRED, notes: person visible during task interval; excluded from clean baseline}
+  - {id: 136, classification: REVIEW_REQUIRED, notes: person prominently visible during task interval; excluded from clean baseline}
+  - {id: 137, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 138, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 139, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 140, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 141, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 142, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 143, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 144, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 145, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 146, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 147, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 148, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+  - {id: 149, classification: CLEAN_FULL_TASK, notes: operator accepted; offline task-boundary review passed}
+
+segments:
+  - {id: ep067, source_episode: 67, start_frame: 62, end_frame: 856, start_timestamp_ns: 2317856744169863, end_timestamp_ns: 2317883210836265, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep070, source_episode: 70, start_frame: 14, end_frame: 698, start_timestamp_ns: 2318001093887527, end_timestamp_ns: 2318023893887299, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep071, source_episode: 71, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep074, source_episode: 74, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep081, source_episode: 81, start_frame: 0, end_frame: 946, start_timestamp_ns: 2342592147350680, end_timestamp_ns: 2342623680683698, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep083, source_episode: 83, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep087, source_episode: 87, start_frame: 0, end_frame: 788, start_timestamp_ns: 2404357760287536, end_timestamp_ns: 2404384026953940, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep088, source_episode: 88, start_frame: 61, end_frame: 743, start_timestamp_ns: 2404403271463799, end_timestamp_ns: 2404426004796905, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep089, source_episode: 89, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep090, source_episode: 90, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep091, source_episode: 91, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep092, source_episode: 92, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep095, source_episode: 95, start_frame: 0, end_frame: 674, start_timestamp_ns: 2404753029846935, end_timestamp_ns: 2404775496513377, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep096, source_episode: 96, start_frame: 0, end_frame: 733, start_timestamp_ns: 2404783654778592, end_timestamp_ns: 2404808088111681, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep097, source_episode: 97, start_frame: 29, end_frame: 868, start_timestamp_ns: 2404820366558516, end_timestamp_ns: 2404848333224903, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep098, source_episode: 98, start_frame: 22, end_frame: 760, start_timestamp_ns: 2404859289810094, end_timestamp_ns: 2404883923143181, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep099_a, source_episode: 99, start_frame: 0, end_frame: 965, start_timestamp_ns: 2404893007618902, end_timestamp_ns: 2404925174285247, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: first nominal task; reset interval excluded}
+  - {id: ep099_b, source_episode: 99, start_frame: 1335, end_frame: 2348, start_timestamp_ns: 2404937507618457, end_timestamp_ns: 2404971307618119, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: second nominal task; reset interval excluded}
+  - {id: ep102_a, source_episode: 102, start_frame: 0, end_frame: 877, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep102_b, source_episode: 102, start_frame: 1209, end_frame: 1934, start_timestamp_ns: 2405113200344207, end_timestamp_ns: 2405137367010632, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: second nominal task; first task and reset excluded}
+  - {id: ep105, source_episode: 105, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep108, source_episode: 108, start_frame: 0, end_frame: 706, start_timestamp_ns: 2405327682784452, end_timestamp_ns: 2405351216117550, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep109, source_episode: 109, start_frame: 0, end_frame: 620, start_timestamp_ns: 2405361049368151, end_timestamp_ns: 2405381716034611, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep113, source_episode: 113, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep114, source_episode: 114, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: manual_audit_non_nominal}
+  - {id: ep116, source_episode: 116, start_frame: 0, end_frame: 556, start_timestamp_ns: 2405623805688230, end_timestamp_ns: 2405642339021378, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep117, source_episode: 117, start_frame: 0, end_frame: 698, start_timestamp_ns: 2405654486489959, end_timestamp_ns: 2405677753156393, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: nominal16 reviewed crop}
+  - {id: ep121, source_episode: 121, start_frame: 60, end_frame: 672, start_timestamp_ns: 2492290195412958, end_timestamp_ns: 2492310595412754, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete approach through final task motion; pre-task hold and post-task reset tail excluded}
+  - {id: ep122, source_episode: 122, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep123, source_episode: 123, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep124, source_episode: 124, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep125, source_episode: 125, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep126, source_episode: 126, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep127, source_episode: 127, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep128, source_episode: 128, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep129, source_episode: 129, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep130, source_episode: 130, classification: CORRUPT_OR_UNUSABLE, include: false, reason: missing_complete_payload}
+  - {id: ep131, source_episode: 131, start_frame: 0, end_frame: 516, start_timestamp_ns: 2493982790528614, end_timestamp_ns: 2493999990528442, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep132, source_episode: 132, classification: MANUAL_AUDIT_NON_NOMINAL, include: false, reason: operator_review_unusable}
+  - {id: ep133, source_episode: 133, start_frame: 44, end_frame: 733, start_timestamp_ns: 2494050467253431, end_timestamp_ns: 2494073433919868, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; pre-task hold and stationary/reset tail excluded}
+  - {id: ep134, source_episode: 134, start_frame: 28, end_frame: 769, start_timestamp_ns: 2494088075635212, end_timestamp_ns: 2494112775634965, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; pre-task hold and stationary/reset tail excluded}
+  - {id: ep135, source_episode: 135, classification: REVIEW_REQUIRED, include: false, review_required: true, reason: background_person_during_task}
+  - {id: ep136, source_episode: 136, classification: REVIEW_REQUIRED, include: false, review_required: true, reason: background_person_during_task}
+  - {id: ep137, source_episode: 137, start_frame: 0, end_frame: 605, start_timestamp_ns: 2494247923928092, end_timestamp_ns: 2494268090594557, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep138, source_episode: 138, start_frame: 0, end_frame: 605, start_timestamp_ns: 2494293202156832, end_timestamp_ns: 2494313368823297, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep139, source_episode: 139, start_frame: 0, end_frame: 747, start_timestamp_ns: 2494362331906884, end_timestamp_ns: 2494387231906635, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep140, source_episode: 140, start_frame: 0, end_frame: 684, start_timestamp_ns: 2494427966724128, end_timestamp_ns: 2494450766723900, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep141, source_episode: 141, start_frame: 0, end_frame: 555, start_timestamp_ns: 2494495034040691, end_timestamp_ns: 2494513534040506, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep142, source_episode: 142, start_frame: 0, end_frame: 587, start_timestamp_ns: 2494554867317361, end_timestamp_ns: 2494574433983832, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep143, source_episode: 143, start_frame: 0, end_frame: 567, start_timestamp_ns: 2494616677731570, end_timestamp_ns: 2494635577731381, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep144, source_episode: 144, start_frame: 0, end_frame: 761, start_timestamp_ns: 2494647628591587, end_timestamp_ns: 2494672995258000, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; 3.33 s stationary pre-rotation tail excluded}
+  - {id: ep145, source_episode: 145, start_frame: 0, end_frame: 780, start_timestamp_ns: 2494684259507972, end_timestamp_ns: 2494710259507712, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep146, source_episode: 146, start_frame: 0, end_frame: 524, start_timestamp_ns: 2494722828612348, end_timestamp_ns: 2494740295278840, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep147, source_episode: 147, start_frame: 0, end_frame: 452, start_timestamp_ns: 2494757327259426, end_timestamp_ns: 2494772427259275, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep148, source_episode: 148, start_frame: 0, end_frame: 575, start_timestamp_ns: 2494813140719073, end_timestamp_ns: 2494832307385548, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task; stationary/reset tail excluded}
+  - {id: ep149, source_episode: 149, start_frame: 1, end_frame: 460, start_timestamp_ns: 2494870509569986, end_timestamp_ns: 2494885809569833, classification: CLEAN_FULL_TASK, include: true, success_label: success, notes: complete task begins after one setup row; stationary/reset tail excluded}
+
+# Splits are acquisition-session grouped. Existing nominal16 validation groups
+# stay fixed for longitudinal comparison; the new cohort holds out the complete
+# third chronological acquisition group (episodes 138-142), independent of task
+# appearance or outcome. No source/session is shared across splits.
+split_selection:
+  unit: acquisition_session
+  method: locked_historical_val_plus_chronological_new_session_v1
+  seed: physical_bottle_v3_nominal33_v1
+  seed_sha256: 44001bed8a6a8e2b00c1dec262231ffd278e3126231d26bf2e7f4ea551502258
+  selection_hash_payload: physical_bottle_v3_nominal33_v1:session_87_88,session_108_109,session_138_142
+  selected_subset_sha256: 1cc5647664cec6e2163d6bb2a3d5e01de8a7daf638ab0308bb5276707c569085
+split_groups:
+  - {id: session_67_70, segments: [ep067, ep070], evidence: workspace camera process 2813164}
+  - {id: session_81, segments: [ep081], evidence: workspace camera process 2478812}
+  - {id: session_87_88, segments: [ep087, ep088], evidence: workspace camera process 2860328}
+  - {id: session_95_99, segments: [ep095, ep096, ep097, ep098, ep099_a, ep099_b], evidence: workspace camera process 2860963}
+  - {id: session_102, segments: [ep102_b], evidence: workspace camera process 2862516; ep102_a excluded}
+  - {id: session_108_109, segments: [ep108, ep109], evidence: workspace camera process 2863071}
+  - {id: session_116_117, segments: [ep116, ep117], evidence: workspace camera process 2864140}
+  - {id: session_121, segments: [ep121], evidence: episode recorder process 1166528}
+  - {id: session_131_137, segments: [ep131, ep133, ep134, ep137], evidence: "episode recorder process 2164933; excluded 132, 135, and 136 remain in source session"}
+  - {id: session_138_142, segments: [ep138, ep139, ep140, ep141, ep142], evidence: episode recorder process 2371995}
+  - {id: session_143_149, segments: [ep143, ep144, ep145, ep146, ep147, ep148, ep149], evidence: episode recorder process 2655046}
+
+splits:
+  train: [ep067, ep070, ep081, ep095, ep096, ep097, ep098, ep099_a, ep099_b, ep102_b, ep116, ep117, ep121, ep131, ep133, ep134, ep137, ep143, ep144, ep145, ep146, ep147, ep148, ep149]
+  val: [ep087, ep088, ep108, ep109, ep138, ep139, ep140, ep141, ep142]
+  test: []

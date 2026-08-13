@@ -54,6 +54,7 @@ authorize JAKA, RH56, Quest, or camera access.
 
 - [Physical episode collection](data/DATA_COLLECTION.md)
 - [Dataset schema](data/DATASET_SCHEMA.md)
+- [Physical training dataset](data/PHYSICAL_TRAINING_DATASET.md)
 - [Motion input platform](motion_input/README.md)
 - [UMIP protocol](motion_input/UMIP_PROTOCOL.md)
 - [Quest controller transport](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)

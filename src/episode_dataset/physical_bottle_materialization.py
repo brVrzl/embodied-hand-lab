@@ -926,7 +926,12 @@ def materialize_physical_bottle(config_path: str | Path, *, replace: bool = Fals
         excluded_segments = [value for value in config["segments"] if not value.get("include")]
         review_segments = [value for value in excluded_segments if value.get("classification") == "REVIEW_REQUIRED" or value.get("review_required")]
         _write_json(temporary / "manifests/excluded_segments.json", {"schema_version": PHYSICAL_BOTTLE_SCHEMA_VERSION, "segments": excluded_segments})
-        _write_json(temporary / "manifests/review_required_segments.json", {"schema_version": PHYSICAL_BOTTLE_SCHEMA_VERSION, "segments": review_segments, "note": "No ambiguous logical segment was included; the current reviewed manifest has no unresolved boundary."})
+        review_note = (
+            "Review-required segments are excluded from the clean training view."
+            if review_segments
+            else "No ambiguous logical segment was included; the current reviewed manifest has no unresolved boundary."
+        )
+        _write_json(temporary / "manifests/review_required_segments.json", {"schema_version": PHYSICAL_BOTTLE_SCHEMA_VERSION, "segments": review_segments, "note": review_note})
         _write_json(temporary / "manifests/final_clean_training.json", {"schema_version": PHYSICAL_BOTTLE_SCHEMA_VERSION, "included_segments": segment_reports, "excluded_segments": excluded_segments, "review_required_segments": review_segments})
         _write_json(temporary / "manifests/failure_slip_segments.json", {"schema_version": PHYSICAL_BOTTLE_SCHEMA_VERSION, "segments": [], "note": "No retained payload had defensible slip/drop evidence during this audit."})
         _write_jsonl(temporary / "reports/excluded_rows.jsonl", excluded_rows)

@@ -136,6 +136,44 @@ Both commands use the pinned LeRobot 0.6.2, network-disabled container. The
 old `strong-pretrained` mode on mixed-quality `val4` is retired. No physical
 rollout is authorized by these offline commands.
 
+## Human-audited nominal33 expansion (2026-08-13)
+
+The versioned `physical_bottle_v3_nominal33` view extends nominal16 with 17
+accepted trajectories from the later source-121--149 cohort. The operator
+excluded 122--129 and 132; source 130 has partial metadata but no complete
+training payload. Sources 135 and 136 are retained as review-required and are
+not in the clean baseline because a person is visible during the task interval,
+not only in a removable reset tail.
+
+For each accepted new trajectory, synchronized actions and workspace video were
+used to preserve the complete approach through release/final task motion while
+removing pre-task hold and post-task stationary/manual-reset rows. The 17 new
+crops contain 10,476 rows; 3,132 of their 13,608 raw rows (23.0%) are outside
+the reviewed task intervals. Together with the immutable nominal16 view, the
+new master contains 33 trajectories and 22,653 matched ACT/ACT+Force rows.
+
+The split remains acquisition-session grouped: 24 trajectories/16,670 rows are
+train and 9 trajectories/5,983 rows are validation. Reproduce and validate it
+offline with:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
+  --config configs/training/physical_bottle_v3_nominal33.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
+  --config configs/training/physical_bottle_v3_nominal33.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
+  data/training/physical_bottle_v3_nominal33
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-smoke \
+  --config configs/training/act_physical_bottle_v3_nominal33.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
+  --config configs/training/act_force_physical_bottle_v3_nominal33.yaml
+```
+
+The authoritative curation and exact source frame/timestamp boundaries are in
+`configs/training/physical_bottle_v3_nominal33.yaml`; generated datasets remain
+ignored by Git. See `research_log/physical_bottle_nominal33_audit.md` and
+`research_log/physical_bottle_nominal33_materialization.md` for the results.
+
 ## Historical v2 LeRobot training entrypoint
 
 The retained mixed-quality physical-bottle materialization is
@@ -188,3 +226,12 @@ clean split 按采集 session 划分：87/88 与 108/109 为验证集（2,800 �
 `scripts/train_physical_bottle_lerobot.sh clean-scratch`，完成离线 transition 诊断后才允许
 `clean-pretrained`。旧 mixed val4 上的 `strong-pretrained` 已停用。以上均为离线训练，
 不会授权真机运动。
+
+同日新增的 `physical_bottle_v3_nominal33` 是 nominal16 的版本化扩展。新批次中
+122--129、132 按人工审核排除，130 缺少完整载荷；135/136 的人物出现在实际任务
+区间内，暂列 review-required，不进入干净基线。其余 17 条新轨迹保留完整 approach
+到 release/最后任务动作，并裁掉任务前静止和任务后人工恢复。新轨迹由原始 13,608
+行裁为 10,476 行；与 nominal16 合并后共有 33 条、22,653 行完全匹配的 ACT 与
+ACT+Force 样本。训练/验证按采集 session 隔离，分别为 24 条/16,670 行和 9 条/5,983
+行。权威边界与复现命令见本页英文小节和
+`configs/training/physical_bottle_v3_nominal33.yaml`。
