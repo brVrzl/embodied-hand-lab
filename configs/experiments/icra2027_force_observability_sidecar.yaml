@@ -1,0 +1,58 @@
+schema_version: embodied_lab.icra2027.force_observability_sidecar.v1
+status: PREPARED_NOT_EXECUTED
+physical_execution_authorized: false
+
+safety_scope:
+  jaka_motion: prohibited
+  policy_rollout: prohibited
+  canonical_collection_stack_modification: prohibited
+  future_execution_requires_separate_explicit_authorization: true
+
+force_contract:
+  register: FORCE_ACT
+  units: rh56_force_act_raw_count
+  semantics: native RH56 actuator/push-rod load feedback
+  order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  prohibited_interpretations:
+    [fingertip_force, calibrated_newtons, tactile_array, contact_localization, slip]
+
+design:
+  independent_setup_blocks: 3
+  gate_0_repeats_per_block: 2
+  gate_1_repeats_per_condition_per_block: 2
+  gate_1_conditions:
+    - FREE_MOTION
+    - FINGERTIP_REGION_CONTACT
+    - MIDDLE_DISTAL_PHALANX_CONTACT
+    - SIDE_CONTACT
+    - BLOCKED_CLOSURE
+  randomized_within_block: true
+  identical_bounded_hand_trajectory_required: true
+
+trial_record_template:
+  trial_id: null
+  setup_block_id: null
+  condition: null
+  repetition: null
+  condition_label_source: FIXTURE_AND_SYNCHRONIZED_RGB
+  label_uncertainty: null
+  object_id: null
+  object_mass_g: null
+  fixture_reference: null
+  friction_condition: null
+  hand_trajectory_id: null
+  hand_trajectory_sha256: null
+  force_source_timestamps_required: true
+  force_request_response_timestamps_required: true
+  angle_source_timestamps_required: true
+  canonical_timestamps_required: true
+  synchronized_rgb_required: true
+  termination_reason: null
+
+analysis:
+  split_group: setup_block_id
+  zero_order_hold_rows_are_independent_samples: false
+  baselines: [q, load, q_plus_load, short_load_history, q_plus_history]
+  first_models: [logistic_regression, linear_model, random_forest]
+  metrics: [auroc, balanced_accuracy, precision, recall, confusion_matrix]
+  label_permutation_control: true

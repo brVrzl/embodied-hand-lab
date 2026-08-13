@@ -1,0 +1,75 @@
+schema_version: embodied_lab.icra2027.act_force_use.v1
+offline_only: true
+status: HOLD_UNTIL_CANONICAL_NOMINAL_CHECKPOINTS_EXIST
+
+scope:
+  dataset_label: MIXED_QUALITY_V2_DIAGNOSTIC
+  force_checkpoint_label: ACT_PLUS_INSTANTANEOUS_ACTUATOR_LOAD_PILOT
+  interpretation: >-
+    This config binds the historical mixed-quality val4 views and checkpoints.
+    It may be used only as a loader/intervention diagnostic. Scientific policy
+    comparisons must wait for standard ACT and force-aware checkpoints trained
+    on Thread A's same canonical nominal dataset and split.
+
+# This is an offline checkpoint-sensitivity diagnostic, not a deployment entry.
+# The launcher verifies this exact image id, disables networking, and mounts the
+# repository read-only except for the new ignored output directory.
+runtime:
+  image: jaka-lerobot-dev:snapshot-before-raw-mount
+  expected_image_id: sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e
+
+paths:
+  act_view: outputs/training/physical_bottle_v2/lerobot/act_val4_view
+  act_force_view: outputs/training/physical_bottle_v2/lerobot/act_force_val4_view
+  act_force_master: data/training/physical_bottle_v2/act_force/master
+  act_checkpoint: outputs/training/physical_bottle_v2/act_val4_run/checkpoints/002000/pretrained_model
+  act_force_checkpoint: outputs/training/physical_bottle_v2/act_force_val4_run/checkpoints/002000/pretrained_model
+
+output: outputs/research/icra2027_act_force_use/val4_offline_probe
+
+force_contract:
+  units: rh56_force_act_raw_count
+  order: [index, middle, ring, pinky, thumb_close, thumb_lateral]
+  semantics: native RH56 actuator/push-rod load feedback
+  excluded_claims: [fingertip_force, tactile_array, contact_localization]
+
+split:
+  name: val4
+  validation_source_episodes: [89, 98, 114, 116]
+  label: SESSION_LEAKY
+  limitation: >-
+    Episode-held-out diagnostic only. Episodes 89, 98, and 116 share physical
+    collection sessions with training demonstrations; episode 114 is from a
+    singleton session. This is not a session-independent generalization or
+    reliable model-selection benchmark.
+
+# Groups are the recorded acquisition sessions recovered from the common
+# workspace/wrist camera producer PID pair in immutable raw episode metadata.
+# They are explicit so a donor is never silently selected across sessions.
+collection_sessions:
+  basis: common camera producer PID pair in raw episode metadata
+  groups:
+    camera_process_2813164_2813225: [71]
+    camera_process_2474313_2474380: [74]
+    camera_process_2478812_2478873: [81]
+    camera_process_2798480_2798554: [83]
+    camera_process_2860328_2860389: [87, 88, 89, 90, 91, 92]
+    camera_process_2860963_2861025: [95, 96, 97, 98, 99]
+    camera_process_2862516_2862580: [102]
+    camera_process_2863071_2863134: [105, 108, 109, 113]
+    camera_process_2863733_2863797: [114]
+    camera_process_2864140_2864201: [116, 117]
+
+experiment:
+  seed: 2027
+  device: cuda
+  chunk_size: 16
+  batch_size: 16
+  num_workers: 0
+  samples_per_validation_episode: 96
+  # Time-domain interventions use canonical/source timestamps, not a fictitious
+  # 30 Hz native force rate.
+  causal_lag_s: 0.5
+  dropout_interval_s: 0.5
+  dropout_period_s: 4.0
+  q_conditioned_ridge: 0.001

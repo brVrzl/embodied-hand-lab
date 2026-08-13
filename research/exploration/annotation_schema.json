@@ -1,0 +1,895 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/brVrzl/embodied-hand-lab/blob/dev/research/exploration/annotation_schema.json",
+  "title": "ICRA 2027 bottle RGB annotation",
+  "description": "Episode-level, RGB-only labels for bottle-manipulation milestones and failures. FORCE_ACT is deliberately hidden during labeling and is not fingertip force or contact-location ground truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "annotation_id",
+    "dataset_identity",
+    "canonical_timeline",
+    "evidence_views",
+    "blinding",
+    "reviewer",
+    "events",
+    "milestones",
+    "task_outcome",
+    "failure",
+    "control_termination",
+    "visible_slip",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "embodied_lab.icra2027_bottle_rgb_annotation.v1"
+    },
+    "annotation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_identity": {
+      "$ref": "#/$defs/dataset_identity"
+    },
+    "canonical_timeline": {
+      "$ref": "#/$defs/canonical_timeline"
+    },
+    "evidence_views": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/evidence_view"
+      }
+    },
+    "blinding": {
+      "$ref": "#/$defs/blinding"
+    },
+    "reviewer": {
+      "$ref": "#/$defs/reviewer"
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "closure_onset",
+        "lift_off",
+        "placement_contact",
+        "release_onset",
+        "object_supported_after_release"
+      ],
+      "properties": {
+        "closure_onset": {
+          "$ref": "#/$defs/event_assessment"
+        },
+        "visible_interaction_onset": {
+          "description": "Optional because direct object/hand interaction may remain occluded. When assessed but not visible, record status=unobservable rather than inferring contact from telemetry.",
+          "$ref": "#/$defs/event_assessment"
+        },
+        "lift_off": {
+          "$ref": "#/$defs/event_assessment"
+        },
+        "placement_contact": {
+          "$ref": "#/$defs/event_assessment"
+        },
+        "release_onset": {
+          "$ref": "#/$defs/event_assessment"
+        },
+        "object_supported_after_release": {
+          "$ref": "#/$defs/event_assessment"
+        }
+      }
+    },
+    "milestones": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approach",
+        "grasp",
+        "lift",
+        "transport",
+        "place",
+        "release"
+      ],
+      "properties": {
+        "approach": {
+          "$ref": "#/$defs/milestone_assessment"
+        },
+        "grasp": {
+          "$ref": "#/$defs/milestone_assessment"
+        },
+        "lift": {
+          "$ref": "#/$defs/milestone_assessment"
+        },
+        "transport": {
+          "$ref": "#/$defs/milestone_assessment"
+        },
+        "place": {
+          "$ref": "#/$defs/milestone_assessment"
+        },
+        "release": {
+          "$ref": "#/$defs/milestone_assessment"
+        }
+      }
+    },
+    "task_outcome": {
+      "$ref": "#/$defs/task_outcome"
+    },
+    "failure": {
+      "$ref": "#/$defs/failure_assessment"
+    },
+    "control_termination": {
+      "$ref": "#/$defs/control_termination"
+    },
+    "visible_slip": {
+      "$ref": "#/$defs/visible_slip_assessment"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "task_outcome": {
+            "properties": {
+              "label": {
+                "const": "success"
+              }
+            },
+            "required": [
+              "label"
+            ]
+          }
+        },
+        "required": [
+          "task_outcome"
+        ]
+      },
+      "then": {
+        "properties": {
+          "failure": {
+            "properties": {
+              "stage": {
+                "type": "null"
+              },
+              "evidence_source": {
+                "const": "not_assigned"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "evidence_view_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "dataset_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logical_dataset_id",
+        "source_dataset_id",
+        "session_id",
+        "logical_episode_id",
+        "source_episode_id",
+        "dataset_fingerprint"
+      ],
+      "properties": {
+        "logical_dataset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_dataset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logical_episode_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_episode_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset_fingerprint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "algorithm",
+            "digest",
+            "scope"
+          ],
+          "properties": {
+            "algorithm": {
+              "const": "sha256"
+            },
+            "digest": {
+              "$ref": "#/$defs/sha256"
+            },
+            "scope": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "canonical_timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestamp_field",
+        "timestamp_domain",
+        "frame_index_field",
+        "frame_index_origin",
+        "interval_semantics",
+        "primary_view_id"
+      ],
+      "properties": {
+        "timestamp_field": {
+          "const": "timestamp_ns"
+        },
+        "timestamp_domain": {
+          "const": "host_monotonic_ns"
+        },
+        "frame_index_field": {
+          "const": "frame_index"
+        },
+        "frame_index_origin": {
+          "const": 0
+        },
+        "interval_semantics": {
+          "const": "inclusive_uncertainty_bounds"
+        },
+        "primary_view_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "canonical_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestamp_ns",
+        "frame_index"
+      ],
+      "properties": {
+        "timestamp_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "frame_index": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "canonical_interval": {
+      "description": "Inclusive earliest/latest plausible canonical samples for an event onset, not a phase-duration interval. Consumers must additionally verify end timestamp/frame are not earlier than start and that both pairs resolve to the same episode rows.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/canonical_point"
+        },
+        "end": {
+          "$ref": "#/$defs/canonical_point"
+        }
+      }
+    },
+    "evidence_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "view_id",
+        "feature_key",
+        "source_path",
+        "availability",
+        "media_sha256",
+        "canonical_frame_count",
+        "notes"
+      ],
+      "properties": {
+        "view_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "feature_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "availability": {
+          "type": "string",
+          "enum": [
+            "available",
+            "missing",
+            "unreadable"
+          ]
+        },
+        "media_sha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "canonical_frame_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "availability": {
+                "const": "available"
+              }
+            },
+            "required": [
+              "availability"
+            ]
+          },
+          "then": {
+            "properties": {
+              "media_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "canonical_frame_count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "media_sha256": {
+                "type": "null"
+              },
+              "canonical_frame_count": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "blinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "force_act_hidden",
+        "rh56_position_hidden",
+        "jaka_state_hidden",
+        "action_targets_hidden",
+        "hand_grip_hidden",
+        "action_status_hidden",
+        "contact_clamp_hidden",
+        "labels_locked_before_signal_access",
+        "label_lock_id"
+      ],
+      "properties": {
+        "mode": {
+          "const": "rgb_only"
+        },
+        "force_act_hidden": {
+          "const": true
+        },
+        "rh56_position_hidden": {
+          "const": true
+        },
+        "jaka_state_hidden": {
+          "const": true
+        },
+        "action_targets_hidden": {
+          "const": true
+        },
+        "hand_grip_hidden": {
+          "const": true
+        },
+        "action_status_hidden": {
+          "const": true
+        },
+        "contact_clamp_hidden": {
+          "const": true
+        },
+        "labels_locked_before_signal_access": {
+          "const": true
+        },
+        "label_lock_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "reviewer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer_id",
+        "annotation_round",
+        "annotated_at_utc",
+        "protocol_version",
+        "notes"
+      ],
+      "properties": {
+        "reviewer_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotation_round": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary",
+            "adjudication"
+          ]
+        },
+        "annotated_at_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "protocol_version": {
+          "const": "icra2027_bottle_rgb_annotation.v1"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "event_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "confidence",
+        "evidence_view_ids",
+        "notes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "observed",
+            "not_observed",
+            "unobservable"
+          ]
+        },
+        "interval": {
+          "$ref": "#/$defs/canonical_interval"
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence_view_ids": {
+          "$ref": "#/$defs/evidence_view_ids"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "observed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "interval"
+            ],
+            "properties": {
+              "evidence_view_ids": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "not": {
+              "required": [
+                "interval"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "milestone_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "confidence",
+        "evidence_view_ids",
+        "notes"
+      ],
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "achieved",
+            "not_achieved",
+            "unobservable",
+            "not_applicable"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence_view_ids": {
+          "$ref": "#/$defs/evidence_view_ids"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "enum": [
+                  "achieved",
+                  "not_achieved"
+                ]
+              }
+            },
+            "required": [
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence_view_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "task_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "confidence",
+        "evidence_view_ids",
+        "notes"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failure",
+            "indeterminate"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence_view_ids": {
+          "$ref": "#/$defs/evidence_view_ids"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "label": {
+                "enum": [
+                  "success",
+                  "failure"
+                ]
+              }
+            },
+            "required": [
+              "label"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence_view_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "failure_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stage",
+        "evidence_source",
+        "confidence",
+        "evidence_view_ids",
+        "notes"
+      ],
+      "properties": {
+        "stage": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "approach",
+                "precontact",
+                "grasp",
+                "lift",
+                "transport",
+                "place",
+                "release",
+                "control_software_abort"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_source": {
+          "type": "string",
+          "enum": [
+            "rgb_only",
+            "post_lock_control_record",
+            "not_assigned"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence_view_ids": {
+          "$ref": "#/$defs/evidence_view_ids"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "stage"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence_source": {
+                "const": "not_assigned"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "control_software_abort"
+              }
+            },
+            "required": [
+              "stage"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence_source": {
+                "const": "post_lock_control_record"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "enum": [
+                  "approach",
+                  "precontact",
+                  "grasp",
+                  "lift",
+                  "transport",
+                  "place",
+                  "release"
+                ]
+              }
+            },
+            "required": [
+              "stage"
+            ]
+          },
+          "then": {
+            "properties": {
+              "evidence_source": {
+                "const": "rgb_only"
+              },
+              "evidence_view_ids": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "control_termination": {
+      "description": "Runtime/recording termination is independent of the visually assessed task outcome.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence_source",
+        "reason",
+        "confidence",
+        "notes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "normal_recording_end",
+            "operator_stop",
+            "control_abort",
+            "software_abort",
+            "data_capture_abort",
+            "unknown"
+          ]
+        },
+        "evidence_source": {
+          "type": "string",
+          "enum": [
+            "post_lock_run_metadata",
+            "operator_record",
+            "unknown"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "visible_slip_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "direct_rgb_evidence",
+        "confidence",
+        "evidence_view_ids",
+        "notes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "observed",
+            "not_observed",
+            "unobservable"
+          ]
+        },
+        "direct_rgb_evidence": {
+          "type": "boolean"
+        },
+        "interval": {
+          "$ref": "#/$defs/canonical_interval"
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "evidence_view_ids": {
+          "$ref": "#/$defs/evidence_view_ids"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "observed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "interval"
+            ],
+            "properties": {
+              "direct_rgb_evidence": {
+                "const": true
+              },
+              "evidence_view_ids": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "direct_rgb_evidence": {
+                "const": false
+              }
+            },
+            "not": {
+              "required": [
+                "interval"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
