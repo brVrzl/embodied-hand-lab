@@ -87,7 +87,7 @@ def test_policy_absolute_joint_target_rejects_bad_shape_or_nonfinite() -> None:
 def test_rh56_projection_is_boundary_only_and_reports_each_changed_channel() -> None:
     project_rh56_command = _load_rollout_tool()._project_rh56_command
     raw = np.asarray(
-        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -0.00054, 0.2, 1.2, 0.4, -0.01, 0.8],
+        [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, -0.00054, 0.2, 1.004, 0.4, -0.01, 0.8],
         dtype=np.float64,
     )
     projected, events = project_rh56_command(raw, legal_min=0.0, legal_max=1.0)
@@ -95,10 +95,71 @@ def test_rh56_projection_is_boundary_only_and_reports_each_changed_channel() -> 
     assert projected[6:].tolist() == [0.0, 0.2, 1.0, 0.4, 0.0, 0.8]
     assert [(event["channel"], event["raw_value"], event["projected_value"]) for event in events] == [
         ("index", -0.00054, 0.0),
-        ("ring", 1.2, 1.0),
+        ("ring", 1.004, 1.0),
         ("thumb_close", -0.01, 0.0),
     ]
+    assert [event["correction_magnitude"] for event in events] == pytest.approx(
+        [0.00054, 0.004, 0.01]
+    )
     assert raw[6] == pytest.approx(-0.00054)
+
+
+def test_rh56_projection_preserves_exact_legal_boundaries() -> None:
+    project = _load_rollout_tool()._project_rh56_command
+    raw = np.asarray([0.0] * 6 + [0.0, 1.0, 0.0, 1.0, 0.0, 1.0])
+    projected, events = project(raw, legal_min=0.0, legal_max=1.0)
+    assert np.array_equal(projected, raw)
+    assert events == []
+
+
+@pytest.mark.parametrize("value", [-0.02, 1.02])
+def test_rh56_projection_accepts_exact_correction_tolerance(value: float) -> None:
+    project = _load_rollout_tool()._project_rh56_command
+    raw = np.asarray([0.0] * 6 + [value, 0.2, 0.3, 0.4, 0.5, 0.6])
+    projected, events = project(raw, legal_min=0.0, legal_max=1.0)
+    assert projected[6] == (0.0 if value < 0.0 else 1.0)
+    assert events[0]["correction_magnitude"] == pytest.approx(0.02)
+
+
+@pytest.mark.parametrize("value", [-0.020001, 1.020001])
+def test_rh56_projection_fails_closed_on_excessive_extrapolation(value: float) -> None:
+    project = _load_rollout_tool()._project_rh56_command
+    raw = np.asarray([0.0] * 6 + [value, 0.2, 0.3, 0.4, 0.5, 0.6])
+    with pytest.raises(ValueError, match="bounded projection tolerance"):
+        project(raw, legal_min=0.0, legal_max=1.0)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_rh56_projection_rejects_nonfinite_policy_output(value: float) -> None:
+    project = _load_rollout_tool()._project_rh56_command
+    raw = np.asarray([0.0] * 6 + [value, 0.2, 0.3, 0.4, 0.5, 0.6])
+    with pytest.raises(ValueError, match="finite"):
+        project(raw, legal_min=0.0, legal_max=1.0)
+
+
+def test_action_chunk_consumer_uses_configured_prefix_before_latest_chunk() -> None:
+    consumer_type = _load_rollout_tool().ActionChunkConsumer
+    consumer = consumer_type(consume_actions=4)
+    first = SimpleNamespace(sequence=1)
+    second = SimpleNamespace(sequence=2)
+    third = SimpleNamespace(sequence=3)
+
+    assert consumer.select(first) == (first, 0)
+    assert consumer.select(second) == (first, 1)
+    assert consumer.select(second) == (first, 2)
+    assert consumer.select(third) == (first, 3)
+    assert consumer.select(third) == (third, 0)
+    assert consumer.superseded_predictions == 1
+
+
+def test_action_chunk_consumer_default_two_action_contract() -> None:
+    consumer_type = _load_rollout_tool().ActionChunkConsumer
+    consumer = consumer_type(consume_actions=2)
+    first = SimpleNamespace(sequence=1)
+    second = SimpleNamespace(sequence=2)
+    assert consumer.select(first) == (first, 0)
+    assert consumer.select(first) == (first, 1)
+    assert consumer.select(second) == (second, 0)
 
 
 def test_rollout_model_worker_detects_force_checkpoint_input(tmp_path: Path) -> None:

@@ -486,6 +486,120 @@ def validate_view(args: argparse.Namespace) -> None:
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 
+def evaluate_checkpoint(args: argparse.Namespace) -> None:
+    """Run deterministic teacher-forced inference on the episode-level val split."""
+
+    _check_version()
+    import torch
+    from lerobot.configs import PreTrainedConfig
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.policies.act.modeling_act import ACTPolicy
+    from lerobot.policies.factory import make_pre_post_processors
+
+    view = args.view.resolve()
+    checkpoint = args.checkpoint.resolve()
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    provenance = json.loads(
+        (view / "meta/embodied_lab_provenance.json").read_text(encoding="utf-8")
+    )
+    episode_map = provenance.get("episode_map", [])
+    validation = [record for record in episode_map if record.get("split") == "val"]
+    if not validation:
+        raise ValueError("derived view has no episode-level validation split")
+    policy_config = PreTrainedConfig.from_pretrained(checkpoint)
+    policy_config.device = "cuda" if torch.cuda.is_available() else "cpu"
+    if int(policy_config.chunk_size) != args.chunk_size:
+        raise ValueError(
+            f"checkpoint chunk size {policy_config.chunk_size} != requested {args.chunk_size}"
+        )
+    policy = ACTPolicy.from_pretrained(checkpoint, config=policy_config).to(
+        policy_config.device
+    )
+    preprocessor, postprocessor = make_pre_post_processors(
+        policy_cfg=policy_config,
+        pretrained_path=str(checkpoint),
+        preprocessor_overrides={
+            "device_processor": {"device": policy_config.device}
+        },
+    )
+    dataset = LeRobotDataset(
+        "local/physical_bottle_v2_act",
+        root=view,
+        delta_timestamps={ACTION_KEY: [index / 30 for index in range(args.chunk_size)]},
+        video_backend="pyav",
+        return_uint8=True,
+    )
+    offsets: list[tuple[int, int, dict[str, Any]]] = []
+    offset = 0
+    for record in episode_map:
+        length = int(record["length"])
+        if record.get("split") == "val":
+            offsets.append((offset, offset + length, record))
+        offset += length
+    indices = [index for start, end, _ in offsets for index in range(start, end)]
+    subset = torch.utils.data.Subset(dataset, indices)
+    loader = torch.utils.data.DataLoader(
+        subset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=args.num_workers,
+    )
+    predictions: list[np.ndarray] = []
+    ground_truth: list[np.ndarray] = []
+    valid: list[np.ndarray] = []
+    source_episode: list[np.ndarray] = []
+    source_frame: list[np.ndarray] = []
+    policy.eval()
+    torch.manual_seed(0)
+    with torch.inference_mode():
+        for batch in loader:
+            ground_truth.append(batch[ACTION_KEY].numpy())
+            valid.append((~batch[f"{ACTION_KEY}_is_pad"]).numpy())
+            source_episode.append(batch["source_episode_index"].numpy().reshape(-1))
+            source_frame.append(batch["source_frame_index"].numpy().reshape(-1))
+            for key in (WORKSPACE_KEY, WRIST_KEY):
+                batch[key] = batch[key].float() / 255.0
+            processed = preprocessor(batch)
+            native = postprocessor(policy.predict_action_chunk(processed))
+            predictions.append(native.detach().cpu().numpy())
+    prediction_array = np.concatenate(predictions)
+    ground_truth_array = np.concatenate(ground_truth)
+    valid_array = np.concatenate(valid)
+    episode_array = np.concatenate(source_episode).astype(np.int64, copy=False)
+    frame_array = np.concatenate(source_frame).astype(np.int64, copy=False)
+    if prediction_array.shape != (len(indices), args.chunk_size, 12):
+        raise ValueError(f"invalid checkpoint output shape {prediction_array.shape}")
+    if not np.isfinite(prediction_array).all():
+        raise ValueError("checkpoint produced non-finite actions")
+    np.savez_compressed(
+        output / "teacher_forced_arrays.npz",
+        predictions=prediction_array,
+        ground_truth=ground_truth_array,
+        valid=valid_array,
+        source_episode=episode_array,
+        source_frame=frame_array,
+    )
+    error = np.abs(prediction_array - ground_truth_array)
+    report = {
+        "schema_version": "embodied_lab.act_teacher_forced_replay.v1",
+        "checkpoint": str(checkpoint),
+        "view": str(view),
+        "device": policy_config.device,
+        "validation_source_episodes": sorted(np.unique(episode_array).tolist()),
+        "rows": len(indices),
+        "output_shape": list(prediction_array.shape),
+        "finite": True,
+        "first_action_mae": {
+            "jaka": float(np.mean(error[:, 0, :6])),
+            "rh56": float(np.mean(error[:, 0, 6:])),
+        },
+        "arrays": str(output / "teacher_forced_arrays.npz"),
+    }
+    _write_json(output / "teacher_forced_replay.json", report)
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -506,6 +620,15 @@ def make_parser() -> argparse.ArgumentParser:
     validate.add_argument("--view", type=Path, required=True)
     validate.add_argument("--chunk-size", type=int, default=16)
     validate.set_defaults(function=validate_view)
+
+    evaluate = subparsers.add_parser("evaluate-checkpoint")
+    evaluate.add_argument("--view", type=Path, required=True)
+    evaluate.add_argument("--checkpoint", type=Path, required=True)
+    evaluate.add_argument("--output", type=Path, required=True)
+    evaluate.add_argument("--chunk-size", type=int, default=16)
+    evaluate.add_argument("--batch-size", type=int, default=64)
+    evaluate.add_argument("--num-workers", type=int, default=2)
+    evaluate.set_defaults(function=evaluate_checkpoint)
     return parser
 
 

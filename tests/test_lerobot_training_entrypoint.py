@@ -104,3 +104,29 @@ def test_val4_manifest_holds_out_the_requested_good_demonstrations() -> None:
     )
     assert config["validation_source_episodes"] == [89, 98, 114, 116]
     assert config["eval_split"] == 0.16
+
+
+def test_strong_pretrained_is_a_controlled_backbone_initialization_experiment() -> None:
+    pilot = _config("act_physical_bottle_v2_val4.json")
+    strong = _config("act_physical_bottle_v2_strong_pretrained_val4.json")
+    for key in (
+        "chunk_size",
+        "n_action_steps",
+        "dim_model",
+        "n_heads",
+        "dim_feedforward",
+        "n_encoder_layers",
+        "n_decoder_layers",
+        "kl_weight",
+        "temporal_ensemble_coeff",
+    ):
+        assert strong["policy"][key] == pilot["policy"][key]
+    assert strong["dataset"] == pilot["dataset"]
+    assert strong["batch_size"] == pilot["batch_size"] == 16
+    assert strong["policy"]["pretrained_backbone_weights"] == (
+        "ResNet18_Weights.IMAGENET1K_V1"
+    )
+    assert strong["policy"]["optimizer_lr_backbone"] == 1e-5
+    assert strong["policy"]["optimizer_lr"] == pilot["policy"]["optimizer_lr"]
+    assert strong["steps"] == 2_000
+    assert strong["save_freq"] == 2_000

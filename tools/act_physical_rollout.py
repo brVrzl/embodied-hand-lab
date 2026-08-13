@@ -67,6 +67,7 @@ RH56_CHANNEL_NAMES = (
     "thumb_close",
     "thumb_lateral",
 )
+RH56_MAX_PROJECTION_CORRECTION = 0.02
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,37 @@ class Prediction:
     observation: Observation
     chunk: np.ndarray
     timing_ms: dict[str, float]
+
+
+@dataclass
+class ActionChunkConsumer:
+    """Consume a bounded prefix before adopting the newest policy chunk."""
+
+    consume_actions: int
+    active: Prediction | None = None
+    next_index: int = 0
+    superseded_predictions: int = 0
+
+    def __post_init__(self) -> None:
+        if not 1 <= self.consume_actions <= 16:
+            raise ValueError("consume_actions must be within [1,16]")
+
+    def select(self, latest: Prediction | None) -> tuple[Prediction, int] | None:
+        if latest is not None and (
+            self.active is None or self.next_index >= self.consume_actions
+        ):
+            if self.active is None or latest.sequence > self.active.sequence:
+                if self.active is not None:
+                    self.superseded_predictions += max(
+                        0, latest.sequence - self.active.sequence - 1
+                    )
+                self.active = latest
+                self.next_index = 0
+        if self.active is None:
+            return None
+        index = min(self.next_index, self.consume_actions - 1)
+        self.next_index += 1
+        return self.active, index
 
 
 class AsyncRolloutWriter:
@@ -298,6 +330,7 @@ class InferenceThread:
         self.query_count = 0
         self.skipped_deadlines = 0
         self._next_sequence = 1
+        self._chunks: list[np.ndarray] = []
 
     def start(self) -> None:
         self.thread.start()
@@ -384,6 +417,7 @@ class InferenceThread:
                 self._next_sequence += 1
                 with self._lock:
                     self.latest = prediction
+                    self._chunks.append(prediction.chunk.copy())
                 self.writer.submit(
                     "query",
                     {
@@ -398,6 +432,7 @@ class InferenceThread:
                         "jaka_observation_ns": observation.status.observation_monotonic_ns,
                         "rh56_angle_ns": observation.feedback.angle_act_timestamp_ns,
                         "rh56_force_ns": observation.feedback.force_act_timestamp_ns,
+                        "state": observation.state.tolist(),
                         "force": observation.force.tolist(),
                         "timing_ms": prediction.timing_ms,
                     },
@@ -420,6 +455,12 @@ class InferenceThread:
     def get_latest(self) -> Prediction | None:
         with self._lock:
             return self.latest
+
+    def saved_chunks(self) -> np.ndarray | None:
+        with self._lock:
+            if not self._chunks:
+                return None
+            return np.stack(self._chunks)
 
 
 def _runtime_values(path: Path) -> tuple[dict[str, Any], ReplayConfig]:
@@ -490,6 +531,7 @@ def _project_rh56_command(
     *,
     legal_min: float,
     legal_max: float,
+    maximum_correction: float = RH56_MAX_PROJECTION_CORRECTION,
 ) -> tuple[np.ndarray, list[dict[str, Any]]]:
     """Project only the policy RH56 command at the actuator boundary.
 
@@ -500,8 +542,30 @@ def _project_rh56_command(
     """
 
     projected = np.asarray(action, dtype=np.float64).copy()
+    if projected.shape != (12,) or not np.isfinite(projected).all():
+        raise ValueError("policy action must be finite [12] before RH56 projection")
+    if not np.isfinite((legal_min, legal_max, maximum_correction)).all():
+        raise ValueError("RH56 projection bounds and tolerance must be finite")
+    if legal_min >= legal_max or maximum_correction < 0.0:
+        raise ValueError("invalid RH56 projection bounds or tolerance")
     raw_rh56 = projected[6:].copy()
     projected_rh56 = np.clip(raw_rh56, float(legal_min), float(legal_max))
+    correction = np.abs(projected_rh56 - raw_rh56)
+    # Preserve the stated closed boundary despite subtraction round-off at,
+    # for example, 1.02 - 1.0.  The numerical allowance is many orders below
+    # one RH56 normalized command count and does not widen the policy limit.
+    excessive = np.flatnonzero(
+        correction > float(maximum_correction) + 1e-12
+    )
+    if excessive.size:
+        index = int(excessive[0])
+        raise ValueError(
+            "RH56 prediction exceeds bounded projection tolerance: "
+            f"channel={RH56_CHANNEL_NAMES[index]} raw={raw_rh56[index]:.9g} "
+            f"projected={projected_rh56[index]:.9g} "
+            f"correction={correction[index]:.9g} "
+            f"tolerance={maximum_correction:.9g}"
+        )
     projected[6:] = projected_rh56
     events = [
         {
@@ -510,6 +574,7 @@ def _project_rh56_command(
             "raw_value": float(raw_value),
             "projected_value": float(projected_value),
             "delta": float(projected_value - raw_value),
+            "correction_magnitude": float(abs(projected_value - raw_value)),
         }
         for index, (channel, raw_value, projected_value) in enumerate(
             zip(RH56_CHANNEL_NAMES, raw_rh56, projected_rh56, strict=True),
@@ -555,16 +620,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     rh56_worker: RH56PcDirectWorker | None = None
     cameras: list[CameraReader] = []
     inference: InferenceThread | None = None
-    predictions: list[np.ndarray] = []
     projection_events: list[dict[str, Any]] = []
     rh56_legal_min = 0.0
     rh56_legal_max = 1.0
     abort_reason: str | None = None
     command_count = 0
     next_command_ns = 0
-    last_policy: Prediction | None = None
-    policy_index = 2
-    policy_consumed_sequence = 0
+    consumer = ActionChunkConsumer(args.consume_actions)
     startup_sent = False
     try:
         # Match the maintained combined physical launcher: isolate Python
@@ -659,13 +721,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 if inference.error is not None:
                     raise RuntimeError(inference.error)
                 current = inference.get_latest()
-                if current is not None and current.sequence != policy_consumed_sequence:
-                    if current.sequence > policy_consumed_sequence:
-                        last_policy = current
-                        predictions.append(current.chunk.copy())
-                        policy_consumed_sequence = current.sequence
-                        policy_index = 0
-                if last_policy is None:
+                selected = consumer.select(current)
+                if selected is None:
                     action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
                     hand_target = rh56_worker.latest_feedback
                     if hand_target is None:
@@ -673,13 +730,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
                     source_sequence = 0
                     chunk_index = -1
+                    selected_policy = None
                 else:
-                    if command_start_ns - last_policy.query_end_ns > args.max_policy_age_ms * 1e6:
+                    selected_policy, chunk_index = selected
+                    if command_start_ns - selected_policy.query_end_ns > args.max_policy_age_ms * 1e6:
                         raise RuntimeError("ACT inference result exceeded policy freshness limit")
-                    chunk_index = min(policy_index, 1)
-                    action = last_policy.chunk[chunk_index].astype(np.float64, copy=False)
-                    policy_index += 1
-                    source_sequence = last_policy.sequence
+                    action = selected_policy.chunk[chunk_index].astype(np.float64, copy=False)
+                    source_sequence = selected_policy.sequence
                 raw_action = action.copy()
                 action, command_projection_events = _project_rh56_command(
                     raw_action,
@@ -698,7 +755,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 _assert_policy_action(action)
                 if jaka_adapter is None or not jaka_adapter.apply_joint_position(
                     tuple(float(value) for value in action[:6]),
-                    source_capture_ns=(time.monotonic_ns() if last_policy is None else last_policy.observation.ready_ns),
+                    source_capture_ns=(time.monotonic_ns() if selected_policy is None else selected_policy.observation.ready_ns),
                     local_receive_ns=command_start_ns,
                     processing_ns=command_start_ns,
                 ):
@@ -706,7 +763,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 rh56_worker.submit_target(tuple(float(value) for value in action[6:]), command_start_ns)
                 workspace_sample = cameras[0].latest()
                 wrist_sample = cameras[1].latest()
-                status_sample = _command_status_sample(last_policy, status)
+                status_sample = _command_status_sample(selected_policy, status)
                 feedback_sample = rh56_worker.latest_dataset_feedback
                 writer.submit(
                     "command",
@@ -728,6 +785,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             "rh56_angle_ns": (None if feedback_sample is None else feedback_sample.angle_act_timestamp_ns),
                             "rh56_force_ns": (None if feedback_sample is None else feedback_sample.force_act_timestamp_ns),
                             "rh56_force": (None if feedback_sample is None else feedback_sample.feedback.load_or_force_raw_count),
+                            "rh56_position": (None if feedback_sample is None else feedback_sample.feedback.position_normalized),
                             "workspace_frame_number": workspace_sample.frame_number,
                             "wrist_frame_number": wrist_sample.frame_number,
                             "workspace_host_ns": workspace_sample.host_monotonic_ns,
@@ -773,8 +831,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if rh56_worker is not None:
             rh56_worker.cleanup()
         model.stop()
-        if predictions:
-            np.savez_compressed(output / "act_predictions.npz", chunks=np.stack(predictions))
+        saved_chunks = None if inference is None else inference.saved_chunks()
+        if saved_chunks is not None:
+            np.savez_compressed(
+                output / "act_predictions.npz",
+                chunks=saved_chunks,
+                query_sequences=np.arange(1, len(saved_chunks) + 1, dtype=np.int64),
+            )
         try:
             writer.finish()
         except BaseException as exc:
@@ -785,13 +848,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             effective_label = "CONTROL_OR_SOFTWARE_ABORT"
         summary = {
             "schema_version": "act_physical_rollout.v1",
+            "runtime_config": str(args.runtime_config.resolve()),
             "checkpoint": str(args.checkpoint.resolve()),
+            "model_container": args.model_container,
             "command_enabled": True,
             "duration_sec": args.duration_sec,
             "policy_query_rate_hz": args.query_rate_hz,
             "command_rate_hz": args.command_rate_hz,
             "chunk_size": 16,
-            "consumed_chunk_indices": [0, 1],
+            "consume_actions": args.consume_actions,
+            "consumed_chunk_indices": list(range(args.consume_actions)),
+            "policy_predictions_superseded_before_adoption": consumer.superseded_predictions,
             "force_used_by_policy": model.requires_environment_state,
             "policy_environment_state_key": (
                 ENVIRONMENT_STATE_KEY if model.requires_environment_state else None
@@ -800,6 +867,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "enabled": True,
                 "legal_min": [rh56_legal_min] * 6,
                 "legal_max": [rh56_legal_max] * 6,
+                "maximum_correction": RH56_MAX_PROJECTION_CORRECTION,
                 "event_count": len(projection_events),
                 "events": projection_events,
             },
@@ -831,6 +899,12 @@ def main() -> int:
     parser.add_argument("--duration-sec", type=float, default=30.0)
     parser.add_argument("--query-rate-hz", type=float, default=15.0)
     parser.add_argument("--command-rate-hz", type=float, default=30.0)
+    parser.add_argument(
+        "--consume-actions",
+        type=int,
+        default=2,
+        help="consume this many actions from a chunk before adopting the newest prediction",
+    )
     parser.add_argument("--max-source-age-ms", type=float, default=250.0)
     parser.add_argument("--max-policy-age-ms", type=float, default=250.0)
     parser.add_argument("--label", default="UNLABELED")
@@ -840,6 +914,8 @@ def main() -> int:
         raise SystemExit("query rate must be within (0,15]")
     if not (0.0 < args.command_rate_hz <= 30.0):
         raise SystemExit("command rate must be within (0,30]")
+    if not (1 <= args.consume_actions <= 16):
+        raise SystemExit("consume actions must be within [1,16]")
     summary = run(args)
     print(json.dumps(summary, indent=2, default=str))
     return 0 if summary["abort_reason"] is None else 2
