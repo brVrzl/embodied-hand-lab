@@ -378,6 +378,20 @@ def test_forced_measured_reactivation_bypasses_previous_command_window() -> None
     ]
 
 
+def test_command_trace_distinguishes_requested_selected_and_written_targets() -> None:
+    control, _ = _opened_control()
+    control.activate(1_000_000_000)
+    assert control.command([0.8] * 6, 1_000_000_000, target_sequence=7)
+    trace = control.command_trace()
+    assert trace["controller_requested_target"] == pytest.approx([0.8] * 6)
+    assert trace["post_contact_safety_selected_target"] == pytest.approx([0.8] * 6)
+    assert trace["post_delta_limit_target"] == pytest.approx([0.05] * 6)
+    assert trace["actually_written_target"] == pytest.approx([0.05] * 6)
+    assert trace["target_sequence"] == 7
+    assert trace["written_sequence"] == 7
+    assert trace["disposition"] == "serial_write_success"
+
+
 def test_pc_direct_worker_starts_from_measured_and_hold_stops_new_writes() -> None:
     backend = FakeRH56PcDirectBackend()
     backend.position = [650.0] * 6

@@ -26,6 +26,7 @@ import cv2
 import numpy as np
 
 from act_live_shadow import CameraReader, CameraSample, _model_request, preprocess_live_rgb
+from embodiment_core.act_contract import ActCheckpointContract
 from embodiment_core.config import load_yaml
 from quest_jaka_sim import ReplayConfig
 from quest_jaka_hardware import (
@@ -96,13 +97,18 @@ class ActionChunkConsumer:
     """Consume a bounded prefix before adopting the newest policy chunk."""
 
     consume_actions: int
+    chunk_size: int = 16
     active: Prediction | None = None
     next_index: int = 0
     superseded_predictions: int = 0
 
     def __post_init__(self) -> None:
-        if not 1 <= self.consume_actions <= 16:
-            raise ValueError("consume_actions must be within [1,16]")
+        if self.chunk_size < 1:
+            raise ValueError("chunk_size must be positive")
+        if not 1 <= self.consume_actions <= self.chunk_size:
+            raise ValueError(
+                f"consume_actions must be within [1,{self.chunk_size}]"
+            )
 
     def select(self, latest: Prediction | None) -> tuple[Prediction, int] | None:
         if latest is not None and (
@@ -215,12 +221,8 @@ class ModelWorker:
         self.socket = root / "model.sock"
         self.ready = root / "model_ready"
         self.summary = root / "model_summary.json"
-        config_path = checkpoint / "config.json"
-        if not config_path.is_file():
-            raise FileNotFoundError(f"ACT checkpoint config is missing: {config_path}")
-        checkpoint_config = json.loads(config_path.read_text(encoding="utf-8"))
-        input_features = checkpoint_config.get("input_features", {})
-        self.requires_environment_state = ENVIRONMENT_STATE_KEY in input_features
+        self.contract = ActCheckpointContract.from_checkpoint(checkpoint)
+        self.requires_environment_state = self.contract.requires_environment_state
         self.process: subprocess.Popen[str] | None = None
         self.connection = None
 
@@ -282,17 +284,17 @@ class ModelWorker:
         """Warm CUDA/processor kernels before any physical command is enabled."""
 
         observation = {
-            "observation.images.workspace": np.zeros((3, 240, 320), dtype=np.float32),
-            "observation.images.wrist": np.zeros((3, 240, 320), dtype=np.float32),
-            "observation.state": np.zeros((12,), dtype=np.float32),
+            key: np.zeros(tuple(self.contract.input_features[key]["shape"]), dtype=np.float32)
+            for key in (*self.contract.image_keys, self.contract.state_key)
         }
-        if self.requires_environment_state:
-            observation[ENVIRONMENT_STATE_KEY] = np.zeros((6,), dtype=np.float32)
+        if self.contract.environment_state_key is not None:
+            observation[self.contract.environment_state_key] = np.zeros((6,), dtype=np.float32)
         for _ in range(count):
             response = self.request(observation)
             prediction = np.asarray(response.get("prediction"))
-            if prediction.shape != (16, 12) or not np.isfinite(prediction).all():
-                raise RuntimeError("ACT warmup returned an invalid [16,12] prediction")
+            expected = (self.contract.chunk_size, self.contract.action_dim)
+            if prediction.shape != expected or not np.isfinite(prediction).all():
+                raise RuntimeError(f"ACT warmup returned an invalid {expected} prediction")
 
     def stop(self) -> None:
         if self.connection is not None:
@@ -394,18 +396,23 @@ class InferenceThread:
                         break
                 query_start_ns = time.monotonic_ns()
                 observation = self.snapshot()
-                request = {
-                    "observation.images.workspace": preprocess_live_rgb(observation.workspace.rgb),
-                    "observation.images.wrist": preprocess_live_rgb(observation.wrist.rgb),
-                    "observation.state": observation.state,
+                camera_samples = {
+                    self.model.contract.workspace_image_key: observation.workspace,
+                    self.model.contract.wrist_image_key: observation.wrist,
                 }
-                if self.model.requires_environment_state:
-                    request[ENVIRONMENT_STATE_KEY] = observation.force
+                request = {
+                    key: preprocess_live_rgb(sample.rgb)
+                    for key, sample in camera_samples.items()
+                }
+                request[self.model.contract.state_key] = observation.state
+                if self.model.contract.environment_state_key is not None:
+                    request[self.model.contract.environment_state_key] = observation.force
                 response = self.model.request(request)
                 query_end_ns = time.monotonic_ns()
                 chunk = np.asarray(response["prediction"], dtype=np.float32)
-                if chunk.shape != (16, 12) or not np.isfinite(chunk).all():
-                    raise RuntimeError(f"ACT output must be finite [16,12], got {chunk.shape}")
+                expected = (self.model.contract.chunk_size, self.model.contract.action_dim)
+                if chunk.shape != expected or not np.isfinite(chunk).all():
+                    raise RuntimeError(f"ACT output must be finite {expected}, got {chunk.shape}")
                 prediction = Prediction(
                     self._next_sequence,
                     query_start_ns,
@@ -626,7 +633,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     abort_reason: str | None = None
     command_count = 0
     next_command_ns = 0
-    consumer = ActionChunkConsumer(args.consume_actions)
+    consumer = ActionChunkConsumer(args.consume_actions, model.contract.chunk_size)
     startup_sent = False
     try:
         # Match the maintained combined physical launcher: isolate Python
@@ -765,6 +772,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 wrist_sample = cameras[1].latest()
                 status_sample = _command_status_sample(selected_policy, status)
                 feedback_sample = rh56_worker.latest_dataset_feedback
+                rh56_trace = rh56_worker.control.command_trace()
                 writer.submit(
                     "command",
                     (
@@ -776,6 +784,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             "raw_policy_action": (
                                 None if chunk_index < 0 else raw_action.tolist()
                             ),
+                            "policy_raw_prediction": (
+                                None if chunk_index < 0 else raw_action.tolist()
+                            ),
+                            "policy_requested_target": (
+                                None if chunk_index < 0 else raw_action[6:].tolist()
+                            ),
+                            "post_projection_target": (
+                                None if chunk_index < 0 else action[6:].tolist()
+                            ),
+                            "post_filter_target": (
+                                None if chunk_index < 0 else action[6:].tolist()
+                            ),
+                            "rh56_command_trace_latest": rh56_trace,
                             "projected_command": action.tolist(),
                             "action": action.tolist(),
                             "jaka_status": {
@@ -847,7 +868,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if effective_label == "UNLABELED" and abort_reason is not None:
             effective_label = "CONTROL_OR_SOFTWARE_ABORT"
         summary = {
-            "schema_version": "act_physical_rollout.v1",
+            "schema_version": "act_physical_rollout.v2",
             "runtime_config": str(args.runtime_config.resolve()),
             "checkpoint": str(args.checkpoint.resolve()),
             "model_container": args.model_container,
@@ -855,7 +876,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "duration_sec": args.duration_sec,
             "policy_query_rate_hz": args.query_rate_hz,
             "command_rate_hz": args.command_rate_hz,
-            "chunk_size": 16,
+            "chunk_size": model.contract.chunk_size,
+            "action_dim": model.contract.action_dim,
+            "model_input_keys": list(model.contract.input_features),
+            "checkpoint_contract": model.contract.summary(),
             "consume_actions": args.consume_actions,
             "consumed_chunk_indices": list(range(args.consume_actions)),
             "policy_predictions_superseded_before_adoption": consumer.superseded_predictions,
@@ -914,8 +938,6 @@ def main() -> int:
         raise SystemExit("query rate must be within (0,15]")
     if not (0.0 < args.command_rate_hz <= 30.0):
         raise SystemExit("command rate must be within (0,30]")
-    if not (1 <= args.consume_actions <= 16):
-        raise SystemExit("consume actions must be within [1,16]")
     summary = run(args)
     print(json.dumps(summary, indent=2, default=str))
     return 0 if summary["abort_reason"] is None else 2

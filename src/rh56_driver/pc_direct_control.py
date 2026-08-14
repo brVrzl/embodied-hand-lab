@@ -382,6 +382,13 @@ class RH56PcDirectControl:
         }
         self._feedback_latest_latency_ms: dict[str, float] = {}
         self.last_requested_target_normalized: tuple[float, ...] | None = None
+        # Bounded command-stage trace.  This is state only; serialization and
+        # filesystem work remain outside the serial scheduling thread.
+        self.last_command_request_normalized: tuple[float, ...] | None = None
+        self.last_command_request_monotonic_ns: int | None = None
+        self.last_command_request_sequence: int | None = None
+        self.last_post_contact_target_normalized: tuple[float, ...] | None = None
+        self.last_post_delta_limit_target_normalized: tuple[float, ...] | None = None
         self._contact_force_baseline: np.ndarray | None = None
         self._contact_force_delta = np.zeros(6, dtype=np.float64)
         self._contact_last_angle: np.ndarray | None = None
@@ -793,6 +800,9 @@ class RH56PcDirectControl:
                     np.minimum(requested, previous_command + remaining_closure),
                     requested,
                 )
+                self.last_post_contact_target_normalized = tuple(
+                    float(value) for value in requested
+                )
                 closure_blocked = requested <= previous_command + 1e-12
                 opening_requested = requested < previous_command - 1e-12
                 if np.all(closure_blocked[closing_requested]) and not np.any(
@@ -801,6 +811,11 @@ class RH56PcDirectControl:
                     self.last_command_disposition = "contact_feedback_wait"
                     return False
         requested_tuple = tuple(float(value) for value in requested)
+        self.last_post_contact_target_normalized = requested_tuple
+        if self.last_requested_target_normalized is not None:
+            self.last_command_request_normalized = self.last_requested_target_normalized
+            self.last_command_request_monotonic_ns = int(monotonic_ns)
+            self.last_command_request_sequence = target_sequence
         if (
             self.exact_duplicate_suppression
             and not force_write
@@ -832,6 +847,9 @@ class RH56PcDirectControl:
                 command_delta, -self.delta_limit, self.delta_limit
             )
         selected = previous + selected_delta
+        self.last_post_delta_limit_target_normalized = tuple(
+            float(value) for value in selected
+        )
         raw = denormalize_canonical(
             selected,
             raw_order=CANONICAL_HAND_ORDER,
@@ -1003,6 +1021,50 @@ class RH56PcDirectControl:
         if name not in self._feedback_success_ns:
             raise ValueError(f"unknown RH56 feedback register {register!r}")
         return self._feedback_success_ns[name]
+
+    def command_trace(self) -> dict[str, Any]:
+        """Return the latest bounded requested-to-written RH56 command trace.
+
+        The trace contains no I/O and is safe for a non-RT diagnostics reader.
+        ``request_monotonic_ns`` and ``written_monotonic_ns`` distinguish a
+        pending/latest trace from a command that actually reached the serial
+        backend.
+        """
+
+        return {
+            "controller_requested_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_projection_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_filter_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_contact_safety_selected_target": (
+                None if self.last_post_contact_target_normalized is None
+                else list(self.last_post_contact_target_normalized)
+            ),
+            "post_delta_limit_target": (
+                None if self.last_post_delta_limit_target_normalized is None
+                else list(self.last_post_delta_limit_target_normalized)
+            ),
+            "actually_written_target": (
+                None if self.last_command_normalized is None
+                else list(self.last_command_normalized)
+            ),
+            "actually_written_raw": (
+                None if self.last_command_raw is None else list(self.last_command_raw)
+            ),
+            "request_monotonic_ns": self.last_command_request_monotonic_ns,
+            "written_monotonic_ns": self.last_command_monotonic_ns,
+            "target_sequence": self.last_command_request_sequence,
+            "written_sequence": self.last_written_sequence,
+            "disposition": self.last_command_disposition,
+        }
 
     def episode_record(
         self,
@@ -1180,6 +1242,7 @@ class RH56PcDirectControl:
                 for name, values in self._register_latency_ms.items()
             },
             "contact_stop": self.contact_stop_snapshot(),
+            "command_trace": self.command_trace(),
         }
 
     def contact_limited_target(

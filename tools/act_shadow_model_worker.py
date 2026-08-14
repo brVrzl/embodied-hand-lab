@@ -15,6 +15,8 @@ from typing import Any
 
 import numpy as np
 
+from embodiment_core.act_contract import ActCheckpointContract
+
 
 WORKSPACE_KEY = "observation.images.workspace"
 WRIST_KEY = "observation.images.wrist"
@@ -45,8 +47,12 @@ def _send(connection: socket.socket, value: Any) -> None:
 
 
 def _validate_observation(
-    request: dict[str, Any], *, requires_environment_state: bool
+    request: dict[str, Any], *, requires_environment_state: bool,
+    contract: ActCheckpointContract | None = None,
 ) -> None:
+    if contract is not None:
+        contract.validate_observation(request)
+        return
     for key in (WORKSPACE_KEY, WRIST_KEY):
         value = request[key]
         if not isinstance(value, np.ndarray) or value.shape != (3, 240, 320):
@@ -82,8 +88,9 @@ def main() -> int:
     from lerobot.policies.factory import make_pre_post_processors
 
     checkpoint = args.checkpoint.resolve()
+    contract = ActCheckpointContract.from_checkpoint(checkpoint)
     config = PreTrainedConfig.from_pretrained(checkpoint)
-    requires_environment_state = ENVIRONMENT_STATE_KEY in config.input_features
+    requires_environment_state = contract.requires_environment_state
     if not torch.cuda.is_available():
         raise RuntimeError("Thor CUDA is required for the shadow benchmark")
     config.device = "cuda"
@@ -122,15 +129,15 @@ def main() -> int:
                     _validate_observation(
                         request,
                         requires_environment_state=requires_environment_state,
+                        contract=contract,
                     )
                     batch = {
-                        WORKSPACE_KEY: torch.from_numpy(request[WORKSPACE_KEY]),
-                        WRIST_KEY: torch.from_numpy(request[WRIST_KEY]),
-                        STATE_KEY: torch.from_numpy(request[STATE_KEY]),
+                        key: torch.from_numpy(request[key])
+                        for key in (*contract.image_keys, contract.state_key)
                     }
-                    if requires_environment_state:
-                        batch[ENVIRONMENT_STATE_KEY] = torch.from_numpy(
-                            request[ENVIRONMENT_STATE_KEY]
+                    if contract.environment_state_key is not None:
+                        batch[contract.environment_state_key] = torch.from_numpy(
+                            request[contract.environment_state_key]
                         )
                     torch.cuda.synchronize()
                     preprocessing_started_ns = time.perf_counter_ns()
@@ -144,9 +151,9 @@ def main() -> int:
                     torch.cuda.synchronize()
                     postprocessing_ended_ns = time.perf_counter_ns()
                     output = native.detach().cpu().numpy()
-                    if output.shape == (1, int(config.chunk_size), 12):
+                    if output.shape == (1, contract.chunk_size, contract.action_dim):
                         output = output[0]
-                    if output.shape != (int(config.chunk_size), 12):
+                    if output.shape != (contract.chunk_size, contract.action_dim):
                         raise ValueError(f"unexpected ACT output shape {output.shape}")
                     if not np.isfinite(output).all():
                         raise ValueError("ACT output contains a non-finite value")
@@ -185,6 +192,7 @@ def main() -> int:
         summary = {
             "schema_version": "act_shadow_model_worker.v1",
             "checkpoint": str(checkpoint),
+            "checkpoint_contract": contract.summary(),
             "lerobot_version": __import__("lerobot").__version__,
             "torch_version": torch.__version__,
             "cuda_device": torch.cuda.get_device_name(0),
