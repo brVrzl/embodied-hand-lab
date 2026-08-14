@@ -77,6 +77,7 @@ RH56_CHANNEL_NAMES = (
     "thumb_lateral",
 )
 RH56_MAX_PROJECTION_CORRECTION = 0.02
+MAX_ROLLOUT_DURATION_SEC = 180.0
 CONTROL_TIMING_STAGE_NAMES = (
     "camera_acquisition",
     "jaka_measured_state_acquisition",
@@ -105,6 +106,13 @@ CONTROL_TIMING_STAGE_NAMES = (
     "logging_provenance_enqueue",
     "critical_path",
 )
+
+
+def _validate_rollout_duration(duration_sec: float) -> None:
+    if duration_sec <= 0.0 or duration_sec > MAX_ROLLOUT_DURATION_SEC:
+        raise ValueError(
+            f"duration_sec must be within (0,{MAX_ROLLOUT_DURATION_SEC:g}]"
+        )
 
 
 def _timed_model_request(connection: socket.socket, value: Any) -> tuple[Any, dict[str, float]]:
@@ -932,8 +940,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     _require_realtime_priority_limit(int(runtime["native_control_realtime_priority"]))
     control_cpu = int(runtime["native_control_cpu"])
     _validate_control_cpu(control_cpu)
-    if args.duration_sec <= 0.0 or args.duration_sec > 60.0:
-        raise ValueError("duration_sec must be within (0,60]")
+    _validate_rollout_duration(args.duration_sec)
     output = args.output.resolve()
     writer = AsyncRolloutWriter(output)
     model = ModelWorker(

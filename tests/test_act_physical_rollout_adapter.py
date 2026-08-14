@@ -86,6 +86,15 @@ def test_policy_absolute_joint_target_rejects_bad_shape_or_nonfinite() -> None:
         adapter.apply_joint_position((0.0, 0.0, 0.0, float("nan"), 0.0, 0.0))
 
 
+def test_physical_rollout_duration_is_bounded_at_180_seconds() -> None:
+    rollout = _load_rollout_tool()
+    rollout._validate_rollout_duration(180.0)
+    with pytest.raises(ValueError, match=r"within \(0,180\]"):
+        rollout._validate_rollout_duration(180.001)
+    with pytest.raises(ValueError, match=r"within \(0,180\]"):
+        rollout._validate_rollout_duration(0.0)
+
+
 def test_rh56_projection_is_boundary_only_and_reports_each_changed_channel() -> None:
     project_rh56_command = _load_rollout_tool()._project_rh56_command
     raw = np.asarray(
