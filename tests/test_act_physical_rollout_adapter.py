@@ -216,6 +216,20 @@ def test_canonical_strong_act_rejects_legacy_executor_overrides() -> None:
         rollout._resolve_execution_options(**{**common, "query_rate_hz": 15.0})
 
 
+def test_control_tick_timing_keeps_bounded_percentile_statistics() -> None:
+    timing_type = _load_rollout_tool().BoundedStageTiming
+    timing = timing_type(capacity=2)
+    timing.add({"critical_path": 10.0})
+    timing.add({"critical_path": 20.0})
+    timing.add({"critical_path": 30.0})
+
+    summary = timing.summary()["critical_path"]
+    assert summary["count"] == 2
+    assert summary["p50"] == pytest.approx(25.0)
+    assert summary["max"] == pytest.approx(30.0)
+    assert timing.summary()["rh56_command_call"]["count"] == 0
+
+
 def test_legacy_consume_k_options_remain_explicit_and_isolated() -> None:
     rollout = _load_rollout_tool()
     options = rollout._resolve_execution_options(

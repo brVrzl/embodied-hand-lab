@@ -10,12 +10,17 @@ force logic.  The policy emits the recorded absolute 12-D action directly.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 from dataclasses import dataclass, replace
 import json
+import pickle
 from pathlib import Path
 import queue
+import select
 import signal
+import socket
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -26,7 +31,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from act_live_shadow import CameraReader, CameraSample, _model_request, preprocess_live_rgb
+from act_live_shadow import CameraReader, CameraSample, _model_request, _recv_exact, preprocess_live_rgb
 from embodiment_core.act_contract import ActCheckpointContract
 from embodiment_core.act_temporal_executor import AbsoluteTimeTemporalEnsembler, TemporalSelection
 from embodiment_core.config import load_yaml
@@ -49,6 +54,7 @@ from rh56_driver.pc_direct_control import (
 from rh56_driver.pc_direct_worker import PcDirectDatasetFeedback, RH56PcDirectWorker
 from rh56_driver.serial_backend import RH56SerialBackend
 from teleoperation.jaka.quest_adapter import JakaAcceptedJointTargetAdapter
+from teleoperation.accepted_target import ArmControlHeartbeat, ArmControlState
 from teleoperation.runtime.arm_only import ArmOnlyRuntime, NativeWorkerProcess
 from teleoperation.wire import (
     LatestTargetPublisher,
@@ -71,6 +77,86 @@ RH56_CHANNEL_NAMES = (
     "thumb_lateral",
 )
 RH56_MAX_PROJECTION_CORRECTION = 0.02
+CONTROL_TIMING_STAGE_NAMES = (
+    "camera_acquisition",
+    "jaka_measured_state_acquisition",
+    "rh56_measured_state_acquisition",
+    "observation_assembly",
+    "preprocessing",
+    "policy_socket_send",
+    "policy_worker_receive_decode",
+    "checkpoint_preprocessing",
+    "model_forward",
+    "checkpoint_postprocessing",
+    "policy_socket_receive",
+    "policy_worker_receive_wait",
+    "temporal_ensemble",
+    "action_split",
+    "rh56_projection",
+    "jaka_command_call",
+    "rh56_command_call",
+    "logging_provenance_enqueue",
+    "critical_path",
+)
+
+
+def _timed_model_request(connection: socket.socket, value: Any) -> tuple[Any, dict[str, float]]:
+    """Send one model request while timing the two host-side socket legs."""
+
+    payload = pickle.dumps(value, protocol=5)
+    send_started_ns = time.perf_counter_ns()
+    connection.sendall(struct.pack("!Q", len(payload)) + payload)
+    send_ended_ns = time.perf_counter_ns()
+    receive_started_ns = send_ended_ns
+    size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+    response = pickle.loads(_recv_exact(connection, size))
+    receive_ended_ns = time.perf_counter_ns()
+    return response, {
+        "policy_socket_send": (send_ended_ns - send_started_ns) / 1e6,
+        # This includes the worker's response serialization/send and the host
+        # receive/decode; the worker compute stages are reported separately.
+        "policy_socket_receive": (receive_ended_ns - receive_started_ns) / 1e6,
+    }
+
+
+class BoundedStageTiming:
+    """Bounded online timing samples; percentile work happens at shutdown."""
+
+    def __init__(self, *, capacity: int = 4096) -> None:
+        self._samples = {
+            name: deque(maxlen=capacity) for name in CONTROL_TIMING_STAGE_NAMES
+        }
+
+    def add(self, values: dict[str, float]) -> None:
+        for name, value in values.items():
+            if name in self._samples and np.isfinite(value):
+                self._samples[name].append(float(value))
+
+    @staticmethod
+    def _summary(values: deque[float]) -> dict[str, float | int | None]:
+        if not values:
+            return {
+                "count": 0,
+                "mean": None,
+                "p50": None,
+                "p90": None,
+                "p95": None,
+                "p99": None,
+                "max": None,
+            }
+        array = np.asarray(values, dtype=np.float64)
+        return {
+            "count": int(array.size),
+            "mean": float(np.mean(array)),
+            "p50": float(np.quantile(array, 0.50)),
+            "p90": float(np.quantile(array, 0.90)),
+            "p95": float(np.quantile(array, 0.95)),
+            "p99": float(np.quantile(array, 0.99)),
+            "max": float(np.max(array)),
+        }
+
+    def summary(self) -> dict[str, dict[str, float | int | None]]:
+        return {name: self._summary(values) for name, values in self._samples.items()}
 
 
 @dataclass(frozen=True)
@@ -93,6 +179,7 @@ class Prediction:
     observation: Observation
     chunk: np.ndarray
     timing_ms: dict[str, float]
+    stage_timing_ms: dict[str, float]
 
 
 @dataclass
@@ -232,6 +319,7 @@ class ModelWorker:
         self.requires_environment_state = self.contract.requires_environment_state
         self.process: subprocess.Popen[str] | None = None
         self.connection = None
+        self.last_request_timing: dict[str, float] = {}
 
     def start(self) -> None:
         if self.container_image is None:
@@ -284,7 +372,9 @@ class ModelWorker:
     def request(self, observation: dict[str, np.ndarray]) -> dict[str, Any]:
         if self.connection is None:
             raise RuntimeError("ACT model worker is not connected")
-        response = _model_request(self.connection, observation)
+        response, self.last_request_timing = _timed_model_request(
+            self.connection, observation
+        )
         if "error" in response:
             raise RuntimeError(str(response["error"]))
         return response
@@ -359,16 +449,29 @@ class InferenceThread:
         self.started = True
         self.thread.start()
 
-    def snapshot(self) -> Observation:
+    def snapshot(self, stage_timing_ms: dict[str, float] | None = None) -> Observation:
+        def record(name: str, started_ns: int) -> None:
+            if stage_timing_ms is not None:
+                stage_timing_ms[name] = (time.perf_counter_ns() - started_ns) / 1e6
+
+        started_ns = time.perf_counter_ns()
         workspace = self.workspace.latest()
         wrist = self.wrist.latest()
+        record("camera_acquisition", started_ns)
+
+        started_ns = time.perf_counter_ns()
         status = self.runtime.latest_status()
         if status is not None:
             self._last_status = status
         status = self._last_status
+        record("jaka_measured_state_acquisition", started_ns)
+
+        started_ns = time.perf_counter_ns()
         feedback = self.rh56.latest_dataset_feedback
         if feedback is None:
             raise RuntimeError("RH56 feedback is not available")
+        record("rh56_measured_state_acquisition", started_ns)
+        started_ns = time.perf_counter_ns()
         # Take the reference time after the independent cache reads.  A newer
         # source sample may arrive while this snapshot is being assembled; it
         # must be checked against the completion time of the snapshot rather
@@ -405,17 +508,20 @@ class InferenceThread:
         force = np.asarray(feedback.feedback.load_or_force_raw_count, dtype=np.float32)
         if state.shape != (12,) or force.shape != (6,) or not np.isfinite(state).all() or not np.isfinite(force).all():
             raise RuntimeError("live JAKA/RH56 state is not finite with expected shape")
+        record("observation_assembly", started_ns)
         return Observation(workspace, wrist, status, feedback, state, force, now_ns)
 
     def query_once(self, *, command_tick: int | None = None, publish_pending: bool = True) -> Prediction:
         """Run one contract-validated ACT query and persist its provenance."""
 
         query_start_ns = time.monotonic_ns()
-        observation = self.snapshot()
+        stage_timing_ms: dict[str, float] = {}
+        observation = self.snapshot(stage_timing_ms)
         camera_samples = {
             self.model.contract.workspace_image_key: observation.workspace,
             self.model.contract.wrist_image_key: observation.wrist,
         }
+        preprocessing_started_ns = time.perf_counter_ns()
         request = {
             key: preprocess_live_rgb(sample.rgb)
             for key, sample in camera_samples.items()
@@ -423,7 +529,11 @@ class InferenceThread:
         request[self.model.contract.state_key] = observation.state
         if self.model.contract.environment_state_key is not None:
             request[self.model.contract.environment_state_key] = observation.force
+        stage_timing_ms["preprocessing"] = (
+            time.perf_counter_ns() - preprocessing_started_ns
+        ) / 1e6
         response = self.model.request(request)
+        stage_timing_ms.update(self.model.last_request_timing)
         query_end_ns = time.monotonic_ns()
         chunk = np.asarray(response["prediction"], dtype=np.float32)
         expected = (self.model.contract.chunk_size, self.model.contract.action_dim)
@@ -434,6 +544,18 @@ class InferenceThread:
             if command_tick is not None
             else max(0, int(np.ceil((query_end_ns - self.command_epoch_ns) / self.command_period_ns)))
         )
+        response_timing = {
+            key: float(value) for key, value in response["timing_ms"].items()
+        }
+        for response_key, stage_key in (
+            ("worker_receive_decode", "policy_worker_receive_decode"),
+            ("worker_receive_wait", "policy_worker_receive_wait"),
+            ("checkpoint_preprocessing", "checkpoint_preprocessing"),
+            ("act_inference", "model_forward"),
+            ("checkpoint_postprocessing", "checkpoint_postprocessing"),
+        ):
+            if response_key in response_timing:
+                stage_timing_ms[stage_key] = response_timing[response_key]
         prediction = Prediction(
             self._next_sequence,
             query_start_ns,
@@ -441,7 +563,8 @@ class InferenceThread:
             query_command_tick,
             observation,
             chunk,
-            {key: float(value) for key, value in response["timing_ms"].items()},
+            response_timing,
+            stage_timing_ms,
         )
         self._next_sequence += 1
         with self._lock:
@@ -480,6 +603,7 @@ class InferenceThread:
                 "state": observation.state.tolist(),
                 "force": observation.force.tolist(),
                 "timing_ms": prediction.timing_ms,
+                "stage_timing_ms": prediction.stage_timing_ms,
             },
         )
         self.query_count += 1
@@ -766,6 +890,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     abort_reason: str | None = None
     command_count = 0
     next_command_ns = 0
+    stage_timing = BoundedStageTiming()
+    write_path_mode = args.write_path_mode
+    jaka_writes_enabled = write_path_mode in {"both", "jaka_only"}
+    rh56_writes_enabled = write_path_mode in {"both", "rh56_only"}
+    if write_path_mode != "both" and not args.stationary_write_test:
+        raise ValueError(
+            "write-path isolation requires --stationary-write-test; "
+            "it is not a task-rollout mode"
+        )
+    if write_path_mode != "both" and args.duration_sec > 10.0:
+        raise ValueError("write-path isolation is limited to a 10-second stationary test")
     options = _resolve_execution_options(
         requested_mode=args.act_execution_mode,
         chunk_size=model.contract.chunk_size,
@@ -878,7 +1013,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             if not jaka_adapter.apply_joint_position(status.joint_position_rad):
                 raise RuntimeError("failed to publish native startup alignment target")
             startup_sent = True
-            rh56_worker.activate_from_measured(time.monotonic_ns())
+            if rh56_writes_enabled:
+                rh56_worker.activate_from_measured(time.monotonic_ns())
             next_command_ns = time.monotonic_ns()
             command_epoch_ns = next_command_ns
             inference = InferenceThread(
@@ -903,6 +1039,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 if now_ns < next_command_ns:
                     time.sleep((next_command_ns - now_ns) / 1e9)
                 command_start_ns = time.monotonic_ns()
+                tick_started_ns = time.perf_counter_ns()
                 if native.process is None or native.process.poll() is not None:
                     raise RuntimeError("native JAKA worker exited during ACT rollout")
                 if rh56_worker.failed:
@@ -912,6 +1049,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 selected_policy: Prediction | None = None
                 selection: TemporalSelection | None = None
                 startup_fallback = False
+                tick_stage_timing_ms: dict[str, float] = {}
                 if execution_mode == "canonical_temporal_ensemble":
                     # Canonical ACT semantics: one complete chunk is queried
                     # for this control tick, then exactly one action for the
@@ -921,6 +1059,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         command_tick=command_tick,
                         publish_pending=False,
                     )
+                    temporal_started_ns = time.perf_counter_ns()
                     temporal_ensembler.add_prediction(
                         query_id=prediction.sequence,
                         query_timestamp_ns=prediction.query_end_ns,
@@ -959,6 +1098,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         raise RuntimeError(
                             "ACT temporal-ensemble result exceeded policy freshness limit"
                         )
+                    tick_stage_timing_ms.update(prediction.stage_timing_ms)
+                    tick_stage_timing_ms["temporal_ensemble"] = (
+                        time.perf_counter_ns() - temporal_started_ns
+                    ) / 1e6
                 elif temporal_ensembler is not None:
                     for pending in inference.drain_predictions():
                         temporal_ensembler.add_prediction(
@@ -1017,13 +1160,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             raise RuntimeError("ACT inference result exceeded policy freshness limit")
                         action = selected_policy.chunk[chunk_index].astype(np.float64, copy=False)
                         source_sequence = selected_policy.sequence
+                if selected_policy is not None:
+                    tick_stage_timing_ms.update(selected_policy.stage_timing_ms)
                 if startup_fallback:
                     action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
                     hand_target = rh56_worker.latest_feedback
                     if hand_target is None:
                         raise RuntimeError("RH56 activation feedback disappeared")
                     action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
+                action_split_started_ns = time.perf_counter_ns()
+                model_selected_action = action.copy()
+                if args.stationary_write_test:
+                    current_feedback = rh56_worker.latest_dataset_feedback
+                    if current_feedback is None:
+                        raise RuntimeError("RH56 feedback disappeared during stationary audit")
+                    current_status = (
+                        status if selected_policy is None else selected_policy.observation.status
+                    )
+                    action = np.concatenate(
+                        [
+                            np.asarray(current_status.joint_position_rad, dtype=np.float64),
+                            np.asarray(
+                                current_feedback.feedback.position_normalized,
+                                dtype=np.float64,
+                            ),
+                        ]
+                    )
                 raw_action = action.copy()
+                tick_stage_timing_ms["action_split"] = (
+                    time.perf_counter_ns() - action_split_started_ns
+                ) / 1e6
+                projection_started_ns = time.perf_counter_ns()
                 action, command_projection_events = _project_rh56_command(
                     raw_action,
                     legal_min=rh56_legal_min,
@@ -1039,19 +1206,50 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         }
                     )
                 _assert_policy_action(action)
-                if jaka_adapter is None or not jaka_adapter.apply_joint_position(
-                    tuple(float(value) for value in action[:6]),
-                    source_capture_ns=(time.monotonic_ns() if selected_policy is None else selected_policy.observation.ready_ns),
-                    local_receive_ns=command_start_ns,
-                    processing_ns=command_start_ns,
-                ):
-                    raise RuntimeError("JAKA target publication failed")
-                rh56_worker.submit_target(tuple(float(value) for value in action[6:]), command_start_ns)
+                tick_stage_timing_ms["rh56_projection"] = (
+                    time.perf_counter_ns() - projection_started_ns
+                ) / 1e6
+                jaka_call_started_ns = time.perf_counter_ns()
+                if jaka_adapter is None:
+                    raise RuntimeError("JAKA adapter is unavailable")
+                if jaka_writes_enabled:
+                    if not jaka_adapter.apply_joint_position(
+                        tuple(float(value) for value in action[:6]),
+                        source_capture_ns=(time.monotonic_ns() if selected_policy is None else selected_policy.observation.ready_ns),
+                        local_receive_ns=command_start_ns,
+                        processing_ns=command_start_ns,
+                    ):
+                        raise RuntimeError("JAKA target publication failed")
+                else:
+                    heartbeat = ArmControlHeartbeat(
+                        input_sequence_number=command_count + 1,
+                        input_receive_monotonic_ns=command_start_ns,
+                        generated_monotonic_ns=command_start_ns,
+                        reference_generation=1,
+                        clutch_generation=1,
+                        state=ArmControlState.ACTIVE,
+                        reason="hardware_write_timing_audit_hold",
+                        last_accepted_target_sequence=jaka_adapter.last_sequence,
+                    )
+                    if not jaka_adapter.heartbeat(heartbeat):
+                        raise RuntimeError("JAKA heartbeat publication failed")
+                tick_stage_timing_ms["jaka_command_call"] = (
+                    time.perf_counter_ns() - jaka_call_started_ns
+                ) / 1e6
+                rh56_call_started_ns = time.perf_counter_ns()
+                if rh56_writes_enabled:
+                    rh56_worker.submit_target(
+                        tuple(float(value) for value in action[6:]), command_start_ns
+                    )
+                tick_stage_timing_ms["rh56_command_call"] = (
+                    time.perf_counter_ns() - rh56_call_started_ns
+                ) / 1e6
                 workspace_sample = cameras[0].latest()
                 wrist_sample = cameras[1].latest()
                 status_sample = _command_status_sample(selected_policy, status)
                 feedback_sample = rh56_worker.latest_dataset_feedback
                 rh56_trace = rh56_worker.control.command_trace()
+                logging_started_ns = time.perf_counter_ns()
                 writer.submit(
                     "command",
                     (
@@ -1066,11 +1264,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                                 None if source_sequence == 0 else raw_action.tolist()
                             ),
                             "policy_raw_prediction": (
-                                None if source_sequence == 0 else raw_action.tolist()
+                                None
+                                if source_sequence == 0
+                                else model_selected_action.tolist()
                             ),
+                            "model_selected_action": (
+                                None
+                                if source_sequence == 0
+                                else model_selected_action.tolist()
+                            ),
+                            "stationary_write_test": args.stationary_write_test,
                             "policy_requested_target": (
-                                None if source_sequence == 0 else raw_action[6:].tolist()
+                                None
+                                if source_sequence == 0
+                                else model_selected_action[6:].tolist()
                             ),
+                            "pre_safety_target": raw_action.tolist(),
+                            "stage_timing_ms": tick_stage_timing_ms,
                             "ensemble_raw_target": (
                                 raw_action.tolist() if selection is not None and source_sequence != 0 else None
                             ),
@@ -1106,6 +1316,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         wrist_sample.rgb,
                     ),
                 )
+                tick_stage_timing_ms["logging_provenance_enqueue"] = (
+                    time.perf_counter_ns() - logging_started_ns
+                ) / 1e6
+                tick_stage_timing_ms["critical_path"] = (
+                    time.perf_counter_ns() - tick_started_ns
+                ) / 1e6
+                stage_timing.add(tick_stage_timing_ms)
                 command_count += 1
                 command_tick += 1
                 next_command_ns += command_period_ns
@@ -1172,13 +1389,17 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "model_input_keys": list(model.contract.input_features),
             "checkpoint_contract": model.contract.summary(),
             "act_execution_mode": execution_mode,
+            "write_path_mode": write_path_mode,
+            "stationary_write_test": args.stationary_write_test,
             "consume_actions": args.consume_actions,
             "consumed_chunk_indices": (
                 None
                 if args.consume_actions is None
                 else list(range(args.consume_actions))
             ),
-            "policy_predictions_superseded_before_adoption": consumer.superseded_predictions,
+            "policy_predictions_superseded_before_adoption": (
+                0 if consumer is None else consumer.superseded_predictions
+            ),
             "temporal_ensemble": (
                 None
                 if temporal_ensembler is None
@@ -1207,6 +1428,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "command_count": command_count,
             "policy_query_count": 0 if inference is None else inference.query_count,
             "policy_deadline_skips": 0 if inference is None else inference.skipped_deadlines,
+            "control_tick_timing": stage_timing.summary(),
             "abort_reason": abort_reason,
             "label": effective_label,
             "notes": args.notes,
@@ -1229,6 +1451,20 @@ def main() -> int:
         help="CUDA LeRobot image for the inference-only model worker",
     )
     parser.add_argument("--duration-sec", type=float, default=30.0)
+    parser.add_argument(
+        "--write-path-mode",
+        choices=("none", "jaka_only", "rh56_only", "both"),
+        default="both",
+        help=(
+            "safe stationary timing isolation: none, jaka_only, rh56_only, or both; "
+            "normal collection uses both"
+        ),
+    )
+    parser.add_argument(
+        "--stationary-write-test",
+        action="store_true",
+        help="hold the currently measured JAKA/RH56 state during write-path isolation",
+    )
     parser.add_argument(
         "--query-rate-hz",
         type=float,

@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import pickle
+import select
 import socket
 import struct
 import time
@@ -124,7 +125,13 @@ def main() -> int:
         connection, _ = server.accept()
         with connection, torch.inference_mode():
             while True:
+                wait_started_ns = time.perf_counter_ns()
+                readable, _, _ = select.select([connection], [], [])
+                if not readable:
+                    continue
+                receive_ready_ns = time.perf_counter_ns()
                 request = _receive(connection)
+                receive_ended_ns = time.perf_counter_ns()
                 if request == {"command": "stop"}:
                     _send(connection, {"stopped": True})
                     break
@@ -181,6 +188,14 @@ def main() -> int:
                                 / 1e6,
                                 "worker_total": (
                                     postprocessing_ended_ns - request_started_ns
+                                )
+                                / 1e6,
+                                "worker_receive_decode": (
+                                    receive_ended_ns - receive_ready_ns
+                                )
+                                / 1e6,
+                                "worker_receive_wait": (
+                                    receive_ready_ns - wait_started_ns
                                 )
                                 / 1e6,
                             },
