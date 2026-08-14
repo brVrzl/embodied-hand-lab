@@ -1911,3 +1911,211 @@ All license statements apply only to the specific code checkout named here.
 Datasets, object assets, robot meshes, vendor SDKs, Isaac Sim/cuRobo and model
 weights may have different terms. **UNKNOWN** remains the correct status until
 the exact artifact is audited.
+
+## UNDERACTUATED SIMULATION FACT AUDIT
+
+**Phase 1 scope.** This section is a factual audit of public hand assets,
+simulation platforms, public data, and prior underactuation/action-space work.
+It is intentionally not a final method recommendation, benchmark design, or
+paper decision. Evidence was checked against primary papers, official project
+pages, official repositories, and the checked-in RH56 model. `UNKNOWN` means
+that the inspected primary source did not establish the claim; it does not
+mean that the capability cannot exist elsewhere.
+
+### 1. Verified hand-asset matrix
+
+The terms “DoF” and “joint” are kept separate. Several vendors use DoF to mean
+independently commanded channels while also reporting a larger number of
+physical joints. A hand is called underactuated below only when the primary
+source describes tendon, passive, or mechanically coupled joints.
+
+| Hand/version | Primary-source mechanical facts | Powered actuators / topology | Contact-dependent passive configuration | Public asset/simulator evidence | Code license | Asset license | Audit status |
+|---|---|---|---|---|---|---|---|
+| **Inspire RH56DFX-2L/R** | Inspire support reports 6 degrees of freedom and 12 finger joints. The product/manual identify six independently addressed bending/rotation actuator channels and six actuator force/current registers. | 6 linear-servo channels for 12 joints. The Isaac Sim Inspire tutorial models one driven joint with PhysX mimic joints at fixed gear ratios. The vendor pages do not document the exact physical transmission topology in enough detail to infer every passive joint. | **Not directly stated in the inspected vendor documentation.** The simulator asset has mimic joints; that is evidence of the digital model, not a vendor claim that every passive joint changes under contact in the real hand. | Official Isaac Sim sample USD (`Inspire` rigging samples and `inspire_hand.usda`) is available in the Isaac Sim Content Browser. ManiSkill has RH56DFX-2LR URDFs and a fixed/floating hand agent. This repository has a MuJoCo RH56 model with 12 hand joints and 6 actuators, rigid equality couplings, and no declared load sensors in the model. | Isaac Lab/Sim code terms are separate from the sample asset; vendor asset redistribution terms are **UNKNOWN**. ManiSkill repository code is Apache-2.0, but its copied RH56 asset is asset-specific CC BY-NC-SA 4.0. | Isaac Sim sample asset terms **UNKNOWN**. ManiSkill RH56 asset README says CC BY-NC-SA 4.0. Local model license is repository-specific. | Underactuated/coupled simulator representation is verified; the physical contact-to-passive-joint statement remains unsupported. |
+| **LEAP Hand V2 Basic** | The official RSS-2025 product page describes an 8-DoF, hybrid rigid-soft hand. The official SDK exposes four finger MCP-side/curl pairs and two thumb channels (8 motor channels). The total number of physical finger joints is not numerically specified in the inspected V2-basic sources. | Four finger curl tendons; the SDK describes a linear curl relation to the sum of finger joint angles, with MCP moving first and PIP/DIP following. The assembly page identifies eight motor IDs. This is explicit underactuation/coupling. | **Yes, explicitly stated by the official SDK:** when a finger contacts the environment, it wraps/conforms rather than continuing an unconstrained nominal curl. | Official RSS page says a URDF and simulation examples for multiple engines exist, but the exact downloadable V2-basic URDF and a simulator repository were not verified in this audit. Do not substitute the V1 Isaac Gym repository. | SDK repository MIT. Feetech firmware/software has separate terms. | CAD page states CC BY-NC-SA. Exact V2-basic URDF/mesh redistribution terms are **UNKNOWN**. | Underactuation and contact-conforming behavior are verified; exact public asset location is still unresolved. |
+| **LEAP Hand V2 Advanced** | Official site reports 21 physical DOF and 17 powered motors; it is a distinct product from Basic V2. | Each four-finger PIP/DIP pair is coupled by one tendon; the 17 motor groups include finger motors, thumb motors, and two palm articulations. The API accepts a 20-DOF pose representation but directly commands 17 motors. | Coupled PIP/DIP geometry is explicit. A separate experiment demonstrating contact-induced passive motion was not found in the inspected sources. | Official CAD page provides URDF/STP downloads. Official API includes PyBullet IK and position/velocity/effort reads. | API license is **UNKNOWN** in the inspected repository (no unambiguous license file found). | CAD download terms state CC BY-NC-SA 4.0. | A verified underactuated public asset, but Basic and Advanced must not be conflated. |
+| **RUKA (original)** | Official project page describes a five-finger, tendon-driven hand with 15 underactuated DOF and a sub-$1300 design. | The project describes learned joint-to-actuator and fingertip-to-actuator models from MANUS motion capture. A primary source inspected here does **not** provide a definitive powered-actuator count. | Tendon-driven underactuation is explicit; a quantitative contact/passive-joint experiment was not separately specified in the project page. | Open design/assembly/code/data are claimed by the project page, but the exact canonical repository, downloadable URDF/MJCF, and asset terms were not resolved in this audit. | **UNKNOWN** for the original canonical code checkout. | **UNKNOWN**. | Underactuation is verified; download and licensing facts remain incomplete. |
+| **RUKA-v2** | Official site states 16 finger/thumb DOF plus a 2-DOF parallel wrist (18 physical DOF total). The site describes tendon routing, a dedicated abduction tendon, and spring return. | Official repository code has 16 motor IDs and calibration/tension/curl ranges. Its URDF contains 21 revolute joint tags and four mimic tags; the resulting independent-joint count does not reconcile cleanly with the site’s 18-DOF statement. | Tendon routing and spring return are explicit. The exact contact-dependent passive-joint law is not documented in the inspected sources. | Official MIT repository includes `rukav2_sim`, URDF, PyBullet loading, collision geometry, calibration and teleoperation code. CAD is linked externally; exact CAD/mesh terms are **UNKNOWN**. | MIT for the checked-in code. | **UNKNOWN** for CAD/mesh assets. | Public asset/sim is verified, but the DOF/URDF accounting needs clarification before using it as a ground-truth embodiment. |
+| **LEAP Hand V1 (GET-Zero control hand)** | Official LEAP simulator URDF has 16 revolute joints and the Isaac Gym configuration uses 16 actions. | Direct per-joint position-target actions; no mimic/tendon tags were found in the inspected URDF. | Not an underactuated hand in the audited simulator representation. | Official Isaac Gym simulator with `LeapHandRot` and `LeapHandGrasp`, GPU environments, force sensors, and sim-to-real code. | MIT. | Repository asset terms follow the repository; separate third-party object terms may apply. | Included as a negative control because GET-Zero uses this direct-actuation LEAP variant; it must not be cited as an underactuated hand. |
+
+No additional hand is included in the verified matrix merely because a project
+uses a “dexterous” or “low-cost” hand. In particular, the audited LEAP V1
+simulator and several Allegro/Shadow-Hand projects have direct joint control in
+their released assets, which is insufficient evidence for underactuation.
+
+### 2. Verified platform matrix
+
+“Custom asset support” means that the platform has an official import or agent
+extension path. It does not mean that an arbitrary tendon model will preserve
+its calibrated physical semantics without validation.
+
+| Platform | Existing audited underactuated hands | Custom hand/asset path | Actuator, mimic, tendon and contact facts | Parallelism and data generation | Imitation/task facts | Standard benchmark value | RH56/underactuated research value | License / maintenance facts |
+|---|---|---|---|---|---|---|---|---|
+| **RoboTwin 2.0** *(cross-reference to the earlier platform audit in this report)* | No public RH56/RUKA/LEAP-underactuated embodiment was verified. The supplied standard embodiments use scalar gripper abstractions. | Custom SAPIEN-compatible URDF/task assets are possible, but the audited action/expert path assumes a scalar gripper and would require a new multi-actuator hand integration. | SAPIEN exposes joint/contact state, but the released standard action/data path does not expose calibrated multi-actuator hand transmission or hand-load channels. The prior audit found no released RH56 actuator model. | Multi-camera RGB/depth/point-cloud capture, task randomization and CuRobo/MPLib seed generation are documented; this is not evidence of an underactuated-hand expert. | XPolicyLab provides policy/data/evaluation adapters for standard embodiments; the prior audit did not verify an RH56-compatible ACT/DP/VLA contract. | High for standard task/policy comparisons. | Low until the scalar-gripper hand stack is replaced and its generated experts are validated. | Official repository MIT; XPolicyLab Apache-2.0; per-asset/data terms remain separate. |
+| **Isaac Sim + Isaac Lab** | Isaac Sim 6.0 content contains an official Inspire RH56DFX USD tutorial asset. The audited Isaac Lab asset package does not contain a preconfigured RH56 task/agent for RH56. | USD articulation import/configuration is official; URDF-to-USD and custom articulation configuration are supported. | Isaac Lab documents implicit and explicit actuators, delays, friction, DC motors, and custom neural/physics actuator classes. Isaac Sim’s Inspire tutorial verifies PhysX mimic joints and fixed gear ratios. Isaac Lab exposes fixed-tendon/articulation APIs and contact sensors, but a complete RH56 tendon calibration path is not demonstrated by the audited examples. | GPU-accelerated vectorized simulation is a core framework feature. `isaaclab_mimic` generates synthetic demonstrations from a small number of human demonstrations; the official tutorial uses 10 cube-stack demonstrations. | RL, imitation, motion planning, cameras/LiDAR/contact sensors are first-class framework features. An RH56-specific task and exact ACT/Diffusion/VLA adapter were not verified here; mark those **UNKNOWN** rather than assuming ecosystem support. | High for Isaac-native robot-learning and GPU-scale evaluation, but less standardized than ManiSkill task IDs for this specific audit. | High asset/actuator extensibility and the only audited official Inspire USD. Whether the repository’s high-fidelity MuJoCo semantics can be imported without loss is **UNKNOWN**. | Isaac Lab code BSD-3-Clause; `LICENSE-mimic` Apache-2.0. Isaac Sim runtime and sample asset terms are separate and **UNKNOWN**. Active upstream project. |
+| **ManiSkill 3** | RH56DFX-2LR URDF and fixed/floating Inspire agents are in the official repository. The built-in dexterity task cards audited here list DClaw, Allegro, and TriFinger tasks, not an Inspire-specific task. | Official custom task/agent/asset APIs and URDF-based robot assets. | Inspire agent uses six active finger joints (plus optional wrist joints) and six passive mimic joints; its README documents PhysX mimic tuning, offsets/limits, and damping. Controllers are joint position/delta style; a vendor motor/tendon transmission model beyond the mimic representation was not verified. Pairwise/net contact-force APIs are documented. | GPU simulation and GPU-parallel visual data collection are core capabilities. Official scripts generate motion-planning, RL, and teleoperation demonstrations and provide HDF5 replay. | Official repository includes BC and Diffusion Policy examples and references ACT/VLA baselines. Built-in task suite and task cards provide success/randomization metadata. | High: task IDs, demonstrations, baseline scripts, and a public HF demonstration corpus give a comparatively reproducible benchmark substrate. | High for quickly loading the RH56 asset and checking mimic/contact semantics; lower for claiming calibrated actuator fidelity because the asset README itself notes untuned mimic offsets/limits and small spurious motion. | Repository Apache-2.0; asset licenses are separate (RH56 asset README CC BY-NC-SA 4.0; many other assets CC BY-NC 4.0). Active upstream with v3.0.1 released in 2026. |
+| **GET-Zero environment** | No audited underactuated hand. The generated hand is LEAP V1 with direct 16-DoF joint actions. | Procedural URDF graph editing is present, but it assumes LEAP V1 joint/motor IDs and direct actions. | Graph/morphology variation is verified; tendon, passive-joint, motor-transmission, and contact-dependent actuation topology are not represented in the released generator/model. Contact is used by the grasp/RL simulator, but no underactuated actuator model is supplied. | Isaac Gym GPU RL is used for expert generation; the grasp cache is CPU/contact-heavy. | Expert RL generation, state logs, embodiment-aware GET/ET distillation and variable-DoF BC/distillation are released. | High for morphology-generalization research in its defined LEAP direct-actuation setting. | Low as an off-the-shelf RH56 platform; an actuation-topology extension would be new code and new expert generation, not a configuration change. | No repository LICENSE file was found in the audited checkout; code/dataset/checkpoint terms are **UNKNOWN**. Paper/project are public, but this is a licensing blocker for direct reuse. |
+| **DexMimicGen / robosuite / MimicGen** | No Inspire/RUKA/LEAP underactuated asset was verified in the released environments. Environments use Panda/gripper or humanoid/dexterous-hand configurations. | Custom robosuite/MuJoCo robot XML and gripper registrations are possible in the underlying stack, but generic RH56 support is not documented by DexMimicGen itself. | MuJoCo contact and gripper/joint state are available through the environment. A reusable tendon/underactuated actuator model is not demonstrated by the audited task files. | The released project supplies simulation playback and generated HDF5 demonstrations; exact generic GPU-parallel generation support was not established from the project repository. | Nine task families and BC-RNN configs are released; generated data comes from MimicGen-style source-demo retargeting. | High as a multi-stage demonstration-generation/data-format reference, not as an underactuated-hand benchmark. | Medium for reusing task/success/data conventions after a separate custom MuJoCo hand integration; low as evidence that the hand model is already supported. | DexMimicGen code is NVIDIA Source Code License (noncommercial/research). README says datasets CC-BY 4.0, while the current HF dataset card says CC-BY-NC-SA-4.0; artifact license must be resolved before reuse. |
+
+The platform rows distinguish “standard benchmark value” from “RH56 value”
+because a platform can be excellent for reproducible policy comparisons while
+still being a poor model of a particular tendon transmission.
+
+### 3. Verified public-data matrix
+
+The four availability fields below are intentionally independent:
+
+- **ASSET AVAILABLE:** a robot/hand model or mesh can be obtained.
+- **TASK AVAILABLE:** an environment/task implementation is public.
+- **DEMONSTRATION DATA AVAILABLE:** recorded or generated trajectories are
+  downloadable or explicitly released.
+- **EXPERT POLICY AVAILABLE:** a policy used to generate demonstrations is
+  released or directly downloadable.
+- **PRETRAINED POLICY AVAILABLE:** a named checkpoint intended for policy use
+  is released. An asset or simulator alone does not satisfy this field.
+
+| Source / embodiment | Asset | Task | Demonstration data (count, task, embodiment, format, download, license) | Expert policy | Pretrained policy | Audit notes |
+|---|---|---|---|---|---|---|
+| **GET-Zero / LEAP V1 variants** | YES: LEAP V1 URDF and procedural variants. | YES: in-hand cube rotation (`LeapHandRot`). | YES, state logs in the official Google Drive `get_zero_dataset`; logs contain embodiment metadata, observations and actions. The paper/repository do not state a total trajectory count. The 44/10/20 numbers are train/validation/test **embodiment counts**, not trajectory counts. Logs exist fully for successful-performing embodiments and may be placeholders otherwise. Download link is in the official README. Dataset/checkpoint terms UNKNOWN. | YES: per-embodiment RL expert checkpoints are released/linked; generation is Isaac Gym RL after a grasp-cache stage. | YES: `GET.pt`, `ET.pt`, and several embodiment-specific `.pth` files are present/linked. They are for direct-actuation LEAP variants, not underactuated hands. | Do not count GET-Zero’s state logs as real human demonstrations; they are simulated expert behavior logs. |
+| **DexMimicGen / Panda and humanoid dexterous hands** | YES: released environment/task assets. | YES: 9 task families: TwoArmThreading, TwoArmThreePieceAssembly, TwoArmTransport, TwoArmDrawerCleanup, TwoArmBoxCleanup, TwoArmLiftTray, TwoArmCoffee, TwoArmPouring, and TwoArmCanSortRandom. | YES: paper reports over 21K generated demonstrations from 60 source human demonstrations across the nine tasks. HDF5 groups contain states, actions and RGB observations; released BC-RNN configs use low-dimensional end-effector pose/gripper state and images, with task-specific dimensions. Download: HF `MimicGen/dexmimicgen_datasets`; README and HF card disagree on exact license (CC-BY 4.0 vs CC-BY-NC-SA 4.0), so **UNRESOLVED**. | UNKNOWN: generation uses MimicGen/source-demo retargeting and task controllers, but a single downloadable “expert policy” checkpoint was not documented in the audited project. | UNKNOWN: BC-RNN reproduction configs are present, but no named pretrained policy checkpoint was verified. | “21K” is a paper/project aggregate, not a promise that every HDF5 file has identical fields or embodiment. |
+| **ManiSkill 3 task corpus** | YES: many public robot assets; Inspire RH56DFX URDF/agent is available. | YES: broad task suite; built-in dexterity cards include DClaw valve rotation, Allegro in-hand rotation, and TriFinger cube rotation. No Inspire-specific task card was found. | YES for the public HF `haosulab/ManiSkill_Demonstrations` corpus, organized by environment and source (`motionplanning`, `rl`, `teleop`) with HDF5 trajectories. The current card states 5.17 GB and Apache-2.0 but does not state a total trajectory count. Exact per-task counts/observation/action schemas are task-specific and must be read from each file. Download command is documented in ManiSkill utilities. | UNKNOWN as a single public expert-policy set. Motion-planning/RL generated trajectories are available, but the corpus card does not identify a universal expert checkpoint. | UNKNOWN/limited: the repository references policy weights used in some generation workflows, but a named pretrained policy covering the corpus was not verified. | Asset availability must not be reported as an Inspire demonstration set; current Inspire has no audited task/data pair. |
+| **RUKA original** | YES in the project’s open-design claim; exact canonical download not verified. | YES in project demonstrations/teleoperation descriptions. | UNKNOWN: project page says code/data are open-source, but no trajectory count, downloadable log archive, exact observation/action format, or artifact license was verified in this audit. | UNKNOWN. | UNKNOWN. | The 40-episode/45-minute HuDOR statement is an experimental claim, not a verified public dataset release. |
+| **RUKA-v2** | YES: MIT repository contains URDF, PyBullet simulation and control/calibration code. | YES: repository simulation and project page tasks; project page lists teleoperation and three autonomous policy tasks (pen pickup, music-box opening, bread pick/place). | UNKNOWN: no downloadable trajectory archive, trajectory count, exact observation/action schema, or policy-log license was documented in the inspected official site/repository. | UNKNOWN. | UNKNOWN: BAKU code is referenced as a submodule/project, but a RUKA-v2 pretrained checkpoint was not verified. | Videos/task claims do not satisfy the demonstration-data field. |
+| **LEAP Hand V2 Basic** | YES in the official product/SDK/CAD ecosystem; exact basic-URDF URL not verified. | UNKNOWN: official RSS page says URDF and simulation examples exist, but a complete public task environment was not verified. | UNKNOWN: SDK/API and CAD are public; no trajectory dataset was verified. | UNKNOWN. | UNKNOWN. | Do not transfer V1 `LeapHandRot` checkpoints to V2 Basic. |
+| **LEAP Hand V2 Advanced** | YES: official URDF/STP CAD download and API. | UNKNOWN: API includes PyBullet IK, but no benchmark task suite was verified. | UNKNOWN: no trajectory dataset was verified. | UNKNOWN. | UNKNOWN. | CAD is CC BY-NC-SA; API code license remains UNKNOWN in this audit. |
+| **LEAP Hand V1 simulator (negative control)** | YES: MIT Isaac Gym repo with URDF. | YES: rotation/grasp environments. | No released human-demonstration corpus was identified; simulator includes RL rollouts. | YES in the sense of RL policy/checkpoint used by the simulator. | YES: `runs/pretrained/nn/LeapHand.pth`. | Direct-actuation 16-joint hand; not evidence for underactuated data. |
+
+### 4. GET-Zero architecture summary
+
+#### Verified existing capability
+
+1. **Embodiment family.** GET-Zero generates LEAP V1-style hand variants,
+   not RH56, RUKA, or LEAP V2. The released variants remove joints/links from
+   a base URDF and extend link lengths. The official configuration uses 44
+   graph-variation embodiments for training, 10 for validation, and 20 for
+   test; additional IDs represent link-extension and combined variations.
+2. **Representation.** The embodiment encoder has one token per joint/DoF plus
+   a global observation token. Audited node features include degree,
+   parent/child counts, and child-link identifiers. The graph model pads
+   variable-DoF state/action vectors. No motor nodes, tendon-routing edges,
+   passive-joint flags, transmission ratios, actuator force limits, or
+   contact-dependent coupling variables were found in the inspected model.
+3. **Expert generation.** A grasp-cache stage samples 1,024 grasp poses for
+   five cube sizes; contact-heavy cache construction runs on CPU, followed by
+   Isaac Gym GPU RL. The project reports roughly eight hours and 13 GB on an
+   RTX 3090 per seed for the expert-generation configuration, with a success
+   threshold of one (2\pi) rotation within 30 seconds.
+4. **Released data and policies.** State logs contain observations, actions,
+   reset information and embodiment properties; successful embodiments have
+   full logs while other entries can be placeholders. The repository/Drive
+   provides `GET.pt`, `ET.pt`, and some embodiment-specific checkpoints.
+   The loader reads global/local observations and embodiment properties; the
+   held-out test path can load embodiment properties without demonstrations.
+5. **BC/distillation path.** GET/ET distill or condition a policy on the
+   embodiment graph and emit padded variable-DoF action vectors. This is a
+   morphology/kinematic-graph generalization pipeline, not a transmission-aware
+   underactuation pipeline.
+
+#### Proposed extension (not existing GET-Zero capability)
+
+Extending GET-Zero to actuation topology would require at least actuator
+nodes/edges, motor-to-joint transmission maps, coupling/passive-joint
+parameters, action maps from motor space to joint space, and an expert
+generator that uses those semantics during contact. It would also require new
+URDF/asset generation and new train/test splits in which topology, not only
+link/joint graph morphology, changes. None of these extension points is a
+verified feature of the released GET-Zero code. This paragraph records the
+scope of a possible extension; it is not a recommendation or novelty claim.
+
+### 5. Relevant-work comparison
+
+| Work | Problem solved | Action/representation | Explicit actuation topology? | Underactuated hand? | Multi-task / embodiment scope | Code/data status | Force/load dependence |
+|---|---|---|---|---|---|---|---|
+| **DQ-RISE (ICRA 2026)** | Reduce high-dimensional dexterous-hand action complexity for visual manipulation. | VQ-VAE quantizes hand states; a continuous-relaxation diffusion policy predicts compact hand states with a RISE RGB-D point-cloud arm stack. | No explicit motor-to-passive-joint transmission graph in the inspected release. | Uses a RoHand-style dexterous hand; underactuation topology is not claimed. | Multiple real manipulation tasks are reported, but the released policy is tied to the RISE-style embodiment/action schema. | Official repository CC BY-NC-SA 4.0; sample data/checkpoint links are provided, but exact trajectory count is UNKNOWN. | No required force/load channel identified. |
+| **LAMP (2026 preprint)** | Make high-dimensional hand control smoother, lower-dimensional, and safer for online residual learning. | History-conditioned latent motion prior; BC predicts arm-native actions plus latent hand offsets; PCA and VQ-VAE are baselines. | No tendon/motor transmission graph; the latent prior is learned from hand command histories. | Real experiments use a Ruiyan hand; the paper does not establish a specific underactuated topology as the method’s premise. | Four real tasks (grasp/place, drawer, tissue, box assembly); environment-agnostic residual-RL interface. Exact demo count UNKNOWN. | Official repository MIT; no private dataset/checkpoint/driver bundle was identified. | No required force/load channel. |
+| **GET-Zero (ICRA 2025)** | Generalize in-hand rotation policies across variable hand morphology. | Graph embodiment transformer over joint/geometry graph; padded variable-DoF state/action. | No: audited graph is kinematic morphology only, without actuator/transmission topology. | No; released LEAP V1 simulator is direct-actuated. | 44/10/20 graph-variation embodiments plus link-length variants; one cube-rotation task. | Code has no verified LICENSE file; state logs/checkpoints are linked, terms UNKNOWN. | No required force/load channel, although simulator contacts are used. |
+| **DexTrack (ICLR 2025)** | Track human-hand/object references with robot dexterous hands and generate manipulation trajectories. | Kinematic-bias or relative-position residual targets; supports Allegro and LEAP+Franka in the released pipeline. | No explicit tendon/motor transmission topology; new hands require manually defined keypoints/retargeting. | The audited public configurations are direct-joint/kinematic hand embodiments, not a verified underactuated transmission model. | Multiple object/hand settings from GRAB/TACO-derived references; exact public trajectory count UNKNOWN. | Official code/data links exist; exact checked-out license and artifact terms require separate artifact-level audit. | No required force/load channel. |
+| **CrossDex (ICLR 2025)** | Cross-embodiment dexterous manipulation through a shared low-dimensional hand representation and RL/DAgger. | GRAB MANO eigengrasp/PCA, learned retargeting, embodiment randomization, Isaac Gym actions/states. | No explicit tendon or passive-joint actuation topology; representation is kinematic/retargeting based. | Four robot hands are used, but underactuation is not established as the common factor. | Multi-embodiment YCB manipulation and DAgger/RL. | Official repository is public; no root LICENSE was found in the inspected checkout; data/checkpoint terms and exact counts UNKNOWN. | No required force/load channel. |
+| **RUKA / HuDOR** | Build a low-cost tendon-driven hand and learn residual motor control after teleoperation. | Project describes learned joint-to-actuator and fingertip-to-actuator models; RUKA-v2 repository exposes calibrated motor/tension/curl controls. | **Yes, explicitly actuator-aware**, though the public project does not present a general cross-topology policy benchmark. | Yes, tendon-driven RUKA. | Original project shows teleoperation and a small set of autonomous tasks; exact public dataset facts UNKNOWN. | RUKA-v2 code MIT; original artifact terms/download UNKNOWN. | Load/current is read by the hardware code, but the inspected policy description does not require force/load as an input. |
+| **DexFormer (2026 preprint)** | Cross-embodiment dexterous manipulation with randomized embodiments and historical control. | Exact representation, simulator schema, policy/checkpoint and code are not verified from an official repository in this audit. | UNKNOWN. | UNKNOWN. | Claimed cross-embodiment scope; primary implementation details remain UNKNOWN. | Official project page/paper found; code/data/license/weights UNKNOWN. | UNKNOWN. |
+| **LAMP / DQ-RISE / CrossDex latent-action family** | Reduce action dimensionality or smooth hand commands. | Learned latent, quantized, or PCA/eigengrasp coordinates. | Generally no calibrated physical transmission; these are command-space or kinematic representations. | Not established as a shared requirement. | Varies from one embodiment family to cross-embodiment. | See rows above. | Force is optional/not required in the inspected methods. |
+
+The comparison separates “uses a dexterous hand” from “models the hand’s
+actuation topology.” The latter is rare in the audited public learning work.
+
+### 6. Mechanism-coordinate novelty audit
+
+The candidate under review is: native actuator command followed by a
+calibration-derived mechanism-progress coordinate. It is not treated as our
+method here; this is a prior-art check.
+
+| Prior work/fact | What overlaps the candidate | What is not established by the source |
+|---|---|---|
+| **LEAP V2 Basic SDK** | Defines a curl/tendon control relation to the sum of finger-joint angle actuations and documents contact-conforming finger wrapping. This is already a mechanism-space command coordinate. | It is a hand-specific SDK coordinate, not a learned cross-embodiment policy or a calibration-derived residual representation. |
+| **RUKA original and RUKA-v2** | Original RUKA explicitly learns joint-to-actuator and fingertip-to-actuator models; v2 code calibrates motor tension/curl ranges and uses motor IDs. This substantially overlaps calibration-aware actuator coordinates. | A general policy representation spanning different actuation topologies, with contact-conditioned passive-joint prediction, is not established by the audited RUKA sources. |
+| **LAMP** | Learns a compact latent hand-action coordinate and predicts latent offsets around a motion prior. | The latent is learned from command histories; no calibrated tendon/transmission coordinate is claimed. |
+| **DQ-RISE** | Quantized hand-state coordinates provide a compact action space. | VQ state tokens are not a mechanism/transmission coordinate and topology is not explicitly modeled. |
+| **CrossDex / eigengrasp / retargeting** | PCA/eigengrasp and learned retargeting use shared low-dimensional hand coordinates across embodiments. | No explicit actuator-to-passive-joint calibration or contact-dependent transmission is claimed. |
+| **DexTrack** | Residual/relative hand targets provide a mechanism-independent way to stay near a kinematic reference. | No actuator transmission coordinate is used. |
+| **GET-Zero** | Encodes kinematic graph structure and variable joint/action dimension. | No actuator nodes, tendon graph, transmission ratio, or passive coupling is present in the audited implementation. |
+
+**Factual conclusion.** The broad statement “use a lower-dimensional or
+calibration-aware hand coordinate” is already substantially covered by LEAP’s
+curl SDK, RUKA’s learned/calibrated actuator mapping, LAMP’s latent prior, and
+PCA/eigengrasp/retargeting work. A narrower gap may exist around a *unified*
+coordinate that explicitly carries actuator-to-passive-joint transmission and
+contact-dependent coupling across different topologies, but the inspected
+sources do not establish that gap as novel. The exact claim would require a
+more exhaustive transmission-control literature search and artifact-level
+comparison. No novelty or method recommendation is made here.
+
+### 7. Uncertainties and unsupported claims requiring follow-up
+
+- **Inspire physical mechanics:** vendor sources establish six actuator
+  channels and 12 joints; they do not, in the inspected pages, specify a
+  complete contact-dependent passive-joint law. The Isaac Sim mimic model must
+  not be presented as a calibrated physical transmission without validation.
+- **Inspire licensing:** the Isaac Sim sample USD redistribution terms and the
+  vendor’s original mesh/URDF terms were not established. ManiSkill’s copied
+  RH56 asset is explicitly CC BY-NC-SA 4.0 and should be treated separately.
+- **LEAP V2 naming:** Basic V2 and Advanced V2 are different hands. Basic V2’s
+  exact URDF download and simulator repository were not verified; Advanced V2
+  has an official URDF/CAD download but its API code license remains UNKNOWN.
+- **RUKA accounting:** RUKA-v2’s official 18-physical-DOF statement,
+  16-motor code, and URDF joint/mimic tags do not reconcile from the audited
+  files. This needs maintainer clarification before quantitative comparisons.
+- **RUKA original release:** the public project claims open code/data, but the
+  canonical archive, trajectory count, actuator count, and artifact licenses
+  were not verified.
+- **Isaac Lab RH56 integration:** Isaac Sim has an Inspire USD tutorial asset;
+  an Isaac Lab RH56 task/agent with preserved transmission semantics was not
+  found. Fixed-tendon APIs and custom actuators establish engine capability,
+  not a finished RH56 import.
+- **ManiSkill RH56 fidelity:** the official asset README notes untuned mimic
+  offsets/limits and small spurious motion. A task, expert, or demonstration
+  set specifically using Inspire was not found in the audited public corpus.
+- **DexMimicGen licensing and generation internals:** the README/HF card have
+  conflicting dataset licenses. The released project demonstrates task/data
+  environments and playback, but the generic MimicGen generation core is an
+  upstream dependency rather than wholly contained in this repository.
+- **GET-Zero licensing and counts:** no code LICENSE was found; Drive artifact
+  terms and total state-log trajectory count are UNKNOWN. Embodiment split
+  counts must not be reported as trajectory counts.
+- **Policy support claims:** Isaac Lab/ManiSkill ecosystem references to ACT,
+  diffusion, or VLA models do not establish a single maintained checkpoint or
+  identical observation/action contract for every task. Each baseline needs an
+  artifact-level audit before reproduction.
+- **Mechanism-coordinate prior art:** the audit found strong overlaps but did
+  not exhaust every tendon-control, synergy, residual-control, and
+  calibration-based policy paper. The candidate remains an unresolved prior-art
+  question, not a supported novelty claim.
+
+### Primary-source ledger for this fact audit
+
+- **Inspire / Isaac Sim:** [Inspire RH56 product page](https://en.inspire-robots.com/dexterous%20hands/rh56dfx-series/), [Inspire support](https://en.inspire-robots.com/support), [RH56 user manual](https://en.inspire-robots.com/wp-content/uploads/2024/02/INSPIRE-ROBOTS-THE-DEXTEROUS-HAND-RH56-SERIES-USER-MANUAL.pdf), [Isaac Sim Inspire asset structure tutorial](https://docs.isaacsim.omniverse.nvidia.com/latest/openusd_tuning_tutorials/tutorial_02_asset_structure.html), and [joint-drive/mimic tutorial](https://docs.isaacsim.omniverse.nvidia.com/6.0.1/openusd_tuning_tutorials/tutorial_05_joint_drive_tuning.html).
+- **LEAP V2:** [official Basic V2 SDK](https://github.com/leap-hand/LEAP_Hand_V2_API), [official Basic V2 RSS page](https://roboticsconference.org/2025/program/papers/132/), [Basic V2 assembly](https://v2.leaphand.com/assembly), [Advanced V2 site](https://v2-adv.leaphand.com/), [Advanced V2 API](https://github.com/leap-hand/LEAP_Hand_V2_Adv_API), and [Advanced CAD/URDF download](https://v2-adv.leaphand.com/leap_cad).
+- **RUKA:** [RUKA project](https://ruka-hand.github.io/), [RUKA-v2 project](https://ruka-hand-v2.github.io/), and [RUKA-v2 MIT repository](https://github.com/ruka-hand-v2/RUKA-v2).
+- **Platforms:** [Isaac Lab repository](https://github.com/isaac-sim/IsaacLab), [Isaac Lab actuators API](https://isaac-sim.github.io/IsaacLab/develop/source/api/lab/isaaclab.actuators.html), [Isaac Lab Mimic](https://isaac-sim.github.io/IsaacLab/develop/source/overview/imitation-learning/teleop_imitation.html), [ManiSkill repository](https://github.com/haosulab/ManiSkill), [ManiSkill Inspire asset notes](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/assets/robots/inspire_hand/README.md), [ManiSkill task cards](https://maniskill.readthedocs.io/en/latest/tasks/index.html), and [ManiSkill demonstrations](https://huggingface.co/datasets/haosulab/ManiSkill_Demonstrations).
+- **GET-Zero:** [paper](https://arxiv.org/abs/2407.15002) and [official repository](https://github.com/real-stanford/get_zero).
+- **DexMimicGen:** [paper](https://arxiv.org/abs/2410.24185), [project page](https://dexmimicgen.github.io/), [repository](https://github.com/NVlabs/dexmimicgen), and [HF dataset card](https://huggingface.co/datasets/MimicGen/dexmimicgen_datasets).
+- **Prior work:** [DQ-RISE](https://github.com/rise-policy/DQ-RISE), [LAMP](https://github.com/dex-lamp/LAMP), [DexTrack](https://github.com/Meowuu7/DexTrack), [CrossDex](https://github.com/PKU-RL/CrossDex), and [DexFormer project page](https://davidlxu.github.io/DexFormer-web/).
