@@ -83,11 +83,18 @@ CONTROL_TIMING_STAGE_NAMES = (
     "rh56_measured_state_acquisition",
     "observation_assembly",
     "preprocessing",
+    "policy_request_serialization",
     "policy_socket_send",
+    "policy_response_deserialization",
+    "policy_transport_metadata_receive",
     "policy_worker_receive_decode",
+    "policy_worker_batch_wrap",
     "checkpoint_preprocessing",
     "model_forward",
     "checkpoint_postprocessing",
+    "policy_worker_output_to_host",
+    "policy_worker_response_serialization",
+    "policy_worker_socket_send",
     "policy_socket_receive",
     "policy_worker_receive_wait",
     "temporal_ensemble",
@@ -101,22 +108,46 @@ CONTROL_TIMING_STAGE_NAMES = (
 
 
 def _timed_model_request(connection: socket.socket, value: Any) -> tuple[Any, dict[str, float]]:
-    """Send one model request while timing the two host-side socket legs."""
+    """Send one model request while timing host and worker transport stages."""
 
+    serialization_started_ns = time.perf_counter_ns()
     payload = pickle.dumps(value, protocol=5)
+    serialization_ended_ns = time.perf_counter_ns()
     send_started_ns = time.perf_counter_ns()
     connection.sendall(struct.pack("!Q", len(payload)) + payload)
     send_ended_ns = time.perf_counter_ns()
-    receive_started_ns = send_ended_ns
+    receive_started_ns = time.perf_counter_ns()
     size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
-    response = pickle.loads(_recv_exact(connection, size))
+    response_payload = _recv_exact(connection, size)
     receive_ended_ns = time.perf_counter_ns()
-    return response, {
+    response_deserialization_started_ns = time.perf_counter_ns()
+    response = pickle.loads(response_payload)
+    response_deserialization_ended_ns = time.perf_counter_ns()
+    transport_metadata_receive_ms = 0.0
+    if response.pop("_has_transport_timing_frame", False):
+        metadata_receive_started_ns = time.perf_counter_ns()
+        metadata_size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+        metadata = pickle.loads(_recv_exact(connection, metadata_size))
+        transport_metadata_receive_ms = (
+            time.perf_counter_ns() - metadata_receive_started_ns
+        ) / 1e6
+        response.setdefault("timing_ms", {}).update(
+            metadata.get("transport_timing_ms", {})
+        )
+    timings = {
+        "policy_request_serialization": (
+            serialization_ended_ns - serialization_started_ns
+        )
+        / 1e6,
         "policy_socket_send": (send_ended_ns - send_started_ns) / 1e6,
-        # This includes the worker's response serialization/send and the host
-        # receive/decode; the worker compute stages are reported separately.
         "policy_socket_receive": (receive_ended_ns - receive_started_ns) / 1e6,
+        "policy_response_deserialization": (
+            response_deserialization_ended_ns - response_deserialization_started_ns
+        )
+        / 1e6,
+        "policy_transport_metadata_receive": transport_metadata_receive_ms,
     }
+    return response, timings
 
 
 class BoundedStageTiming:
@@ -230,6 +261,9 @@ class AsyncRolloutWriter:
         self._thread = threading.Thread(target=self._run, name="act-rollout-writer", daemon=True)
         self.error: str | None = None
         self.command_count = 0
+        self.submit_count = 0
+        self.queue_high_watermark = 0
+        self.queue_drop_count = 0
 
     def start(self) -> None:
         self._thread.start()
@@ -292,7 +326,10 @@ class AsyncRolloutWriter:
         try:
             self._queue.put_nowait((kind, value))
         except queue.Full as exc:
+            self.queue_drop_count += 1
             raise RuntimeError("rollout recorder queue full") from exc
+        self.submit_count += 1
+        self.queue_high_watermark = max(self.queue_high_watermark, self._queue.qsize())
 
     def finish(self) -> None:
         self._queue.put(None, timeout=5.0)
@@ -550,9 +587,13 @@ class InferenceThread:
         for response_key, stage_key in (
             ("worker_receive_decode", "policy_worker_receive_decode"),
             ("worker_receive_wait", "policy_worker_receive_wait"),
+            ("worker_batch_wrap", "policy_worker_batch_wrap"),
             ("checkpoint_preprocessing", "checkpoint_preprocessing"),
             ("act_inference", "model_forward"),
             ("checkpoint_postprocessing", "checkpoint_postprocessing"),
+            ("worker_output_to_host", "policy_worker_output_to_host"),
+            ("worker_response_serialization", "policy_worker_response_serialization"),
+            ("worker_socket_send", "policy_worker_socket_send"),
         ):
             if response_key in response_timing:
                 stage_timing_ms[stage_key] = response_timing[response_key]
@@ -795,6 +836,26 @@ def _command_status_sample(
     return startup_status if last_policy is None else last_policy.observation.status
 
 
+def _temporal_selection_ages_ms(
+    selection: TemporalSelection, now_ns: int
+) -> tuple[float | None, float | None]:
+    """Return (oldest, newest) contributor ages without rejecting valid history.
+
+    Temporal ensembling intentionally retains older predictions for the
+    current absolute command tick.  The policy freshness gate therefore
+    applies to the newest contributing query; the oldest age remains a
+    diagnostic and must not make a healthy overlapping ensemble fail.
+    """
+
+    if not selection.contributors:
+        return None, None
+    ages_ms = [
+        max(0.0, (int(now_ns) - int(contributor.query_timestamp_ns)) / 1e6)
+        for contributor in selection.contributors
+    ]
+    return max(ages_ms), min(ages_ms)
+
+
 def _resolve_execution_options(
     *,
     requested_mode: str | None,
@@ -899,8 +960,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "write-path isolation requires --stationary-write-test; "
             "it is not a task-rollout mode"
         )
-    if write_path_mode != "both" and args.duration_sec > 10.0:
-        raise ValueError("write-path isolation is limited to a 10-second stationary test")
     options = _resolve_execution_options(
         requested_mode=args.act_execution_mode,
         chunk_size=model.contract.chunk_size,
@@ -1086,15 +1145,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         else None
                     )
                     chunk_index = -1
-                    contributor_age_ms = max(
-                        0.0,
-                        (
-                            command_start_ns
-                            - min(c.query_timestamp_ns for c in selection.contributors)
-                        )
-                        / 1e6,
+                    oldest_contributor_age_ms, newest_contributor_age_ms = (
+                        _temporal_selection_ages_ms(selection, command_start_ns)
                     )
-                    if contributor_age_ms > args.max_policy_age_ms:
+                    if (
+                        newest_contributor_age_ms is not None
+                        and newest_contributor_age_ms > args.max_policy_age_ms
+                    ):
                         raise RuntimeError(
                             "ACT temporal-ensemble result exceeded policy freshness limit"
                         )
@@ -1131,15 +1188,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         else:
                             source_sequence = 0
                         chunk_index = -1
-                    contributor_age_ms = (
-                        None
-                        if not selection.contributors
-                        else max(
-                            0.0,
-                            (command_start_ns - min(c.query_timestamp_ns for c in selection.contributors)) / 1e6,
-                        )
+                    oldest_contributor_age_ms, newest_contributor_age_ms = (
+                        _temporal_selection_ages_ms(selection, command_start_ns)
                     )
-                    if contributor_age_ms is not None and contributor_age_ms > args.max_policy_age_ms:
+                    if (
+                        newest_contributor_age_ms is not None
+                        and newest_contributor_age_ms > args.max_policy_age_ms
+                    ):
                         raise RuntimeError("ACT temporal-ensemble result exceeded policy freshness limit")
                 else:
                     current = inference.get_latest()
@@ -1281,6 +1336,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             ),
                             "pre_safety_target": raw_action.tolist(),
                             "stage_timing_ms": tick_stage_timing_ms,
+                            "oldest_contributor_age_ms": (
+                                oldest_contributor_age_ms
+                                if selection is not None
+                                else None
+                            ),
+                            "newest_contributor_age_ms": (
+                                newest_contributor_age_ms
+                                if selection is not None
+                                else None
+                            ),
                             "ensemble_raw_target": (
                                 raw_action.tolist() if selection is not None and source_sequence != 0 else None
                             ),
@@ -1428,6 +1493,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "command_count": command_count,
             "policy_query_count": 0 if inference is None else inference.query_count,
             "policy_deadline_skips": 0 if inference is None else inference.skipped_deadlines,
+            "writer": {
+                "kind": type(writer).__name__,
+                "submit_count": writer.submit_count,
+                "queue_high_watermark": writer.queue_high_watermark,
+                "queue_drop_count": writer.queue_drop_count,
+            },
             "control_tick_timing": stage_timing.summary(),
             "abort_reason": abort_reason,
             "label": effective_label,

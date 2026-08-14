@@ -65,7 +65,54 @@ def _model_request(connection: socket.socket, value: Any) -> Any:
     payload = pickle.dumps(value, protocol=5)
     connection.sendall(struct.pack("!Q", len(payload)) + payload)
     size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
-    return pickle.loads(_recv_exact(connection, size))
+    response = pickle.loads(_recv_exact(connection, size))
+    if response.pop("_has_transport_timing_frame", False):
+        metadata_size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+        metadata = pickle.loads(_recv_exact(connection, metadata_size))
+        response.setdefault("timing_ms", {}).update(
+            metadata.get("transport_timing_ms", {})
+        )
+    return response
+
+
+def _timed_model_request(
+    connection: socket.socket, value: Any
+) -> tuple[Any, dict[str, float]]:
+    serialization_started_ns = time.perf_counter_ns()
+    payload = pickle.dumps(value, protocol=5)
+    serialization_ended_ns = time.perf_counter_ns()
+    send_started_ns = time.perf_counter_ns()
+    connection.sendall(struct.pack("!Q", len(payload)) + payload)
+    send_ended_ns = time.perf_counter_ns()
+    receive_started_ns = time.perf_counter_ns()
+    size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+    response_payload = _recv_exact(connection, size)
+    receive_ended_ns = time.perf_counter_ns()
+    response_deserialization_started_ns = time.perf_counter_ns()
+    response = pickle.loads(response_payload)
+    response_deserialization_ended_ns = time.perf_counter_ns()
+    metadata_receive_ms = 0.0
+    if response.pop("_has_transport_timing_frame", False):
+        metadata_started_ns = time.perf_counter_ns()
+        metadata_size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+        metadata = pickle.loads(_recv_exact(connection, metadata_size))
+        metadata_receive_ms = (time.perf_counter_ns() - metadata_started_ns) / 1e6
+        response.setdefault("timing_ms", {}).update(
+            metadata.get("transport_timing_ms", {})
+        )
+    return response, {
+        "policy_request_serialization": (
+            serialization_ended_ns - serialization_started_ns
+        )
+        / 1e6,
+        "policy_socket_send": (send_ended_ns - send_started_ns) / 1e6,
+        "policy_socket_receive": (receive_ended_ns - receive_started_ns) / 1e6,
+        "policy_response_deserialization": (
+            response_deserialization_ended_ns - response_deserialization_started_ns
+        )
+        / 1e6,
+        "policy_transport_metadata_receive": metadata_receive_ms,
+    }
 
 
 def _percentile(values: list[float], quantile: float) -> float | None:
@@ -526,6 +573,17 @@ def main() -> int:
             "jaka_state_age",
             "rh56_state_age",
             "camera_pair_skew",
+            "policy_request_serialization",
+            "policy_socket_send",
+            "policy_socket_receive",
+            "policy_response_deserialization",
+            "policy_transport_metadata_receive",
+            "worker_receive_wait",
+            "worker_receive_decode",
+            "worker_batch_wrap",
+            "worker_response_serialization",
+            "worker_socket_send",
+            "worker_output_to_host",
         )
     }
     stale_counts = {"workspace": 0, "wrist": 0, "jaka": 0, "rh56": 0}
@@ -596,7 +654,7 @@ def main() -> int:
                     raise RuntimeError("ACT+Force shadow requires a fresh FORCE_ACT sample")
                 observation[ENVIRONMENT_STATE_KEY] = np.asarray(force, dtype=np.float32)
             roundtrip_started_ns = time.perf_counter_ns()
-            response = _model_request(connection, observation)
+            response, host_request_timing = _timed_model_request(connection, observation)
             roundtrip_ended_ns = time.perf_counter_ns()
             if "error" in response:
                 raise RuntimeError(response["error"])
@@ -624,12 +682,21 @@ def main() -> int:
                 timing["state_assembly"].append((state_ended_ns - state_started_ns) / 1e6)
                 timing["model_roundtrip"].append((roundtrip_ended_ns - roundtrip_started_ns) / 1e6)
                 timing["total_end_to_end"].append((response_ended_ns - acquire_started_ns) / 1e6)
+                for name, value in host_request_timing.items():
+                    timing[name].append(float(value))
                 for name in (
                     "checkpoint_preprocessing",
                     "act_inference",
                     "checkpoint_postprocessing",
+                    "worker_receive_wait",
+                    "worker_receive_decode",
+                    "worker_batch_wrap",
+                    "worker_response_serialization",
+                    "worker_socket_send",
+                    "worker_output_to_host",
                 ):
-                    timing[name].append(float(response["timing_ms"][name]))
+                    if name in response["timing_ms"]:
+                        timing[name].append(float(response["timing_ms"][name]))
                 ages = {
                     "workspace": (observation_ready_ns - workspace_sample.host_monotonic_ns) / 1e6,
                     "wrist": (observation_ready_ns - wrist_sample.host_monotonic_ns) / 1e6,

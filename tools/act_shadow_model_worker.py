@@ -47,6 +47,37 @@ def _send(connection: socket.socket, value: Any) -> None:
     connection.sendall(struct.pack("!Q", len(payload)) + payload)
 
 
+def _send_timed_prediction(connection: socket.socket, value: dict[str, Any]) -> None:
+    """Send a prediction and a tiny sideband frame with transport timings.
+
+    The sideband is deliberately separate because the duration of the main
+    ``sendall`` cannot be known until after the response payload has been
+    serialized.  The client consumes the sideband before issuing its next
+    request, so it cannot be mistaken for a model request.
+    """
+
+    response = dict(value)
+    response["_has_transport_timing_frame"] = True
+    serialization_started_ns = time.perf_counter_ns()
+    payload = pickle.dumps(response, protocol=5)
+    serialization_ended_ns = time.perf_counter_ns()
+    send_started_ns = time.perf_counter_ns()
+    connection.sendall(struct.pack("!Q", len(payload)) + payload)
+    send_ended_ns = time.perf_counter_ns()
+    _send(
+        connection,
+        {
+            "transport_timing_ms": {
+                "worker_response_serialization": (
+                    serialization_ended_ns - serialization_started_ns
+                )
+                / 1e6,
+                "worker_socket_send": (send_ended_ns - send_started_ns) / 1e6,
+            }
+        },
+    )
+
+
 def _validate_observation(
     request: dict[str, Any], *, requires_environment_state: bool,
     contract: ActCheckpointContract | None = None,
@@ -142,6 +173,7 @@ def main() -> int:
                         requires_environment_state=requires_environment_state,
                         contract=contract,
                     )
+                    batch_wrap_started_ns = time.perf_counter_ns()
                     batch = {
                         key: torch.from_numpy(request[key])
                         for key in (*contract.image_keys, contract.state_key)
@@ -150,6 +182,7 @@ def main() -> int:
                         batch[contract.environment_state_key] = torch.from_numpy(
                             request[contract.environment_state_key]
                         )
+                    batch_wrap_ended_ns = time.perf_counter_ns()
                     torch.cuda.synchronize()
                     preprocessing_started_ns = time.perf_counter_ns()
                     processed = preprocessor(batch)
@@ -161,7 +194,9 @@ def main() -> int:
                     native = postprocessor(prediction)
                     torch.cuda.synchronize()
                     postprocessing_ended_ns = time.perf_counter_ns()
+                    output_to_host_started_ns = time.perf_counter_ns()
                     output = native.detach().cpu().numpy()
+                    output_to_host_ended_ns = time.perf_counter_ns()
                     if output.shape == (1, contract.chunk_size, contract.action_dim):
                         output = output[0]
                     if output.shape != (contract.chunk_size, contract.action_dim):
@@ -169,7 +204,7 @@ def main() -> int:
                     if not np.isfinite(output).all():
                         raise ValueError("ACT output contains a non-finite value")
                     query_count += 1
-                    _send(
+                    _send_timed_prediction(
                         connection,
                         {
                             "prediction": output.astype(np.float32, copy=False),
@@ -188,6 +223,14 @@ def main() -> int:
                                 / 1e6,
                                 "worker_total": (
                                     postprocessing_ended_ns - request_started_ns
+                                )
+                                / 1e6,
+                                "worker_batch_wrap": (
+                                    batch_wrap_ended_ns - batch_wrap_started_ns
+                                )
+                                / 1e6,
+                                "worker_output_to_host": (
+                                    output_to_host_ended_ns - output_to_host_started_ns
                                 )
                                 / 1e6,
                                 "worker_receive_decode": (

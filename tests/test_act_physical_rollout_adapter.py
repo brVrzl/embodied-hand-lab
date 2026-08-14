@@ -3,7 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import socket
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -228,6 +230,44 @@ def test_control_tick_timing_keeps_bounded_percentile_statistics() -> None:
     assert summary["p50"] == pytest.approx(25.0)
     assert summary["max"] == pytest.approx(30.0)
     assert timing.summary()["rh56_command_call"]["count"] == 0
+
+
+def test_temporal_freshness_uses_newest_contributor_not_oldest_history() -> None:
+    rollout = _load_rollout_tool()
+    contributor = SimpleNamespace
+    selection = SimpleNamespace(
+        contributors=(
+            contributor(query_timestamp_ns=1_000_000_000),
+            contributor(query_timestamp_ns=1_240_000_000),
+        )
+    )
+    oldest, newest = rollout._temporal_selection_ages_ms(
+        selection, 1_250_000_000
+    )
+    assert oldest == pytest.approx(250.0)
+    assert newest == pytest.approx(10.0)
+
+
+def test_model_ipc_timing_sideband_is_consumed_before_next_request() -> None:
+    rollout = _load_rollout_tool()
+    worker = _load_model_worker()
+    left, right = socket.socketpair()
+    try:
+        sender = threading.Thread(
+            target=worker._send_timed_prediction,
+            args=(right, {"prediction": np.zeros((2, 12), dtype=np.float32), "timing_ms": {}}),
+        )
+        sender.start()
+        response, timing = rollout._timed_model_request(left, {"request": 1})
+        sender.join(timeout=1.0)
+        assert not sender.is_alive()
+        assert response["prediction"].shape == (2, 12)
+        assert timing["policy_socket_receive"] >= 0.0
+        assert response["timing_ms"]["worker_socket_send"] >= 0.0
+        assert response["timing_ms"]["worker_response_serialization"] >= 0.0
+    finally:
+        left.close()
+        right.close()
 
 
 def test_legacy_consume_k_options_remain_explicit_and_isolated() -> None:
