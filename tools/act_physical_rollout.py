@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 import queue
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -220,7 +221,11 @@ class ModelWorker:
         self.checkpoint = checkpoint
         self.root = root
         self.container_image = container_image
-        self.socket = root / "model.sock"
+        # AF_UNIX paths are limited to roughly 108 bytes on Linux.  Keep the
+        # IPC endpoint independent of the user-facing artifact directory so a
+        # descriptive rollout label cannot prevent model startup.
+        self._socket_dir = Path(tempfile.mkdtemp(prefix="act_model_", dir="/tmp"))
+        self.socket = self._socket_dir / "model.sock"
         self.ready = root / "model_ready"
         self.summary = root / "model_summary.json"
         self.contract = ActCheckpointContract.from_checkpoint(checkpoint)
@@ -247,6 +252,7 @@ class ModelWorker:
                 "-e", "PYTHONPATH=/workspace/embodied_lab/src",
                 "-v", f"{repo_root}:/workspace/embodied_lab:ro",
                 "-v", f"{self.root}:{self.root}",
+                "-v", f"{self._socket_dir}:{self._socket_dir}",
                 "-w", "/workspace/embodied_lab",
                 self.container_image,
                 "python", str(Path("/workspace/embodied_lab") / MODEL_WORKER.relative_to(repo_root)),
@@ -300,21 +306,24 @@ class ModelWorker:
                 raise RuntimeError(f"ACT warmup returned an invalid {expected} prediction")
 
     def stop(self) -> None:
-        if self.connection is not None:
-            try:
-                _model_request(self.connection, {"command": "stop"})
-            except BaseException:
-                pass
-            self.connection.close()
-            self.connection = None
-        if self.process is not None:
-            if self.process.poll() is None:
-                self.process.send_signal(signal.SIGTERM)
+        try:
+            if self.connection is not None:
                 try:
-                    self.process.wait(timeout=5.0)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=2.0)
+                    _model_request(self.connection, {"command": "stop"})
+                except BaseException:
+                    pass
+                self.connection.close()
+                self.connection = None
+            if self.process is not None:
+                if self.process.poll() is None:
+                    self.process.send_signal(signal.SIGTERM)
+                    try:
+                        self.process.wait(timeout=5.0)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=2.0)
+        finally:
+            shutil.rmtree(self._socket_dir, ignore_errors=True)
 
 
 class InferenceThread:
@@ -334,6 +343,7 @@ class InferenceThread:
         self.max_age_ns = int(round(max_age_ms * 1e6))
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, name="act-inference", daemon=True)
+        self.started = False
         self._lock = threading.Lock()
         self.latest: Prediction | None = None
         self.error: str | None = None
@@ -346,6 +356,7 @@ class InferenceThread:
         self.pending_drops = 0
 
     def start(self) -> None:
+        self.started = True
         self.thread.start()
 
     def snapshot(self) -> Observation:
@@ -396,6 +407,84 @@ class InferenceThread:
             raise RuntimeError("live JAKA/RH56 state is not finite with expected shape")
         return Observation(workspace, wrist, status, feedback, state, force, now_ns)
 
+    def query_once(self, *, command_tick: int | None = None, publish_pending: bool = True) -> Prediction:
+        """Run one contract-validated ACT query and persist its provenance."""
+
+        query_start_ns = time.monotonic_ns()
+        observation = self.snapshot()
+        camera_samples = {
+            self.model.contract.workspace_image_key: observation.workspace,
+            self.model.contract.wrist_image_key: observation.wrist,
+        }
+        request = {
+            key: preprocess_live_rgb(sample.rgb)
+            for key, sample in camera_samples.items()
+        }
+        request[self.model.contract.state_key] = observation.state
+        if self.model.contract.environment_state_key is not None:
+            request[self.model.contract.environment_state_key] = observation.force
+        response = self.model.request(request)
+        query_end_ns = time.monotonic_ns()
+        chunk = np.asarray(response["prediction"], dtype=np.float32)
+        expected = (self.model.contract.chunk_size, self.model.contract.action_dim)
+        if chunk.shape != expected or not np.isfinite(chunk).all():
+            raise RuntimeError(f"ACT output must be finite {expected}, got {chunk.shape}")
+        query_command_tick = (
+            int(command_tick)
+            if command_tick is not None
+            else max(0, int(np.ceil((query_end_ns - self.command_epoch_ns) / self.command_period_ns)))
+        )
+        prediction = Prediction(
+            self._next_sequence,
+            query_start_ns,
+            query_end_ns,
+            query_command_tick,
+            observation,
+            chunk,
+            {key: float(value) for key, value in response["timing_ms"].items()},
+        )
+        self._next_sequence += 1
+        with self._lock:
+            self.latest = prediction
+            self._chunks.append(prediction.chunk.copy())
+            self._recent[prediction.sequence] = prediction
+            if len(self._recent) > self.pending_capacity * 2:
+                del self._recent[min(self._recent)]
+        if publish_pending:
+            try:
+                self._pending.put_nowait(prediction)
+            except queue.Full:
+                # Never block the query producer on a diagnostic queue.
+                try:
+                    self._pending.get_nowait()
+                except queue.Empty:
+                    pass
+                self.pending_drops += 1
+                self._pending.put_nowait(prediction)
+        self.writer.submit(
+            "query",
+            {
+                "query_sequence": prediction.sequence,
+                "query_start_ns": query_start_ns,
+                "query_end_ns": query_end_ns,
+                "query_command_tick": prediction.query_command_tick,
+                "chunk_size": int(prediction.chunk.shape[0]),
+                "observation_ready_ns": observation.ready_ns,
+                "workspace_frame_number": observation.workspace.frame_number,
+                "wrist_frame_number": observation.wrist.frame_number,
+                "workspace_host_ns": observation.workspace.host_monotonic_ns,
+                "wrist_host_ns": observation.wrist.host_monotonic_ns,
+                "jaka_observation_ns": observation.status.observation_monotonic_ns,
+                "rh56_angle_ns": observation.feedback.angle_act_timestamp_ns,
+                "rh56_force_ns": observation.feedback.force_act_timestamp_ns,
+                "state": observation.state.tolist(),
+                "force": observation.force.tolist(),
+                "timing_ms": prediction.timing_ms,
+            },
+        )
+        self.query_count += 1
+        return prediction
+
     def _run(self) -> None:
         next_due_ns = time.monotonic_ns()
         try:
@@ -405,75 +494,7 @@ class InferenceThread:
                     self.stop_event.wait((next_due_ns - now_ns) / 1e9)
                     if self.stop_event.is_set():
                         break
-                query_start_ns = time.monotonic_ns()
-                observation = self.snapshot()
-                camera_samples = {
-                    self.model.contract.workspace_image_key: observation.workspace,
-                    self.model.contract.wrist_image_key: observation.wrist,
-                }
-                request = {
-                    key: preprocess_live_rgb(sample.rgb)
-                    for key, sample in camera_samples.items()
-                }
-                request[self.model.contract.state_key] = observation.state
-                if self.model.contract.environment_state_key is not None:
-                    request[self.model.contract.environment_state_key] = observation.force
-                response = self.model.request(request)
-                query_end_ns = time.monotonic_ns()
-                chunk = np.asarray(response["prediction"], dtype=np.float32)
-                expected = (self.model.contract.chunk_size, self.model.contract.action_dim)
-                if chunk.shape != expected or not np.isfinite(chunk).all():
-                    raise RuntimeError(f"ACT output must be finite {expected}, got {chunk.shape}")
-                prediction = Prediction(
-                    self._next_sequence,
-                    query_start_ns,
-                    query_end_ns,
-                    max(0, int(np.ceil((query_end_ns - self.command_epoch_ns) / self.command_period_ns))),
-                    observation,
-                    chunk,
-                    {key: float(value) for key, value in response["timing_ms"].items()},
-                )
-                self._next_sequence += 1
-                with self._lock:
-                    self.latest = prediction
-                    self._chunks.append(prediction.chunk.copy())
-                    self._recent[prediction.sequence] = prediction
-                    if len(self._recent) > self.pending_capacity * 2:
-                        del self._recent[min(self._recent)]
-                try:
-                    self._pending.put_nowait(prediction)
-                except queue.Full:
-                    # A temporal executor must not block the inference thread;
-                    # retaining the newest completed chunk is more useful than
-                    # allowing a stale queue to grow into a control stall.
-                    try:
-                        self._pending.get_nowait()
-                    except queue.Empty:
-                        pass
-                    self.pending_drops += 1
-                    self._pending.put_nowait(prediction)
-                self.writer.submit(
-                    "query",
-                    {
-                        "query_sequence": prediction.sequence,
-                        "query_start_ns": query_start_ns,
-                        "query_end_ns": query_end_ns,
-                        "query_command_tick": prediction.query_command_tick,
-                        "chunk_size": int(prediction.chunk.shape[0]),
-                        "observation_ready_ns": observation.ready_ns,
-                        "workspace_frame_number": observation.workspace.frame_number,
-                        "wrist_frame_number": observation.wrist.frame_number,
-                        "workspace_host_ns": observation.workspace.host_monotonic_ns,
-                        "wrist_host_ns": observation.wrist.host_monotonic_ns,
-                        "jaka_observation_ns": observation.status.observation_monotonic_ns,
-                        "rh56_angle_ns": observation.feedback.angle_act_timestamp_ns,
-                        "rh56_force_ns": observation.feedback.force_act_timestamp_ns,
-                        "state": observation.state.tolist(),
-                        "force": observation.force.tolist(),
-                        "timing_ms": prediction.timing_ms,
-                    },
-                )
-                self.query_count += 1
+                self.query_once()
                 next_due_ns += self.period_ns
                 now_ns = time.monotonic_ns()
                 if next_due_ns <= now_ns:
@@ -484,6 +505,8 @@ class InferenceThread:
 
     def stop(self) -> None:
         self.stop_event.set()
+        if not self.started:
+            return
         self.thread.join(timeout=5.0)
         if self.thread.is_alive():
             raise RuntimeError("ACT inference thread did not stop")
@@ -648,6 +671,75 @@ def _command_status_sample(
     return startup_status if last_policy is None else last_policy.observation.status
 
 
+def _resolve_execution_options(
+    *,
+    requested_mode: str | None,
+    chunk_size: int,
+    command_rate_hz: float,
+    query_rate_hz: float | None,
+    consume_actions: int | None,
+    temporal_ensemble_coeff: float | None,
+    max_source_horizon: int | None,
+    max_prediction_age_ticks: int | None,
+    temporal_buffer_capacity: int | None,
+) -> dict[str, Any]:
+    """Resolve policy semantics without exposing legacy knobs in canonical mode."""
+
+    execution_mode = requested_mode
+    if execution_mode is None:
+        execution_mode = (
+            "canonical_temporal_ensemble" if chunk_size >= 60 else "consume_k"
+        )
+    if execution_mode == "canonical_temporal_ensemble":
+        if query_rate_hz is not None and not np.isclose(
+            query_rate_hz, command_rate_hz, rtol=0.0, atol=1e-9
+        ):
+            raise ValueError(
+                "canonical_temporal_ensemble derives query rate from command rate; "
+                "an independent --query-rate-hz is invalid"
+            )
+        if consume_actions is not None:
+            raise ValueError(
+                "--consume-actions is only valid with the legacy consume_k mode"
+            )
+        if max_source_horizon is not None:
+            raise ValueError(
+                "canonical_temporal_ensemble derives max source horizon from checkpoint"
+            )
+        if max_prediction_age_ticks is not None:
+            raise ValueError(
+                "canonical_temporal_ensemble does not accept a prediction-age override"
+            )
+        if temporal_buffer_capacity is not None:
+            raise ValueError(
+                "canonical_temporal_ensemble uses its internal bounded buffer"
+            )
+        return {
+            "execution_mode": execution_mode,
+            "query_rate_hz": command_rate_hz,
+            "consume_actions": None,
+            "temporal_ensemble_coeff": (
+                0.01 if temporal_ensemble_coeff is None else temporal_ensemble_coeff
+            ),
+            "max_source_horizon": None,
+            "max_prediction_age_ticks": None,
+            "temporal_buffer_capacity": 4096,
+        }
+    return {
+        "execution_mode": execution_mode,
+        "query_rate_hz": 15.0 if query_rate_hz is None else query_rate_hz,
+        "consume_actions": 2 if consume_actions is None else consume_actions,
+        "temporal_ensemble_coeff": (
+            0.01 if temporal_ensemble_coeff is None else temporal_ensemble_coeff
+        ),
+        "max_source_horizon": max_source_horizon,
+        "max_prediction_age_ticks": max_prediction_age_ticks,
+        "temporal_buffer_capacity": (
+            4096 if temporal_buffer_capacity is None else temporal_buffer_capacity
+        ),
+    }
+
+
 def run(args: argparse.Namespace) -> dict[str, Any]:
     runtime, config = _runtime_values(args.runtime_config)
     if int(runtime["native_control_realtime_priority"]) != COMBINED_CONTROL_REALTIME_PRIORITY:
@@ -674,23 +766,50 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     abort_reason: str | None = None
     command_count = 0
     next_command_ns = 0
-    execution_mode = args.act_execution_mode
-    if execution_mode is None:
-        execution_mode = (
-            "temporal_ensemble" if model.contract.chunk_size >= 60 else "consume_k"
-        )
-    consumer = ActionChunkConsumer(args.consume_actions, model.contract.chunk_size)
+    options = _resolve_execution_options(
+        requested_mode=args.act_execution_mode,
+        chunk_size=model.contract.chunk_size,
+        command_rate_hz=args.command_rate_hz,
+        query_rate_hz=args.query_rate_hz,
+        consume_actions=args.consume_actions,
+        temporal_ensemble_coeff=args.temporal_ensemble_coeff,
+        max_source_horizon=args.max_source_horizon,
+        max_prediction_age_ticks=args.max_prediction_age_ticks,
+        temporal_buffer_capacity=args.temporal_buffer_capacity,
+    )
+    execution_mode = options["execution_mode"]
+    query_rate_hz = options["query_rate_hz"]
+    consume_actions = options["consume_actions"]
+    temporal_ensemble_coeff = options["temporal_ensemble_coeff"]
+    max_source_horizon = options["max_source_horizon"]
+    max_prediction_age_ticks = options["max_prediction_age_ticks"]
+    temporal_buffer_capacity = options["temporal_buffer_capacity"]
+    args.query_rate_hz = query_rate_hz
+    args.consume_actions = consume_actions
+    args.temporal_ensemble_coeff = temporal_ensemble_coeff
+    args.max_source_horizon = max_source_horizon
+    args.max_prediction_age_ticks = max_prediction_age_ticks
+    args.temporal_buffer_capacity = temporal_buffer_capacity
+    consumer = (
+        None
+        if execution_mode == "canonical_temporal_ensemble"
+        else ActionChunkConsumer(consume_actions, model.contract.chunk_size)
+    )
     temporal_ensembler: AbsoluteTimeTemporalEnsembler | None = None
     command_epoch_ns = 0
     command_period_ns = int(round(1e9 / args.command_rate_hz))
-    if execution_mode in {"temporal_ensemble", "async_temporal_ensemble"}:
+    if execution_mode in {
+        "canonical_temporal_ensemble",
+        "temporal_ensemble",
+        "async_temporal_ensemble",
+    }:
         temporal_ensembler = AbsoluteTimeTemporalEnsembler(
             action_dim=model.contract.action_dim,
             chunk_size=model.contract.chunk_size,
             coefficient=args.temporal_ensemble_coeff,
-            max_source_horizon=args.max_source_horizon,
-            max_prediction_age_ticks=args.max_prediction_age_ticks,
-            capacity=args.temporal_buffer_capacity,
+            max_source_horizon=max_source_horizon,
+            max_prediction_age_ticks=max_prediction_age_ticks,
+            capacity=temporal_buffer_capacity,
         )
     startup_sent = False
     try:
@@ -775,7 +894,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 command_period_ns=command_period_ns,
                 pending_capacity=args.temporal_buffer_capacity,
             )
-            inference.start()
+            if execution_mode != "canonical_temporal_ensemble":
+                inference.start()
             deadline = next_command_ns + int(args.duration_sec * 1e9)
             command_tick = 0
             while time.monotonic_ns() < deadline:
@@ -792,7 +912,54 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 selected_policy: Prediction | None = None
                 selection: TemporalSelection | None = None
                 startup_fallback = False
-                if temporal_ensembler is not None:
+                if execution_mode == "canonical_temporal_ensemble":
+                    # Canonical ACT semantics: one complete chunk is queried
+                    # for this control tick, then exactly one action for the
+                    # current absolute tick is selected.  The chunk is not
+                    # reduced to a consume-K prefix.
+                    prediction = inference.query_once(
+                        command_tick=command_tick,
+                        publish_pending=False,
+                    )
+                    temporal_ensembler.add_prediction(
+                        query_id=prediction.sequence,
+                        query_timestamp_ns=prediction.query_end_ns,
+                        query_command_tick=command_tick,
+                        chunk=prediction.chunk,
+                    )
+                    selection = temporal_ensembler.select(
+                        command_tick=command_tick,
+                        command_timestamp_ns=command_start_ns,
+                    )
+                    if selection.action is None:
+                        raise RuntimeError(
+                            "canonical temporal ensemble produced no current action"
+                        )
+                    action = selection.action
+                    source_sequence = (
+                        selection.contributors[-1].query_id
+                        if selection.contributors
+                        else 0
+                    )
+                    selected_policy = (
+                        inference.get_prediction(source_sequence)
+                        if source_sequence != 0
+                        else None
+                    )
+                    chunk_index = -1
+                    contributor_age_ms = max(
+                        0.0,
+                        (
+                            command_start_ns
+                            - min(c.query_timestamp_ns for c in selection.contributors)
+                        )
+                        / 1e6,
+                    )
+                    if contributor_age_ms > args.max_policy_age_ms:
+                        raise RuntimeError(
+                            "ACT temporal-ensemble result exceeded policy freshness limit"
+                        )
+                elif temporal_ensembler is not None:
                     for pending in inference.drain_predictions():
                         temporal_ensembler.add_prediction(
                             query_id=pending.sequence,
@@ -833,6 +1000,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         raise RuntimeError("ACT temporal-ensemble result exceeded policy freshness limit")
                 else:
                     current = inference.get_latest()
+                    assert consumer is not None
                     selected = consumer.select(current)
                     if selected is None:
                         startup_fallback = True
@@ -1005,7 +1173,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "checkpoint_contract": model.contract.summary(),
             "act_execution_mode": execution_mode,
             "consume_actions": args.consume_actions,
-            "consumed_chunk_indices": list(range(args.consume_actions)),
+            "consumed_chunk_indices": (
+                None
+                if args.consume_actions is None
+                else list(range(args.consume_actions))
+            ),
             "policy_predictions_superseded_before_adoption": consumer.superseded_predictions,
             "temporal_ensemble": (
                 None
@@ -1057,33 +1229,43 @@ def main() -> int:
         help="CUDA LeRobot image for the inference-only model worker",
     )
     parser.add_argument("--duration-sec", type=float, default=30.0)
-    parser.add_argument("--query-rate-hz", type=float, default=15.0)
+    parser.add_argument(
+        "--query-rate-hz",
+        type=float,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--command-rate-hz", type=float, default=30.0)
     parser.add_argument(
         "--act-execution-mode",
-        choices=("consume_k", "temporal_ensemble", "async_temporal_ensemble"),
+        choices=(
+            "canonical_temporal_ensemble",
+            "consume_k",
+            "temporal_ensemble",
+            "async_temporal_ensemble",
+        ),
         default=None,
         help=(
-            "ACT executor semantics; Strong ACT defaults to temporal_ensemble, "
-            "short legacy chunks default to consume_k"
+            "ACT executor semantics; canonical_temporal_ensemble is the default "
+            "for Strong ACT and performs one full-chunk query/action per control tick"
         ),
     )
     parser.add_argument(
         "--consume-actions",
         type=int,
-        default=2,
-        help="consume this many actions from a chunk before adopting the newest prediction",
+        default=None,
+        help=argparse.SUPPRESS,
     )
-    parser.add_argument("--temporal-ensemble-coeff", type=float, default=0.01)
-    parser.add_argument("--max-source-horizon", type=int, default=None)
-    parser.add_argument("--max-prediction-age-ticks", type=int, default=None)
-    parser.add_argument("--temporal-buffer-capacity", type=int, default=4096)
+    parser.add_argument("--temporal-ensemble-coeff", type=float, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--max-source-horizon", type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--max-prediction-age-ticks", type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--temporal-buffer-capacity", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--max-source-age-ms", type=float, default=250.0)
     parser.add_argument("--max-policy-age-ms", type=float, default=250.0)
     parser.add_argument("--label", default="UNLABELED")
     parser.add_argument("--notes", default="")
     args = parser.parse_args()
-    if not (0.0 < args.query_rate_hz <= 30.0):
+    if args.query_rate_hz is not None and not (0.0 < args.query_rate_hz <= 30.0):
         raise SystemExit("query rate must be within (0,30]")
     if not (0.0 < args.command_rate_hz <= 30.0):
         raise SystemExit("command rate must be within (0,30]")

@@ -173,6 +173,67 @@ def test_action_chunk_consumer_accepts_full_strong_act_horizon() -> None:
         consumer_type(consume_actions=61, chunk_size=60)
 
 
+def test_canonical_strong_act_options_derive_one_query_per_control_tick() -> None:
+    rollout = _load_rollout_tool()
+    options = rollout._resolve_execution_options(
+        requested_mode=None,
+        chunk_size=60,
+        command_rate_hz=30.0,
+        query_rate_hz=None,
+        consume_actions=None,
+        temporal_ensemble_coeff=None,
+        max_source_horizon=None,
+        max_prediction_age_ticks=None,
+        temporal_buffer_capacity=None,
+    )
+    assert options == {
+        "execution_mode": "canonical_temporal_ensemble",
+        "query_rate_hz": 30.0,
+        "consume_actions": None,
+        "temporal_ensemble_coeff": 0.01,
+        "max_source_horizon": None,
+        "max_prediction_age_ticks": None,
+        "temporal_buffer_capacity": 4096,
+    }
+
+
+def test_canonical_strong_act_rejects_legacy_executor_overrides() -> None:
+    rollout = _load_rollout_tool()
+    common = dict(
+        requested_mode="canonical_temporal_ensemble",
+        chunk_size=60,
+        command_rate_hz=30.0,
+        query_rate_hz=None,
+        consume_actions=None,
+        temporal_ensemble_coeff=None,
+        max_source_horizon=None,
+        max_prediction_age_ticks=None,
+        temporal_buffer_capacity=None,
+    )
+    with pytest.raises(ValueError, match="consume-actions"):
+        rollout._resolve_execution_options(**{**common, "consume_actions": 2})
+    with pytest.raises(ValueError, match="query rate"):
+        rollout._resolve_execution_options(**{**common, "query_rate_hz": 15.0})
+
+
+def test_legacy_consume_k_options_remain_explicit_and_isolated() -> None:
+    rollout = _load_rollout_tool()
+    options = rollout._resolve_execution_options(
+        requested_mode="consume_k",
+        chunk_size=16,
+        command_rate_hz=30.0,
+        query_rate_hz=None,
+        consume_actions=None,
+        temporal_ensemble_coeff=None,
+        max_source_horizon=None,
+        max_prediction_age_ticks=None,
+        temporal_buffer_capacity=None,
+    )
+    assert options["execution_mode"] == "consume_k"
+    assert options["query_rate_hz"] == 15.0
+    assert options["consume_actions"] == 2
+
+
 def test_rollout_model_worker_detects_force_checkpoint_input(tmp_path: Path) -> None:
     rollout = _load_rollout_tool()
     standard = tmp_path / "standard"
