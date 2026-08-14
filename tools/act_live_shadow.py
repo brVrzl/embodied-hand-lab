@@ -538,6 +538,7 @@ def main() -> int:
     last_observation: dict[str, np.ndarray] | None = None
     deterministic_equal = False
     deterministic_max_abs_diff: float | None = None
+    prediction_shape: tuple[int, int] | None = None
     try:
         workspace.start()
         wrist.start()
@@ -600,8 +601,14 @@ def main() -> int:
             if "error" in response:
                 raise RuntimeError(response["error"])
             prediction = np.asarray(response["prediction"], dtype=np.float32)
-            if prediction.shape != (16, 12) or not np.isfinite(prediction).all():
-                raise ValueError(f"invalid shadow prediction {prediction.shape}")
+            if prediction.ndim != 2 or prediction.shape[1] != 12 or not np.isfinite(prediction).all():
+                raise ValueError(f"invalid shadow prediction [H,12]: {prediction.shape}")
+            if prediction_shape is None:
+                prediction_shape = (int(prediction.shape[0]), int(prediction.shape[1]))
+            elif prediction.shape != prediction_shape:
+                raise ValueError(
+                    f"shadow prediction shape changed from {prediction_shape} to {prediction.shape}"
+                )
             response_ended_ns = time.perf_counter_ns()
             last_observation = observation
 
@@ -702,7 +709,7 @@ def main() -> int:
         ),
         "query_start_interval_ms": _distribution(query_intervals_ms.tolist()),
         "output_shape": list(prediction_array.shape),
-        "per_query_output_shape": [16, 12],
+        "per_query_output_shape": list(prediction_shape) if prediction_shape is not None else None,
         "finite_output_failures": int((~np.isfinite(prediction_array)).any(axis=(1, 2)).sum()),
         "timing_ms": {name: _distribution(values) for name, values in timing.items()},
         "camera": {"workspace": workspace.summary(), "wrist": wrist.summary()},

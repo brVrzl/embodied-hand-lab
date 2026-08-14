@@ -90,6 +90,10 @@ def main() -> int:
     checkpoint = args.checkpoint.resolve()
     contract = ActCheckpointContract.from_checkpoint(checkpoint)
     config = PreTrainedConfig.from_pretrained(checkpoint)
+    # The saved checkpoint contains the trained backbone.  The training-time
+    # initializer in config.json must not trigger a network download during
+    # offline inference (the container intentionally has no network access).
+    config.pretrained_backbone_weights = None
     requires_environment_state = contract.requires_environment_state
     if not torch.cuda.is_available():
         raise RuntimeError("Thor CUDA is required for the shadow benchmark")

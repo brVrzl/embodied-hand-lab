@@ -17,6 +17,8 @@ from typing import Any
 
 import numpy as np
 
+from embodiment_core.act_temporal_executor import AbsoluteTimeTemporalEnsembler
+
 
 HAND_CHANNELS = ("index", "middle", "ring", "pinky", "thumb_close")
 STRATEGIES = (
@@ -305,8 +307,15 @@ def _replay_segment(
     last_action: np.ndarray | None = None
     active_query = -1
     next_index = 0
-    ensemble_actions: list[np.ndarray] = []
-    last_ensemble_query = -1
+    ensembler = (
+        AbsoluteTimeTemporalEnsembler(
+            action_dim=action_dim,
+            chunk_size=horizon,
+            coefficient=0.01 if ensemble_coeff is None else ensemble_coeff,
+        )
+        if mode in {"temporal_ensemble", "async_temporal_ensemble"}
+        else None
+    )
     for i in range(n):
         if i in query_indices:
             query_count += 1
@@ -318,24 +327,27 @@ def _replay_segment(
             elif mode == "fresh":
                 active_query = i
                 next_index = 0
-            elif mode == "temporal_ensemble":
-                assert ensemble_coeff is not None
-                ensemble_actions.append(predictions[i, :])
-                candidates = []
-                weights = []
-                for query in range(0, i + 1, interval):
-                    age = i - query
-                    if age < horizon:
-                        candidates.append(predictions[query, age])
-                        weights.append(np.exp(-ensemble_coeff * age))
-                if candidates:
-                    last_action = np.average(np.stack(candidates), axis=0, weights=np.asarray(weights))
-                    selected_query[i] = i
-                    selected_h[i] = 0
-                    last_ensemble_query = i
+            elif ensembler is not None:
+                ensembler.add_prediction(
+                    query_id=i,
+                    query_timestamp_ns=i,
+                    query_command_tick=i,
+                    chunk=predictions[i],
+                )
             else:
                 raise ValueError(f"unknown replay mode {mode}")
-        if mode in {"consume_k", "fresh"} and active_query >= 0:
+        if ensembler is not None:
+            selection = ensembler.select(command_tick=i)
+            if selection.action is not None:
+                last_action = selection.action
+                if selection.contributors:
+                    newest = selection.contributors[-1]
+                    selected_query[i] = newest.query_id
+                    selected_h[i] = newest.source_horizon
+            else:
+                selected_query[i] = -1
+                selected_h[i] = -1
+        elif mode in {"consume_k", "fresh"} and active_query >= 0:
             selected_query[i] = active_query
             selected_h[i] = min(next_index, consume_actions - 1) if mode == "consume_k" else 0
             last_action = predictions[active_query, selected_h[i]]
@@ -344,8 +356,6 @@ def _replay_segment(
             last_action = predictions[0, 0]
             selected_query[i] = 0
             selected_h[i] = 0
-        elif mode == "temporal_ensemble" and selected_query[i] < 0:
-            selected_query[i] = last_ensemble_query
         output[i] = last_action
     return output, selected_h, selected_query, np.asarray(sorted(query_indices), dtype=np.int64)
 

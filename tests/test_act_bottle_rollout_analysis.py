@@ -32,6 +32,15 @@ def test_chunk_diagnostic_detects_discarded_future_hand_closure() -> None:
     assert result["queries_open_at_0_1_but_grasp_like_at_2_15"] == 20
 
 
+def test_chunk_diagnostic_accepts_strong_act_sixty_step_chunks() -> None:
+    tool = _tool()
+    chunks = np.zeros((3, 60, 12), dtype=np.float32)
+    chunks[:, 31:, 6:11] = 0.3
+    result = tool._chunk_diagnostic(chunks)
+    assert result["diagnostic_horizons"] == [0, 1, 2, 4, 8, 15, 31, 59]
+    assert result["later_grasp_discarded_answer"] == "YES"
+
+
 def test_consumption_ablation_uses_configured_chunk_indices() -> None:
     tool = _tool()
     chunks = np.zeros((8, 16, 12), dtype=np.float32)

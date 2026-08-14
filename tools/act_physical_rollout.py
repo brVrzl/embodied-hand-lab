@@ -27,6 +27,7 @@ import numpy as np
 
 from act_live_shadow import CameraReader, CameraSample, _model_request, preprocess_live_rgb
 from embodiment_core.act_contract import ActCheckpointContract
+from embodiment_core.act_temporal_executor import AbsoluteTimeTemporalEnsembler, TemporalSelection
 from embodiment_core.config import load_yaml
 from quest_jaka_sim import ReplayConfig
 from quest_jaka_hardware import (
@@ -87,6 +88,7 @@ class Prediction:
     sequence: int
     query_start_ns: int
     query_end_ns: int
+    query_command_tick: int
     observation: Observation
     chunk: np.ndarray
     timing_ms: dict[str, float]
@@ -242,6 +244,7 @@ class ModelWorker:
             command = [
                 "docker", "run", "--rm", "--runtime=nvidia", "--ipc=host",
                 "--network=none",
+                "-e", "PYTHONPATH=/workspace/embodied_lab/src",
                 "-v", f"{repo_root}:/workspace/embodied_lab:ro",
                 "-v", f"{self.root}:{self.root}",
                 "-w", "/workspace/embodied_lab",
@@ -315,7 +318,7 @@ class ModelWorker:
 
 
 class InferenceThread:
-    def __init__(self, model: ModelWorker, cameras: tuple[CameraReader, CameraReader], runtime: ArmOnlyRuntime, rh56: RH56PcDirectWorker, writer: AsyncRolloutWriter, *, initial_status: WorkerStatusPacket, rate_hz: float, max_age_ms: float) -> None:
+    def __init__(self, model: ModelWorker, cameras: tuple[CameraReader, CameraReader], runtime: ArmOnlyRuntime, rh56: RH56PcDirectWorker, writer: AsyncRolloutWriter, *, initial_status: WorkerStatusPacket, rate_hz: float, max_age_ms: float, command_epoch_ns: int, command_period_ns: int, pending_capacity: int = 64) -> None:
         self.model = model
         self.workspace, self.wrist = cameras
         self.runtime = runtime
@@ -323,6 +326,11 @@ class InferenceThread:
         self.writer = writer
         self._last_status = initial_status
         self.period_ns = int(round(1e9 / rate_hz))
+        self.command_epoch_ns = int(command_epoch_ns)
+        self.command_period_ns = int(command_period_ns)
+        if pending_capacity < 1:
+            raise ValueError("pending prediction capacity must be positive")
+        self.pending_capacity = int(pending_capacity)
         self.max_age_ns = int(round(max_age_ms * 1e6))
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, name="act-inference", daemon=True)
@@ -333,6 +341,9 @@ class InferenceThread:
         self.skipped_deadlines = 0
         self._next_sequence = 1
         self._chunks: list[np.ndarray] = []
+        self._pending: queue.Queue[Prediction] = queue.Queue(maxsize=self.pending_capacity)
+        self._recent: dict[int, Prediction] = {}
+        self.pending_drops = 0
 
     def start(self) -> None:
         self.thread.start()
@@ -417,6 +428,7 @@ class InferenceThread:
                     self._next_sequence,
                     query_start_ns,
                     query_end_ns,
+                    max(0, int(np.ceil((query_end_ns - self.command_epoch_ns) / self.command_period_ns))),
                     observation,
                     chunk,
                     {key: float(value) for key, value in response["timing_ms"].items()},
@@ -425,12 +437,29 @@ class InferenceThread:
                 with self._lock:
                     self.latest = prediction
                     self._chunks.append(prediction.chunk.copy())
+                    self._recent[prediction.sequence] = prediction
+                    if len(self._recent) > self.pending_capacity * 2:
+                        del self._recent[min(self._recent)]
+                try:
+                    self._pending.put_nowait(prediction)
+                except queue.Full:
+                    # A temporal executor must not block the inference thread;
+                    # retaining the newest completed chunk is more useful than
+                    # allowing a stale queue to grow into a control stall.
+                    try:
+                        self._pending.get_nowait()
+                    except queue.Empty:
+                        pass
+                    self.pending_drops += 1
+                    self._pending.put_nowait(prediction)
                 self.writer.submit(
                     "query",
                     {
                         "query_sequence": prediction.sequence,
                         "query_start_ns": query_start_ns,
                         "query_end_ns": query_end_ns,
+                        "query_command_tick": prediction.query_command_tick,
+                        "chunk_size": int(prediction.chunk.shape[0]),
                         "observation_ready_ns": observation.ready_ns,
                         "workspace_frame_number": observation.workspace.frame_number,
                         "wrist_frame_number": observation.wrist.frame_number,
@@ -462,6 +491,18 @@ class InferenceThread:
     def get_latest(self) -> Prediction | None:
         with self._lock:
             return self.latest
+
+    def drain_predictions(self) -> list[Prediction]:
+        values: list[Prediction] = []
+        while True:
+            try:
+                values.append(self._pending.get_nowait())
+            except queue.Empty:
+                return values
+
+    def get_prediction(self, sequence: int) -> Prediction | None:
+        with self._lock:
+            return self._recent.get(int(sequence))
 
     def saved_chunks(self) -> np.ndarray | None:
         with self._lock:
@@ -633,7 +674,24 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     abort_reason: str | None = None
     command_count = 0
     next_command_ns = 0
+    execution_mode = args.act_execution_mode
+    if execution_mode is None:
+        execution_mode = (
+            "temporal_ensemble" if model.contract.chunk_size >= 60 else "consume_k"
+        )
     consumer = ActionChunkConsumer(args.consume_actions, model.contract.chunk_size)
+    temporal_ensembler: AbsoluteTimeTemporalEnsembler | None = None
+    command_epoch_ns = 0
+    command_period_ns = int(round(1e9 / args.command_rate_hz))
+    if execution_mode in {"temporal_ensemble", "async_temporal_ensemble"}:
+        temporal_ensembler = AbsoluteTimeTemporalEnsembler(
+            action_dim=model.contract.action_dim,
+            chunk_size=model.contract.chunk_size,
+            coefficient=args.temporal_ensemble_coeff,
+            max_source_horizon=args.max_source_horizon,
+            max_prediction_age_ticks=args.max_prediction_age_ticks,
+            capacity=args.temporal_buffer_capacity,
+        )
     startup_sent = False
     try:
         # Match the maintained combined physical launcher: isolate Python
@@ -702,6 +760,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError("failed to publish native startup alignment target")
             startup_sent = True
             rh56_worker.activate_from_measured(time.monotonic_ns())
+            next_command_ns = time.monotonic_ns()
+            command_epoch_ns = next_command_ns
             inference = InferenceThread(
                 model,
                 (cameras[0], cameras[1]),
@@ -711,11 +771,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 initial_status=status,
                 rate_hz=args.query_rate_hz,
                 max_age_ms=args.max_source_age_ms,
+                command_epoch_ns=command_epoch_ns,
+                command_period_ns=command_period_ns,
+                pending_capacity=args.temporal_buffer_capacity,
             )
             inference.start()
-            next_command_ns = time.monotonic_ns()
-            command_period_ns = int(round(1e9 / args.command_rate_hz))
             deadline = next_command_ns + int(args.duration_sec * 1e9)
+            command_tick = 0
             while time.monotonic_ns() < deadline:
                 now_ns = time.monotonic_ns()
                 if now_ns < next_command_ns:
@@ -727,23 +789,72 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     raise RuntimeError("RH56 worker failed during ACT rollout")
                 if inference.error is not None:
                     raise RuntimeError(inference.error)
-                current = inference.get_latest()
-                selected = consumer.select(current)
-                if selected is None:
+                selected_policy: Prediction | None = None
+                selection: TemporalSelection | None = None
+                startup_fallback = False
+                if temporal_ensembler is not None:
+                    for pending in inference.drain_predictions():
+                        temporal_ensembler.add_prediction(
+                            query_id=pending.sequence,
+                            query_timestamp_ns=pending.query_end_ns,
+                            query_command_tick=pending.query_command_tick,
+                            chunk=pending.chunk,
+                        )
+                    selection = temporal_ensembler.select(
+                        command_tick=command_tick,
+                        command_timestamp_ns=command_start_ns,
+                    )
+                    if selection.action is None:
+                        startup_fallback = True
+                        action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
+                        hand_target = rh56_worker.latest_feedback
+                        if hand_target is None:
+                            raise RuntimeError("RH56 activation feedback disappeared")
+                        action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
+                        source_sequence = 0
+                        chunk_index = -1
+                    else:
+                        action = selection.action
+                        if selection.contributors:
+                            source_sequence = selection.contributors[-1].query_id
+                            selected_policy = inference.get_prediction(source_sequence)
+                        else:
+                            source_sequence = 0
+                        chunk_index = -1
+                    contributor_age_ms = (
+                        None
+                        if not selection.contributors
+                        else max(
+                            0.0,
+                            (command_start_ns - min(c.query_timestamp_ns for c in selection.contributors)) / 1e6,
+                        )
+                    )
+                    if contributor_age_ms is not None and contributor_age_ms > args.max_policy_age_ms:
+                        raise RuntimeError("ACT temporal-ensemble result exceeded policy freshness limit")
+                else:
+                    current = inference.get_latest()
+                    selected = consumer.select(current)
+                    if selected is None:
+                        startup_fallback = True
+                        action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
+                        hand_target = rh56_worker.latest_feedback
+                        if hand_target is None:
+                            raise RuntimeError("RH56 activation feedback disappeared")
+                        action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
+                        source_sequence = 0
+                        chunk_index = -1
+                    else:
+                        selected_policy, chunk_index = selected
+                        if command_start_ns - selected_policy.query_end_ns > args.max_policy_age_ms * 1e6:
+                            raise RuntimeError("ACT inference result exceeded policy freshness limit")
+                        action = selected_policy.chunk[chunk_index].astype(np.float64, copy=False)
+                        source_sequence = selected_policy.sequence
+                if startup_fallback:
                     action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
                     hand_target = rh56_worker.latest_feedback
                     if hand_target is None:
                         raise RuntimeError("RH56 activation feedback disappeared")
                     action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
-                    source_sequence = 0
-                    chunk_index = -1
-                    selected_policy = None
-                else:
-                    selected_policy, chunk_index = selected
-                    if command_start_ns - selected_policy.query_end_ns > args.max_policy_age_ms * 1e6:
-                        raise RuntimeError("ACT inference result exceeded policy freshness limit")
-                    action = selected_policy.chunk[chunk_index].astype(np.float64, copy=False)
-                    source_sequence = selected_policy.sequence
                 raw_action = action.copy()
                 action, command_projection_events = _project_rh56_command(
                     raw_action,
@@ -779,24 +890,35 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         {
                             "command_index": command_count,
                             "command_start_ns": command_start_ns,
+                            "command_tick": command_tick,
+                            "execution_mode": execution_mode,
                             "policy_query_sequence": source_sequence,
                             "policy_chunk_index": chunk_index,
                             "raw_policy_action": (
-                                None if chunk_index < 0 else raw_action.tolist()
+                                None if source_sequence == 0 else raw_action.tolist()
                             ),
                             "policy_raw_prediction": (
-                                None if chunk_index < 0 else raw_action.tolist()
+                                None if source_sequence == 0 else raw_action.tolist()
                             ),
                             "policy_requested_target": (
-                                None if chunk_index < 0 else raw_action[6:].tolist()
+                                None if source_sequence == 0 else raw_action[6:].tolist()
+                            ),
+                            "ensemble_raw_target": (
+                                raw_action.tolist() if selection is not None and source_sequence != 0 else None
+                            ),
+                            "temporal_ensemble": (
+                                None if selection is None else selection.as_dict()
                             ),
                             "post_projection_target": (
-                                None if chunk_index < 0 else action[6:].tolist()
+                                None if source_sequence == 0 else action[6:].tolist()
                             ),
                             "post_filter_target": (
-                                None if chunk_index < 0 else action[6:].tolist()
+                                None if source_sequence == 0 else action[6:].tolist()
                             ),
                             "rh56_command_trace_latest": rh56_trace,
+                            "post_delta_limit_target": rh56_trace.get("post_delta_limit_target"),
+                            "post_contact_safety_selected_target": rh56_trace.get("post_contact_safety_selected_target"),
+                            "actually_written_target": rh56_trace.get("actually_written_target"),
                             "projected_command": action.tolist(),
                             "action": action.tolist(),
                             "jaka_status": {
@@ -817,6 +939,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     ),
                 )
                 command_count += 1
+                command_tick += 1
                 next_command_ns += command_period_ns
                 now_ns = time.monotonic_ns()
                 if next_command_ns <= now_ns:
@@ -880,9 +1003,22 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "action_dim": model.contract.action_dim,
             "model_input_keys": list(model.contract.input_features),
             "checkpoint_contract": model.contract.summary(),
+            "act_execution_mode": execution_mode,
             "consume_actions": args.consume_actions,
             "consumed_chunk_indices": list(range(args.consume_actions)),
             "policy_predictions_superseded_before_adoption": consumer.superseded_predictions,
+            "temporal_ensemble": (
+                None
+                if temporal_ensembler is None
+                else {
+                    "coefficient": args.temporal_ensemble_coeff,
+                    "max_source_horizon": temporal_ensembler.max_source_horizon,
+                    "max_prediction_age_ticks": temporal_ensembler.max_prediction_age_ticks,
+                    "capacity": temporal_ensembler.capacity,
+                    "stats": temporal_ensembler.stats(),
+                    "pending_prediction_drops": 0 if inference is None else inference.pending_drops,
+                }
+            ),
             "force_used_by_policy": model.requires_environment_state,
             "policy_environment_state_key": (
                 ENVIRONMENT_STATE_KEY if model.requires_environment_state else None
@@ -924,18 +1060,31 @@ def main() -> int:
     parser.add_argument("--query-rate-hz", type=float, default=15.0)
     parser.add_argument("--command-rate-hz", type=float, default=30.0)
     parser.add_argument(
+        "--act-execution-mode",
+        choices=("consume_k", "temporal_ensemble", "async_temporal_ensemble"),
+        default=None,
+        help=(
+            "ACT executor semantics; Strong ACT defaults to temporal_ensemble, "
+            "short legacy chunks default to consume_k"
+        ),
+    )
+    parser.add_argument(
         "--consume-actions",
         type=int,
         default=2,
         help="consume this many actions from a chunk before adopting the newest prediction",
     )
+    parser.add_argument("--temporal-ensemble-coeff", type=float, default=0.01)
+    parser.add_argument("--max-source-horizon", type=int, default=None)
+    parser.add_argument("--max-prediction-age-ticks", type=int, default=None)
+    parser.add_argument("--temporal-buffer-capacity", type=int, default=4096)
     parser.add_argument("--max-source-age-ms", type=float, default=250.0)
     parser.add_argument("--max-policy-age-ms", type=float, default=250.0)
     parser.add_argument("--label", default="UNLABELED")
     parser.add_argument("--notes", default="")
     args = parser.parse_args()
-    if not (0.0 < args.query_rate_hz <= 15.0):
-        raise SystemExit("query rate must be within (0,15]")
+    if not (0.0 < args.query_rate_hz <= 30.0):
+        raise SystemExit("query rate must be within (0,30]")
     if not (0.0 < args.command_rate_hz <= 30.0):
         raise SystemExit("command rate must be within (0,30]")
     summary = run(args)

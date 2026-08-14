@@ -52,7 +52,9 @@ def test_temporal_ensemble_blends_overlapping_horizons() -> None:
         ensemble_coeff=0.01,
     )
     # At row 1, the current h0 and the previous query's h1 overlap.
-    expected = (1.0 + np.exp(-0.01) * 2.0) / (1.0 + np.exp(-0.01))
+    # Canonical ACT/LeRobot orders the oldest overlapping prediction first;
+    # positive m therefore gives the previous h1 prediction the larger weight.
+    expected = (2.0 + np.exp(-0.01) * 1.0) / (1.0 + np.exp(-0.01))
     np.testing.assert_allclose(output[1, 6], expected, rtol=1e-12)
 
 

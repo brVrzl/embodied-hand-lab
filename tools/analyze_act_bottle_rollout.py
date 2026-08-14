@@ -21,8 +21,16 @@ RH56_NAMES = (
     "thumb_close",
     "thumb_lateral",
 )
-PLOTTED_HORIZONS = (0, 1, 2, 4, 8, 15)
 HEURISTIC_CLOSURE_THRESHOLD = 0.1
+
+
+def _plotted_horizons(chunk_size: int) -> tuple[int, ...]:
+    """Choose stable diagnostic horizons without assuming a 16-step chunk."""
+
+    return tuple(dict.fromkeys(
+        horizon for horizon in (0, 1, 2, 4, 8, 15, 31, chunk_size - 1)
+        if 0 <= horizon < chunk_size
+    ))
 
 
 def _json_lines(path: Path) -> list[dict[str, Any]]:
@@ -136,10 +144,14 @@ def _rh56_domain_summary(
 
 
 def _chunk_diagnostic(chunks: np.ndarray) -> dict[str, Any]:
+    chunks = np.asarray(chunks)
+    if chunks.ndim != 3 or chunks.shape[1] < 1 or chunks.shape[2] != 12:
+        raise ValueError(f"chunks must have shape [N,H,12], got {chunks.shape}")
+    plotted_horizons = _plotted_horizons(chunks.shape[1])
     closing = chunks[:, :, 6:11]
     coordinated = np.min(closing, axis=2)
     early = np.max(coordinated[:, :2], axis=1)
-    later = np.max(coordinated[:, 2:], axis=1)
+    later = np.max(coordinated[:, 2:], axis=1) if chunks.shape[1] > 2 else np.zeros(len(chunks))
     discarded = (early < HEURISTIC_CLOSURE_THRESHOLD) & (
         later >= HEURISTIC_CLOSURE_THRESHOLD
     )
@@ -159,8 +171,12 @@ def _chunk_diagnostic(chunks: np.ndarray) -> dict[str, Any]:
         "later_grasp_discarded_answer": answer,
         "queries": int(chunks.shape[0]),
         "queries_with_grasp_like_later_horizon": int(np.sum(later_present)),
+        "queries_open_at_0_1_but_grasp_like_at_later_horizon": int(np.sum(discarded)),
+        "fraction_open_at_0_1_but_grasp_like_at_later_horizon": float(np.mean(discarded)),
+        # Retain the old names for consumers of historical reports.
         "queries_open_at_0_1_but_grasp_like_at_2_15": int(np.sum(discarded)),
         "fraction_open_at_0_1_but_grasp_like_at_2_15": float(np.mean(discarded)),
+        "diagnostic_horizons": list(plotted_horizons),
         "later_minus_early_coordinated_closure": _distribution(later - early),
         "mean_abs_difference_from_horizon_0": {
             "jaka": np.mean(horizon_delta[:, :, :6], axis=(0, 2)).tolist(),
@@ -208,6 +224,11 @@ def _jaka_status_consumer_version(
 def _simulate_consumption(chunks: np.ndarray, consume_actions: int) -> dict[str, Any]:
     """Simulate a 15 Hz latest-query source consumed by a 30 Hz command loop."""
 
+    chunks = np.asarray(chunks)
+    if chunks.ndim != 3 or chunks.shape[0] < 1 or chunks.shape[1] < 1:
+        raise ValueError(f"chunks must be [N,H,A], got {chunks.shape}")
+    if not 1 <= consume_actions <= chunks.shape[1]:
+        raise ValueError(f"consume_actions must be within [1,{chunks.shape[1]}]")
     command_count = chunks.shape[0] * 2
     active_query = -1
     active_index = consume_actions
@@ -262,6 +283,7 @@ def _plot_rollout(
     import matplotlib.pyplot as plt
 
     usable_queries = min(len(queries), chunks.shape[0])
+    plotted_horizons = _plotted_horizons(chunks.shape[1])
     origin_ns = int(queries[0]["query_start_ns"])
     query_time = np.asarray(
         [(int(row["query_start_ns"]) - origin_ns) / 1e9 for row in queries[:usable_queries]]
@@ -270,7 +292,7 @@ def _plot_rollout(
     for label, start, names in (("jaka", 0, JAKA_NAMES), ("rh56", 6, RH56_NAMES)):
         figure, axes = plt.subplots(3, 2, figsize=(13, 10), sharex=True)
         for channel, axis in enumerate(axes.flat):
-            for horizon in PLOTTED_HORIZONS:
+            for horizon in plotted_horizons:
                 axis.plot(
                     query_time,
                     chunks[:usable_queries, horizon, start + channel],
@@ -300,7 +322,7 @@ def _plot_rollout(
         row.get("rh56_position") is not None for row in commands
     ) and bool(commands)
     for channel, axis in enumerate(axes.flat):
-        for horizon in PLOTTED_HORIZONS:
+        for horizon in plotted_horizons:
             axis.plot(
                 query_time,
                 chunks[:usable_queries, horizon, 6 + channel],
@@ -344,8 +366,8 @@ def analyze_rollout(args: argparse.Namespace) -> None:
     if "chunks" not in archive:
         raise ValueError("act_predictions.npz does not contain chunks")
     chunks = np.asarray(archive["chunks"], dtype=np.float64)
-    if chunks.ndim != 3 or chunks.shape[1:] != (16, 12) or not np.isfinite(chunks).all():
-        raise ValueError(f"expected finite [N,16,12] chunks, got {chunks.shape}")
+    if chunks.ndim != 3 or chunks.shape[1] < 1 or chunks.shape[2] < 1 or not np.isfinite(chunks).all():
+        raise ValueError(f"expected finite [N,H,A] chunks, got {chunks.shape}")
     queries = _json_lines(required[1])
     commands = _json_lines(required[2])
     summary = json.loads(required[3].read_text(encoding="utf-8"))
@@ -359,7 +381,9 @@ def analyze_rollout(args: argparse.Namespace) -> None:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema_version": "embodied_lab.act_bottle_rollout_analysis.v1",
+        "schema_version": "embodied_lab.act_bottle_rollout_analysis.v2",
+        "chunk_size": int(chunks.shape[1]),
+        "action_dim": int(chunks.shape[2]),
         "rollout": str(root),
         "checkpoint": summary.get("checkpoint"),
         "rows": {"queries": len(queries), "commands": len(commands), "chunks": len(chunks)},
@@ -426,18 +450,24 @@ def _teacher_forced_episode(
     pred_now = predictions[:, 0]
     gt_closing = gt_now[:, 6:11]
     pred_closing = pred_now[:, 6:11]
+    horizon = predictions.shape[1]
+    later_start = min(2, horizon)
     recorded_closed = np.min(gt_closing, axis=1) >= HEURISTIC_CLOSURE_THRESHOLD
     immediate_predicted_closed = np.min(pred_closing, axis=1) >= HEURISTIC_CLOSURE_THRESHOLD
     future_gt = np.min(ground_truth[:, :, 6:11], axis=2)
     transition_queries = (
-        (np.max(future_gt[:, :2], axis=1) < HEURISTIC_CLOSURE_THRESHOLD)
-        & (np.max(future_gt[:, 2:], axis=1) >= HEURISTIC_CLOSURE_THRESHOLD)
-        & np.any(valid[:, 2:], axis=1)
+        (np.max(future_gt[:, :later_start], axis=1) < HEURISTIC_CLOSURE_THRESHOLD)
+        & (np.max(future_gt[:, later_start:], axis=1) >= HEURISTIC_CLOSURE_THRESHOLD)
+        & np.any(valid[:, later_start:], axis=1)
+        if later_start < horizon
+        else np.zeros(len(predictions), dtype=bool)
     )
     pred_coord = np.min(predictions[:, :, 6:11], axis=2)
     transition_predicted_later = (
-        (np.max(pred_coord[:, :2], axis=1) < HEURISTIC_CLOSURE_THRESHOLD)
-        & (np.max(pred_coord[:, 2:], axis=1) >= HEURISTIC_CLOSURE_THRESHOLD)
+        (np.max(pred_coord[:, :later_start], axis=1) < HEURISTIC_CLOSURE_THRESHOLD)
+        & (np.max(pred_coord[:, later_start:], axis=1) >= HEURISTIC_CLOSURE_THRESHOLD)
+        if later_start < horizon
+        else np.zeros(len(predictions), dtype=bool)
     )
     errors = np.abs(predictions - ground_truth)
     first_closed_frame = int(frames[np.flatnonzero(recorded_closed)[0]]) if np.any(recorded_closed) else None
@@ -455,6 +485,12 @@ def _teacher_forced_episode(
             if not np.any(recorded_closed)
             else np.mean(pred_closing[recorded_closed], axis=0).tolist()
         ),
+        "diagnostic_transition_later_than_horizon": later_start,
+        "ground_truth_transition_in_later_horizons_queries": int(np.sum(transition_queries)),
+        "predicted_transition_in_later_horizons_on_those_queries": int(
+            np.sum(transition_predicted_later & transition_queries)
+        ),
+        # Historical report-key aliases.
         "ground_truth_transition_in_horizons_2_15_queries": int(np.sum(transition_queries)),
         "predicted_transition_in_horizons_2_15_on_those_queries": int(
             np.sum(transition_predicted_later & transition_queries)
@@ -497,7 +533,7 @@ def _plot_teacher_forced(
                 linewidth=1.7,
                 label="recorded action",
             )
-            for horizon in PLOTTED_HORIZONS:
+            for horizon in _plotted_horizons(predictions.shape[1]):
                 axis.plot(
                     time_s,
                     predictions[:, horizon, start + channel],
@@ -533,8 +569,13 @@ def analyze_teacher_forced(args: argparse.Namespace) -> None:
     valid = np.asarray(archive["valid"], dtype=bool)
     episodes = np.asarray(archive["source_episode"], dtype=np.int64).reshape(-1)
     frames = np.asarray(archive["source_frame"], dtype=np.int64).reshape(-1)
-    if predictions.shape != ground_truth.shape or predictions.shape[1:] != (16, 12):
-        raise ValueError("teacher-forced arrays must have matching [N,16,12] shapes")
+    if (
+        predictions.ndim != 3
+        or predictions.shape != ground_truth.shape
+        or predictions.shape[1] < 1
+        or predictions.shape[2] < 1
+    ):
+        raise ValueError("teacher-forced arrays must have matching finite [N,H,A] shapes")
     if valid.shape != predictions.shape[:2] or len(episodes) != len(predictions):
         raise ValueError("teacher-forced provenance shapes do not match predictions")
     if not np.isfinite(predictions).all() or not np.isfinite(ground_truth).all():
@@ -571,7 +612,9 @@ def analyze_teacher_forced(args: argparse.Namespace) -> None:
         for value in per_episode.values()
     )
     report = {
-        "schema_version": "embodied_lab.act_bottle_teacher_forced_analysis.v1",
+        "schema_version": "embodied_lab.act_bottle_teacher_forced_analysis.v2",
+        "chunk_size": int(predictions.shape[1]),
+        "action_dim": int(predictions.shape[2]),
         "arrays": str(args.arrays.resolve()),
         "heuristic_only": (
             "Recorded closure is defined as all first five RH56 action channels >= 0.1; "
