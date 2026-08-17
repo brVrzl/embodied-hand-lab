@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import gc
 import json
 import os
 import sys
@@ -27,7 +28,7 @@ from openpi_adapter import (  # noqa: E402
     build_openpi_view,
     validate_derived_view,
 )
-from openpi_config import config_summary, make_config  # noqa: E402
+from openpi_config import DATASET_REPO_ID, config_summary, make_config  # noqa: E402
 
 
 def _json_default(value: Any) -> Any:
@@ -52,7 +53,14 @@ def _set_dataset_home(root: Path) -> None:
     os.environ.setdefault("HF_LEROBOT_HOME", str(dataset_home))
 
 
-def _config(args: argparse.Namespace, *, resume: bool = False, steps: int | None = None):
+def _config(
+    args: argparse.Namespace,
+    *,
+    resume: bool = False,
+    steps: int | None = None,
+    dataset_repo_id: str | None = None,
+    norm_stats_repo_id: str | None = None,
+):
     root = args.experiment_root.resolve()
     return make_config(
         experiment_root=root,
@@ -66,6 +74,8 @@ def _config(args: argparse.Namespace, *, resume: bool = False, steps: int | None
         seed=args.seed,
         resume=resume,
         overwrite=False,
+        dataset_repo_id=dataset_repo_id or args.dataset_repo_id,
+        norm_stats_repo_id=norm_stats_repo_id or DATASET_REPO_ID,
     )
 
 
@@ -403,6 +413,235 @@ def cmd_checkpoint_smoke(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _checkpoint_paths(checkpoint_dir: Path) -> list[tuple[int, Path]]:
+    """Return only complete numeric checkpoint directories, in step order."""
+
+    result = []
+    for step in _checkpoint_steps(checkpoint_dir):
+        path = checkpoint_dir / str(step)
+        if (path / "params").is_dir() and (path / "train_state").is_dir():
+            result.append((step, path))
+    return result
+
+
+def _parse_requested_steps(value: str, available: list[tuple[int, Path]]) -> list[int]:
+    if not value.strip():
+        return [step for step, _ in available]
+    requested = []
+    available_steps = {step for step, _ in available}
+    for token in value.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        step = int(token)
+        if step not in available_steps:
+            raise ValueError(f"Requested checkpoint {step} is not a complete checkpoint")
+        requested.append(step)
+    if not requested:
+        raise ValueError("--checkpoint-steps did not contain a checkpoint step")
+    return sorted(set(requested))
+
+
+def _load_val_batches(config: Any, args: argparse.Namespace) -> tuple[list[tuple[Any, Any]], dict[str, Any]]:
+    """Build one deterministic, transformed validation probe for all checkpoints."""
+
+    import json as stdlib_json
+    from openpi.models import model as model_lib
+    from openpi.training import data_loader
+
+    data_config = config.data.create(config.assets_dirs, config.model)
+    dataset = data_loader.create_torch_dataset(data_config, config.model.action_horizon, config.model)
+    transformed = data_loader.transform_dataset(dataset, data_config)
+    episodes_path = args.val_view_root / "meta" / "episodes.jsonl"
+    episodes = [stdlib_json.loads(line) for line in episodes_path.read_text().splitlines() if line.strip()]
+    if not episodes:
+        raise ValueError(f"No validation episodes in {episodes_path}")
+
+    sample_indices: list[int] = []
+    episode_sample_counts: dict[str, int] = {}
+    episode_offset = 0
+    if args.full_val:
+        sample_indices = list(range(len(transformed)))
+    else:
+        if args.samples_per_episode < 1:
+            raise ValueError("--samples-per-episode must be positive")
+        for episode in episodes:
+            length = int(episode["length"])
+            max_start = max(0, length - config.model.action_horizon)
+            starts = np.unique(np.linspace(0, max_start, args.samples_per_episode, dtype=np.int64)).tolist()
+            sample_indices.extend(episode_offset + int(start) for start in starts)
+            episode_sample_counts[str(episode["episode_index"])] = len(starts)
+            episode_offset += length
+        if episode_offset != len(transformed):
+            raise ValueError(
+                f"Episode frame total {episode_offset} does not match dataset length {len(transformed)}"
+            )
+
+    usable_count = len(sample_indices) - (len(sample_indices) % config.batch_size)
+    if usable_count == 0:
+        raise ValueError(f"Validation probe has fewer than one full batch: {len(sample_indices)} samples")
+    sample_indices = sample_indices[:usable_count]
+
+    batches = []
+    for offset in range(0, usable_count, config.batch_size):
+        samples = [transformed[index] for index in sample_indices[offset : offset + config.batch_size]]
+        batch = data_loader._collate_fn(samples)
+        observation = model_lib.Observation.from_dict(batch)
+        actions = batch["actions"]
+        if actions.shape[-1] != 32 or observation.state.shape[-1] != 32:
+            raise ValueError(
+                f"Unexpected transformed dimensions: state={observation.state.shape}, actions={actions.shape}"
+            )
+        if not np.isfinite(np.asarray(actions)).all() or not np.isfinite(np.asarray(observation.state)).all():
+            raise ValueError("Validation batch contains NaN/Inf")
+        batches.append((observation, actions))
+
+    metadata = {
+        "repo_id": config.data.repo_id,
+        "normalization_repo_id": DATASET_REPO_ID,
+        "episode_count": len(episodes),
+        "dataset_frames": len(transformed),
+        "sample_count": usable_count,
+        "batch_count": len(batches),
+        "batch_size": config.batch_size,
+        "action_horizon": config.model.action_horizon,
+        "full_val": args.full_val,
+        "samples_per_episode": None if args.full_val else args.samples_per_episode,
+        "episode_sample_counts": episode_sample_counts,
+        "image_keys": sorted(batches[0][0].images),
+        "state_shape": list(batches[0][0].state.shape),
+        "actions_shape": list(batches[0][1].shape),
+    }
+    return batches, metadata
+
+
+def cmd_val_eval(args: argparse.Namespace) -> dict[str, Any]:
+    """Compare checkpoints using deterministic OpenPI flow-matching val loss."""
+
+    _set_dataset_home(args.experiment_root)
+    _openpi_scripts()
+    config = _config(
+        args,
+        dataset_repo_id=args.val_repo_id,
+        norm_stats_repo_id=DATASET_REPO_ID,
+    )
+    _register(config)
+    available = _checkpoint_paths(config.checkpoint_dir)
+    requested_steps = _parse_requested_steps(args.checkpoint_steps, available)
+    batches, batch_metadata = _load_val_batches(config, args)
+
+    import jax
+    import jax.numpy as jnp
+    from openpi.models import model as model_lib
+    from openpi.shared import nnx_utils
+
+    report_path = args.experiment_root / "reports" / f"{args.report_name}.json"
+    prior_results: dict[str, dict[str, Any]] = {}
+    if report_path.exists():
+        try:
+            prior = json.loads(report_path.read_text())
+            if (
+                prior.get("protocol", {}).get("full_val") == args.full_val
+                and prior.get("protocol", {}).get("samples_per_episode")
+                == (None if args.full_val else args.samples_per_episode)
+                and prior.get("protocol", {}).get("val_repo_id") == args.val_repo_id
+            ):
+                prior_results = {
+                    str(item["checkpoint_step"]): item
+                    for item in prior.get("results", [])
+                    if item.get("status") == "passed"
+                }
+        except (OSError, KeyError, TypeError, ValueError):
+            prior_results = {}
+
+    base_key = jax.random.key(args.seed + 100_003)
+    results = []
+    checkpoint_by_step = dict(available)
+    for step in requested_steps:
+        if str(step) in prior_results:
+            result = prior_results[str(step)]
+            results.append(result)
+            print(json.dumps({"reused": True, **result}, sort_keys=True), flush=True)
+            continue
+
+        checkpoint_path = checkpoint_by_step[step]
+        started = time.monotonic()
+        print(f"[val-eval] loading checkpoint step={step} path={checkpoint_path}", flush=True)
+        try:
+            params = model_lib.restore_params(checkpoint_path / "params", dtype=jnp.bfloat16)
+            model = config.model.load(params)
+            loss_fn = nnx_utils.module_jit(model.compute_loss)
+            losses = []
+            for batch_index, (observation, actions) in enumerate(batches):
+                loss = loss_fn(
+                    jax.random.fold_in(base_key, batch_index),
+                    observation,
+                    actions,
+                )
+                jax.block_until_ready(loss)
+                loss_values = np.asarray(jax.device_get(loss), dtype=np.float64).reshape(-1)
+                if not np.isfinite(loss_values).all():
+                    raise ValueError(f"Non-finite loss at batch {batch_index}: {loss_values}")
+                losses.append(loss_values)
+            flat_loss = np.concatenate(losses)
+            result = {
+                "status": "passed",
+                "checkpoint_step": step,
+                "checkpoint_path": str(checkpoint_path.relative_to(args.experiment_root)),
+                "loss_mean": float(np.mean(flat_loss)),
+                "loss_std": float(np.std(flat_loss)),
+                "loss_min": float(np.min(flat_loss)),
+                "loss_max": float(np.max(flat_loss)),
+                "loss_values": int(flat_loss.size),
+                "duration_s": time.monotonic() - started,
+            }
+            print(json.dumps(result, sort_keys=True, default=_json_default), flush=True)
+        except Exception as exc:  # Record a bad/corrupt checkpoint and continue the sweep.
+            result = {
+                "status": "failed",
+                "checkpoint_step": step,
+                "checkpoint_path": str(checkpoint_path.relative_to(args.experiment_root)),
+                "error": f"{type(exc).__name__}: {exc}",
+                "duration_s": time.monotonic() - started,
+            }
+            print(json.dumps(result, sort_keys=True, default=_json_default), flush=True)
+        results.append(result)
+        report = {
+            "status": "in_progress",
+            "task": TASK_PROMPT,
+            "metric": "mean_flow_matching_loss",
+            "seed": args.seed + 100_003,
+            "protocol": {"full_val": args.full_val, "samples_per_episode": None if args.full_val else args.samples_per_episode, "val_repo_id": args.val_repo_id},
+            "batch": batch_metadata,
+            "results": sorted(results, key=lambda item: int(item["checkpoint_step"])),
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        _write_report(args.experiment_root, args.report_name, report)
+        params = None
+        model = None
+        loss_fn = None
+        gc.collect()
+
+    passed = [item for item in results if item.get("status") == "passed"]
+    if not passed:
+        raise RuntimeError("No checkpoint completed validation")
+    best = min(passed, key=lambda item: float(item["loss_mean"]))
+    report = {
+        "status": "passed",
+        "task": TASK_PROMPT,
+        "metric": "mean_flow_matching_loss",
+        "seed": args.seed + 100_003,
+        "protocol": {"full_val": args.full_val, "samples_per_episode": None if args.full_val else args.samples_per_episode, "val_repo_id": args.val_repo_id},
+        "batch": batch_metadata,
+        "results": sorted(results, key=lambda item: int(item["checkpoint_step"])),
+        "best_checkpoint_step": int(best["checkpoint_step"]),
+        "best_loss_mean": float(best["loss_mean"]),
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    _write_report(args.experiment_root, args.report_name, report)
+    return report
+
+
 def cmd_train(args: argparse.Namespace) -> dict[str, Any]:
     _set_dataset_home(args.experiment_root)
     _, train_script = _openpi_scripts()
@@ -421,12 +660,15 @@ def cmd_train(args: argparse.Namespace) -> dict[str, Any]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("manifest", "build-view", "validate-view", "norm-stats", "config-summary", "data-smoke", "model-smoke", "checkpoint-smoke", "train"))
+    parser.add_argument("command", choices=("manifest", "build-view", "validate-view", "norm-stats", "config-summary", "data-smoke", "model-smoke", "checkpoint-smoke", "val-eval", "train"))
     parser.add_argument("--experiment-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56")
     parser.add_argument("--source-master", type=Path, default=REPOSITORY_ROOT / "data/training/physical_bottle_v4_nominal52/act/master")
     parser.add_argument("--manifest", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/audited_manifest.json")
     parser.add_argument("--output", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/audited_manifest.json")
     parser.add_argument("--view-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_train")
+    parser.add_argument("--dataset-repo-id", default=DATASET_REPO_ID)
+    parser.add_argument("--val-repo-id", default="local/pi05_rh56_val")
+    parser.add_argument("--val-view-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_val")
     parser.add_argument("--split", choices=("train", "val"), default="train")
     parser.add_argument("--exp-name", default="weekend")
     parser.add_argument("--steps", type=int, default=20_000)
@@ -437,6 +679,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-period", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20260814)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--checkpoint-steps", default="", help="Comma-separated checkpoint steps; empty means all complete checkpoints")
+    parser.add_argument("--samples-per-episode", type=int, default=8)
+    parser.add_argument("--full-val", action="store_true", help="Evaluate every validation frame instead of a fixed probe")
+    parser.add_argument("--report-name", default="val_checkpoint_eval")
     return parser
 
 
@@ -458,6 +704,8 @@ def main() -> None:
         result = cmd_model_smoke(args)
     elif args.command == "checkpoint-smoke":
         result = cmd_checkpoint_smoke(args)
+    elif args.command == "val-eval":
+        result = cmd_val_eval(args)
     else:
         result = cmd_train(args)
     print(json.dumps(result, indent=2, sort_keys=True, default=_json_default))

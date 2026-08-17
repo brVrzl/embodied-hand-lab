@@ -175,6 +175,8 @@ def make_config(
     seed: int = 20260814,
     resume: bool = False,
     overwrite: bool = False,
+    dataset_repo_id: str = DATASET_REPO_ID,
+    norm_stats_repo_id: str = DATASET_REPO_ID,
 ) -> openpi_config.TrainConfig:
     """Create the one experiment config used by norm-stats, smoke, and train."""
 
@@ -194,7 +196,10 @@ def make_config(
         project_name="embodied_lab",
         exp_name=exp_name,
         model=model,
-        data=Rh56DataConfig(),
+        data=Rh56DataConfig(
+            repo_id=dataset_repo_id,
+            assets=openpi_config.AssetsConfig(asset_id=norm_stats_repo_id),
+        ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         assets_base_dir=str(experiment_root / "assets"),
         checkpoint_base_dir=str(experiment_root / "checkpoints"),
@@ -265,4 +270,5 @@ def config_summary(config: openpi_config.TrainConfig) -> dict[str, Any]:
         "save_interval": config.save_interval,
         "num_train_steps": config.num_train_steps,
         "upstream_commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
+        "dataset_repo_id": config.data.repo_id,
     }
