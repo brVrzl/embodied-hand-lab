@@ -12,7 +12,7 @@ IMAGE="${LEROBOT_IMAGE:-jaka-lerobot-dev:snapshot-before-raw-mount}"
 EXPECTED_IMAGE_ID="sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e"
 LEROBOT_SOURCE="${LEROBOT_SOURCE:-$ROOT_DIR/third_party/lerobot}"
 EXPECTED_LEROBOT_COMMIT="f66e5128ecb2456e8c54a63d15404fa59c16aebc"
-CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-/home/thor/LeRobot/container-home}"
+CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-$ROOT_DIR/outputs/training/lerobot_container_home}"
 MODE="${1:-both}"
 STRONG_STAGE="${2:-2000}"
 
@@ -53,7 +53,7 @@ if [[ $# -gt 1 ]]; then
 fi
 
 command -v docker >/dev/null 2>&1 || die "docker is required"
-[[ -d "$CONTAINER_HOME" ]] || die "container home does not exist: $CONTAINER_HOME"
+mkdir -p "$CONTAINER_HOME"
 if [[ "$MODE" == "strong-act" ]]; then
   [[ -d "$ROOT_DIR/data/training/physical_bottle_v4_nominal52/act" ]] || \
     die "materialize physical_bottle_v4_nominal52 first"

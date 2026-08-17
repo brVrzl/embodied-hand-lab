@@ -6,7 +6,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${LEROBOT_IMAGE:-jaka-lerobot-dev:snapshot-before-raw-mount}"
 EXPECTED_IMAGE_ID="sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e"
-CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-/home/thor/LeRobot/container-home}"
+CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-$ROOT_DIR/outputs/training/lerobot_container_home}"
 RUN_ROOT="$ROOT_DIR/outputs/training/physical_bottle_v4_nominal52/act_strong_run"
 VIEW="$ROOT_DIR/outputs/training/physical_bottle_v4_nominal52/lerobot/act_strong_view"
 ANALYSIS="$ROOT_DIR/outputs/training/physical_bottle_v4_nominal52/analysis"
@@ -18,6 +18,7 @@ die() {
 }
 
 command -v docker >/dev/null 2>&1 || die "docker is required"
+mkdir -p "$CONTAINER_HOME"
 [[ -f "$CURATION" ]] || die "run tools/analyze_act_horizon_coverage.py first"
 [[ -f "$VIEW/meta/embodied_lab_loader_validation.json" ]] || die "validated strong view is missing"
 actual_image_id="$(docker image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)"

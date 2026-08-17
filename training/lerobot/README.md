@@ -25,7 +25,9 @@ scripts/check_training_dependencies.sh --require-image
 The launcher mounts `third_party/lerobot/src` read-only into the container and
 puts it first on `PYTHONPATH`; the image and source commit are checked before
 any dataset view is built. Set `LEROBOT_SOURCE` only for a separately audited
-checkout with the same pinned commit.
+checkout with the same pinned commit. Its writable container home defaults to
+`outputs/training/lerobot_container_home`; set `LEROBOT_CONTAINER_HOME` only
+for a separately managed runtime home.
 
 It performs, in order:
 

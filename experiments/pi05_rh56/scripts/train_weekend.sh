@@ -5,8 +5,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 EXPERIMENT_ROOT=${PI05_EXPERIMENT_ROOT:-$REPOSITORY_ROOT/outputs/training/pi05_rh56}
 OPENPI_REPO=${PI05_OPENPI_REPO:-$REPOSITORY_ROOT/third_party/openpi}
-OPENPI_CACHE=${PI05_OPENPI_CACHE:-/home/thor/openpi/cache}
-JAX_CACHE=${PI05_JAX_CACHE:-/home/thor/openpi/jax_cache}
+OPENPI_CACHE=${PI05_OPENPI_CACHE:-$EXPERIMENT_ROOT/openpi_cache}
+JAX_CACHE=${PI05_JAX_CACHE:-$EXPERIMENT_ROOT/jax_cache}
 IMAGE=${PI05_OPENPI_IMAGE:-jaka-openpi:thor-cuda13}
 EXP_NAME=${PI05_EXP_NAME:-weekend}
 STEPS=${PI05_STEPS:-20000}
@@ -26,7 +26,7 @@ CONTAINER_ID_FILE=$EXPERIMENT_ROOT/${EXP_NAME}.container_id
 STATUS_FILE=$EXPERIMENT_ROOT/status.json
 CHECKPOINT_DIR=$EXPERIMENT_ROOT/checkpoints/pi05_rh56/$EXP_NAME
 
-mkdir -p "$EXPERIMENT_ROOT" "$LOG_DIR"
+mkdir -p "$EXPERIMENT_ROOT" "$LOG_DIR" "$OPENPI_CACHE" "$JAX_CACHE"
 
 now_utc() {
     date -u +%Y-%m-%dT%H:%M:%SZ

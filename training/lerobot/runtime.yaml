@@ -5,6 +5,7 @@ lerobot_version: 0.6.2
 official_commit: f66e5128ecb2456e8c54a63d15404fa59c16aebc
 source_submodule: third_party/lerobot
 source_checkout_policy: git_submodule
+container_home: outputs/training/lerobot_container_home
 network: none
 source_root: data/training/physical_bottle_v2
 derived_root: outputs/training/physical_bottle_v2
