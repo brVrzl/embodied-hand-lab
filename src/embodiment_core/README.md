@@ -1,14 +1,13 @@
-# embodiment_core
+# Embodiment core
 
-`embodiment_core` contains small shared contracts that do not own a hardware
-connection:
+## English
 
-- YAML loading and path resolution;
-- common observation/action types and logging helpers;
-- the project-selected conservative JAKA joint-limit constants;
-- the read-only `doctor` inventory;
-- the unified offline `embodied-lab` CLI.
+This package owns shared configuration loading, the offline `embodied-lab`
+CLI, current ACT action/checkpoint contracts, and the canonical temporal
+executor. It is reusable infrastructure; robot adapters remain in their
+respective packages.
 
-Importing this package does not open a robot, hand, camera, headset socket, or
-serial port. Physical control remains in separately gated adapters and native
-workers.
+## 中文
+
+本 package 负责共享配置读取、离线 `embodied-lab` CLI、当前 ACT action/checkpoint contract 和 canonical
+temporal executor。它是可复用基础设施；机器人 adapter 保留在各自 package 中。

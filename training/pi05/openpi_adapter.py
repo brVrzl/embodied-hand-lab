@@ -248,7 +248,7 @@ def build_audited_manifest(source_master: Path, output_path: Path) -> dict[str, 
                 "audit_notes": audit.get("notes"),
                 "audit_source": [
                     "configs/training/shared/physical_bottle.yaml",
-                    "docs/data/PHYSICAL_TRAINING_DATASET.md",
+                    "docs/data/DATASET.md",
                     "data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json",
                 ],
                 "task": TASK_PROMPT,

@@ -1,71 +1,39 @@
 # Third-party notices
 
-This file records the provenance and license evidence available in this
-repository. It does not grant rights beyond the corresponding upstream
-license, vendor agreement, or applicable law.
+## English
 
-## Training source submodules
+This file records current attribution and license boundaries. It grants no
+rights beyond the corresponding upstream license or vendor agreement.
 
-- `third_party/openpi/`: [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi), pinned by the parent repository to `15a9616a00943ada6c20a0f158e3adb39df2ccac`; Apache-2.0, with the upstream `LICENSE` retained in the submodule. Runtime role: read-only π0.5 source for the project adapter.
-- `third_party/lerobot/`: [huggingface/lerobot](https://github.com/huggingface/lerobot), pinned by the parent repository to `f66e5128ecb2456e8c54a63d15404fa59c16aebc`; Apache-2.0, with the upstream `LICENSE` retained in the submodule. Runtime role: read-only LeRobot source for the ACT launcher.
+- `third_party/openpi/`: Physical-Intelligence/openpi, pinned by the parent
+  repository; Apache-2.0 upstream license. It is the read-only π0.5 source.
+- `third_party/lerobot/`: huggingface/lerobot, pinned by the parent
+  repository; Apache-2.0 upstream license. It is the read-only LeRobot source.
+- `assets/correll_rh56dfx/`: Correll Robotics Lab reference assets, MIT
+  licensed; retain the included upstream `LICENSE`.
+- `third_party/jaka_sdk/v2.2.7/`: vendor-supplied JAKA headers/libraries and
+  release notes. No redistributable license text is recorded; follow the JAKA
+  agreement and do not redistribute independently.
+- `third_party/inspire_hand/rh56/`: vendor/reference examples. No reliable
+  license text is recorded; current project code lives in `src/rh56_driver/`.
 
-These are Git submodules rather than copied source trees. The parent
-repository records the URL and gitlink; use `git submodule update --init
---recursive` after cloning. Docker image digests, Python package constraints,
-model assets, and caches are recorded separately because they are runtime
-artifacts rather than source repositories.
+The parent repository records submodule URLs and gitlinks. Do not advance a
+submodule independently or copy third-party source into maintained project
+code.
 
-## Correll Robotics Lab RH56DFX assets
+## 中文
 
-- Location: `assets/correll_rh56dfx/`
-- Contents: reference MuJoCo XML and visual/collision meshes.
-- Copyright: Correll Robotics Lab, University of Colorado Boulder.
-- License: MIT; the complete upstream notice is retained at
-  `assets/correll_rh56dfx/LICENSE`.
-- Runtime role: reference only. The mounted runtime model uses the separately
-  derived project asset documented in `assets/README.md`.
+本文件记录当前的 attribution 和 license 边界，不授予相应 upstream license 或 vendor agreement 以外的权利。
 
-## JAKA SDK 2.2.7 snapshot
+- `third_party/openpi/`：Physical-Intelligence/openpi，由父仓库固定版本；上游使用 Apache-2.0。它是只读的
+  π0.5 source。
+- `third_party/lerobot/`：huggingface/lerobot，由父仓库固定版本；上游使用 Apache-2.0。它是只读的
+  LeRobot source。
+- `assets/correll_rh56dfx/`：Correll Robotics Lab reference asset，使用 MIT；保留其中的 upstream
+  `LICENSE`。
+- `third_party/jaka_sdk/v2.2.7/`：JAKA vendor 提供的 header/library 和 release note。仓库没有记录可再分发
+  license text；遵循 JAKA agreement，不要独立再分发。
+- `third_party/inspire_hand/rh56/`：vendor/reference example。没有可靠的 license text；当前项目代码在
+  `src/rh56_driver/`。
 
-- Location: `third_party/jaka_sdk/v2.2.7/`
-- Contents: vendor headers, shared libraries, and English/Chinese release notes.
-- Runtime role: the native JAKA workers may link this locally supplied SDK;
-  default tests and simulation do not connect to a controller.
-- License evidence: no redistributable license text is present in this
-  repository. Treat the files as vendor-supplied material subject to the
-  applicable JAKA SDK agreement. Do not redistribute them independently until
-  those terms are confirmed.
-
-## Inspire RH56 reference snapshot
-
-- Location: `third_party/inspire_hand/rh56/`
-- Contents: protocol examples, headers, Python examples, and a driver design
-  note.
-- Runtime role: reference/vendor examples. Current project backends live in
-  `src/rh56_driver/`; the Quest/MuJoCo integration does not import this
-  snapshot.
-- License evidence: no license text or reliable upstream URL is recorded in
-  this repository. Preserve source attribution and do not redistribute this
-  snapshot independently until ownership and license terms are confirmed.
-
-## Teleoperation rearchitecture research sources
-
-This repository vendors no source or Git history from the projects below. The
-following are
-research sources only; the recorded revisions were observed with `git
-ls-remote` on 2026-07-27.  No code was copied into this repository.
-
-| Source | Revision | License status | Reuse decision |
-| --- | --- | --- | --- |
-| [Unitree xr_teleoperate](https://github.com/unitreerobotics/xr_teleoperate) | `7dc9aa1a6edbf4a9f4f887d8ab6fc449ea5135f6` | Apache-2.0; dependency licenses remain separate | Architecture and data-recording ideas only; Unitree DDS and robot-specific code are not reusable here. |
-| [SpesRobotics teleop](https://github.com/SpesRobotics/teleop) | `c5d808155a87b584d6147a5943d4b87c34c92db0` | Apache-2.0 | Its PoseStamped/WebXR boundary is compatible in principle; no code copied. |
-| [JAKA jaka_ros2](https://github.com/JAKARobotics/jaka_ros2) | `aadcf50ad7954a9cd694d910b6c9a1f06be3ee22` | No top-level license declared in the source tree/API at audit time | Reference only. Do not copy or vendor until JAKA gives an explicit license. |
-| [MoveIt 2](https://github.com/moveit/moveit2) | `f737f202666802e13390081778e4fea25b8bc552` | BSD-3-Clause | Candidate dependency only, never copied. |
-| [UM-ARM-Lab vr_teleop](https://github.com/UM-ARM-Lab/vr_teleop) | `8eba4f00b3c3dfc514e74f393cf542d05a569243` | No top-level license observed; archived | Historical architecture reference only. |
-| [UM-ARM-Lab vr_ros2_bridge](https://github.com/UM-ARM-Lab/vr_ros2_bridge) | `07ea3b9ae57d4ab1bba43a84c03ef92e34080597` | No top-level license observed | Reference only pending license confirmation. |
-| [OpenTeleVision](https://github.com/OpenTeleVision/TeleVision) | `e6e25afdb16c1b326b5bf37bd0ae79919bf79f26` | Apache-2.0 | Quest/WebXR visual-feedback and recording reference only. |
-| [OpenTeach](https://github.com/OpenTeach/OpenTeach) | `9c0c3165d8ad57473b6b0d008b071461191c16f4` | License not reconfirmed in this audit | Research pointer only; no reuse. |
-| [robosuite](https://github.com/ARISE-Initiative/robosuite) | `5ce6643f3092639d08f7b0f90ed1c6a84f50552c` | MIT | Simulation/data-collection reference only. |
-
-The installed local JAKA SDK (`third_party/jaka_sdk/v2.2.7`) remains subject to
-its existing vendor terms; this document does not grant any additional rights.
+父仓库记录 submodule URL 和 gitlink。不要独立推进 submodule，也不要把 third-party source 复制进维护代码。

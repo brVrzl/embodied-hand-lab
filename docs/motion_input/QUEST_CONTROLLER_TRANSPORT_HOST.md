@@ -1,154 +1,50 @@
-# Quest CTRL host transport gate
+# Quest CTRL host transport
 
-Status: current input-only transport reference. The original local reference
-clone used for the audit has been removed; the fixed upstream commit below is
-the recoverable source record.
+## English
 
-This gate exercises only the host input boundary for a Quest left controller.
-It does not start MuJoCo, build a robot target, import a JAKA SDK, or connect to
-an Inspire/RH56 device.
+`tools/quest_controller_transport_gate.py` is the current input-only host gate.
+It parses strict `CTRL,v=1,...` packets alongside legacy HTS hand/head lines,
+preserves session and sequence diagnostics, and reports staleness using host
+monotonic receive time. It does not start MuJoCo, generate a robot target, or
+open a JAKA/RH56 device.
 
-## Audited Quest source
+The CTRL parser rejects missing, duplicate, unknown, or reordered fields,
+invalid integers/booleans, non-finite analog values, malformed UTF-8, and
+trailing content. Arm and hand clutch facts are independent:
 
-The reviewed Quest source is
-[`brVrzl/hand-tracking-streamer` commit `5b8eac7e`](https://github.com/brVrzl/hand-tracking-streamer/tree/5b8eac7e30ce12481b89b123099693bc658bc578),
-branch `feature/mixed-input-log-probe`. The Unity scene contains an enabled
-`LeftControllerPacketSender` on the active `MixedInputLogProbe` object. Its
-configured period is 1/60 s and it reuses the existing UDP destination and port.
-The right-hand source remains attached to the mixed-input probe. This is direct
-source/scene evidence that the build can publish right bare-hand tracking and
-left-controller facts simultaneously; the remote `main` commit `5ff7c1c` does
-not contain this extension.
+| Fact | Press | Release |
+| --- | ---: | ---: |
+| `index` | `>= 0.75` | `<= 0.55` |
+| `grip` | `>= 0.75` | `<= 0.55` |
 
-The Quest sender keeps the original wrist, 21-landmark, and head lines
-unchanged. It adds one independent line:
-
-```text
-CTRL,v=1,session=987654321,seq=123,t_ns=123456789012345,connected=1,active=1,tracked=1,index=0.123456,grip=0.654321
-```
-
-The host requires the exact field set and order. Integers are unsigned 64-bit
-ASCII decimal values, booleans are exactly `0` or `1`, and trigger values must
-be finite and in `[0,1]`. A CTRL datagram contains exactly one non-empty UTF-8
-line. The parser rejects malformed UTF-8, missing, duplicate, unknown or
-reordered fields, unsupported versions, invalid integers/booleans, NaN/Inf,
-out-of-range analog values, and non-empty trailing content. It does not perform
-hysteresis or any robot operation.
-
-The legacy HTS parser ignores exact `CTRL,` lines and preserves all prior
-hand/head validation. The new transport dispatcher sends a CTRL datagram to the
-strict controller parser and every other datagram through the original HTS
-parser. Both therefore share the single UDP socket on port 9000 without parser
-cross-coupling.
-
-## Host time, session, and sequence policy
-
-`session`, `seq`, and Quest `t_ns` are retained. Staleness is computed only as
-
-```text
-host_monotonic_now - host_receive_monotonic
-```
-
-Quest `t_ns` is never subtracted from a host clock. Within one session it is
-used only for source interval, pause, and timestamp-reorder diagnostics.
-
-- `seq + 1` and forward gaps are accepted; gaps are counted.
-- A duplicate or decreasing sequence is counted but cannot replace or refresh
-  the latest accepted sample.
-- A previously unseen session is a sender restart and may reset `seq`.
-- The previous session is retired. Its delayed packets cannot replace the
-  current session or create a clutch edge.
-- The same session may recover after a host-side stale interval. Recovery is
-  not an automatic re-engagement.
-
-The three Quest facts remain separately visible. Initial controller validity is
-`connected && active && tracked && fresh`. A false fact, a malformed CTRL, no
-sample, or staleness makes both clutch inputs invalid immediately.
-
-## Dual-clutch boundary
-
-The canonical provider-independent clutch implementation now lives in
-`motion_input.clutch`; `quest_jaka_sim.clutch` is a compatibility re-export.
-This lets the input-only gate use the exact existing `AnalogClutchSample` and
-`AnalogHoldToRun` types without importing the simulation package.
-
-The mapping is fixed:
-
-| CTRL fact | Existing channel | Press | Release |
-|---|---|---:|---:|
-| `index` | arm | `>= 0.75` | `<= 0.55` |
-| `grip` | hand | `>= 0.75` | `<= 0.55` |
-
-The channels are independent and are not combined into a mode enum. After
-startup, sender restart, invalid facts, malformed CTRL, or stale input, the
-adapter blocks both samples until one valid packet observes both index and grip
-in the released range. The existing per-channel hysteresis then requires a
-later press edge. Left-controller pose is absent and cannot influence a target.
-
-The live gate has exactly one source, `live_udp_only`. It exposes no fake,
-replay, keyboard, mode, MuJoCo, or hardware option. Deterministic values remain
-available only by directly constructing packets in tests, so they cannot run
-alongside its UDP receiver.
-
-## Bounded transport-only gate
-
-From the repository root:
+After startup, restart, malformed input, or staleness, both channels require a
+valid released observation before a new press edge. Run only as an input gate:
 
 ```bash
-PYTHONPATH=src .venv/bin/python \
-  tools/quest_controller_transport_gate.py \
+PYTHONPATH=src .venv/bin/python tools/quest_controller_transport_gate.py \
   --bind 0.0.0.0 --port 9000 --project-ip "$HOST_IPV4" \
   --print-hz 5 --required-data-timeout-sec 20 --duration-sec 180
 ```
 
-The terminal emits a 5 Hz JSON summary. The timestamped directory
-`logs/quest_transport_gate/` receives a full raw datagram recording, exception
-and summary log, and final JSON report. If either CTRL or right-hand data has
-not appeared within 20 seconds, the gate stops with exit status 3. No listener
-is created merely by importing any module.
+## 中文
 
----
+`tools/quest_controller_transport_gate.py` 是当前 input-only host gate。它在 legacy HTS hand/head line
+旁解析严格的 `CTRL,v=1,...` packet，保留 session/sequence diagnostics，并使用 host monotonic receive time
+计算 staleness。它不会启动 MuJoCo、生成 robot target 或打开 JAKA/RH56 设备。
 
-# 中文版：Quest CTRL 主机传输 gate
+CTRL parser 会拒绝缺失、重复、未知或乱序字段，非法 integer/boolean、非 finite analog value、错误 UTF-8
+和尾随内容。arm 与 hand clutch fact 独立：
 
-本页是当前的 input-only transport 参考。它只测试 Quest 左控制器的 host input boundary，不启动
-MuJoCo、不生成 robot target、不导入 JAKA SDK，也不连接 Inspire/RH56。导入模块本身不会创建
-listener。
+| Fact | Press | Release |
+| --- | ---: | ---: |
+| `index` | `>= 0.75` | `<= 0.55` |
+| `grip` | `>= 0.75` | `<= 0.55` |
 
-## 输入协议和 parser
-
-当前 sender 同时发送 HTS hand/head 数据和一行严格的 `CTRL,v=1,...` 数据。host 要求字段集合和
-顺序完全正确：整数是 unsigned 64-bit decimal，boolean 只能是 `0/1`，trigger 必须 finite 且在
-`[0,1]`。缺失、重复、未知或乱序字段、版本错误、NaN/Inf、非法 UTF-8、越界值和尾随内容都会
-拒绝。parser 不做 hysteresis，也不执行机器人操作。
-
-legacy HTS parser 继续处理非 `CTRL,` 数据，两类 parser 共用 UDP socket 但不互相耦合。`session`、
-`seq` 和 Quest `t_ns` 会保留；freshness 只使用 host monotonic receipt time，不能用 host clock
-减 Quest device/source clock。duplicate 或递减 sequence 不能刷新最新 sample；新 session 表示
-sender restart，旧 session 的延迟 packet 不能制造 clutch edge。
-
-## 双 clutch 和恢复
-
-| CTRL fact | channel | press | release |
-|---|---|---:|---:|
-| `index` | arm | `>= 0.75` | `<= 0.55` |
-| `grip` | hand | `>= 0.75` | `<= 0.55` |
-
-arm 和 hand channel 独立，不合并成 mode enum。启动、sender restart、invalid fact、malformed CTRL
-或 stale 后，必须先观察到两路都在 released 范围，随后才允许下一次 press edge。左控制器 pose
-不参与 target。
-
-## 有界运行
-
-维护的 gate 只有一个 live UDP source，没有 fake、replay、keyboard、MuJoCo 或 hardware mode：
+启动、restart、malformed input 或 stale 后，两路都必须先观察到有效 release，再允许新的 press edge。只把它作为
+input gate 运行：
 
 ```bash
-PYTHONPATH=src .venv/bin/python \
-  tools/quest_controller_transport_gate.py \
+PYTHONPATH=src .venv/bin/python tools/quest_controller_transport_gate.py \
   --bind 0.0.0.0 --port 9000 --project-ip "$HOST_IPV4" \
   --print-hz 5 --required-data-timeout-sec 20 --duration-sec 180
 ```
-
-终端以 5 Hz 输出 JSON summary，`logs/quest_transport_gate/` 保存 raw datagram、异常、summary 和
-最终 report。如果 20 秒内没有 CTRL 或右手数据，gate 以 status 3 结束。该 input-only gate 不等
-于真机 teleoperation 授权。

@@ -1,210 +1,120 @@
 # Embodied Lab
 
-Embodied Lab is a simulation-first research stack for teleoperating and
-studying a JAKA Mini2 arm with an Inspire RH56DFX hand. The maintained control
-path accepts Meta Quest 3 hand/wrist tracking and a left Touch controller,
-generates one safety-checked joint target, and sends that same target to either
-MuJoCo or the explicitly selected physical JAKA adapter.
+## English
+
+Embodied Lab is an offline-first research stack for a JAKA Mini2 arm and
+Inspire RH56DFX hand. Current maintained functions are:
+
+- Quest 3 input parsing and safe target generation;
+- MuJoCo simulation and replay;
+- explicit, separately authorized JAKA/RH56 hardware adapters;
+- review-first RGB-D/robot episode collection and dataset preparation;
+- ACT/LeRobot and π0.5/OpenPI training infrastructure.
+
+The current arm path is:
 
 ```text
 Quest HTS + CTRL
-  -> validate and queue
+  -> validate and order input
   -> release-before-press reference capture
-  -> map and filter
-  -> continuation IK and feasibility
+  -> map, filter, continuation IK, and feasibility checks
   -> immutable AcceptedArmTarget
-  -> MuJoCo adapter OR physical JAKA joint adapter
+  -> MuJoCo adapter or JAKA joint adapter
 ```
 
-The physical adapter never follows MuJoCo `qpos`, remaps the target, or solves
-IK. In native joint-teleop mode it makes zero JAKA `kine_inverse` calls.
+The physical adapter never follows MuJoCo `qpos`, remaps a target, or solves
+IK. Native joint teleoperation makes zero JAKA `kine_inverse` calls.
 
-## Safety boundary
+### Safety boundary
 
-Everything in the quick start below is offline. Tests, replay, simulation,
-`doctor`, and `--help` do **not** open, connect to, or command a JAKA,
-RH56DFX, Quest headset, RealSense camera, or any actuator.
+Tests, replay, simulation, `doctor`, and `--help` are offline actions. They do
+not connect to JAKA, RH56DFX, Quest, RealSense, or any actuator. Physical
+operation requires an explicit operator procedure and the safety rules in
+[`docs/safety/REAL_HARDWARE_SAFETY.md`](docs/safety/REAL_HARDWARE_SAFETY.md).
 
-Physical operation must always be started explicitly by the operator through a
-maintained real-device entry. Before any hardware connection is established, the
-selected entry is still required to enforce all runtime safety conditions,
-including explicit device selection, bounded execution duration, verified
-controller state, operator stop access, workspace clearance, command limits,
-timing supervision, and deterministic shutdown.
-
-Read [current status](docs/status/current_status.md) and
-[real-hardware safety](docs/safety/REAL_HARDWARE_SAFETY.md) before interpreting
-physical evidence or opening an operator guide.
-
-## What is available now
-
-| Area | Current capability |
-| --- | --- |
-| Quest/JAKA control | Shared input, clutch, mapping, continuation IK, collision/singularity/limit checks, output feasibility, and immutable accepted-target boundary |
-| MuJoCo | Headless smoke, replay/live simulation, and six arm plus six hand actuators |
-| Physical JAKA | Explicitly selected ServoJ/EDG joint adapter with sole-session status polling and final native safety checks; only partially physically validated |
-| RH56DFX | PC-direct USB/RS485 scheduler, bounded six-actuator commands, and raw actuator feedback; independently operated and only partially physically validated |
-| Dataset tools | Atomic canonical episodes, integrity validation, episode-level splits, train-only statistics, ACT-style HDF5 export, and optional LeRobot v3 export |
-| Policy training | Maintained project-specific π0.5/RH56 LeRobot + JAX LoRA integration for Thor; OpenPI and LeRobot source commits are pinned as read-only submodules; no physical policy validation |
-| Cameras | RealSense adapters, processing utilities, and example configuration exist; synchronized dual-D435 physical collection is not end-to-end validated |
-
-The RH56 MuJoCo model is a six-command-axis kinematic approximation. Its
-equality couplings do not reproduce tendon compliance, backlash, calibrated
-force control, tactile sensing, or the complete physical underactuation.
-
-## Offline quick start
-
-Python 3.10 or newer is required. A development install includes MuJoCo and the
-offline test dependencies:
+### Quick start
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e ".[dev]"
-```
-
-Inspect the host and repository without opening devices, then run the default
-headless model:
-
-```bash
 .venv/bin/embodied-lab doctor
 .venv/bin/embodied-lab sim smoke
-```
-
-Run the offline suite:
-
-```bash
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-The Linux-only JAKA SDK tests are skipped when their platform or dependency is
-unavailable. A skip is not physical validation.
+Start with the [documentation index](docs/README.md). The maintained entry
+points are grouped in [capabilities](docs/CAPABILITIES.md),
+[dataset](docs/data/DATASET.md), [ACT training](docs/training/ACT.md), and
+[π0.5 training](docs/training/PI05.md).
 
-## Maintained workflows
+### Repository layout
 
-### Simulation and replay
-
-```bash
-./scripts/run_quest_jaka_sim_demo.sh --help
-.venv/bin/python tools/quest_jaka_mujoco_sim.py replay-6dof --help
-```
-
-The live simulation receives Quest UDP packets but imports no JAKA or RH56
-hardware SDK. See [simulation operation](docs/operation/simulation_demo.md).
-
-### Dataset preparation
-
-```bash
-.venv/bin/embodied-lab dataset validate <episode-directory>
-.venv/bin/embodied-lab dataset inspect <episode-directory>
-.venv/bin/embodied-lab dataset manifest <dataset-root> <manifest.json>
-.venv/bin/embodied-lab dataset statistics <manifest.json> <statistics.json>
-.venv/bin/embodied-lab dataset export <episode-directory> \
-  act-hdf5 <episode.hdf5>
-```
-
-For the physical LeRobot staging rows, `observation.state` and `action` stay
-12-D; `observation.force` is six raw RH56 `FORCE_ACT` counts. ACT ignores that
-feature, while ACT+Force uses it with the saved timing validity mask. Check a
-reviewed episode offline with:
-
-```bash
-.venv/bin/embodied-lab dataset sync-staging <root> episode_000000 \
-  --camera-tolerance-ms 100 --output sync_check.json
-```
-
-Physical collection defaults to `collection_profile: production` in
-`configs/data_collection/physical_collection.yaml`: sparse events, compact
-native status, canonical rows, and bounded diagnostics. Use `diagnostic` only
-for short commissioning runs when detailed RH56/native/event logs are needed.
-
-Canonical schema, atomic completion, missing-frame semantics, collection
-limits, review, and framework adapters are documented in the
-[dataset collection entry](docs/data/DATA_COLLECTION.md) and
-[dataset schema](docs/data/DATASET_SCHEMA.md).
-
-### π0.5/RH56 training on Thor
-
-The project-owned π0.5/RH56 adapter, LoRA configuration, checkpoint validation,
-and supervised training entry are documented in
-[the π0.5 RH56 training integration](docs/training/PI05_RH56.md). Verify the
-pinned OpenPI/LeRobot sources and training images before starting a training-only run:
-
-```bash
-scripts/check_training_dependencies.sh --require-image
-training/pi05/scripts/train_weekend.sh start
-training/pi05/scripts/status.sh
-```
-
-This workflow does not connect to or command JAKA, RH56, Quest, or cameras.
-
-### Physical operation
-
-Physical commands are intentionally absent from the quick start. The current
-operator pages are:
-
-- [Hardware prerequisites](docs/operation/hardware_prerequisites.md)
-- [JAKA arm teleoperation](docs/operation/jaka_arm_teleoperation.md)
-- [RH56 operation](docs/operation/rh56_operation.md)
-- [Combined JAKA and RH56 teleoperation](docs/operation/jaka_rh56_combined_teleop.md)
-
-Inspecting these pages or running a wrapper with `--help` grants no hardware
-authority.
-
-## Repository layout
-
-| Path | Responsibility |
+| Path | Current role |
 | --- | --- |
-| `src/motion_input` | Quest packet transport, validation, canonical state, recording, and replay |
-| `src/quest_jaka_sim` | Shared mapping, retargeting, simulation, accepted-target output, and resampling |
-| `src/teleoperation` | Target, safety, sequencing, supervision, and wire contracts |
-| `native/jaka_servo_worker` | Linux JAKA EDG transport and 8 ms final command boundary |
-| `src/rh56_driver`, `src/rh56_sim` | PC-direct RH56 protocol path and simulation approximation |
-| `src/episode_dataset` | Episode lifecycle, synchronization, validation, manifests, statistics, and export |
-| `src/vision_interface` | Camera interfaces and perception support |
-| `configs` | Versioned examples and runtime policies |
-| `docs/history` | Dated evidence and superseded designs, never current operating authority |
+| `src/` | Reusable input, control, safety, RH56, camera, and dataset packages |
+| `native/` | Offline-buildable JAKA and teleoperation workers |
+| `tools/` | Current operator and developer entrypoints |
+| `scripts/` | Thin wrappers for current simulation, collection, and training workflows |
+| `configs/` | Current runtime and training configuration |
+| `training/` | Project-owned ACT and π0.5 training boundaries |
+| `assets/` | Current MuJoCo and robot assets |
+| `docs/` | Current functional documentation |
+| `third_party/` | Pinned submodules and vendor/reference assets |
 
-## Environment choices
+## 中文
 
-Install only the extras needed by a host:
+Embodied Lab 是面向 JAKA Mini2 机械臂和 Inspire RH56DFX 灵巧手的离线优先研究栈。当前维护的功能包括：
 
-- `.[simulation]` for MuJoCo-only runtime;
-- `.[hardware]` for serial support, still subject to physical authorization;
-- `.[realsense]` or `.[vision-teleop]` for optional camera/input tooling;
-- `.[dataset-export]` for ACT-style HDF5 and LeRobot export;
-- `.[asset-tools]` for reconstruction and collision-asset development;
-- `.[dev]` for the complete offline development and test environment.
+- Quest 3 输入解析和安全 target 生成；
+- MuJoCo 仿真与 replay；
+- 必须单独授权的 JAKA/RH56 真机适配器；
+- 先人工审核的 RGB-D/机器人 episode 采集和数据准备；
+- ACT/LeRobot 与 π0.5/OpenPI 训练基础设施。
 
-Linux JAKA SDK workers, x86_64 training servers, and ARM64 Jetson deployment
-have different system dependencies. Do not reuse one environment definition
-as proof that another platform is ready. See
-[installation](docs/setup/INSTALLATION.md) and
-[configuration](docs/configuration/CONFIGURATION.md).
+当前机械臂管线为：
 
-## Common questions
+```text
+Quest HTS + CTRL
+  -> 输入校验和排序
+  -> release-before-press reference capture
+  -> 映射、滤波、continuation IK 和 feasibility 检查
+  -> 不可变 AcceptedArmTarget
+  -> MuJoCo adapter 或 JAKA joint adapter
+```
 
-- If MuJoCo cannot load, run `embodied-lab doctor`, verify the development or
-  simulation extra, and use the repository root as the working directory.
-- If a camera or robot is missing, do not add automatic discovery-and-connect
-  fallbacks. Verify the explicit device identity and follow the relevant
-  operator gate.
-- `ANGLE_ACT` is six-axis actuator feedback. `CURRENT`, `FORCE_ACT`, `ERROR`,
-  and `STATUS` are raw register fields; they are not passive-joint state,
-  tactile arrays, direct slip sensing, or calibrated contact force.
-- Simulation, replay, fake workers, and a successful benchmark do not imply a
-  physical PASS or sim-to-real equivalence.
+物理适配器不会跟随 MuJoCo `qpos`、重新映射 target 或重新求 IK。原生 joint teleoperation
+不会调用 JAKA `kine_inverse`。
 
-More diagnostics are in [troubleshooting](docs/TROUBLESHOOTING.md). The
-[documentation index](docs/README.md) separates current authority from dated
-evidence; remaining work is recorded only in the current status and known
-limitations pages.
+### 安全边界
 
-## 中文说明
+测试、replay、仿真、`doctor` 和 `--help` 都是离线操作，不会连接 JAKA、RH56DFX、Quest、RealSense
+或任何 actuator。真机操作必须经过明确的 operator procedure，并遵守
+[`docs/safety/REAL_HARDWARE_SAFETY.md`](docs/safety/REAL_HARDWARE_SAFETY.md)。
 
-本仓库默认只进行离线和仿真工作。任何测试、回放、`doctor` 或 `--help` 都不构成真机
-授权。当前最成熟的是 Quest 到 JAKA 的共享安全目标管线；项目内已有面向 Thor 的
-π0.5/RH56 训练集成；OpenPI 和 LeRobot 上游源码通过固定 commit 的只读 submodule 管理，且没有 policy
-真机验证。ACT、Diffusion Policy、双 D435 真机同步采集以及长期联合真机验证尚未完成。操作前请以
-[当前状态](docs/status/current_status.md)和[真机安全边界](docs/safety/REAL_HARDWARE_SAFETY.md)
-为准。
+### 快速开始
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/embodied-lab doctor
+.venv/bin/embodied-lab sim smoke
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
+```
+
+请从[文档索引](docs/README.md)开始。当前入口集中在[能力说明](docs/CAPABILITIES.md)、
+[数据集](docs/data/DATASET.md)、[ACT 训练](docs/training/ACT.md)和
+[π0.5 训练](docs/training/PI05.md)。
+
+### 仓库布局
+
+| 路径 | 当前职责 |
+| --- | --- |
+| `src/` | 可复用的输入、控制、安全、RH56、相机和数据集包 |
+| `native/` | 可离线构建的 JAKA 和 teleoperation worker |
+| `tools/` | 当前 operator/developer 入口 |
+| `scripts/` | 当前仿真、采集和训练流程的薄 wrapper |
+| `configs/` | 当前 runtime 和 training 配置 |
+| `training/` | 项目维护的 ACT 和 π0.5 training boundary |
+| `assets/` | 当前 MuJoCo 和机器人资产 |
+| `docs/` | 当前功能文档 |
+| `third_party/` | 固定版本的 submodule 和 vendor/reference 资产 |
