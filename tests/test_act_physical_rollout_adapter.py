@@ -148,50 +148,12 @@ def test_rh56_projection_rejects_nonfinite_policy_output(value: float) -> None:
         project(raw, legal_min=0.0, legal_max=1.0)
 
 
-def test_action_chunk_consumer_uses_configured_prefix_before_latest_chunk() -> None:
-    consumer_type = _load_rollout_tool().ActionChunkConsumer
-    consumer = consumer_type(consume_actions=4, chunk_size=16)
-    first = SimpleNamespace(sequence=1)
-    second = SimpleNamespace(sequence=2)
-    third = SimpleNamespace(sequence=3)
-
-    assert consumer.select(first) == (first, 0)
-    assert consumer.select(second) == (first, 1)
-    assert consumer.select(second) == (first, 2)
-    assert consumer.select(third) == (first, 3)
-    assert consumer.select(third) == (third, 0)
-    assert consumer.superseded_predictions == 1
-
-
-def test_action_chunk_consumer_default_two_action_contract() -> None:
-    consumer_type = _load_rollout_tool().ActionChunkConsumer
-    consumer = consumer_type(consume_actions=2, chunk_size=60)
-    first = SimpleNamespace(sequence=1)
-    second = SimpleNamespace(sequence=2)
-    assert consumer.select(first) == (first, 0)
-    assert consumer.select(first) == (first, 1)
-    assert consumer.select(second) == (second, 0)
-
-
-def test_action_chunk_consumer_accepts_full_strong_act_horizon() -> None:
-    consumer_type = _load_rollout_tool().ActionChunkConsumer
-    consumer = consumer_type(consume_actions=60, chunk_size=60)
-    prediction = SimpleNamespace(sequence=1)
-    assert consumer.select(prediction) == (prediction, 0)
-    for expected in range(1, 60):
-        assert consumer.select(prediction) == (prediction, expected)
-    with pytest.raises(ValueError, match=r"within \[1,60\]"):
-        consumer_type(consume_actions=61, chunk_size=60)
-
-
 def test_canonical_strong_act_options_derive_one_query_per_control_tick() -> None:
     rollout = _load_rollout_tool()
     options = rollout._resolve_execution_options(
         requested_mode=None,
-        chunk_size=60,
         command_rate_hz=30.0,
         query_rate_hz=None,
-        consume_actions=None,
         temporal_ensemble_coeff=None,
         max_source_horizon=None,
         max_prediction_age_ticks=None,
@@ -200,7 +162,6 @@ def test_canonical_strong_act_options_derive_one_query_per_control_tick() -> Non
     assert options == {
         "execution_mode": "canonical_temporal_ensemble",
         "query_rate_hz": 30.0,
-        "consume_actions": None,
         "temporal_ensemble_coeff": 0.01,
         "max_source_horizon": None,
         "max_prediction_age_ticks": None,
@@ -212,19 +173,29 @@ def test_canonical_strong_act_rejects_legacy_executor_overrides() -> None:
     rollout = _load_rollout_tool()
     common = dict(
         requested_mode="canonical_temporal_ensemble",
-        chunk_size=60,
         command_rate_hz=30.0,
         query_rate_hz=None,
-        consume_actions=None,
         temporal_ensemble_coeff=None,
         max_source_horizon=None,
         max_prediction_age_ticks=None,
         temporal_buffer_capacity=None,
     )
-    with pytest.raises(ValueError, match="consume-actions"):
-        rollout._resolve_execution_options(**{**common, "consume_actions": 2})
     with pytest.raises(ValueError, match="query rate"):
         rollout._resolve_execution_options(**{**common, "query_rate_hz": 15.0})
+
+
+def test_consume_k_mode_is_removed_from_rollout_options() -> None:
+    rollout = _load_rollout_tool()
+    with pytest.raises(ValueError, match="unsupported ACT execution mode"):
+        rollout._resolve_execution_options(
+            requested_mode="consume_k",
+            command_rate_hz=30.0,
+            query_rate_hz=15.0,
+            temporal_ensemble_coeff=None,
+            max_source_horizon=None,
+            max_prediction_age_ticks=None,
+            temporal_buffer_capacity=None,
+        )
 
 
 def test_control_tick_timing_keeps_bounded_percentile_statistics() -> None:
@@ -279,24 +250,6 @@ def test_model_ipc_timing_sideband_is_consumed_before_next_request() -> None:
         right.close()
 
 
-def test_legacy_consume_k_options_remain_explicit_and_isolated() -> None:
-    rollout = _load_rollout_tool()
-    options = rollout._resolve_execution_options(
-        requested_mode="consume_k",
-        chunk_size=16,
-        command_rate_hz=30.0,
-        query_rate_hz=None,
-        consume_actions=None,
-        temporal_ensemble_coeff=None,
-        max_source_horizon=None,
-        max_prediction_age_ticks=None,
-        temporal_buffer_capacity=None,
-    )
-    assert options["execution_mode"] == "consume_k"
-    assert options["query_rate_hz"] == 15.0
-    assert options["consume_actions"] == 2
-
-
 def test_rollout_model_worker_detects_force_checkpoint_input(tmp_path: Path) -> None:
     rollout = _load_rollout_tool()
     standard = tmp_path / "standard"
@@ -306,7 +259,6 @@ def test_rollout_model_worker_detects_force_checkpoint_input(tmp_path: Path) -> 
             {
                 "type": "act",
                 "chunk_size": 60,
-                "n_action_steps": 2,
                 "input_features": {
                     "observation.images.workspace": {"type": "VISUAL", "shape": [3, 240, 320]},
                     "observation.images.wrist": {"type": "VISUAL", "shape": [3, 240, 320]},
@@ -324,7 +276,6 @@ def test_rollout_model_worker_detects_force_checkpoint_input(tmp_path: Path) -> 
             {
                 "type": "act",
                 "chunk_size": 60,
-                "n_action_steps": 2,
                 "input_features": {
                     "observation.images.workspace": {"type": "VISUAL", "shape": [3, 240, 320]},
                     "observation.images.wrist": {"type": "VISUAL", "shape": [3, 240, 320]},

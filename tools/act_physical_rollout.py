@@ -221,42 +221,6 @@ class Prediction:
     stage_timing_ms: dict[str, float]
 
 
-@dataclass
-class ActionChunkConsumer:
-    """Consume a bounded prefix before adopting the newest policy chunk."""
-
-    consume_actions: int
-    chunk_size: int = 16
-    active: Prediction | None = None
-    next_index: int = 0
-    superseded_predictions: int = 0
-
-    def __post_init__(self) -> None:
-        if self.chunk_size < 1:
-            raise ValueError("chunk_size must be positive")
-        if not 1 <= self.consume_actions <= self.chunk_size:
-            raise ValueError(
-                f"consume_actions must be within [1,{self.chunk_size}]"
-            )
-
-    def select(self, latest: Prediction | None) -> tuple[Prediction, int] | None:
-        if latest is not None and (
-            self.active is None or self.next_index >= self.consume_actions
-        ):
-            if self.active is None or latest.sequence > self.active.sequence:
-                if self.active is not None:
-                    self.superseded_predictions += max(
-                        0, latest.sequence - self.active.sequence - 1
-                    )
-                self.active = latest
-                self.next_index = 0
-        if self.active is None:
-            return None
-        index = min(self.next_index, self.consume_actions - 1)
-        self.next_index += 1
-        return self.active, index
-
-
 class AsyncRolloutWriter:
     """Bounded persistence sink; no video or JSON I/O runs in the command loop."""
 
@@ -867,22 +831,22 @@ def _temporal_selection_ages_ms(
 def _resolve_execution_options(
     *,
     requested_mode: str | None,
-    chunk_size: int,
     command_rate_hz: float,
     query_rate_hz: float | None,
-    consume_actions: int | None,
     temporal_ensemble_coeff: float | None,
     max_source_horizon: int | None,
     max_prediction_age_ticks: int | None,
     temporal_buffer_capacity: int | None,
 ) -> dict[str, Any]:
-    """Resolve policy semantics without exposing legacy knobs in canonical mode."""
+    """Resolve the supported absolute-time temporal-ensemble modes."""
 
-    execution_mode = requested_mode
-    if execution_mode is None:
-        execution_mode = (
-            "canonical_temporal_ensemble" if chunk_size >= 60 else "consume_k"
-        )
+    execution_mode = "canonical_temporal_ensemble" if requested_mode is None else requested_mode
+    if execution_mode not in {
+        "canonical_temporal_ensemble",
+        "temporal_ensemble",
+        "async_temporal_ensemble",
+    }:
+        raise ValueError(f"unsupported ACT execution mode: {execution_mode}")
     if execution_mode == "canonical_temporal_ensemble":
         if query_rate_hz is not None and not np.isclose(
             query_rate_hz, command_rate_hz, rtol=0.0, atol=1e-9
@@ -890,10 +854,6 @@ def _resolve_execution_options(
             raise ValueError(
                 "canonical_temporal_ensemble derives query rate from command rate; "
                 "an independent --query-rate-hz is invalid"
-            )
-        if consume_actions is not None:
-            raise ValueError(
-                "--consume-actions is only valid with the legacy consume_k mode"
             )
         if max_source_horizon is not None:
             raise ValueError(
@@ -910,7 +870,6 @@ def _resolve_execution_options(
         return {
             "execution_mode": execution_mode,
             "query_rate_hz": command_rate_hz,
-            "consume_actions": None,
             "temporal_ensemble_coeff": (
                 0.01 if temporal_ensemble_coeff is None else temporal_ensemble_coeff
             ),
@@ -920,8 +879,7 @@ def _resolve_execution_options(
         }
     return {
         "execution_mode": execution_mode,
-        "query_rate_hz": 15.0 if query_rate_hz is None else query_rate_hz,
-        "consume_actions": 2 if consume_actions is None else consume_actions,
+        "query_rate_hz": command_rate_hz if query_rate_hz is None else query_rate_hz,
         "temporal_ensemble_coeff": (
             0.01 if temporal_ensemble_coeff is None else temporal_ensemble_coeff
         ),
@@ -969,10 +927,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         )
     options = _resolve_execution_options(
         requested_mode=args.act_execution_mode,
-        chunk_size=model.contract.chunk_size,
         command_rate_hz=args.command_rate_hz,
         query_rate_hz=args.query_rate_hz,
-        consume_actions=args.consume_actions,
         temporal_ensemble_coeff=args.temporal_ensemble_coeff,
         max_source_horizon=args.max_source_horizon,
         max_prediction_age_ticks=args.max_prediction_age_ticks,
@@ -980,22 +936,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     )
     execution_mode = options["execution_mode"]
     query_rate_hz = options["query_rate_hz"]
-    consume_actions = options["consume_actions"]
     temporal_ensemble_coeff = options["temporal_ensemble_coeff"]
     max_source_horizon = options["max_source_horizon"]
     max_prediction_age_ticks = options["max_prediction_age_ticks"]
     temporal_buffer_capacity = options["temporal_buffer_capacity"]
     args.query_rate_hz = query_rate_hz
-    args.consume_actions = consume_actions
     args.temporal_ensemble_coeff = temporal_ensemble_coeff
     args.max_source_horizon = max_source_horizon
     args.max_prediction_age_ticks = max_prediction_age_ticks
     args.temporal_buffer_capacity = temporal_buffer_capacity
-    consumer = (
-        None
-        if execution_mode == "canonical_temporal_ensemble"
-        else ActionChunkConsumer(consume_actions, model.contract.chunk_size)
-    )
     temporal_ensembler: AbsoluteTimeTemporalEnsembler | None = None
     command_epoch_ns = 0
     command_period_ns = int(round(1e9 / args.command_rate_hz))
@@ -1119,8 +1068,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 if execution_mode == "canonical_temporal_ensemble":
                     # Canonical ACT semantics: one complete chunk is queried
                     # for this control tick, then exactly one action for the
-                    # current absolute tick is selected.  The chunk is not
-                    # reduced to a consume-K prefix.
+                    # current absolute tick is selected.
                     prediction = inference.query_once(
                         command_tick=command_tick,
                         publish_pending=False,
@@ -1203,25 +1151,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                         and newest_contributor_age_ms > args.max_policy_age_ms
                     ):
                         raise RuntimeError("ACT temporal-ensemble result exceeded policy freshness limit")
-                else:
-                    current = inference.get_latest()
-                    assert consumer is not None
-                    selected = consumer.select(current)
-                    if selected is None:
-                        startup_fallback = True
-                        action = np.asarray(status.joint_position_rad, dtype=np.float64).copy()
-                        hand_target = rh56_worker.latest_feedback
-                        if hand_target is None:
-                            raise RuntimeError("RH56 activation feedback disappeared")
-                        action = np.concatenate([action, np.asarray(hand_target.position_normalized, dtype=np.float64)])
-                        source_sequence = 0
-                        chunk_index = -1
-                    else:
-                        selected_policy, chunk_index = selected
-                        if command_start_ns - selected_policy.query_end_ns > args.max_policy_age_ms * 1e6:
-                            raise RuntimeError("ACT inference result exceeded policy freshness limit")
-                        action = selected_policy.chunk[chunk_index].astype(np.float64, copy=False)
-                        source_sequence = selected_policy.sequence
                 if selected_policy is not None:
                     tick_stage_timing_ms.update(selected_policy.stage_timing_ms)
                 if startup_fallback:
@@ -1463,15 +1392,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "act_execution_mode": execution_mode,
             "write_path_mode": write_path_mode,
             "stationary_write_test": args.stationary_write_test,
-            "consume_actions": args.consume_actions,
-            "consumed_chunk_indices": (
-                None
-                if args.consume_actions is None
-                else list(range(args.consume_actions))
-            ),
-            "policy_predictions_superseded_before_adoption": (
-                0 if consumer is None else consumer.superseded_predictions
-            ),
             "temporal_ensemble": (
                 None
                 if temporal_ensembler is None
@@ -1554,7 +1474,6 @@ def main() -> int:
         "--act-execution-mode",
         choices=(
             "canonical_temporal_ensemble",
-            "consume_k",
             "temporal_ensemble",
             "async_temporal_ensemble",
         ),
@@ -1563,12 +1482,6 @@ def main() -> int:
             "ACT executor semantics; canonical_temporal_ensemble is the default "
             "for Strong ACT and performs one full-chunk query/action per control tick"
         ),
-    )
-    parser.add_argument(
-        "--consume-actions",
-        type=int,
-        default=None,
-        help=argparse.SUPPRESS,
     )
     parser.add_argument("--temporal-ensemble-coeff", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--max-source-horizon", type=int, default=None, help=argparse.SUPPRESS)

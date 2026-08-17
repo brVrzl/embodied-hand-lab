@@ -25,7 +25,6 @@ class ActCheckpointContract:
     environment_state_key: str | None
     action_dim: int
     chunk_size: int
-    n_action_steps: int
 
     @classmethod
     def from_checkpoint(cls, checkpoint: Path) -> "ActCheckpointContract":
@@ -111,11 +110,8 @@ class ActCheckpointContract:
         if action_shape != [12]:
             raise ValueError(f"physical bottle ACT requires action shape [12], got {action_shape!r}")
         chunk_size = config.get("chunk_size")
-        n_action_steps = config.get("n_action_steps")
         if not isinstance(chunk_size, int) or chunk_size < 1:
             raise ValueError(f"invalid ACT chunk_size: {chunk_size!r}")
-        if not isinstance(n_action_steps, int) or not 1 <= n_action_steps <= chunk_size:
-            raise ValueError(f"invalid ACT n_action_steps={n_action_steps!r} for chunk_size={chunk_size}")
         return cls(
             checkpoint=checkpoint,
             input_features=input_features,
@@ -124,7 +120,6 @@ class ActCheckpointContract:
             environment_state_key=environment_state_key,
             action_dim=12,
             chunk_size=chunk_size,
-            n_action_steps=n_action_steps,
         )
 
     @property
@@ -176,6 +171,5 @@ class ActCheckpointContract:
             "environment_state_key": self.environment_state_key,
             "action_dim": self.action_dim,
             "chunk_size": self.chunk_size,
-            "n_action_steps": self.n_action_steps,
             "input_shapes": {key: value["shape"] for key, value in self.input_features.items()},
         }

@@ -16,7 +16,6 @@ def _write_checkpoint(path: Path, *, image_prefix: str = "workspace", chunk: int
             {
                 "type": "act",
                 "chunk_size": chunk,
-                "n_action_steps": 2,
                 "input_features": {
                     f"observation.images.{image_prefix}": {"type": "VISUAL", "shape": [3, 240, 320]},
                     "observation.images.wrist": {"type": "VISUAL", "shape": [3, 240, 320]},

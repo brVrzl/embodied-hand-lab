@@ -215,9 +215,11 @@ The exact decisions and source frame/timestamp ranges are in
 The repository-owned strong vision/state ACT baseline uses the frozen
 session-grouped nominal52 split, ImageNet-pretrained ResNet18, a 60-action
 prediction chunk, the canonical-size 512/3200 transformer, and a 100k-step
-budget. `n_action_steps=2` is only the pinned LeRobot inference-queue prefix;
-the physical adapter's execution horizon remains independently controlled by
-`--consume-actions`. Starting training never starts a robot:
+budget. The physical adapter uses the full checkpoint chunk with absolute-time
+temporal aggregation; it has no consume-K execution path. The pinned
+LeRobot training config retains `n_action_steps=1` only as a required
+configuration value; the physical worker does not use its action queue.
+Starting training never starts a robot:
 
 ```bash
 scripts/train_physical_bottle_lerobot.sh strong-act

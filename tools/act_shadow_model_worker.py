@@ -126,6 +126,10 @@ def main() -> int:
     # initializer in config.json must not trigger a network download during
     # offline inference (the container intentionally has no network access).
     config.pretrained_backbone_weights = None
+    # This worker calls predict_action_chunk directly and owns temporal
+    # aggregation.  Do not activate LeRobot's internal action queue.
+    if hasattr(config, "n_action_steps"):
+        config.n_action_steps = 1
     requires_environment_state = contract.requires_environment_state
     if not torch.cuda.is_available():
         raise RuntimeError("Thor CUDA is required for the shadow benchmark")
@@ -259,7 +263,6 @@ def main() -> int:
             "torch_version": torch.__version__,
             "cuda_device": torch.cuda.get_device_name(0),
             "chunk_size": int(config.chunk_size),
-            "n_action_steps": int(config.n_action_steps),
             "query_count_including_warmup_and_determinism": query_count,
             "inference_failures": inference_failures,
             "elapsed_sec": time.monotonic() - started,
