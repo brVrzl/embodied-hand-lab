@@ -3,19 +3,34 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+PI05_CONFIG="$REPOSITORY_ROOT/configs/training/pi05/physical_bottle.yaml"
 EXPERIMENT_ROOT=${PI05_EXPERIMENT_ROOT:-$REPOSITORY_ROOT/outputs/training/pi05_rh56}
 OPENPI_REPO=${PI05_OPENPI_REPO:-$REPOSITORY_ROOT/third_party/openpi}
 OPENPI_CACHE=${PI05_OPENPI_CACHE:-$EXPERIMENT_ROOT/openpi_cache}
 JAX_CACHE=${PI05_JAX_CACHE:-$EXPERIMENT_ROOT/jax_cache}
 IMAGE=${PI05_OPENPI_IMAGE:-jaka-openpi:thor-cuda13}
-EXP_NAME=${PI05_EXP_NAME:-weekend}
-STEPS=${PI05_STEPS:-20000}
-BATCH_SIZE=${PI05_BATCH_SIZE:-4}
-NUM_WORKERS=${PI05_NUM_WORKERS:-0}
-SAVE_INTERVAL=${PI05_SAVE_INTERVAL:-100}
-LOG_INTERVAL=${PI05_LOG_INTERVAL:-10}
-KEEP_PERIOD=${PI05_KEEP_PERIOD:-500}
-SEED=${PI05_SEED:-20260814}
+
+pi05_config_value() {
+    python3 - "$PI05_CONFIG" "$1" <<'PY'
+import sys
+import yaml
+
+document = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+value = document
+for key in sys.argv[2].split("."):
+    value = value[key]
+print(value)
+PY
+}
+
+EXP_NAME=${PI05_EXP_NAME:-$(pi05_config_value training.experiment_name)}
+STEPS=${PI05_STEPS:-$(pi05_config_value training.steps)}
+BATCH_SIZE=${PI05_BATCH_SIZE:-$(pi05_config_value training.batch_size)}
+NUM_WORKERS=${PI05_NUM_WORKERS:-$(pi05_config_value training.num_workers)}
+SAVE_INTERVAL=${PI05_SAVE_INTERVAL:-$(pi05_config_value training.save_interval)}
+LOG_INTERVAL=${PI05_LOG_INTERVAL:-$(pi05_config_value training.log_interval)}
+KEEP_PERIOD=${PI05_KEEP_PERIOD:-$(pi05_config_value training.keep_period)}
+SEED=${PI05_SEED:-$(pi05_config_value training.seed)}
 LOG_DIR=$EXPERIMENT_ROOT/logs
 RUN_LOG=$LOG_DIR/${EXP_NAME}.log
 SUPERVISOR_LOG=$LOG_DIR/${EXP_NAME}.supervisor.log
@@ -132,8 +147,8 @@ run_container() {
         -w /workspace/embodied_lab \
         -e HF_LEROBOT_HOME=/workspace/embodied_lab/outputs/training/pi05_rh56/lerobot_home_v2 \
         -e PYTHONUNBUFFERED=1 \
-        -e PYTHONPATH=/workspace/embodied_lab/experiments/pi05_rh56:/workspace/embodied_lab/src:/app/src \
-        "$IMAGE" /.venv/bin/python experiments/pi05_rh56/scripts/openpi_runner.py train \
+        -e PYTHONPATH=/workspace/embodied_lab/training/pi05:/workspace/embodied_lab/src:/app/src \
+        "$IMAGE" /.venv/bin/python training/pi05/scripts/openpi_runner.py train \
         --experiment-root /workspace/embodied_lab/outputs/training/pi05_rh56 \
         --exp-name "$EXP_NAME" \
         --steps "$STEPS" \

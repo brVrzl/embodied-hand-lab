@@ -13,21 +13,24 @@ from typing import Any
 
 import numpy as np
 
+from config import (
+    ACTION_DIM,
+    ACTION_HORIZON,
+    BASE_CHECKPOINT,
+    DATASET_REPO_ID,
+    MODEL_ACTION_DIM,
+    MODEL_CONFIG,
+    MODEL_IMAGE_KEYS,
+    STATE_DIM,
+    TASK_PROMPT,
+    TRAINING_CONFIG,
+)
 from openpi.models import pi0_config
 from openpi.training import config as openpi_config
 from openpi.training import optimizer
 from openpi.training import weight_loaders
 from openpi.training.config import ModelTransformFactory
 from openpi.transforms import DataTransformFn, Group, RepackTransform
-
-
-TASK_PROMPT = "Pick up the bottle and place it on the cardboard box."
-STATE_DIM = 12
-ACTION_DIM = 12
-MODEL_ACTION_DIM = 32
-ACTION_HORIZON = 16
-DATASET_REPO_ID = "local/pi05_rh56_train"
-MODEL_IMAGE_KEYS = ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb")
 
 
 def _as_numpy(value: Any) -> np.ndarray:
@@ -181,15 +184,15 @@ def make_config(
     """Create the one experiment config used by norm-stats, smoke, and train."""
 
     model = pi0_config.Pi0Config(
-        pi05=True,
+        pi05=bool(MODEL_CONFIG["pi05"]),
         # pi05_base's released action projections are 32-wide. The audited
         # 12-dimensional command is padded by OpenPI's standard
         # PadStatesAndActions transform immediately before the model and is
         # sliced back to 12 by Rh56Outputs.
         action_dim=MODEL_ACTION_DIM,
         action_horizon=ACTION_HORIZON,
-        paligemma_variant="gemma_2b_lora",
-        action_expert_variant="gemma_300m_lora",
+        paligemma_variant=str(MODEL_CONFIG["paligemma_variant"]),
+        action_expert_variant=str(MODEL_CONFIG["action_expert_variant"]),
     )
     return openpi_config.TrainConfig(
         name="pi05_rh56",
@@ -200,7 +203,9 @@ def make_config(
             repo_id=dataset_repo_id,
             assets=openpi_config.AssetsConfig(asset_id=norm_stats_repo_id),
         ),
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            f"gs://openpi-assets/checkpoints/{BASE_CHECKPOINT}/params"
+        ),
         assets_base_dir=str(experiment_root / "assets"),
         checkpoint_base_dir=str(experiment_root / "checkpoints"),
         seed=seed,
@@ -215,12 +220,14 @@ def make_config(
         wandb_enabled=False,
         freeze_filter=model.get_freeze_filter(),
         lr_schedule=optimizer.CosineDecaySchedule(
-            warmup_steps=100,
-            peak_lr=1e-5,
-            decay_steps=max(num_train_steps, 1000),
-            decay_lr=1e-6,
+            warmup_steps=int(TRAINING_CONFIG["warmup_steps"]),
+            peak_lr=float(TRAINING_CONFIG["peak_learning_rate"]),
+            decay_steps=max(num_train_steps, int(TRAINING_CONFIG["warmup_steps"])),
+            decay_lr=float(TRAINING_CONFIG["final_learning_rate"]),
         ),
-        optimizer=optimizer.AdamW(clip_gradient_norm=1.0),
+        optimizer=optimizer.AdamW(
+            clip_gradient_norm=float(TRAINING_CONFIG["gradient_clip_norm"])
+        ),
         ema_decay=None,
         policy_metadata={
             "task": TASK_PROMPT,
@@ -229,8 +236,8 @@ def make_config(
             "action_dim": ACTION_DIM,
             "action_horizon": ACTION_HORIZON,
             "image_keys": list(MODEL_IMAGE_KEYS),
-            "force_enabled": False,
-            "base_checkpoint": "pi05_base",
+            "force_enabled": bool(MODEL_CONFIG["force_enabled"]),
+            "base_checkpoint": BASE_CHECKPOINT,
             "lora": True,
         },
     )
@@ -242,7 +249,7 @@ def config_summary(config: openpi_config.TrainConfig) -> dict[str, Any]:
         "name": config.name,
         "exp_name": config.exp_name,
         "task": TASK_PROMPT,
-        "base_checkpoint": "pi05_base",
+        "base_checkpoint": BASE_CHECKPOINT,
         "model_type": model.model_type.value,
         "pi05": model.pi05,
         # The native command sent by this project is 12-dimensional. OpenPI's

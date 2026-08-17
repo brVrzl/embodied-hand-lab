@@ -25,7 +25,7 @@ STATE_NAMES = (
 
 def _config() -> dict:
     return json.loads(
-        (ROOT / "configs/training/lerobot/act_physical_bottle.json").read_text(
+        (ROOT / "configs/training/act/lerobot.json").read_text(
             encoding="utf-8"
         )
     )
@@ -48,7 +48,7 @@ def test_current_act_config_is_the_nominal52_formal_baseline() -> None:
 
 def test_canonical_task_config_owns_split_and_both_views() -> None:
     task = yaml.safe_load(
-        (ROOT / "configs/training/physical_bottle.yaml").read_text(
+        (ROOT / "configs/training/shared/physical_bottle.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -77,7 +77,7 @@ def test_entrypoint_is_pinned_offline_and_current_only() -> None:
     assert "--network none" in script
     assert "python -m lerobot.scripts.lerobot_train" in script
     assert "--dataset-config" in script
-    assert "act_physical_bottle.json" in script
+    assert "configs/training/act/lerobot.json" in script
     assert "physical_bottle_mixed" not in script
     assert "source/master" not in script
     assert tuple(STATE_NAMES) == tuple(

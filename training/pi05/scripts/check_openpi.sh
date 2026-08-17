@@ -22,7 +22,7 @@ case "${1:-}" in
         ;;
 esac
 
-LOCK_FILE=$EXPERIMENT_DIR/openpi.lock.json
+LOCK_FILE=$REPOSITORY_ROOT/configs/training/pi05/openpi.lock.json
 EXPECTED_COMMIT=$(python3 - "$LOCK_FILE" <<'PY'
 import json
 import sys

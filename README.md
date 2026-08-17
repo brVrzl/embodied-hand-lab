@@ -132,8 +132,8 @@ pinned OpenPI/LeRobot sources and training images before starting a training-onl
 
 ```bash
 scripts/check_training_dependencies.sh --require-image
-experiments/pi05_rh56/scripts/train_weekend.sh start
-experiments/pi05_rh56/scripts/status.sh
+training/pi05/scripts/train_weekend.sh start
+training/pi05/scripts/status.sh
 ```
 
 This workflow does not connect to or command JAKA, RH56, Quest, or cameras.

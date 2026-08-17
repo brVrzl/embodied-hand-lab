@@ -11,5 +11,5 @@ source_root: data/training/physical_bottle_v4_nominal52
 derived_root: outputs/training/physical_bottle_v4_nominal52
 raw_root: data/raw_episodes
 raw_is_read_only: true
-dataset_config: configs/training/physical_bottle.yaml
-act_config: configs/training/lerobot/act_physical_bottle.json
+dataset_config: configs/training/shared/physical_bottle.yaml
+act_config: configs/training/act/lerobot.json

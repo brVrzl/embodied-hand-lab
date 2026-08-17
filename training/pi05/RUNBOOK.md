@@ -12,12 +12,12 @@ explicitly accepted logical demonstrations and 33,111 frames at 30 Hz. The
 machine-readable run manifest is `outputs/training/pi05_rh56/audited_manifest.json`.
 Its acceptance evidence is:
 
-- `configs/training/physical_bottle.yaml`
+- `configs/training/shared/physical_bottle.yaml`
 - `research_log/physical_bottle_nominal52_audit.md`
 - `data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json`
 
 The locked ACT split is 37 train / 15 validation logical episodes, recorded in
-`configs/training/physical_bottle.yaml` and
+`configs/training/shared/physical_bottle.yaml` and
 `data/training/physical_bottle_v4_nominal52/act/manifests/splits.json`. The
 OpenPI training view is
 `outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_train`; it contains
@@ -47,8 +47,8 @@ so the official base checkpoint can load without inventing RH56 channels.
 
 - OpenPI checkout: `third_party/openpi` (override with `PI05_OPENPI_REPO` when using a separately audited checkout)
 - OpenPI commit: `15a9616a00943ada6c20a0f158e3adb39df2ccac`
-- Project pin: `experiments/pi05_rh56/openpi.lock.json`
-- Runtime check: `experiments/pi05_rh56/scripts/check_openpi.sh --require-image`
+- Project pin: `configs/training/pi05/openpi.lock.json`
+- Runtime check: `training/pi05/scripts/check_openpi.sh --require-image`
 - Backend: official upstream JAX
 - Model: `pi05_base` initialization, flow-matching pi0.5
 - LoRA variants: `gemma_2b_lora` and `gemma_300m_lora`
@@ -88,24 +88,24 @@ forward/backward/update, and actual checkpoint resume.
 Start or resume the supervised run:
 
 ```bash
-experiments/pi05_rh56/scripts/train_weekend.sh start
+training/pi05/scripts/train_weekend.sh start
 ```
 
 Inspect it later:
 
 ```bash
-experiments/pi05_rh56/scripts/status.sh
+training/pi05/scripts/status.sh
 cat outputs/training/pi05_rh56/status.json
 ```
 
 Stop it without deleting checkpoints:
 
 ```bash
-experiments/pi05_rh56/scripts/train_weekend.sh stop
+training/pi05/scripts/train_weekend.sh stop
 ```
 
 After a reboot, the single recovery command is
-`experiments/pi05_rh56/scripts/train_weekend.sh resume`.
+`training/pi05/scripts/train_weekend.sh resume`.
 
 The supervisor uses the newest checkpoint containing `train_state`, `params`,
 and `assets`, passes `--resume`, refuses overwrite, serializes launches with a

@@ -153,19 +153,19 @@ Rebuild and validate the immutable-source derived view with:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
-  --config configs/training/physical_bottle.yaml
+  --config configs/training/shared/physical_bottle.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
-  --config configs/training/physical_bottle.yaml
+  --config configs/training/shared/physical_bottle.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
   data/training/physical_bottle_v4_nominal52
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-smoke \
-  --config configs/training/act_physical_bottle.yaml
+  --config configs/training/act/physical_bottle.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
-  --config configs/training/act_physical_bottle.yaml
+  --config configs/training/act/physical_bottle.yaml
 ```
 
 The exact decisions and source frame/timestamp ranges are in
-`configs/training/physical_bottle.yaml` and
+`configs/training/shared/physical_bottle.yaml` and
 `research_log/physical_bottle_nominal52_materialization.md`.
 
 ### Strong ACT baseline
@@ -185,8 +185,8 @@ scripts/evaluate_physical_bottle_nominal52_checkpoints.sh
 ```
 
 The exact split is
-the split is included in `configs/training/physical_bottle.yaml`, the trainer
-config is `configs/training/lerobot/act_physical_bottle.json`, and
+the split is included in `configs/training/shared/physical_bottle.yaml`, the trainer
+config is `configs/training/act/lerobot.json`, and
 the audit/selection protocol is in
 `research_log/physical_bottle_nominal52_strong_act_20260813.md`. Checkpoints and
 derived LeRobot views stay under ignored `outputs/training/`; do not commit
@@ -198,7 +198,7 @@ checkpoint-selection result are fixed.
 The retained mixed-quality physical-bottle materialization is
 `data/training/physical_bottle_v2/`. Its two master trees contain the same
 20,744 logical samples from 25 accepted logical segments. The repository-owned
-LeRobot bridge is documented in [training/lerobot/README.md](../training/lerobot/README.md)
+LeRobot bridge is documented in [training/act/README.md](../training/act/README.md)
 and is launched with:
 
 ```bash
@@ -253,7 +253,9 @@ ACT+Force 样本。训练/验证按采集 session 隔离，分别为 24 条/16,6
 行。nominal33 是后续已被 nominal52 替代的中间扩展，当前配置和复现入口不再保留；
 其审计结论仍在 dated research log 中。
 
-当前正式配置收敛为 `configs/training/physical_bottle.yaml`、
-`configs/training/act_physical_bottle.yaml` 和
-`configs/training/lerobot/act_physical_bottle.json`。ACT+Force view 由任务
+当前正式配置按职责分为共享、ACT 和 π0.5 三组：
+`configs/training/shared/physical_bottle.yaml`、
+`configs/training/act/physical_bottle.yaml`、
+`configs/training/act/lerobot.json`，以及
+`configs/training/pi05/physical_bottle.yaml`。ACT+Force view 由共享任务
 配置中的 `views.act_force` 定义，但当前 pi0.5/strong ACT baseline 不使用 force。

@@ -16,5 +16,5 @@ case "${1:-}" in
     ;;
 esac
 
-"$ROOT_DIR/experiments/pi05_rh56/scripts/check_openpi.sh" "${ARGS[@]}"
+"$ROOT_DIR/training/pi05/scripts/check_openpi.sh" "${ARGS[@]}"
 "$ROOT_DIR/scripts/check_lerobot.sh" "${ARGS[@]}"

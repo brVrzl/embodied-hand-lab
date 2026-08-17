@@ -20,12 +20,9 @@ from typing import Any
 
 import numpy as np
 
+from config import ACTION_DIM, ACTION_HORIZON, STATE_DIM, TASK_PROMPT
 
-TASK_PROMPT = "Pick up the bottle and place it on the cardboard box."
-STATE_DIM = 12
-ACTION_DIM = 12
 FPS = 30
-ACTION_HORIZON = 16
 IMAGE_KEYS = ("observation.images.workspace", "observation.images.wrist")
 STATE_ORDER = (
     "jaka_joint_1",
@@ -250,7 +247,7 @@ def build_audited_manifest(source_master: Path, output_path: Path) -> dict[str, 
                 "audit_classification": audit["classification"],
                 "audit_notes": audit.get("notes"),
                 "audit_source": [
-                    "configs/training/physical_bottle.yaml",
+                    "configs/training/shared/physical_bottle.yaml",
                     "research_log/physical_bottle_nominal52_audit.md",
                     "data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json",
                 ],

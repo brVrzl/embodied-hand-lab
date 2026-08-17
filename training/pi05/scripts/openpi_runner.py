@@ -28,6 +28,12 @@ from openpi_adapter import (  # noqa: E402
     build_openpi_view,
     validate_derived_view,
 )
+from config import (  # noqa: E402
+    DATA_CONFIG,
+    TRAINING_CONFIG,
+    VALIDATION_CONFIG,
+    VALIDATION_REPO_ID,
+)
 from openpi_config import DATASET_REPO_ID, config_summary, make_config  # noqa: E402
 
 
@@ -661,27 +667,27 @@ def cmd_train(args: argparse.Namespace) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("manifest", "build-view", "validate-view", "norm-stats", "config-summary", "data-smoke", "model-smoke", "checkpoint-smoke", "val-eval", "train"))
-    parser.add_argument("--experiment-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56")
-    parser.add_argument("--source-master", type=Path, default=REPOSITORY_ROOT / "data/training/physical_bottle_v4_nominal52/act/master")
-    parser.add_argument("--manifest", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/audited_manifest.json")
-    parser.add_argument("--output", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/audited_manifest.json")
-    parser.add_argument("--view-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_train")
+    parser.add_argument("--experiment-root", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["experiment_root"]))
+    parser.add_argument("--source-master", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["source_master"]))
+    parser.add_argument("--manifest", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["manifest"]))
+    parser.add_argument("--output", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["manifest"]))
+    parser.add_argument("--view-root", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["train_view_root"]))
     parser.add_argument("--dataset-repo-id", default=DATASET_REPO_ID)
-    parser.add_argument("--val-repo-id", default="local/pi05_rh56_val")
-    parser.add_argument("--val-view-root", type=Path, default=REPOSITORY_ROOT / "outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_val")
+    parser.add_argument("--val-repo-id", default=VALIDATION_REPO_ID)
+    parser.add_argument("--val-view-root", type=Path, default=REPOSITORY_ROOT / str(DATA_CONFIG["validation_view_root"]))
     parser.add_argument("--split", choices=("train", "val"), default="train")
-    parser.add_argument("--exp-name", default="weekend")
-    parser.add_argument("--steps", type=int, default=20_000)
-    parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--save-interval", type=int, default=100)
-    parser.add_argument("--log-interval", type=int, default=10)
-    parser.add_argument("--keep-period", type=int, default=500)
-    parser.add_argument("--seed", type=int, default=20260814)
+    parser.add_argument("--exp-name", default=str(TRAINING_CONFIG["experiment_name"]))
+    parser.add_argument("--steps", type=int, default=int(TRAINING_CONFIG["steps"]))
+    parser.add_argument("--batch-size", type=int, default=int(TRAINING_CONFIG["batch_size"]))
+    parser.add_argument("--num-workers", type=int, default=int(TRAINING_CONFIG["num_workers"]))
+    parser.add_argument("--save-interval", type=int, default=int(TRAINING_CONFIG["save_interval"]))
+    parser.add_argument("--log-interval", type=int, default=int(TRAINING_CONFIG["log_interval"]))
+    parser.add_argument("--keep-period", type=int, default=int(TRAINING_CONFIG["keep_period"]))
+    parser.add_argument("--seed", type=int, default=int(TRAINING_CONFIG["seed"]))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--checkpoint-steps", default="", help="Comma-separated checkpoint steps; empty means all complete checkpoints")
-    parser.add_argument("--samples-per-episode", type=int, default=8)
-    parser.add_argument("--full-val", action="store_true", help="Evaluate every validation frame instead of a fixed probe")
+    parser.add_argument("--samples-per-episode", type=int, default=int(VALIDATION_CONFIG["samples_per_episode"]))
+    parser.add_argument("--full-val", action="store_true", default=bool(VALIDATION_CONFIG["full_val"]), help="Evaluate every validation frame instead of a fixed probe")
     parser.add_argument("--report-name", default="val_checkpoint_eval")
     return parser
 

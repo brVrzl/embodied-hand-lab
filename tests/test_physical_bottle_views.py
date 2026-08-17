@@ -96,7 +96,7 @@ def test_split_group_contract_rejects_session_leakage() -> None:
 
 def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
     config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle.yaml").read_text(
+        (Path(__file__).parents[1] / "configs/training/shared/physical_bottle.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -131,7 +131,7 @@ def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
 
 
 def test_canonical_policy_view_config_resolves_act_and_force_views() -> None:
-    config_path = Path(__file__).parents[1] / "configs/training/act_physical_bottle.yaml"
+    config_path = Path(__file__).parents[1] / "configs/training/act/physical_bottle.yaml"
     act_root, act_config = _load_policy_view_config(config_path)
     force_root, force_config = _load_policy_view_config(
         config_path, view_name="act_force"

@@ -8,6 +8,7 @@
   "container_image": "jaka-openpi:thor-cuda13",
   "backend": "official_jax",
   "base_model": "pi05_base",
-  "runner": "experiments/pi05_rh56/scripts/openpi_runner.py",
+  "runner": "training/pi05/scripts/openpi_runner.py",
+  "config": "configs/training/pi05/physical_bottle.yaml",
   "source_policy": "Use the pinned Git submodule at third_party/openpi and mount it read-only into the pinned training container. PI05_OPENPI_REPO may override the checkout for a separately audited runtime. Project-specific transforms, config, supervision, and validation remain in embodied_lab."
 }

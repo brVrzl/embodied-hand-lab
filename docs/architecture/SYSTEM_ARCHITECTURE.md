@@ -248,7 +248,7 @@ simulation path and the separately gated physical combined path. The physical
 v2 wiring is not yet physically validated. Complete clock/geometry calibration
 and a production-validated real multimodal dataset remain open. The
 project-specific π0.5/RH56 training integration is maintained under
-`experiments/pi05_rh56`; its upstream OpenPI core is pinned as an external
+`training/pi05`; its upstream OpenPI core is pinned as an external
 read-only runtime, and no physical policy validation is claimed.
 
 ## Maintained entry points

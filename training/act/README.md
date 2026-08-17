@@ -15,12 +15,12 @@ The pinned runtime is:
 
 The active configuration boundary is deliberately small:
 
-- `configs/training/physical_bottle.yaml` owns the task prompt, immutable
+- `configs/training/shared/physical_bottle.yaml` owns the task prompt, immutable
   audit/materialization rules, 37/15 session split, and both standard and
   optional ACT+Force data views;
-- `configs/training/act_physical_bottle.yaml` selects the standard ACT view for
+- `configs/training/act/physical_bottle.yaml` selects the standard ACT view for
   local ACT/OpenPI smoke checks;
-- `configs/training/lerobot/act_physical_bottle.json` is the current strong ACT
+- `configs/training/act/lerobot.json` is the current strong ACT
   trainer configuration.
 
 Check the pinned dependencies before training:
@@ -37,7 +37,7 @@ scripts/train_physical_bottle_lerobot.sh strong-act
 
 The launcher checks the image, LeRobot submodule, cached ResNet18 weights, and
 the immutable nominal52 master. It builds a disposable ACT view using the
-validation episode list from `physical_bottle.yaml`, validates it through the
+validation episode list from `shared/physical_bottle.yaml`, validates it through the
 real LeRobot loader, refuses existing output directories, runs with
 `--network none`, and never connects to a robot.
 
@@ -60,12 +60,12 @@ are retained for provenance and are not selected by the active launcher.
 当前只有一个正式训练任务：人工审核后的 nominal52 bottle task。活动配置收敛为：
 
 ```text
-configs/training/physical_bottle.yaml
-configs/training/act_physical_bottle.yaml
-configs/training/lerobot/act_physical_bottle.json
+configs/training/shared/physical_bottle.yaml
+configs/training/act/physical_bottle.yaml
+configs/training/act/lerobot.json
 ```
 
-`physical_bottle.yaml` 同时拥有任务 prompt、审核边界、materialization、37/15
+`shared/physical_bottle.yaml` 同时拥有任务 prompt、审核边界、materialization、37/15
 session split，以及标准 ACT 和可选 ACT+Force view。force 数据仍保留在源数据中，
 但当前 ACT/pi0.5 baseline 不输入 force。
 

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-RUNTIME_FILE="$ROOT_DIR/training/lerobot/runtime.yaml"
+RUNTIME_FILE="$ROOT_DIR/training/act/runtime.yaml"
 LEROBOT_SOURCE=${LEROBOT_SOURCE:-$ROOT_DIR/third_party/lerobot}
 REQUIRE_IMAGE=0
 
