@@ -35,7 +35,7 @@ class _RowRef:
 class ActDatasetAdapter:
     """ACT-style examples with two RGB images, state, and action chunks.
 
-    The repository has no maintained upstream ACT trainer.  This adapter uses
+    The repository does not vendor an upstream ACT trainer. This adapter uses
     a documented local convention: observations are uint8 CHW RGB arrays,
     actions are absolute/native `[horizon, 12]` targets, and the boolean mask
     marks real actions when the horizon reaches an episode/segment boundary.
@@ -73,7 +73,9 @@ class ActDatasetAdapter:
             except ImportError as exc:
                 raise RuntimeError("ACT adapter requires pyarrow") from exc
             rows = parquet.read_table(self.master / episode["data"]).to_pylist()
-            rows = [row for row in rows if not self.force_enabled or bool(row["force_valid"])]
+            # ACT+Force keeps the exact ACT sample set.  Invalid/stale force is
+            # represented by the row's validity/age fields and is not a reason
+            # to silently create a different dataset composition.
             self._episodes[episode_id] = rows
             video_root = self.master / "videos"
             for row in rows:

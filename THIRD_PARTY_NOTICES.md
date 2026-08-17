@@ -4,6 +4,17 @@ This file records the provenance and license evidence available in this
 repository. It does not grant rights beyond the corresponding upstream
 license, vendor agreement, or applicable law.
 
+## Training source submodules
+
+- `third_party/openpi/`: [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi), pinned by the parent repository to `15a9616a00943ada6c20a0f158e3adb39df2ccac`; Apache-2.0, with the upstream `LICENSE` retained in the submodule. Runtime role: read-only π0.5 source for the project adapter.
+- `third_party/lerobot/`: [huggingface/lerobot](https://github.com/huggingface/lerobot), pinned by the parent repository to `f66e5128ecb2456e8c54a63d15404fa59c16aebc`; Apache-2.0, with the upstream `LICENSE` retained in the submodule. Runtime role: read-only LeRobot source for the ACT launcher.
+
+These are Git submodules rather than copied source trees. The parent
+repository records the URL and gitlink; use `git submodule update --init
+--recursive` after cloning. Docker image digests, Python package constraints,
+model assets, and caches are recorded separately because they are runtime
+artifacts rather than source repositories.
+
 ## Correll Robotics Lab RH56DFX assets
 
 - Location: `assets/correll_rh56dfx/`

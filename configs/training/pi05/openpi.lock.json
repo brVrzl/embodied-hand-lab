@@ -1,0 +1,14 @@
+{
+  "upstream_repository": "https://github.com/Physical-Intelligence/openpi.git",
+  "commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
+  "checkout_environment_variable": "PI05_OPENPI_REPO",
+  "default_checkout": "third_party/openpi",
+  "default_cache": "outputs/training/pi05_rh56/openpi_cache",
+  "default_jax_cache": "outputs/training/pi05_rh56/jax_cache",
+  "container_image": "jaka-openpi:thor-cuda13",
+  "backend": "official_jax",
+  "base_model": "pi05_base",
+  "runner": "training/pi05/scripts/openpi_runner.py",
+  "config": "configs/training/pi05/physical_bottle.yaml",
+  "source_policy": "Use the pinned Git submodule at third_party/openpi and mount it read-only into the pinned training container. PI05_OPENPI_REPO may override the checkout for a separately audited runtime. Project-specific transforms, config, supervision, and validation remain in embodied_lab."
+}

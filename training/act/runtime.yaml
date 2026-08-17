@@ -1,0 +1,15 @@
+schema_version: embodied_lab.lerobot_runtime.v1
+image: jaka-lerobot-dev:snapshot-before-raw-mount
+image_id: sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e
+lerobot_version: 0.6.2
+official_commit: f66e5128ecb2456e8c54a63d15404fa59c16aebc
+source_submodule: third_party/lerobot
+source_checkout_policy: git_submodule
+container_home: outputs/training/lerobot_container_home
+network: none
+source_root: data/training/physical_bottle_v4_nominal52
+derived_root: outputs/training/physical_bottle_v4_nominal52
+raw_root: data/raw_episodes
+raw_is_read_only: true
+dataset_config: configs/training/shared/physical_bottle.yaml
+act_config: configs/training/act/lerobot.json

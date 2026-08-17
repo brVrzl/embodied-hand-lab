@@ -19,6 +19,11 @@ from .synchronization import synchronize_staging_episode
 from .training_materialization import materialize_training_dataset, validate_training_dataset
 from .training_views import ActDatasetAdapter, ActForceDatasetAdapter
 from .openpi_adapter import to_openpi_example
+from .physical_bottle_materialization import (
+    audit_physical_bottle,
+    materialize_physical_bottle,
+    validate_physical_bottle,
+)
 
 __all__ = [
     "CameraSample",
@@ -42,6 +47,9 @@ __all__ = [
     "ActDatasetAdapter",
     "ActForceDatasetAdapter",
     "to_openpi_example",
+    "audit_physical_bottle",
+    "materialize_physical_bottle",
+    "validate_physical_bottle",
     "validate_episode",
     "load_data_quality_rows",
 ]

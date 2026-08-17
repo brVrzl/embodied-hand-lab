@@ -1,0 +1,44 @@
+schema_version: embodied_lab.pi05_training_config.v1
+task_config: ../shared/physical_bottle.yaml
+
+# Project-specific π0.5 baseline settings.  The task prompt, audited source
+# episodes, split, and camera/action view remain owned by task_config.
+model:
+  base_checkpoint: pi05_base
+  backend: official_jax
+  pi05: true
+  paligemma_variant: gemma_2b_lora
+  action_expert_variant: gemma_300m_lora
+  command_action_dim: 12
+  internal_action_dim: 32
+  state_dim: 12
+  action_horizon: 16
+  image_keys: [base_0_rgb, left_wrist_0_rgb, right_wrist_0_rgb]
+  force_enabled: false
+
+data:
+  train_repo_id: local/pi05_rh56_train
+  validation_repo_id: local/pi05_rh56_val
+  source_master: data/training/physical_bottle_v4_nominal52/act/master
+  experiment_root: outputs/training/pi05_rh56
+  manifest: outputs/training/pi05_rh56/audited_manifest.json
+  train_view_root: outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_train
+  validation_view_root: outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_val
+
+training:
+  experiment_name: weekend
+  steps: 20000
+  batch_size: 4
+  num_workers: 0
+  save_interval: 100
+  log_interval: 10
+  keep_period: 500
+  seed: 20260814
+  warmup_steps: 100
+  peak_learning_rate: 0.00001
+  final_learning_rate: 0.000001
+  gradient_clip_norm: 1.0
+
+validation:
+  samples_per_episode: 8
+  full_val: false

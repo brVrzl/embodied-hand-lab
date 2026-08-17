@@ -23,6 +23,11 @@ from .training_materialization import (
 )
 from .training_views import smoke_act_dataset
 from .openpi_adapter import smoke_openpi_dataset
+from .physical_bottle_materialization import (
+    audit_physical_bottle,
+    materialize_physical_bottle,
+    validate_physical_bottle,
+)
 from .validation import validate_episode, validation_exit_code
 
 
@@ -165,6 +170,26 @@ def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
         help="dry-run the thin repository-specific openpi data mapping",
     )
     openpi_smoke.add_argument("--config", type=Path, required=True)
+
+    audit_physical = commands.add_parser(
+        "audit-physical-bottle",
+        help="audit reviewed physical bottle episodes and logical segmentation",
+    )
+    audit_physical.add_argument("--config", type=Path, required=True)
+
+    materialize_physical = commands.add_parser(
+        "materialize-physical-bottle",
+        help="materialize matched ACT and ACT+Force physical bottle views",
+    )
+    materialize_physical.add_argument("--config", type=Path, required=True)
+    materialize_physical.add_argument("--replace", action="store_true")
+
+    validate_physical = commands.add_parser(
+        "validate-physical-bottle",
+        help="validate matched physical bottle training views",
+    )
+    validate_physical.add_argument("dataset_root", type=Path)
+    validate_physical.add_argument("--output", type=Path)
     return parser
 
 
@@ -198,17 +223,46 @@ def _label_episode(
     return metadata_path
 
 
-def _load_policy_view_config(config_path: Path) -> tuple[Path, dict[str, object]]:
+def _load_policy_view_config(
+    config_path: Path, *, view_name: str | None = None
+) -> tuple[Path, dict[str, object]]:
     config_path = config_path.resolve()
     value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError("policy view config must be a mapping")
+    dataset_config_path = config_path
+    if "dataset_root" not in value:
+        dataset_config_value = value.get("dataset_config")
+        if not isinstance(dataset_config_value, str):
+            raise ValueError(
+                "policy view config requires dataset_root or dataset_config"
+            )
+        dataset_config_path = (config_path.parent / dataset_config_value).resolve()
+        dataset_config = yaml.safe_load(
+            dataset_config_path.read_text(encoding="utf-8")
+        )
+        if not isinstance(dataset_config, dict):
+            raise ValueError("dataset_config must contain a mapping")
+        selected_view = view_name or str(value.get("view", "act"))
+        views = dataset_config.get("views")
+        if not isinstance(views, dict) or not isinstance(views.get(selected_view), dict):
+            raise ValueError(f"dataset_config has no policy view {selected_view!r}")
+        merged = dict(views[selected_view])
+        merged.update(
+            {
+                key: item
+                for key, item in value.items()
+                if key not in {"schema_version", "dataset_config", "view"}
+            }
+        )
+        merged["view"] = selected_view
+        value = merged
     dataset_value = value.get("dataset_root")
     if not isinstance(dataset_value, str):
-        raise ValueError("policy view config requires dataset_root")
+        raise ValueError("resolved policy view config requires dataset_root")
     dataset_root = Path(dataset_value)
     if not dataset_root.is_absolute():
-        dataset_root = (config_path.parent / dataset_root).resolve()
+        dataset_root = (dataset_config_path.parent / dataset_root).resolve()
     return dataset_root, value
 
 
@@ -294,8 +348,30 @@ def main(argv: list[str] | None = None, *, prog: str | None = None) -> int:
             _write_report(args.output, result)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["status"] == "passed" else 1
+    if args.command == "audit-physical-bottle":
+        result = audit_physical_bottle(args.config)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+    if args.command == "materialize-physical-bottle":
+        result = materialize_physical_bottle(args.config, replace=args.replace)
+        payload = {
+            "output_root": str(result.output_root),
+            "reused": result.reused,
+            "summary": result.summary,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "validate-physical-bottle":
+        result = validate_physical_bottle(args.dataset_root)
+        if args.output is not None:
+            _write_report(args.output, result)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["status"] == "passed" else 1
     if args.command in {"act-smoke", "act-force-smoke", "openpi-smoke"}:
-        dataset_root, view_config = _load_policy_view_config(args.config)
+        view_name = "act_force" if args.command == "act-force-smoke" else None
+        dataset_root, view_config = _load_policy_view_config(
+            args.config, view_name=view_name
+        )
         split = str(view_config.get("split", "train"))
         horizon = int(view_config.get("action_horizon", 16))
         if args.command == "act-smoke":

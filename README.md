@@ -45,7 +45,7 @@ physical evidence or opening an operator guide.
 | Physical JAKA | Explicitly selected ServoJ/EDG joint adapter with sole-session status polling and final native safety checks; only partially physically validated |
 | RH56DFX | PC-direct USB/RS485 scheduler, bounded six-actuator commands, and raw actuator feedback; independently operated and only partially physically validated |
 | Dataset tools | Atomic canonical episodes, integrity validation, episode-level splits, train-only statistics, ACT-style HDF5 export, and optional LeRobot v3 export |
-| Policy training | Integration boundaries are documented; no maintained ACT, Diffusion Policy, or OpenPI trainer is implemented in this repository |
+| Policy training | Maintained project-specific π0.5/RH56 LeRobot + JAX LoRA integration for Thor; OpenPI and LeRobot source commits are pinned as read-only submodules; no physical policy validation |
 | Cameras | RealSense adapters, processing utilities, and example configuration exist; synchronized dual-D435 physical collection is not end-to-end validated |
 
 The RH56 MuJoCo model is a six-command-axis kinematic approximation. Its
@@ -123,6 +123,21 @@ limits, review, and framework adapters are documented in the
 [dataset collection entry](docs/data/DATA_COLLECTION.md) and
 [dataset schema](docs/data/DATASET_SCHEMA.md).
 
+### π0.5/RH56 training on Thor
+
+The project-owned π0.5/RH56 adapter, LoRA configuration, checkpoint validation,
+and supervised training entry are documented in
+[the π0.5 RH56 training integration](docs/training/PI05_RH56.md). Verify the
+pinned OpenPI/LeRobot sources and training images before starting a training-only run:
+
+```bash
+scripts/check_training_dependencies.sh --require-image
+training/pi05/scripts/train_weekend.sh start
+training/pi05/scripts/status.sh
+```
+
+This workflow does not connect to or command JAKA, RH56, Quest, or cameras.
+
 ### Physical operation
 
 Physical commands are intentionally absent from the quick start. The current
@@ -188,8 +203,8 @@ limitations pages.
 ## 中文说明
 
 本仓库默认只进行离线和仿真工作。任何测试、回放、`doctor` 或 `--help` 都不构成真机
-授权。当前最成熟的是 Quest 到 JAKA 的共享安全目标管线；数据集验证、最小 MuJoCo
-benchmark 和分布式通信检查已经具备，但 ACT、Diffusion Policy、OpenPI/π0 的完整训练
-闭环、双 D435 真机同步采集以及长期联合真机验证尚未完成。操作前请以
+授权。当前最成熟的是 Quest 到 JAKA 的共享安全目标管线；项目内已有面向 Thor 的
+π0.5/RH56 训练集成；OpenPI 和 LeRobot 上游源码通过固定 commit 的只读 submodule 管理，且没有 policy
+真机验证。ACT、Diffusion Policy、双 D435 真机同步采集以及长期联合真机验证尚未完成。操作前请以
 [当前状态](docs/status/current_status.md)和[真机安全边界](docs/safety/REAL_HARDWARE_SAFETY.md)
 为准。

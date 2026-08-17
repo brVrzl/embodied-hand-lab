@@ -70,9 +70,10 @@ Offline tests, replay, and MuJoCo results are not physical PASS evidence.
 - Canonical episode validation, manifest/statistics tooling, selected export
   paths, and an offline MuJoCo smoke benchmark exist. They do not constitute a
   validated production dataset or policy-training run.
-- No current ACT, Diffusion Policy, or OpenPI/pi0 trainer consumes the
-  repository training example. Distributed utilities are infrastructure
-  scaffolding, not model-training support.
+- A project-specific π0.5/RH56 JAX LoRA trainer consumes the audited v4
+  training view through the Thor container. The upstream OpenPI core remains a
+  pinned external read-only runtime; ACT and Diffusion Policy trainers are not
+  maintained here. The training result is not physical policy validation.
 - Jetson Thor collection/inference and model export have documentation
   contracts but no validated deployment in this repository.
 
@@ -121,7 +122,9 @@ remain evidence only and do not override current source or safety policy.
 - viewer 中的 provisional table/mounting geometry 不属于 shared pre-acceptance collision authority，也不能证明真机 workspace clearance。
 - 双 D435 serial/profile、camera-to-robot extrinsic、跨设备时间同步和 end-to-end physical episode capture 尚未真机验证。
 - episode validation、manifest/statistics 和 exporter 已有离线支持，但不代表 production dataset 或 policy training 已验证。
-- 仓库没有当前维护的 ACT、Diffusion Policy 或 OpenPI/pi0 trainer，也没有 Jetson Thor deployment PASS。
+- 仓库已维护项目专用的 π0.5/RH56 JAX LoRA trainer，并通过 Thor container 消费 audited v4
+  training view；OpenPI 上游核心仍是固定的外部只读 runtime。ACT 和 Diffusion Policy trainer
+  不在当前维护范围内，训练结果也不等于 policy 真机验证；Jetson Thor deployment 仍没有 PASS。
 
 ## 外部事实
 

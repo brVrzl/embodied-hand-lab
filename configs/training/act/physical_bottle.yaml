@@ -1,0 +1,5 @@
+schema_version: embodied_lab.policy_view_config.v2
+dataset_config: ../shared/physical_bottle.yaml
+view: act
+split: train
+action_horizon: 16

@@ -54,6 +54,7 @@ authorize JAKA, RH56, Quest, or camera access.
 
 - [Physical episode collection](data/DATA_COLLECTION.md)
 - [Dataset schema](data/DATASET_SCHEMA.md)
+- [Physical training dataset](data/PHYSICAL_TRAINING_DATASET.md)
 - [Motion input platform](motion_input/README.md)
 - [UMIP protocol](motion_input/UMIP_PROTOCOL.md)
 - [Quest controller transport](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)
@@ -62,6 +63,11 @@ The maintained physical collection format is review-first RGB plus a
 low-dimensional robot state/action table. Quest packets, TCP, and depth are
 not stored in the default training view; conversion happens only after human
 review.
+
+## Training
+
+- [LeRobot ACT and ACT+Force training](training/act/README.md)
+- [π0.5 RH56 training integration](training/PI05_RH56.md)
 
 ## Reference and status
 
@@ -138,6 +144,11 @@ review.
 - [Quest 控制器传输](motion_input/QUEST_CONTROLLER_TRANSPORT_HOST.md)
 
 当前维护的真机采集格式是人工 review 优先的 RGB 视频加低维机器人 state/action 表。默认训练视图不保存 Quest packet、TCP 和深度数据，只有人工确认后才离线转换。
+
+## 训练
+
+- [LeRobot ACT 与 ACT+Force 训练](training/act/README.md)
+- [π0.5 RH56 训练集成](training/PI05_RH56.md)
 
 ## 参考与状态
 

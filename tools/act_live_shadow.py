@@ -38,6 +38,7 @@ from rh56_driver.serial_backend import RH56SerialBackend
 WORKSPACE_KEY = "observation.images.workspace"
 WRIST_KEY = "observation.images.wrist"
 STATE_KEY = "observation.state"
+ENVIRONMENT_STATE_KEY = "observation.environment_state"
 JAKA_LOWER = np.asarray([-6.28, -2.09, -2.27, -6.28, -2.09, -6.28], dtype=np.float64)
 JAKA_UPPER = np.asarray([6.28, 2.09, 2.27, 6.28, 2.09, 6.28], dtype=np.float64)
 
@@ -64,7 +65,54 @@ def _model_request(connection: socket.socket, value: Any) -> Any:
     payload = pickle.dumps(value, protocol=5)
     connection.sendall(struct.pack("!Q", len(payload)) + payload)
     size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
-    return pickle.loads(_recv_exact(connection, size))
+    response = pickle.loads(_recv_exact(connection, size))
+    if response.pop("_has_transport_timing_frame", False):
+        metadata_size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+        metadata = pickle.loads(_recv_exact(connection, metadata_size))
+        response.setdefault("timing_ms", {}).update(
+            metadata.get("transport_timing_ms", {})
+        )
+    return response
+
+
+def _timed_model_request(
+    connection: socket.socket, value: Any
+) -> tuple[Any, dict[str, float]]:
+    serialization_started_ns = time.perf_counter_ns()
+    payload = pickle.dumps(value, protocol=5)
+    serialization_ended_ns = time.perf_counter_ns()
+    send_started_ns = time.perf_counter_ns()
+    connection.sendall(struct.pack("!Q", len(payload)) + payload)
+    send_ended_ns = time.perf_counter_ns()
+    receive_started_ns = time.perf_counter_ns()
+    size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+    response_payload = _recv_exact(connection, size)
+    receive_ended_ns = time.perf_counter_ns()
+    response_deserialization_started_ns = time.perf_counter_ns()
+    response = pickle.loads(response_payload)
+    response_deserialization_ended_ns = time.perf_counter_ns()
+    metadata_receive_ms = 0.0
+    if response.pop("_has_transport_timing_frame", False):
+        metadata_started_ns = time.perf_counter_ns()
+        metadata_size = struct.unpack("!Q", _recv_exact(connection, 8))[0]
+        metadata = pickle.loads(_recv_exact(connection, metadata_size))
+        metadata_receive_ms = (time.perf_counter_ns() - metadata_started_ns) / 1e6
+        response.setdefault("timing_ms", {}).update(
+            metadata.get("transport_timing_ms", {})
+        )
+    return response, {
+        "policy_request_serialization": (
+            serialization_ended_ns - serialization_started_ns
+        )
+        / 1e6,
+        "policy_socket_send": (send_ended_ns - send_started_ns) / 1e6,
+        "policy_socket_receive": (receive_ended_ns - receive_started_ns) / 1e6,
+        "policy_response_deserialization": (
+            response_deserialization_ended_ns - response_deserialization_started_ns
+        )
+        / 1e6,
+        "policy_transport_metadata_receive": metadata_receive_ms,
+    }
 
 
 def _percentile(values: list[float], quantile: float) -> float | None:
@@ -187,6 +235,23 @@ class CameraReader:
                     raise TimeoutError(f"timed out waiting for a new {self.role} frame")
                 self._condition.wait(remaining)
 
+    def latest(self) -> CameraSample:
+        """Return the newest acquired frame without waiting for another frame."""
+
+        with self._condition:
+            if self._error is not None:
+                raise RuntimeError(f"{self.role} camera failed") from self._error
+            if self._sample is None:
+                raise RuntimeError(f"{self.role} camera frame is not yet available")
+            sample = self._sample
+            return CameraSample(
+                sequence=sample.sequence,
+                frame_number=sample.frame_number,
+                device_timestamp_ms=sample.device_timestamp_ms,
+                host_monotonic_ns=sample.host_monotonic_ns,
+                rgb=sample.rgb.copy(),
+            )
+
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=3.0)
@@ -268,6 +333,7 @@ class JakaReadOnlyStream:
                     raise TimeoutError("JAKA sample stream was not created")
                 time.sleep(0.02)
             with self.sample_file.open("r", encoding="utf-8") as handle:
+                partial_line = ""
                 while not self._stop.is_set():
                     line = handle.readline()
                     if not line:
@@ -275,6 +341,11 @@ class JakaReadOnlyStream:
                             raise RuntimeError(f"JAKA read-only diagnostic exited {self.process.returncode}")
                         time.sleep(0.002)
                         continue
+                    if not line.endswith("\n"):
+                        partial_line += line
+                        continue
+                    line = partial_line + line
+                    partial_line = ""
                     row = json.loads(line)
                     joints = np.asarray(row["joint_position_rad"], dtype=np.float64)
                     if joints.shape != (6,) or not np.isfinite(joints).all():
@@ -423,9 +494,14 @@ class RH56ReadOnlyStream:
 
 def _load_training_envelope(path: Path) -> tuple[np.ndarray, np.ndarray]:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    stats = payload.get("action_stats", payload.get("action", payload))
+    minimum = stats.get("min", stats.get("minimum"))
+    maximum = stats.get("max", stats.get("maximum"))
+    if minimum is None or maximum is None:
+        raise ValueError(f"{path} does not contain action min/max statistics")
     return (
-        np.asarray(payload["action_stats"]["min"], dtype=np.float64),
-        np.asarray(payload["action_stats"]["max"], dtype=np.float64),
+        np.asarray(minimum, dtype=np.float64),
+        np.asarray(maximum, dtype=np.float64),
     )
 
 
@@ -443,6 +519,11 @@ def main() -> int:
     parser.add_argument("--queries", type=int, default=300)
     parser.add_argument("--warmup-queries", type=int, default=20)
     parser.add_argument("--query-rate-hz", type=float, default=30.0)
+    parser.add_argument(
+        "--environment-state-input",
+        action="store_true",
+        help="send the six raw FORCE_ACT values to an ACT+Force model worker",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not (300 <= args.queries <= 1000):
@@ -492,6 +573,17 @@ def main() -> int:
             "jaka_state_age",
             "rh56_state_age",
             "camera_pair_skew",
+            "policy_request_serialization",
+            "policy_socket_send",
+            "policy_socket_receive",
+            "policy_response_deserialization",
+            "policy_transport_metadata_receive",
+            "worker_receive_wait",
+            "worker_receive_decode",
+            "worker_batch_wrap",
+            "worker_response_serialization",
+            "worker_socket_send",
+            "worker_output_to_host",
         )
     }
     stale_counts = {"workspace": 0, "wrist": 0, "jaka": 0, "rh56": 0}
@@ -504,6 +596,7 @@ def main() -> int:
     last_observation: dict[str, np.ndarray] | None = None
     deterministic_equal = False
     deterministic_max_abs_diff: float | None = None
+    prediction_shape: tuple[int, int] | None = None
     try:
         workspace.start()
         wrist.start()
@@ -556,14 +649,24 @@ def main() -> int:
                 WRIST_KEY: wrist_chw,
                 STATE_KEY: state,
             }
+            if args.environment_state_input:
+                if force is None:
+                    raise RuntimeError("ACT+Force shadow requires a fresh FORCE_ACT sample")
+                observation[ENVIRONMENT_STATE_KEY] = np.asarray(force, dtype=np.float32)
             roundtrip_started_ns = time.perf_counter_ns()
-            response = _model_request(connection, observation)
+            response, host_request_timing = _timed_model_request(connection, observation)
             roundtrip_ended_ns = time.perf_counter_ns()
             if "error" in response:
                 raise RuntimeError(response["error"])
             prediction = np.asarray(response["prediction"], dtype=np.float32)
-            if prediction.shape != (16, 12) or not np.isfinite(prediction).all():
-                raise ValueError(f"invalid shadow prediction {prediction.shape}")
+            if prediction.ndim != 2 or prediction.shape[1] != 12 or not np.isfinite(prediction).all():
+                raise ValueError(f"invalid shadow prediction [H,12]: {prediction.shape}")
+            if prediction_shape is None:
+                prediction_shape = (int(prediction.shape[0]), int(prediction.shape[1]))
+            elif prediction.shape != prediction_shape:
+                raise ValueError(
+                    f"shadow prediction shape changed from {prediction_shape} to {prediction.shape}"
+                )
             response_ended_ns = time.perf_counter_ns()
             last_observation = observation
 
@@ -579,12 +682,21 @@ def main() -> int:
                 timing["state_assembly"].append((state_ended_ns - state_started_ns) / 1e6)
                 timing["model_roundtrip"].append((roundtrip_ended_ns - roundtrip_started_ns) / 1e6)
                 timing["total_end_to_end"].append((response_ended_ns - acquire_started_ns) / 1e6)
+                for name, value in host_request_timing.items():
+                    timing[name].append(float(value))
                 for name in (
                     "checkpoint_preprocessing",
                     "act_inference",
                     "checkpoint_postprocessing",
+                    "worker_receive_wait",
+                    "worker_receive_decode",
+                    "worker_batch_wrap",
+                    "worker_response_serialization",
+                    "worker_socket_send",
+                    "worker_output_to_host",
                 ):
-                    timing[name].append(float(response["timing_ms"][name]))
+                    if name in response["timing_ms"]:
+                        timing[name].append(float(response["timing_ms"][name]))
                 ages = {
                     "workspace": (observation_ready_ns - workspace_sample.host_monotonic_ns) / 1e6,
                     "wrist": (observation_ready_ns - wrist_sample.host_monotonic_ns) / 1e6,
@@ -653,6 +765,7 @@ def main() -> int:
         "schema_version": "act_live_shadow.v1",
         "command_disabled": True,
         "command_api_present": False,
+        "environment_state_input": args.environment_state_input,
         "queries": len(predictions),
         "warmup_queries": args.warmup_queries,
         "requested_query_rate_hz": args.query_rate_hz,
@@ -663,7 +776,7 @@ def main() -> int:
         ),
         "query_start_interval_ms": _distribution(query_intervals_ms.tolist()),
         "output_shape": list(prediction_array.shape),
-        "per_query_output_shape": [16, 12],
+        "per_query_output_shape": list(prediction_shape) if prediction_shape is not None else None,
         "finite_output_failures": int((~np.isfinite(prediction_array)).any(axis=(1, 2)).sum()),
         "timing_ms": {name: _distribution(values) for name, values in timing.items()},
         "camera": {"workspace": workspace.summary(), "wrist": wrist.summary()},

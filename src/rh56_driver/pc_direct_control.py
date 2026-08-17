@@ -382,6 +382,13 @@ class RH56PcDirectControl:
         }
         self._feedback_latest_latency_ms: dict[str, float] = {}
         self.last_requested_target_normalized: tuple[float, ...] | None = None
+        # Bounded command-stage trace.  This is state only; serialization and
+        # filesystem work remain outside the serial scheduling thread.
+        self.last_command_request_normalized: tuple[float, ...] | None = None
+        self.last_command_request_monotonic_ns: int | None = None
+        self.last_command_request_sequence: int | None = None
+        self.last_post_contact_target_normalized: tuple[float, ...] | None = None
+        self.last_post_delta_limit_target_normalized: tuple[float, ...] | None = None
         self._contact_force_baseline: np.ndarray | None = None
         self._contact_force_delta = np.zeros(6, dtype=np.float64)
         self._contact_last_angle: np.ndarray | None = None
@@ -774,9 +781,13 @@ class RH56PcDirectControl:
         previous_command = np.asarray(
             self.last_command_normalized, dtype=np.float64
         )
-        self.last_requested_target_normalized = tuple(float(value) for value in requested)
+        raw_requested_tuple = tuple(float(value) for value in requested)
+        self.last_command_request_normalized = raw_requested_tuple
+        self.last_command_request_monotonic_ns = int(monotonic_ns)
+        self.last_command_request_sequence = target_sequence
         if not measured_activation_write:
             requested = self.contact_limited_target(requested, allow_release=True)
+            self.last_requested_target_normalized = raw_requested_tuple
             closing_requested = requested > previous_command + 1e-12
             if (
                 self.contact_stop_enabled
@@ -793,6 +804,9 @@ class RH56PcDirectControl:
                     np.minimum(requested, previous_command + remaining_closure),
                     requested,
                 )
+                self.last_post_contact_target_normalized = tuple(
+                    float(value) for value in requested
+                )
                 closure_blocked = requested <= previous_command + 1e-12
                 opening_requested = requested < previous_command - 1e-12
                 if np.all(closure_blocked[closing_requested]) and not np.any(
@@ -800,7 +814,14 @@ class RH56PcDirectControl:
                 ):
                     self.last_command_disposition = "contact_feedback_wait"
                     return False
+        else:
+            self.last_requested_target_normalized = raw_requested_tuple
         requested_tuple = tuple(float(value) for value in requested)
+        self.last_post_contact_target_normalized = requested_tuple
+        if self.last_requested_target_normalized is not None:
+            self.last_command_request_normalized = self.last_requested_target_normalized
+            self.last_command_request_monotonic_ns = int(monotonic_ns)
+            self.last_command_request_sequence = target_sequence
         if (
             self.exact_duplicate_suppression
             and not force_write
@@ -832,6 +853,9 @@ class RH56PcDirectControl:
                 command_delta, -self.delta_limit, self.delta_limit
             )
         selected = previous + selected_delta
+        self.last_post_delta_limit_target_normalized = tuple(
+            float(value) for value in selected
+        )
         raw = denormalize_canonical(
             selected,
             raw_order=CANONICAL_HAND_ORDER,
@@ -1003,6 +1027,50 @@ class RH56PcDirectControl:
         if name not in self._feedback_success_ns:
             raise ValueError(f"unknown RH56 feedback register {register!r}")
         return self._feedback_success_ns[name]
+
+    def command_trace(self) -> dict[str, Any]:
+        """Return the latest bounded requested-to-written RH56 command trace.
+
+        The trace contains no I/O and is safe for a non-RT diagnostics reader.
+        ``request_monotonic_ns`` and ``written_monotonic_ns`` distinguish a
+        pending/latest trace from a command that actually reached the serial
+        backend.
+        """
+
+        return {
+            "controller_requested_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_projection_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_filter_target": (
+                None if self.last_command_request_normalized is None
+                else list(self.last_command_request_normalized)
+            ),
+            "post_contact_safety_selected_target": (
+                None if self.last_post_contact_target_normalized is None
+                else list(self.last_post_contact_target_normalized)
+            ),
+            "post_delta_limit_target": (
+                None if self.last_post_delta_limit_target_normalized is None
+                else list(self.last_post_delta_limit_target_normalized)
+            ),
+            "actually_written_target": (
+                None if self.last_command_normalized is None
+                else list(self.last_command_normalized)
+            ),
+            "actually_written_raw": (
+                None if self.last_command_raw is None else list(self.last_command_raw)
+            ),
+            "request_monotonic_ns": self.last_command_request_monotonic_ns,
+            "written_monotonic_ns": self.last_command_monotonic_ns,
+            "target_sequence": self.last_command_request_sequence,
+            "written_sequence": self.last_written_sequence,
+            "disposition": self.last_command_disposition,
+        }
 
     def episode_record(
         self,
@@ -1180,6 +1248,7 @@ class RH56PcDirectControl:
                 for name, values in self._register_latency_ms.items()
             },
             "contact_stop": self.contact_stop_snapshot(),
+            "command_trace": self.command_trace(),
         }
 
     def contact_limited_target(
@@ -1193,6 +1262,7 @@ class RH56PcDirectControl:
         requested = np.asarray(target_normalized, dtype=np.float64).reshape(-1).copy()
         if not self.contact_stop_enabled:
             return requested
+        previous_requested = self.last_requested_target_normalized
         for index in range(len(CANONICAL_HAND_ORDER)):
             active = bool(
                 self._contact_latched[index]
@@ -1201,7 +1271,21 @@ class RH56PcDirectControl:
             if not active:
                 continue
             hold = float(self._contact_hold_target[index])
-            if allow_release and requested[index] <= hold - self.contact_release_open_delta:
+            opening_intent = (
+                previous_requested is not None
+                and requested[index] < previous_requested[index] - 1e-12
+            )
+            # A hold already inside the open-end hysteresis cannot move another
+            # release_open_delta toward zero.  There, an explicit reversal of
+            # the raw operator target is the reachable release signal.
+            release_requested = (
+                requested[index] <= hold - self.contact_release_open_delta
+                or (
+                    hold <= self.contact_release_open_delta
+                    and opening_intent
+                )
+            )
+            if allow_release and release_requested:
                 self._contact_latched[index] = False
                 self._contact_candidate_count[index] = 0
                 self._contact_hold_target[index] = math.nan
@@ -1266,63 +1350,19 @@ class RH56PcDirectControl:
     def _prepare_contact_stop_activation(
         self, feedback: PcDirectFeedback
     ) -> None:
-        """Rebase only after an unloaded clutch cycle; preserve loaded holds."""
+        """Start a fresh contact-stop episode for each grip clutch enable.
 
-        if not self.contact_stop_enabled or self._contact_force_baseline is None:
-            self._reset_contact_stop(feedback)
-            self.contact_activation_rebased_count += 1
-            self._contact_last_activation_mode = "rebased"
-            return
+        A clutch release ends the previous hand-control episode.  Any
+        provisional/latched contact state from that episode must not suppress
+        the first closure command after the next enable; the current measured
+        FORCE_ACT is the new episode's baseline.
+        """
 
-        current_force = np.asarray(
-            feedback.load_or_force_raw_count, dtype=np.float64
+        self._reset_contact_stop(feedback)
+        self.contact_activation_rebased_count += 1
+        self._contact_last_activation_mode = (
+            "rebased" if self._contact_force_baseline is None else "rebased_new_grip"
         )
-        force_delta = np.abs(current_force - self._contact_force_baseline)
-        contact_active = self._contact_latched | (
-            self._contact_candidate_count > 0
-        )
-        load_persists = force_delta >= self.contact_force_delta_release
-        if not np.any(contact_active | load_persists):
-            self._reset_contact_stop(feedback)
-            self.contact_activation_rebased_count += 1
-            self._contact_last_activation_mode = "rebased_unloaded"
-            return
-
-        # A grip release stops new writes but the RH56 continues servoing its
-        # last position target.  Reacquiring while an object is still loaded
-        # must therefore retain the no-load baseline and all provisional or
-        # latched holds instead of treating the loaded FORCE_ACT values as zero.
-        self._contact_force_delta = force_delta
-        measured = np.asarray(
-            feedback.position_normalized, dtype=np.float64
-        )
-        self._contact_last_angle = measured.copy()
-        self._contact_angle_progress.fill(0.0)
-        self._contact_angle_generation += 1
-        self._contact_force_angle_generation = self._contact_angle_generation
-        self._contact_last_closure_force_generation = (
-            self._contact_force_generation - 1
-        )
-        self._contact_closure_since_force.fill(0.0)
-
-        # If release raced the first qualified FORCE sample, conservatively
-        # restore a provisional hold on a still-loaded channel that had been
-        # closing.  A later fresh sample confirms it; an explicit opening
-        # command remains able to release it through the normal hysteresis.
-        provisional = (
-            load_persists
-            & ~self._contact_latched
-            & (self._contact_candidate_count == 0)
-            & (self._contact_last_closing_request_ns >= 0)
-        )
-        for index in np.flatnonzero(provisional):
-            self._contact_candidate_count[index] = 1
-            self._contact_hold_target[index] = max(
-                0.0, float(measured[index]) - self.contact_relief_margin
-            )
-
-        self.contact_activation_preserved_count += 1
-        self._contact_last_activation_mode = "preserved_loaded_contact"
 
     def _observe_contact_angle(self, values: Sequence[float]) -> None:
         current = np.asarray(values, dtype=np.float64)
