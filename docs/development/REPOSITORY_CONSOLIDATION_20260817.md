@@ -93,5 +93,31 @@ Validation on `integration/main-consolidation-20260817`:
 - no hardware connection, robot motion, raw/master dataset edit, or training
   job was performed.
 
-Final branch SHAs, pushed branch decisions, archival tags, and any remaining
-uncertain items are appended after the normal main/research push sequence.
+## Close-out state
+
+The validated production baseline pushed to main is `4cff2ff` and the
+research branch was pushed at `de7770d` before this close-out metadata update.
+The final branch tips are verified by `git rev-parse main origin/main
+research/thread-b-force-interaction origin/research/thread-b-force-interaction`
+in the final response; adding this report metadata is intentionally a separate
+documentation-only commit so the production baseline remains identifiable.
+
+Deleted local and remote branches after both protected pushes:
+
+- `archive/dev-teleop-dataset-pipeline-20260806` — zero unique commits;
+- `backup/full-local-state-20260804-181401` — zero unique commits, with the
+  pre-existing backup tag retained;
+- `backup/dev-teleop-dataset-pipeline-20260807` — three inspected commits,
+  fully superseded digital-twin/vendor/old-validation snapshot, preserved as
+  `archive/backup-dev-teleop-dataset-pipeline-20260807-20260817`;
+- `dev` — its useful integration history is present in the retained research
+  history and current production snapshot;
+- local `research/broad-exploration` — its unique broad survey is preserved in
+  `research_log/broad_research_scout.md` and its history is tagged as
+  `archive/research-broad-exploration-20260817`.
+
+Retained branches are `main` and
+`research/thread-b-force-interaction`. The latter is main plus
+`configs/archive/training/**`, one-off audit tools/tests, and the complete
+dated `research_log/**` evidence. The inaccessible `private` remote was not
+changed. No user-owned uncommitted work was present at the initial audit.
