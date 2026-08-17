@@ -1,0 +1,124 @@
+{
+  "schema_version": "jaka_readonly_gate3a_summary.v1",
+  "date": "2026-07-16",
+  "hardware": {
+    "configured_robot": "JAKA mini2",
+    "robot_model_source": "repository/site configuration; not reported by SDK",
+    "controller_address": "192.168.71.50",
+    "sdk_version_reported": "libadd jakaAPI_version: V2.2.7stable_linux",
+    "controller_firmware_version": null
+  },
+  "physical_10hz_30s": {
+    "cycles": 300,
+    "failed_calls": 0,
+    "failed_reads": 0,
+    "timeouts": 0,
+    "achieved_poll_hz": 9.99996499512,
+    "worker_cpu_percent": 57.680407525,
+    "actual_period_ns": {
+      "mean": 100000283.729,
+      "median": 99999350,
+      "stddev": 164712.303411,
+      "min": 99680772,
+      "max": 100305770,
+      "p95": 100282784.1,
+      "p99": 100297289.76,
+      "p999": null
+    },
+    "actual_joint_position_call_ns": {
+      "count": 300,
+      "mean": 1899048.01333,
+      "median": 1891628.5,
+      "max": 6032024,
+      "p95": 2200510.8,
+      "p99": 3234421.57
+    },
+    "actual_tcp_position_call_ns": {
+      "count": 300,
+      "mean": 1196988.02667,
+      "median": 1212624.5,
+      "max": 3878156,
+      "p95": 1420484.05,
+      "p99": 1522773.59
+    },
+    "deprecated_combined_status_call_ns": {
+      "count": 30,
+      "mean": 30822979.6,
+      "median": 25813642.5,
+      "max": 58066213,
+      "p95": 51633840.75,
+      "p99": 57440053.7
+    }
+  },
+  "physical_25hz_10s": {
+    "cycles": 250,
+    "failed_calls": 0,
+    "failed_reads": 0,
+    "timeouts": 0,
+    "missed_poll_deadlines": 7,
+    "max_consecutive_missed_poll_deadlines": 2,
+    "achieved_poll_hz": 24.9998519034,
+    "worker_cpu_percent": 60.3081837562,
+    "actual_period_ns": {
+      "mean": 40000266.1406,
+      "median": 39999217,
+      "min": 2137177,
+      "max": 84787972,
+      "p95": 40031364.8,
+      "p99": 68024411.84
+    },
+    "deprecated_combined_status_call_ns": {
+      "count": 10,
+      "mean": 39156119.2,
+      "median": 40065337,
+      "max": 66413937,
+      "p95": 60965482.35,
+      "p99": 65324246.07
+    }
+  },
+  "lifecycle": {
+    "three_session_reconnect": {
+      "sessions_completed": 3,
+      "reconnect_attempts": 2,
+      "failures": 0,
+      "login_mean_ns": 166047623.667,
+      "logout_mean_ns": 50465530.6667,
+      "baseline_threads": 1,
+      "post_cleanup_threads": 4
+    },
+    "operator_interrupt": {
+      "outcome": "operator_interrupted_cleanly",
+      "process_exit_code": 130,
+      "logout_calls": 1
+    },
+    "unreachable_test_net_address": {
+      "address": "192.0.2.1",
+      "sdk_code": -1,
+      "login_duration_ns": 3056837464,
+      "connection_failures": 1,
+      "failed_reads": 0
+    }
+  },
+  "representative_direct_state": {
+    "fault_code": 0,
+    "powered": true,
+    "enabled": true,
+    "emergency_stop": false,
+    "collision": false,
+    "servo_move_active": false,
+    "sdk_socket_connected": true,
+    "tool_id": 0,
+    "user_frame_id": 0,
+    "program_state": 0,
+    "joint_velocity_rad_s": [0, 0, 0, 0, 0, 0]
+  },
+  "not_measured": [
+    "controller firmware version",
+    "SDK-reported robot model",
+    "robot operating mode",
+    "non-EDG controller timestamp",
+    "physical mid-session network interruption",
+    "EDG timing",
+    "125 Hz read-only polling"
+  ]
+}
