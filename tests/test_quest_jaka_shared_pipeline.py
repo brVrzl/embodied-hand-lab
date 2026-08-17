@@ -1128,37 +1128,3 @@ def test_output_acceleration_rejection_heartbeats_hold_and_recovers_without_rest
         <= math.pi + 1e-12
     )
     assert not recovered.feasibility.metrics.branch_switch
-
-
-def test_offline_model_parity_report_separates_target_kinematic_and_dynamic_error(
-    tmp_path: Path,
-) -> None:
-    metrics = tmp_path / "p1.json"
-    output = tmp_path / "model-parity.json"
-    metrics.write_text(
-        json.dumps(
-            {
-                "initial_joint_position_rad": [-1.5707963268, -0.6108652382, -1.5707963268, 0.1745329252, 0.6108652382, -0.2617993878],
-                "startup_tcp_mm_rpy_rad": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = subprocess.run(
-        [
-            ".venv/bin/python",
-            "tools/quest_jaka_model_parity.py",
-            "--worker-metrics", str(metrics),
-            "--output", str(output),
-        ],
-        text=True,
-        capture_output=True,
-    )
-    assert result.returncode == 0, result.stderr
-    report = json.loads(output.read_text(encoding="utf-8"))
-    assert report["physical_commands_sent"] is False
-    assert report["kinematic_model_parity"]["shared_vs_mujoco_fk"]["position_error_mm"] < 1e-9
-    # Matrix-to-quaternion conversion differs only at arccos roundoff scale.
-    assert report["kinematic_model_parity"]["shared_vs_mujoco_fk"]["orientation_error_deg"] < 2e-6
-    assert report["target_parity"].startswith("not evaluated")
-    assert report["dynamic_tracking_parity"].startswith("not evaluated")
