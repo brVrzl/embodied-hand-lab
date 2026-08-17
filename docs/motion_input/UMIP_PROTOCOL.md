@@ -1,198 +1,92 @@
 # Unified Motion Input Protocol (UMIP) 1.0
 
-UMIP is the only contract visible to a future teleoperation framework. It
-describes observations, not commands, targets, trajectories, control policy,
-filtering, safety, IK, or scaling.
+## English
 
-## Architecture and dependency rule
+UMIP is the device-independent observation contract used by the current
+motion-input package. It describes observations, not robot commands, targets,
+trajectories, filtering, safety, inverse kinematics, or scaling.
+
+The dependency boundary is:
 
 ```text
 device SDK -> provider-private value -> MotionInputSample
                                       -> recorder
                                       -> replay provider
-                                      -> input visualization / diagnostics
+                                      -> visualization/diagnostics
 ```
 
-Consumers import `motion_input.model` and `motion_input.provider`. Providers may
-import device SDKs. The reverse dependency is forbidden. A future input provider,
-Vision Pro, DexUMI, UMI, leader arms, SpaceMouse, vision, or mocap implements
-`MotionInputProvider`; it does not add a downstream device branch.
+Providers implement `MotionInputProvider` with `descriptor`, `open`,
+`read(timeout_s)`, and `close`. `read` returns one immutable
+`MotionInputSample` or `None` on timeout. Replay uses the same interface and
+preserves recorded identity and timestamps while changing only delivery
+timing.
 
-## Provider lifecycle
+Each sample carries a protocol version, sample and stream identity,
+non-negative per-stream sequence number, capture/device/receive timestamps,
+tracking state, optional confidence, an explicit coordinate-frame ID, device
+descriptor, side, optional wrist/palm poses, motion kind, articulation, and
+namespaced metadata/extensions. `Pose6D` uses meters and an `x,y,z,w` unit
+quaternion; UMIP rejects non-finite values and non-unit quaternions instead of
+normalizing them. Timestamps may be subtracted only when their `clock_id`
+matches.
 
-`MotionInputProvider` exposes `descriptor`, `open()`, `read(timeout_s)`, and
-`close()`. `read` returns one immutable `MotionInputSample`, or `None` when the
-timeout expires. Replay implements the identical interface. A finite replay
-ends in `EXHAUSTED`; live providers remain open until closed or failed.
+`tracking` requires a wrist pose. `not_tracking` and `disconnected` contain no
+wrist or palm pose, while `limited` may carry a degraded but valid pose.
+Providers preserve source order and do not reorder, smooth, extrapolate, or
+generate observations. Sequence gaps and out-of-order samples are diagnostic
+events.
 
-This pull interface supplies backpressure and deterministic ordering without
-forcing a threading/event-loop dependency. An asynchronous adapter can wrap it
-later without changing samples.
+Recordings use UTF-8 `.umip.jsonl`: one header, zero or more sample records,
+and an optional footer. A missing footer means interrupted/unfinalized capture,
+not automatic corruption. Device SDK objects, native handles, and engine
+transforms do not enter serialized UMIP.
 
-## MotionInputSample
+Use the maintained entrypoint for offline record/replay/diagnostics:
 
-| Field | Type | Rule |
-|---|---|---|
-| `protocol_version` | `MAJOR.MINOR` | Current `1.0`; reject unknown major, tolerate same-major optional additions. |
-| `sample_id` | string | Globally unique observation identity. Quest uses deterministic UUIDv5 for normal frames. |
-| `stream_id` | string | Stable logical stream identity for ordering and diagnostics. |
-| `sequence_number` | non-negative integer | Monotonic per stream; never silently renumber received data. |
-| `capture_timestamp` | `Timestamp` | Provider callback/capture instant, not host receipt. |
-| `device_timestamp` | optional `Timestamp` | Native SDK/device observation or requested pose time when exposed. |
-| `receive_timestamp` | `Timestamp` | Host ingress instant. |
-| `processing_timestamp` | optional `Timestamp` | Instant UMIP construction finished. |
-| `tracking_state` | enum | `tracking`, `limited`, `not_tracking`, `disconnected`. |
-| `tracking_confidence` | optional float | `[0,1]`; provider scale must be documented. Null is better than invented confidence. |
-| `coordinate_frame` | string | Registered frame ID; pose is relative to this frame. |
-| `device` | `DeviceDescriptor` | Stable ID, type, maker, model, versions, and JSON metadata. |
-| `side` | enum | `left`, `right`, or `none` for non-sided future inputs. |
-| `wrist_pose` | optional `Pose6D` | Mandatory for `tracking`; forbidden for loss/disconnect events. |
-| `palm_pose` | optional `Pose6D` | Same frame and units as wrist. |
-| `motion_kind` | enum | Absolute pose now; relative 6-DoF reserved for devices such as SpaceMouse. |
-| `articulation` | optional typed object | Any joint set, gestures, pinch/grasp, and joint confidence. |
-| `metadata` | JSON object | Observation provenance; no control semantics. |
-| `extensions` | namespaced JSON object | Forward-compatible experiments such as `vendor.feature`. |
+```bash
+PYTHONPATH=src .venv/bin/python tools/umip_motion_input.py --help
+```
 
-`Pose6D` is exactly three finite meters and a finite unit quaternion in `x,y,z,w`
-order. No Euler angles cross the protocol. UMIP rejects non-unit quaternions; it
-does not normalize or otherwise filter them.
+World registration, calibration, filtering, scaling, safety, IK, target
+generation, and command behavior remain downstream teleoperation concerns.
 
-`Timestamp` contains signed-domain-independent non-negative nanoseconds, a
-required `clock_id`, and optional uncertainty. Two values may be subtracted only
-when their clock IDs match. Capture and device timestamps may legitimately be
-the same value with different semantics, but fields are never collapsed.
+## 中文
 
-## Tracking and ordering semantics
+UMIP 是当前 motion-input package 使用的设备无关 observation 契约。它描述 observation，不描述机器人
+command、target、trajectory、filter、safety、inverse kinematics 或 scaling。
 
-- `tracking` requires a real wrist pose.
-- `not_tracking` and `disconnected` must contain no wrist or palm pose. This
-  prevents downstream consumers from mistaking stale values for observations.
-- `limited` may carry a valid pose whose provider quality is degraded.
-- Recovery is a normal subsequent tracking sample; sequence numbers continue.
-- Providers expose source order. Diagnostics report gaps and out-of-order data;
-  the input platform does not reorder, smooth, extrapolate, or generate poses.
-
-## Articulation and future devices
-
-`HandArticulation` uses semantic joint names rather than a fixed SDK enum. Quest
-can carry OpenXR's 26 points; a MediaPipe provider can carry its 21; mocap or a
-glove can carry another named set. Each joint has pose, tracking state, optional
-radius, and optional confidence. Gesture records have name, active state,
-optional confidence, and optional scalar value. Pinch and grasp strengths are
-reserved `[0,1]` fields.
-
-Relative devices set `motion_kind=relative_pose_delta` and identify the logical
-motion semantic in provider metadata. Integrating such input into an absolute
-target is a downstream policy and is not performed here. This preserves device
-truth and avoids hiding trajectory generation in a provider.
-
-## Compatibility policy
-
-- Major versions change required meaning and require a new reader.
-- Minor versions may add optional fields, enum-independent names, or recording
-  record types. Same-major readers ignore unknown top-level fields/record types.
-- Required fields are never silently reinterpreted.
-- Extensions must be namespaced and JSON-compatible. Promoted extensions get a
-  typed optional field in a future minor revision.
-- Device SDK objects, numeric enums, native handles, and engine transforms never
-  appear in serialized UMIP.
-
-## Recording format
-
-`.umip.jsonl` is UTF-8 newline-delimited JSON:
-
-1. one `header` with recording format `1.0`, UMIP version, recording ID, UTC
-   creation time, device descriptor, and metadata;
-2. zero or more `sample` records containing canonical UMIP JSON;
-3. an optional `footer` with count and clean-close time.
-
-Every complete line is recoverable if capture is interrupted. Creation uses
-exclusive mode to prevent accidental overwrite. Unknown same-major record types
-are skipped. A missing footer means interrupted/unfinalized, not corrupt.
-
-Replay preserves recorded sample identity and timestamps and changes only
-delivery timing: as-recorded, fixed rate, or immediate. It never edits poses.
-
-## Diagnostics definitions
-
-- frequency: reciprocal of mean positive capture interval, falling back to
-  receive interval;
-- frame drops: positive sequence gaps;
-- timestamp jitter: RMS interval deviation from the median;
-- latency: receive minus capture only for identical clock IDs;
-- processing latency: processing minus receive only for identical clocks;
-- CPU: process CPU time divided by diagnostic wall interval;
-- confidence: min/mean/p95/max of reported values;
-- interruptions/recoveries: transitions between tracking/limited and other
-  states, with duration when receive timestamps are comparable.
-
-Distribution samples use a bounded 100,000-observation rolling window, while
-counts remain lifetime totals. Diagnostics therefore have bounded memory during
-long-running capture.
-
-## Proposed future teleoperation interface
-
-After review, the other team can accept a `MotionInputProvider` dependency or a
-callback that receives `MotionInputSample`. It should validate protocol major
-version and required semantic/frame configuration once at session startup. Any
-world registration, calibration, filtering, scaling, safety, IK, target
-generation, or command behavior stays on its side of the boundary.
-
-No teleoperation code is modified by this proposal.
-
----
-
-# 中文版：统一运动输入协议（UMIP）1.0
-
-UMIP 是未来 teleoperation framework 可见的唯一输入契约。它描述 observation，不描述
-command、target、trajectory、control policy、filter、safety、IK 或 scaling。
-
-## 架构和依赖
+依赖边界为：
 
 ```text
 device SDK -> provider 私有值 -> MotionInputSample
                                       -> recorder
                                       -> replay provider
-                                      -> 可视化/诊断
+                                      -> visualization/diagnostics
 ```
 
-consumer 只依赖 `motion_input.model` 和 `motion_input.provider`；provider 可以依赖 device SDK，
-反向依赖禁止。未来的 Vision Pro、DexUMI、leader arm、SpaceMouse、vision 或 mocap 都实现
-`MotionInputProvider`，不在下游增加 device-specific 分支。
+Provider 实现 `MotionInputProvider` 的 `descriptor`、`open`、`read(timeout_s)` 和 `close`。`read` 返回
+一个不可变的 `MotionInputSample`，timeout 时返回 `None`。Replay 使用相同接口，保留记录中的 identity 和
+timestamp，只改变 delivery timing。
 
-`MotionInputProvider` 提供 `descriptor`、`open()`、`read(timeout_s)` 和 `close()`。`read` 返回一
-个不可变 `MotionInputSample`，timeout 时返回 `None`；replay 用相同接口，在结束时返回 `EXHAUSTED`。
-pull interface 提供 backpressure 和确定性顺序，不强迫引入线程或 event loop。
+每个 sample 包含 protocol version、sample/stream identity、每个 stream 的非负 sequence number、
+capture/device/receive timestamp、tracking state、可选 confidence、显式 coordinate-frame ID、device
+descriptor、side、可选 wrist/palm pose、motion kind、articulation 以及 namespaced metadata/extensions。
+`Pose6D` 使用米和 `x,y,z,w` 顺序的 unit quaternion；UMIP 拒绝非 finite 值和非 unit quaternion，不自动
+normalize。只有 `clock_id` 相同时 timestamp 才能相减。
 
-## Sample、pose、时间和顺序
+`tracking` 必须有 wrist pose；`not_tracking` 和 `disconnected` 不得包含 wrist/palm pose；`limited` 可以
+携带降级但有效的 pose。Provider 保持 source order，不 reorder、smooth、extrapolate 或生成 observation。
+Sequence gap 和 out-of-order sample 只作为诊断事件。
 
-`MotionInputSample` 包含 protocol/sample/stream identity、sequence、capture/device/receive/
-processing timestamps、tracking state/confidence、显式 `coordinate_frame`、device descriptor、
-side、wrist/palm pose、motion kind、articulation、metadata 和 namespaced extensions。
+记录使用 UTF-8 `.umip.jsonl`：一个 header、零个或多个 sample record 和可选 footer。缺失 footer 表示采集
+中断或未 finalize，不自动等同于损坏。Device SDK object、native handle 和 engine transform 不进入序列化
+UMIP。
 
-`Pose6D` 必须是三个 finite 米制坐标和 `x,y,z,w` 顺序的 finite unit quaternion。UMIP 拒绝非单位
-四元数，不自动 normalize；Euler angle 不进入协议。timestamp 只有在 `clock_id` 相同时才能相减。
+离线 record/replay/diagnostics 使用当前维护入口：
 
-`tracking` 必须有真实 wrist pose；`not_tracking` 和 `disconnected` 不得带 wrist/palm pose；
-`limited` 可以保留有效但降质的 pose。provider 保留 source order，不 reorder、smooth、extrapolate
-或生成 pose。sequence gap 和 out-of-order 只作为诊断。
+```bash
+PYTHONPATH=src .venv/bin/python tools/umip_motion_input.py --help
+```
 
-## articulation、兼容和记录
-
-`HandArticulation` 使用语义 joint name，不绑定 SDK 固定 enum。Quest 可以携带 26 个 OpenXR 点，
-其他 provider 可以使用其他命名 joint set；pinch/grasp strength 预留为 `[0,1]`。相对设备使用
-`relative_pose_delta`，把相对输入积分到绝对 target 属于下游 policy。
-
-主版本改变必需语义；同一主版本允许可选字段和记录类型，未知字段可以跳过，但不能静默重新解释
-required field。device SDK object、native handle、numeric enum 和 engine transform 不进入序列化。
-
-`.umip.jsonl` 是 UTF-8 JSONL：一个 header、零个或多个 sample 和可选 footer。每行可独立恢复；
-缺 footer 表示中断或未 finalize，不自动等同于损坏。replay 保留 sample identity 和 timestamp，
-只改变 delivery timing。
-
-诊断定义包括 frequency、sequence gap、timestamp jitter、同 clock latency、processing latency、
-CPU、confidence 和 tracking interruption/recovery。样本使用 bounded rolling window，计数保留
-lifetime totals，避免长时间记录无限增长。
-
-任何 frame registration、标定、滤波、缩放、safety、IK、target generation 或 command behavior
-都留在 teleoperation consumer 一侧。当前协议页不是新 teleoperation 实现提案。
+World registration、calibration、filter、scaling、safety、IK、target generation 和 command behavior
+仍属于下游 teleoperation 边界。

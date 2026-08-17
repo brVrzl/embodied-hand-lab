@@ -1,16 +1,14 @@
-# RH56 PC-direct boundary
+# RH56 driver
 
-This package implements the maintained six-channel RH56DFX PC-direct serial
-boundary, command scheduling, telemetry, and canonical actuator ordering.
+## English
 
-`ANGLE_ACT`, `CURRENT`, `FORCE_ACT`, `ERROR`, and `STATUS` are raw controller
-feedback fields. They are not a full passive-joint state, tactile array, or
-direct slip measurement.
+This package owns the current PC-direct USB/RS485 protocol, native register
+semantics, measured-state activation, bounded command scheduling, and feedback
+diagnostics for the six active RH56 channels. Opening transport is not an
+activation and does not write registers.
 
-The physical hand-only entry point is `tools/quest_rh56_hand_test.py`. It is
-dry-run by default and requires `--real --device ...` for an explicit operation
-against the selected device. Importing this package never opens a serial port.
-Runtime configuration, fault reset, and force calibration retain separate
-operation modes; combined Quest/JAKA operation uses its complete explicit
-real-device command. The
-retired JAKA TIO and ROS2 JSON bridge paths are not supported.
+## 中文
+
+本 package 负责当前 PC-direct USB/RS485 protocol、原生 register 语义、基于 measured state 的 activation、有界
+command scheduling 和六个 active RH56 channel 的 feedback diagnostics。打开 transport 不等于 activation，也
+不会写 register。

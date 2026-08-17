@@ -1,9 +1,12 @@
-# JAKA kinematic support
+# JAKA driver adapter
 
-This package contains the MuJoCo-backed continuation IK and shared conservative
-joint-limit helpers used before an `AcceptedArmTarget` is produced.
+## English
 
-It is not a physical JAKA transport. The only maintained Quest/JAKA physical
-output boundary is `teleoperation.jaka.JakaAcceptedJointTargetAdapter` feeding
-the sole native EDG worker. The removed Python SDK/ServoJog compatibility stack
-must not be recreated as a parallel command path.
+This package converts an already accepted arm target into the narrow JAKA
+adapter contract. It does not own Quest mapping, filtering, IK selection, or
+MuJoCo state, and its tests use offline/fake backends.
+
+## 中文
+
+本 package 将已经 accepted 的 arm target 转换为窄化的 JAKA adapter contract。它不负责 Quest mapping、filter、
+IK selection 或 MuJoCo state；测试使用离线/fake backend。

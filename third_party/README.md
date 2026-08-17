@@ -1,32 +1,36 @@
 # Third-party source policy
 
-Git repositories that are part of a maintained training/runtime workflow live
-here as Git submodules with the exact commit recorded by the parent repository:
+## English
 
-- `openpi`: `Physical-Intelligence/openpi`, used by the project π0.5 adapter;
-- `lerobot`: `huggingface/lerobot`, used by the project ACT/LeRobot launcher.
+Current training/runtime upstreams are Git submodules:
 
-Clone this repository with submodules:
+- `third_party/openpi`: pinned OpenPI source for the π0.5 adapter;
+- `third_party/lerobot`: pinned LeRobot source for ACT/training views.
 
-```bash
-git clone --recurse-submodules <embodied-lab-repository-url>
-```
-
-For an existing clone, initialize or repair them with:
+Initialize them with:
 
 ```bash
 git submodule update --init --recursive
-scripts/check_training_dependencies.sh --require-image
+scripts/check_training_dependencies.sh --help
 ```
 
-Do not advance a submodule independently. Check out the desired upstream
-commit inside it, then commit the parent repository's gitlink and `.gitmodules`
-change together. The project launchers mount these sources read-only and verify
-their pinned commits before training.
+Do not advance a submodule independently. Vendor snapshots under this directory
+are attribution-bound reference material; current project integrations belong in
+`src/`, `tools/`, and `training/`.
 
-The `inspire_hand` and `jaka_sdk` directories are supplied vendor snapshots,
-not runtime Git repositories with a recoverable upstream commit in this
-worktree. They remain ordinary tracked assets. Python packages, Docker images,
-model weights, caches, datasets, logs, and checkpoints are runtime artifacts;
-they are pinned through project manifests or image digests and are not copied
-into this directory or committed to Git.
+## 中文
+
+当前 training/runtime upstream 是 Git submodule：
+
+- `third_party/openpi`：π0.5 adapter 使用的固定 OpenPI source；
+- `third_party/lerobot`：ACT/training view 使用的固定 LeRobot source。
+
+使用以下命令初始化：
+
+```bash
+git submodule update --init --recursive
+scripts/check_training_dependencies.sh --help
+```
+
+不要独立推进 submodule。本目录下的 vendor snapshot 是需要 attribution 的 reference material；当前项目集成代码
+应位于 `src/`、`tools/` 和 `training/`。
