@@ -1,0 +1,2121 @@
+# Broad research scout: low-data real-robot manipulation
+
+Date: 2026-08-13
+Thread: C (parallel exploratory research; offline only)
+Branch/worktree: `research/broad-exploration` in
+`/home/thor/projects/embodied_lab_broad_research`; the initial survey was based
+on `origin/dev` at `c50a1c5`, and the continuation worktree was fast-forwarded
+to local `dev` at `0dc8bf989e610c616517691a79097b516c5775dc`
+Scope: literature, official-code due diligence, dataset compatibility, and
+low-cost experiment ranking. No robot, hand, camera, or controller connection
+was made. No training sweep or physical rollout was run.
+
+## Executive decision
+
+The strongest near-term paper need not be force-centered. The current evidence
+instead supports two promising robot-learning questions:
+
+1. **Before a valid rollout exists:** how should representation, temporal
+   context, view/state regularization, and demonstration sampling be allocated
+   in the 25-demonstration regime? The cleanest first falsification is the
+   already-supported ACT scratch-versus-ImageNet initialization comparison,
+   followed by episode-balanced sampling and a short-history/view-dropout
+   factorial.
+2. **After Thread A establishes a valid rollout:** under a fixed human-time
+   budget, do short corrections and recovery segments improve robustness more
+   than additional nominal full demonstrations? This has greater ICRA upside
+   than a policy-backbone comparison because it addresses covariate shift and
+   robot-data allocation with a reusable learning insight.
+
+SmolVLA and Diffusion Policy are valuable **baselines**, not paper ideas by
+themselves. DP3/RISE-style 3D policies are scientifically attractive but cannot
+be trained honestly from the existing demonstrations: the maintained source
+contract explicitly declares that depth was not recorded. A 3D study therefore
+requires new synchronized RGB-D collection and calibration, rather than a
+conversion script.
+
+The conservative recommendation is:
+
+- **Do now, offline:** representation initialization, sampling audit, short
+  history/view robustness, retrieval negative control, and dataset-size curves.
+- **Audit now but do not scale yet:** Diffusion Policy and SmolVLA one-batch /
+  checkpoint-compatibility paths.
+- **Do after a valid baseline rollout:** equal-operator-time correction versus
+  nominal-data study, and then deployment/chunk-fusion comparisons.
+- **Defer:** true 3D, object-foundation-model pipelines, large VLAs, and a full
+  hierarchy until a cheap audit supplies a reason to pay their integration and
+  data costs.
+
+## How this survey was conducted
+
+The survey emphasizes 2024--2026 work, while retaining older papers when they
+define a useful low-cost control. Evidence came from original papers, official
+project pages, official repositories, and the exact LeRobot checkout used by
+this project. Repositories were cloned into a temporary directory for read-only
+inspection; no external repository was modified. Missing facts are marked
+**UNKNOWN**, rather than reconstructed from neighboring papers or unofficial
+summaries.
+
+The maintained LeRobot checkout is official commit
+[`f66e5128ecb2456e8c54a63d15404fa59c16aebc`](https://github.com/huggingface/lerobot/tree/f66e5128ecb2456e8c54a63d15404fa59c16aebc)
+(reported as 0.6.2 by this repository). The upstream project is Apache-2.0.
+Important compatibility claims below were checked against that checkout, not
+only against current online documentation.
+
+### Cost and verdict rubric
+
+- Engineering: **E0** analysis only; **E1** configuration change; **E2** small
+  repository-owned module; **E3** moderate module; **E4** major integration;
+  **E5** effectively a new project.
+- Evidence/data: **D0** existing-data analysis; **D1** retrain existing data;
+  **D2** a few targeted rollouts; **D3** a few new demonstrations; **D4**
+  moderate new collection; **D5** major dataset/hardware requirement.
+- Implementation distance: **DROP-IN**, **SMALL ADAPTATION**, **MODERATE PORT**,
+  **MAJOR PORT**, or **UNREALISTIC**.
+- Verdict vocabulary used in this living document: **DO NOW**, **NEXT**,
+  **AUDIT FIRST**, **BACKLOG**, **STRETCH**, and **REJECT**. `DO NOW` means an
+  offline probe, not physical authorization.
+- ICRA positioning: **ROBOTICS-HEAVY**, **BALANCED**, **ROBOT-LEARNING**, or
+  **GENERIC-AI**. The preferred categories are BALANCED and ROBOT-LEARNING.
+
+## Repository and data compatibility audit
+
+### What the automated 25-trajectory materialization contains
+
+The v2 materialization reports 25 automatically split logical trajectories,
+20,744 aligned samples, and 690.7 seconds at approximately 30 Hz. Its earlier
+description as 25 *clean* trajectories is superseded by the human audit in the
+continuation below: the operator now identifies approximately 16 nominal
+segments after correcting missed splits in source episodes 99 and 102. The
+following remains a description of the stored schema, not a quality claim.
+Each sample has:
+
+- workspace RGB and wrist RGB;
+- 12-D state: six measured JAKA joints plus six measured RH56 actuator
+  positions;
+- 12-D absolute/native action: six accepted JAKA joint targets plus six RH56
+  targets;
+- an optional, separate 6-D raw RH56 actuator-load vector.
+
+See
+[`research_log/physical_bottle_training_dataset_v2.md`](physical_bottle_training_dataset_v2.md)
+and
+[`docs/data/DATASET_SCHEMA.md`](../docs/data/DATASET_SCHEMA.md).
+The action chunks are confined to logical episodes and repeat-last padding is
+masked. Thus policies that assume Cartesian delta actions need a scientifically
+explicit action adapter; changing the target semantics would no longer be a
+controlled architecture comparison.
+
+The demonstrations range from 557 to 1,487 rows (18.5--49.5 s). Uniform frame
+sampling therefore gives the longest trajectory **2.67 times** the training
+mass of the shortest. This is not a loader bug, but it is an uncontrolled choice
+about whether frames or demonstrations define the empirical objective. The
+existing report already calls out this issue in
+[`research_log/physical_bottle_v2_training_val4.md`](physical_bottle_v2_training_val4.md).
+
+The four held-out source episodes are 89, 98, 114, and 116. They were selected
+as relatively good demonstrations, so validation loss on this split is useful
+for detecting pipeline/configuration failures but is not an unbiased success or
+generalization estimate. Any new comparison must keep episode-level splits,
+normalization from training rows only, and multiple seeds. Demonstration-size
+curves should use nested **episode** subsets, never random frames.
+
+### Depth availability: negative finding
+
+True depth cannot be recovered from the maintained recordings. The physical
+capture schema states `depth_recorded=false`; TCP and Quest packets are also not
+stored in the core table. The staging configuration had depth capture and
+alignment disabled, and no RealSense bag/depth stream was found in the audited
+source tree. RGB monocular depth estimation would produce pseudo-depth, not the
+metric synchronized point cloud assumed by DP3 or RISE, and must be named and
+tested as a separate method.
+
+Consequences:
+
+- existing-data DP3/RISE reproduction: **not possible**;
+- an RGB-only 3D proxy study: possible but scientifically weaker and still E3;
+- true DP3-like baseline: E3--E4/D4, requiring synchronized depth, intrinsics,
+  workspace cropping, camera-to-robot calibration, and a new data split;
+- future collection should record aligned raw depth if storage/timing checks can
+  be satisfied, but this survey does not authorize collection.
+
+### Current ACT is a particularly clean pretraining experiment
+
+The maintained ACT configuration uses `resnet18`, one observation step, a
+16-step prediction/execution chunk, no temporal ensemble, disabled image
+transforms, and `pretrained_backbone_weights: null`. The pinned LeRobot ACT
+default already supports `ResNet18_Weights.IMAGENET1K_V1`; changing only this
+field is therefore an E1 controlled intervention. In contrast, ACT 0.6.2 rejects
+`n_obs_steps != 1`, so an ACT history experiment needs a small adapter rather
+than a truthful configuration-only claim.
+
+Current LeRobot ACT processes both cameras with a shared ResNet and concatenates
+their spatial tokens. It does not, in the inspected implementation, add an
+explicit learned camera-identity token. This makes the following cheap
+ablation order more defensible than immediately adding cross-view attention:
+
+1. workspace only, wrist only, both views;
+2. both views plus train-time camera dropout;
+3. camera-identity embeddings;
+4. separate encoders;
+5. only then, cross-view attention.
+
+### Native policy support in the pinned ecosystem
+
+| Policy | Exact inspected defaults relevant here | Data compatibility | Distance | Initial disposition |
+| --- | --- | --- | --- | --- |
+| ACT | 1 observation; chunk/action steps 100 upstream; ImageNet ResNet-18 default; mean/std state/action; optional temporal ensemble | Already maintained with local 16-step absolute joint chunks | DROP-IN | Strong baseline; change one factor at a time |
+| Diffusion Policy | 2 observations; horizon 64; execute 32; ImageNet ResNet-18; min/max state/action; native multiple cameras; DDPM/100 train steps | Existing LeRobot schema is compatible; deployment/action timing still needs an adapter audit | SMALL ADAPTATION | Highest-priority alternative policy baseline |
+| VQ-BeT | 5 observations; five-action chunks; ImageNet ResNet-18; separate VQ-VAE stage | Schema compatible, but two-stage training and history add complexity | MODERATE PORT | Secondary multimodal/autoregressive baseline |
+| SmolVLA | 1 observation; 50-action chunk; 32-D max state/action; mean/std; frozen vision encoder and action-expert-only defaults; 10 flow steps | 12-D state/action and two images fit; prompt/task metadata and action cadence require audit | SMALL ADAPTATION | One-batch/checkpoint audit now; no sweep yet |
+| pi0 | 1 observation; 50-action chunk; 32-D max state/action; 10 flow steps | Shapes fit; pretrained embodiment/action normalization and compute do not | MAJOR PORT | Stretch baseline, not a 25-demo first move |
+| pi0-FAST | 50-action autoregressive token chunk; 32-D max state/action; official FAST tokenizer | Shapes fit; tokenizer/statistics and large-model adaptation are substantial | MAJOR PORT | Reject as primary direction |
+| RTC | Inference-time overlap/inpainting for supported flow policies | Not applicable to ACT; usable after a valid SmolVLA/pi0-family deployment | MODERATE PORT | Later deployment module |
+
+## Literature map
+
+The useful literature clusters into six connected questions:
+
+```text
+small real dataset
+├── reduce representation burden
+│   ├── ImageNet / R3M / MVP / VC-1 / DINOv2 / Theia
+│   └── frozen vs partial vs full fine-tuning
+├── use each recorded sample better
+│   ├── episode/phase balance, nested demo scaling, semantic augmentation
+│   ├── two-view dropout/fusion and short history
+│   └── explicit retrieval or prototypes
+├── choose a stronger conditional action model
+│   ├── ACT, Diffusion Policy, VQ-BeT / BeT, ARP
+│   └── SmolVLA, pi0, pi0-FAST, OpenVLA-OFT
+├── improve closed-loop execution
+│   ├── temporal ensembling / receding horizon
+│   └── asynchronous inference / RTC / real-time iteration
+├── spend new human time where BC fails
+│   ├── DAgger / IWR / Sirius / ThriftyDAgger
+│   └── short correction and recovery segments
+└── add spatial structure
+    ├── DP3 / RISE / EquiBot (true point cloud)
+    ├── VIOLA / RoboTAP / object crops and points
+    └── hybrid free-space + local interaction policies
+```
+
+The main cross-cutting warning is causal confusion: state, camera identity,
+trajectory time, and manually inferred phase can be excellent shortcuts on a
+fixed dataset while failing under deployment shift. Every robustness proposal
+below therefore specifies an observable deployment input and a held-out shift,
+not just lower training loss.
+
+## Serious candidate papers and projects
+
+This catalog records implementation facts rather than treating an abstract as
+a reproduction plan. “Weights” means usable pretrained or task checkpoints
+were identified in the official release; it does not mean they match JAKA or
+RH56 action semantics.
+
+### Policy and action-generation families
+
+| Paper / year / venue | Official project and repository | Inputs, outputs, horizons, normalization | Real evidence, demonstrations, compute | Code / license / weights | Compatibility and verdict |
+| --- | --- | --- | --- | --- | --- |
+| **ACT / ALOHA**, 2023, RSS ([paper](https://arxiv.org/abs/2304.13705), [project](https://tonyzhaozh.github.io/aloha/)) | [Official repository](https://github.com/tonyzhao/act) | Multi-RGB + joints to continuous joint-action chunks; current LeRobot port uses one observation, mean/std state/action, spatial ResNet tokens, optional overlapping temporal ensemble. | ALOHA real bimanual robot; 50 demonstrations/task in the paper. Original fine-tuned pretrained ResNet. Current local ACT inference was already measured separately; that is not a physical success claim. | Code/checkpoints available; MIT. | **DROP-IN, E0--E1/D1.** Existing baseline. Pretraining and consumer strategy are controlled changes, not new methods. |
+| **Diffusion Policy**, 2023, RSS ([paper](https://arxiv.org/abs/2303.04137), [project](https://diffusion-policy.cs.columbia.edu/)) | [Official repository](https://github.com/real-stanford/diffusion_policy) | Image dictionary `(B,To,H,W,3)` plus low-dimensional inputs to `(B,Ta,Da)` actions. Official normalization is checkpointed. Pinned LeRobot: `To=2`, horizon 64, execute 32, ImageNet ResNet-18, 32-keypoint spatial softmax, min/max state/action, DDPM with 100 train/inference steps by default. | Real UR5/UR5e with two RealSense D415 cameras; real demonstration count and exact GPU spec **UNKNOWN** in inspected official sources. | Original MIT; LeRobot port Apache-2.0; code, configs, logs, task checkpoints available; PyTorch, Hydra, zarr, `diffusers`. | **SMALL ADAPTATION, E1--E2/D1.** Closest strong policy alternative. Match observation/execution horizons before attributing gains to diffusion. |
+| **DP3**, 2024, RSS ([paper](https://arxiv.org/abs/2403.03954), [project](https://3d-diffusion-policy.github.io/)) | [Official repository](https://github.com/YanjieZe/3D-Diffusion-Policy) | `(T,N,6)` XYZRGB point cloud, RGB, depth, agent position to relative end-effector + relative dexterous-hand actions in real release. Simple recipe: 1,024 cropped/FPS points, obs 2, horizon 16, execute 8, DDIM 100 train/10 inference. | 72 simulation tasks, often 10 demos; four real Franka+Allegro+L515 tasks, 40 demos/task. Repository reports about 10 GB and 3 h on A40; Simple-DP3 1--2 h and ~25 FPS. It warns D435 point-cloud quality may be insufficient. | MIT; code/configs and example real data available; matching pretrained JAKA checkpoint **UNKNOWN**. | **MAJOR PORT, E3--E4/D4.** Existing data has no depth and action semantics differ. Stretch only after new calibrated RGB-D data. |
+| **RISE**, 2024, IROS ([paper](https://arxiv.org/abs/2404.12281), [project](https://rise-policy.github.io/)) | [Official repository](https://github.com/rise-policy/RISE) | Single-view point cloud through sparse 3D encoder + transformer + diffusion action head; released workflow expects processed point-cloud trajectories. | Six real manipulation tasks; 50 demonstrations/task; Flexiv arm, AG95 gripper, RealSense. Training/inference compute **UNKNOWN**. | Code available; CC BY-NC-SA 4.0; weights/checkpoint coverage **UNKNOWN**. | **MAJOR PORT, E4/D4.** No maintained depth and noncommercial/share-alike license. Reference for 3D hypothesis, not reuse priority. |
+| **EquiBot**, 2024, CoRL ([paper/project](https://equi-bot.github.io/)) | [Official repository](https://github.com/yjy0625/equibot) | SIM(3)-equivariant point-cloud diffusion policy; point clouds + robot state to continuous actions, with explicit geometric equivariance. Exact target action adapter/normalization for JAKA **UNKNOWN**. | Real results on six tasks/variations; project reports roughly five minutes of demonstrations per task. Exact episode count and compute **UNKNOWN**. | Code available; license/checkpoint status **UNKNOWN** in this audit. | **MAJOR PORT, E4/D4.** Strong generalization motivation but cannot use current RGB-only data. |
+| **Consistency Policy**, 2024, RSS ([paper](https://arxiv.org/abs/2405.07503), [project](https://consistency-policy.github.io/)) | [Official repository](https://github.com/Aaditya-Prasad/Consistency-Policy) | Distills a trained Diffusion Policy teacher into one/few-step trajectory generation; example real wrapper uses two 84×84 cameras, obs 2, action 8. Teacher, warm start, and distillation are prerequisites. | Six simulation and two real tasks; project reports about 10× sampling speedup. Real demo counts and target checkpoints **UNKNOWN**. | MIT; code/configs available. | **MODERATE PORT, E3/D1.** Defer until ordinary diffusion works and measured latency is a bottleneck. |
+| **RTI-DP**, 2025, IROS ([project/paper](https://rti-dp.github.io/)) | [Official repository](https://github.com/RTI-DP/rti-dp) | Training-free real-time iteration warm-starts denoising from the prior predicted chunk; special handling for discrete grippers. Forks original Diffusion Policy formats. | Official inspected results: PushT, BlockPush, RoboMimic; real-robot result **UNKNOWN**. | MIT; code and a Hugging Face model available. | **MODERATE PORT, E2--E3/D2.** Only after valid Diffusion Policy deployment. |
+| **One-Step Diffusion Policy**, 2025, ICML ([paper](https://proceedings.mlr.press/v267/wang25ba.html), [project](https://research.nvidia.com/labs/dir/onedp/)) | Official runnable repository **UNKNOWN** | Distills Diffusion Policy to one-step inference; preserves the teacher’s observation/action interface. Detailed target data adapter **UNKNOWN**. | Six simulation and four Franka real tasks; reported 1.5 to 62 Hz. Exact demos **UNKNOWN**; paper reports 2--10% extra teacher-training cost. | PMLR states code will be available; license/checkpoints **UNKNOWN**. | **MAJOR PORT, E4. REJECT now** until an official reusable release and a latency need both exist. |
+| **SmolVLA**, 2025, arXiv ([paper](https://arxiv.org/abs/2506.01844), [docs](https://github.com/huggingface/lerobot/blob/v0.6.1/docs/source/smolvla.mdx)) | [LeRobot](https://github.com/huggingface/lerobot), [base weights](https://huggingface.co/lerobot/smolvla_base) | 450M SmolVLM2 plus flow action expert; multiple images, current state and task text to continuous chunk. Defaults: obs 1, chunk/execute 50, max state/action 32, 512² padded images, 10 flow steps, mean/std, frozen vision and expert-only training. | Community pretraining: 22.9K episodes / 10.6M frames per paper table. Real SO100/SO101 evaluations. Official guide recommends ~50 target episodes and explicitly reports a similar 25-episode set performed badly; example 20K steps, batch 64, ~4 h on one A100. | Apache-2.0 code; released base weights. | **SMALL ADAPTATION, E1--E2/D1. AUDIT FIRST.** Shape/schema fits, but evidence predicts data starvation. Run load/one-batch/overfit checks only before allocating a full run. |
+| **π0**, 2025, RSS ([paper](https://arxiv.org/abs/2410.24164), [project](https://www.physicalintelligence.company/blog/pi0)) | [Official OpenPI](https://github.com/Physical-Intelligence/openpi) and pinned LeRobot port | Normally three masked 224² image slots, 32-D padded state, prompt to 50×32 continuous flow chunk; 10 inference steps. Supports z-score or quantile stats and optional relative actions. | Base pretraining spans 10K+ robot hours; exact task demo counts **UNKNOWN**. Official estimates: >8 GB inference, >22.5 GB LoRA, >70 GB full fine-tune. | Apache-2.0; base/embodiment checkpoints. | LeRobot **SMALL ADAPTATION**, native OpenPI **MODERATE PORT**; E2--E3/D1. Shapes fit, but action/statistics/third-image masks need explicit audit. Not a primary 25-demo direction. |
+| **π0-FAST / FAST**, 2025, arXiv ([paper](https://arxiv.org/abs/2501.09747), [project](https://www.physicalintelligence.company/research/fast)) | [Official OpenPI](https://github.com/Physical-Intelligence/openpi); LeRobot FAST tokenizer/port | Normalizes actions, DCTs each dimension, sparsifies/rounds coefficients, orders low frequencies first, then BPE tokenizes. General tokenizer trained on 1M+ action sequences; LeRobot default chunk 50, 32-D maximum, 256 tokens, autoregressive decoding. | Reports up to 5× faster VLA training. Public LeRobot LIBERO reproduction used 8 H100s, batch 256, 40K further steps; target real demo count **UNKNOWN**. | Apache-2.0; tokenizer and base weights available. | **MODERATE PORT, E2--E3/D1.** Single fixed instruction gives little language leverage; audit only. |
+| **RTC**, 2025, NeurIPS ([paper](https://arxiv.org/abs/2506.07339), [project](https://www.pi.website/research/real_time_chunking)) | [Official simulation repository](https://github.com/Physical-Intelligence/real-time-chunking-kinetix), [LeRobot docs](https://huggingface.co/docs/lerobot/rtc) | Inference-time overlap/inpainting for flow policies: committed actions are frozen while the remaining chunk is regenerated asynchronously. It is not an ACT method. | Six real bimanual tasks in the paper; official simulation reproduction uses million-transition datasets and ~60 GiB released assets. Exact real demo counts **UNKNOWN**. | Kinetix code MIT; LeRobot integration Apache-2.0. | **MAJOR/MODERATE PORT, E3--E4/D2.** Later execution module after a flow policy and valid rollout, not a current training idea. |
+| **Octo**, 2024, RSS ([paper/project](https://octo-models.github.io/)) | [Official repository](https://github.com/octo-models/octo) | 27M/93M JAX transformer diffusion policies pretrained on 800K trajectories; multiple RGB, proprioception and text/goal image; history 2, action chunk 4; RLDS and normal/bounds normalization. | Six real platforms. Fine-tuning used roughly 100 trajectories/domain, 50K steps, ~5 h on one 24 GB A5000; inference reported 13/17 it/s for 93M/27M on 4090. | MIT; code and weights available. | **MODERATE PORT, E3/D1.** RLDS/JAX conversion and 25-demo mismatch. Useful evidence that extra wrist views may hurt and should be ablated. |
+| **BAKU**, 2024, NeurIPS ([paper](https://arxiv.org/abs/2406.07539), [project](https://baku-robot.github.io/)) | [Official repository](https://github.com/siddhanthaldar/BAKU) | Modular multi-view/proprio/language transformer trunk with deterministic, GMM, BeT, diffusion or VQ-BeT heads; configurable history/temporal aggregation. Real xArm example: four 128² views, chunk 10 at 10 Hz. | 30 real xArm tasks, mean 17 demos/task, and five long tasks, mean 19 demos/task. Compute **UNKNOWN**. | MIT; code; general pretrained target checkpoint **UNKNOWN**. | **MODERATE PORT, E3/D1.** Its result comes from cross-task sharing, absent in this one-task dataset. Design reference, not first baseline. |
+| **VQ-BeT**, 2024, ICML Spotlight ([paper](https://arxiv.org/abs/2403.03181), [project](https://sjlee.cc/vq-bet)) | [Official repository](https://github.com/jayLEE0301/vq_bet_official); LeRobot port | Residual VQ action chunks + transformer + offsets. Pinned defaults: obs 5, three prediction tokens, chunk 5, min/max, ImageNet ResNet-18, 84 random crop, separate 20K VQ pretraining. Inspected LeRobot validator permits exactly one image. | Physical result and demonstration count **UNKNOWN** in inspected sources. | Original MIT; LeRobot Apache-2.0. | **MODERATE PORT, E2--E3/D1.** A one-camera run is not a matched dual-view baseline; patching and codebook training are not first-order priorities. |
+| **Behavior Transformer**, 2022, NeurIPS ([paper](https://proceedings.neurips.cc/paper_files/paper/2022/hash/90d17e882adbdda42349db6f50123817-Abstract-Conference.html), [project](https://notmahi.github.io/bet)) | [Official repository](https://github.com/notmahi/bet) | History-conditioned transformer predicts k-means action bin plus continuous residual. Released environments/formats cover Franka Kitchen, block pushing, and CARLA. | Physical real-robot result and demo count **UNKNOWN**. | MIT; code; older environment dependencies; weights **UNKNOWN**. | **MODERATE PORT, E3/D1. REJECT initially.** Local futures must first be shown multimodal. |
+| **ARP / Chunking Causal Transformer**, 2024, arXiv ([paper](https://arxiv.org/abs/2410.03132)) | [Official repository](https://github.com/mlzxy/arp) | Autoregressively emits heterogeneous continuous/discrete action groups, with configurable chunk size per action type. Normalization and direct LeRobot data adapter for this embodiment **UNKNOWN**. | Push-T, ALOHA and RLBench evaluation; physical evidence/demo count and compute **UNKNOWN**. | Code and pretrained models reported; license **UNKNOWN**. | **MAJOR PORT, E3--E4/D1.** Interesting action-factorization reference, but no cheap advantage over maintained ACT/DP. |
+| **OpenVLA-OFT**, 2025, arXiv ([paper](https://arxiv.org/abs/2502.19645), [project](https://openvla-oft.github.io/)) | [Official repository](https://github.com/moojink/openvla-oft) | OpenVLA fine-tuning recipe: parallel decoding, continuous action chunks, L1 objective and multiple images; not a LeRobot-native data path. | LIBERO and real ALOHA. Inference ~16--18 GB; training 1--8 GPUs with 27--80 GB each depending on mode. Target demonstration counts **UNKNOWN**. | Code license should be read from repo before reuse; base OpenVLA code MIT but model inherits Llama-2 terms; weights available. | **MAJOR PORT, E4/D1.** Strong VLA baseline at 7B, but disproportionate for one fixed task and 25 demos. |
+
+### Pretrained visual representations
+
+| Representation / year / venue | Official source | Input/interface and pretraining | Robot evidence / compute | Code / license / weights | Fit and verdict |
+| --- | --- | --- | --- | --- | --- |
+| **ImageNet ResNet-18** | [TorchVision model card](https://docs.pytorch.org/vision/main/models/generated/torchvision.models.resnet18) | 11.7M CNN, standard ImageNet-1K V1 weights; ACT preserves layer-4 spatial features rather than using only a class vector. | Generic vision pretraining; no claim that ImageNet alone solves robot control. Extra training compute is zero; normal ACT inference cost. | TorchVision BSD code; weights available; pretrained-data terms remain the user’s responsibility. | **DROP-IN, E1/D1. DO NOW.** Fully trainable at a lower backbone LR first; freezing/partial unfreeze are E2. |
+| **DINOv2**, 2023, arXiv | [Paper](https://arxiv.org/abs/2304.07193), [official repository](https://github.com/facebookresearch/dinov2) | Self-supervised LVD-142M; ViT-S/B/L/g 21M/86M/300M/1.1B, patch 14; exposes dense patch and global tokens. | Broad downstream evidence; direct real-robot demo count **not applicable/UNKNOWN**. ViT-S is the relevant compact probe. | Apache-2.0 standard code/weights. | **MODERATE PORT, E2--E3/D1.** Best second-wave dense-token encoder if ImageNet helps; do not reduce it to CLS only. |
+| **R3M**, 2022, CoRL | [Paper](https://proceedings.mlr.press/v205/nair23a.html), [official repository](https://github.com/facebookresearch/r3m) | ResNet-18/34/50 trained on Ego4D human video with temporal/language objectives; 224² input; standard interface is globally pooled. | Real Franka evaluations included approximately 20 demos/task; training recipe reports 1.5M representation steps. | MIT; weights; repository archived/read-only. | **SMALL ADAPTATION, E2/D1.** Easy ResNet comparator, but pooled interface and maintenance make it lower priority than ImageNet/DINO. |
+| **MVP / Real-World MVP**, 2022, CoRL Oral | [Project](https://tetexiao.com/projects/mvp), [real-robot paper](https://proceedings.mlr.press/v205/radosavovic23a.html), [repository](https://github.com/ir413/mvp) | MAE-pretrained ViT-S/B/L on 0.7M/4.5M egocentric + Internet images; official control recipe freezes the encoder. | Real-robot gains over CLIP/ImageNet/scratch reported; exact per-task demo counts/compute vary and are **UNKNOWN** here. | Weights available; no top-level license found in official repo, so reuse license **UNKNOWN**. | **MODERATE PORT, E2--E3/D1.** Scientifically relevant, but do not copy without license clarification. |
+| **VC-1**, 2023, arXiv / CortexBench | [Project](https://eai-vc.github.io/), [official repository](https://github.com/facebookresearch/eai-vc), [model](https://huggingface.co/facebook/vc1-base) | ViT-B/16 MAE on 5.62M frames / 4,000+ h from seven egocentric sources plus ImageNet; 224², 768-D representation. | Manipulation/navigation benchmark; exact target-task real demos and inference compute **UNKNOWN**. No single representation won universally. | Predominantly CC BY-NC 4.0; weights available. | **MODERATE PORT, E2--E3/D1.** Noncommercial license and global interface reduce reuse value. |
+| **Theia**, 2024, CoRL | [Paper](https://arxiv.org/abs/2407.20179), [project](https://theia.theaiinstitute.com/), [repository](https://github.com/rai-opensource/theia) | Distills CLIP, DINOv2 and ViT teachers; 10M--200M models. Official study found spatial transformer tokens consistently stronger than CLS for control and naive feature concatenation worse than individual encoders. | Real BC with RGB + joints, 5 Hz, chunks 5/10, with task demo counts approximately 48/63/101/50 (paper prose/table has an acknowledged ordering ambiguity). Frozen models failed on some long tasks while fine-tuning helped. | Custom AI Institute noncommercial research license; weights. | **MODERATE PORT, E2--E3/D1.** Excellent design evidence; second-wave due license and adapter cost. |
+| **CLIP**, 2021, ICML | [Paper](https://arxiv.org/abs/2103.00020), [official repository](https://github.com/openai/CLIP) | Image-text pretraining on 400M pairs; released ResNet/ViT global and patch features. | Generic vision-language evidence, no relevant target demo count; fixed task language provides no variation. | MIT; weights. | **MODERATE PORT, E2--E3/D1.** Low priority; spatial precision is a concern. |
+| **SigLIP / SigLIP 2**, 2023/2025, ICCV/arXiv | [SigLIP](https://arxiv.org/abs/2303.15343), [SigLIP 2](https://arxiv.org/abs/2502.14786), [official code](https://github.com/google-research/big_vision) | Sigmoid image-text objective; B/16-224 ~86M/768-D. SigLIP 2 emphasizes localization/dense features and variable-resolution variants. | Direct target robot evidence and demo count **UNKNOWN**; already appears inside SmolVLA/π0-family models. | Apache-2.0 standard code/weights; model-card terms must still be checked. | **MODERATE PORT, E2--E3/D1.** Watch, but standalone swap duplicates a cleaner DINO test. |
+| **MAE**, 2022, CVPR | [Paper](https://arxiv.org/abs/2111.06377), [official repository](https://github.com/facebookresearch/mae) | ViT-B/L/H masked image reconstruction, ImageNet, patch 16 at 224². | No direct robot result in foundational paper. Old `timm` dependency. | CC BY-NC 4.0; weights; repository archived. | **MODERATE PORT, E2--E3. REJECT initially** in favor of robot-tested descendants or DINOv2. |
+| **SpawnNet**, 2024, ICRA | [Paper/project](https://xingyu-lin.github.io/spawnnet/) and official code link | Fuses frozen multi-layer pretrained features with a separately learned CNN through adapters; real setup used third-person + wrist RGB-D, four-frame stack, and deliberately omitted proprioception after observing overfit. Output was 6-DoF delta end-effector action + gripper at 5 Hz. | xArm7 real category-generalization tasks; exact demonstrations/compute **UNKNOWN** in this audit. | Code available; license/weights **UNKNOWN**. | **MAJOR PORT, E3/D1--D4.** Highly relevant motivation for dense features/history/proprio ablations, but its Cartesian interface is not drop-in. |
+
+### Why the first encoder comparison stays deliberately small
+
+The scientifically clean order is:
+
+1. scratch ResNet-18;
+2. ImageNet ResNet-18, fully trainable with a lower backbone LR;
+3. frozen ImageNet backbone with a trainable projection/head;
+4. partial unfreeze of layer 4;
+5. frozen DINOv2-S **spatial tokens** with a shallow adapter;
+6. only if step 5 survives, unfreeze final DINO blocks.
+
+This order tests initialization, capacity to adapt, and representation interface
+without changing several axes simultaneously. It also respects Theia’s two
+negative findings: global CLS tokens can be poor control features, and frozen
+encoders are not universally better in long-horizon/domain-specific control.
+
+### Multi-view, 3D, and object-centric perception
+
+| Paper / year / venue | Reusable idea and official implementation facts | Evidence / cost | License / compatibility verdict |
+| --- | --- | --- | --- |
+| **iDP3**, 2025, IROS ([paper](https://arxiv.org/abs/2410.10803), [repository](https://github.com/YanjieZe/Improved-3D-Diffusion-Policy)) | Egocentric camera-frame XYZ cloud without base calibration/segmentation; 4,096 points; pyramid PointNet; **joint target** actions. Released config: 32-D state, 25-D action, obs 2, horizon 16, execute 15, 50 train/10 DDIM steps; state/cloud identity and action limit normalization. | Fourier GR1 + L515; pick/place settings use 1--2 demonstrations containing 20 rounds; showcases 10 demos × 10 rollouts. RTX 4090, ~30 min in reported setting; ~15 Hz onboard. Fine-tuned R3M DP was stronger in-domain, iDP3 much stronger OOD. | MIT; data/checkpoints for three tasks. **E4/D4, STRETCH.** Joint targets are a better semantic fit than DP3, but current depth is absent and authors discourage D435 quality. |
+| **CAGE**, 2025, ICRA ([paper](https://arxiv.org/abs/2410.14974), [project](https://cage-policy.github.io/), [repository](https://github.com/cage-policy/CAGE)) | Workspace+wrist RGB history 4; frozen DINOv2-L + LoRA; view/time tokens compressed by causal Perceiver; diffusion predicts relative 20-step EE chunks, executes 8 or ensembles 12. Modest coherent perspective/crop augmentation improved held-out camera setting. | Flexiv+AG95, two D435; 50/40/40 demos on three tasks. ~280 ms asynchronous inference at 10 Hz on RTX 3090. Training 4×A100 80 GB, 500 epochs; repo notes ~60 GB/GPU at batch 16. | CC BY-NC-SA 4.0. **E4/D1, REJECT full model.** Reuse only the cheap augmentation/history hypotheses; CAGE does not prove generic cross-attention beats concat. |
+| **VIOLA**, 2022, CoRL ([paper](https://proceedings.mlr.press/v205/zhu23a.html), [project](https://ut-austin-rpl.github.io/VIOLA/), [repository](https://github.com/UT-Austin-RPL/VIOLA)) | Workspace top-K pretrained region proposals (K=15 real), ROI features + box coordinates + global workspace + wrist RGB + proprio, 10-step history, transformer/GMM at 20 Hz. Includes color jitter, pixel shift and small random erasing. | Franka, three real tasks, 50 demos/task. Full dependency stack includes robomimic/robosuite/Detectron2/Detic. | MIT; datasets/checkpoints. **E3/D1, BACKLOG.** First test fixed/oracle crops; detector integration is justified only if the upper bound is positive. |
+| **KALM**, 2025, ICRA ([paper](https://arxiv.org/abs/2410.23254), [project](https://kalm-il.github.io/), [repository](https://github.com/FANG-Xiaolin/KALM)) | GPT-4o proposes task region; SAM/SAM2, DINO+FeatUp and FPFH establish sparse correspondences; eight keypoints condition diffusion of 48 EE poses. Needs organized RGB-D, intrinsics/extrinsics, EE/world and joint trajectories. | Franka Research 3 + wrist D435i, three tasks, 10 demos/task; object/view/instance generalization. 200K iterations; compute **UNKNOWN**. | MIT; example data; trained task checkpoints **UNKNOWN**. **E4/D3--D4, STRETCH.** Counterexample that sparse D435i keypoints can work, but current labels/data do not fit. |
+| **DemoGen**, 2025, RSS ([paper](https://arxiv.org/abs/2502.16932), [project](https://demo-generation.github.io/), [repository](https://github.com/TEA-Lab/DemoGen)) | Segments contact skills and free-space motion from one 3D demo; rigidly transforms skill segments, replans free space, edits point clouds/robot geometry, then emits zarr demonstrations. | Eight real tasks, one source demo/task, 530 evaluations; 2,214 generated trajectories/147K pairs in 22 s excluding slower rendering. Needs object segmentation, FK/planning and trusted 3D geometry. | MIT. **E4/D3--D4, REJECT now.** High-upside only after synchronized depth and geometry exist. |
+| **EquiBot**, 2024, CoRL ([project](https://equi-bot.github.io/)) | Object-segmented 1,024-point cloud + 13-D proprio to SIM(3)-equivariant PointNet++ diffusion and 7-D EE velocity/gripper; obs 2, horizon 16, execute 8. | Kinova Gen3 + ZED2; six real tasks, 15 demos/task (~5 min), 3 Hz. Complete real perception uses Grounded-SAM, DEVA and a proprietary stereo model. | MIT repository; no generic weights. **E4/D4, REJECT.** Joint actions are not naturally SIM(3)-equivariant, creating a central mismatch. |
+| **3D Diffuser Actor**, 2024, CoRL ([paper](https://arxiv.org/abs/2402.10885), [project](https://3d-diffuser-actor.github.io/), [repository](https://github.com/nickgkan/3d_diffuser_actor)) | Single/multi-view RGB-D + language + proprioception to a 3D feature field and diffused EE-pose trajectory. Requires calibrated views and Cartesian actions. | RLBench/CALVIN checkpoints; exact real-world demo count **UNKNOWN**; CUDA/DGL/flash-attention stack. | MIT; code/checkpoints. **E5/D4, REJECT.** Too many representation, action, language and dependency changes. |
+| **Multi-View Masked World Models**, 2023, ICML ([paper](https://arxiv.org/abs/2302.02408), [project](https://sites.google.com/view/mv-mwm), [repository](https://github.com/younggyoseo/MV-MWM)) | Masks complete viewpoints during representation pretraining, then learns a world model; official TensorFlow/RLBench implementation. It establishes a motivation for whole-view masking, not for a particular two-view BC architecture. | Sim-to-real/viewpoint robustness; demo counts and compute **UNKNOWN**. Official repo warns released code may not reproduce the paper exactly. | No explicit license found: **UNKNOWN**. **E5/D4, REJECT architecture; cleanly reimplement view masking only.** |
+| **Seeing from Hands**, 2022, ICLR Oral ([paper/project](https://sites.google.com/view/seeing-from-hands), [paper](https://arxiv.org/abs/2203.12677)) | Wrist view improves efficiency/OOD when hand-centric observability suffices; workspace view can be necessary yet overfit. Uses a variational bottleneck on third-person branch and simple concatenation. | Franka real grasping, 360 demos, 100² RGB, current frames + EE/gripper state. | Code/license **UNKNOWN**. **E2/D1 concept.** Strong reason to test asymmetric view roles; not evidence that its bottleneck will work with 25 long trajectories. |
+| **RoboTAP**, 2024, ICRA ([project](https://robotap.github.io/), [repository](https://github.com/google-deepmind/tapnet)) | Tracks arbitrary visual points and uses point geometry for visual servo/control. A sparse object/hand track can be computed offline before committing to a detector or full point-cloud policy. | Real manipulation with very few demonstrations reported; exact action mapping/compute for JAKA **UNKNOWN**. | TapNet code license must be verified per release; weights available. **E3/D1--D3, BACKLOG.** Absolute joint-action adapter and occlusion handling are nontrivial. |
+| **SAM 2**, 2024 ([paper/project](https://ai.meta.com/sam2/), [repository](https://github.com/facebookresearch/sam2)) | Promptable image/video segmentation; can cache bottle/box masks/crops for an **offline upper-bound** study. It does not provide task identity or a reliable prompt source at deployment. | No robot-policy demonstrations; segmentation compute/model size depend on checkpoint. | Apache-2.0 code/checkpoints. **E1 offline / E3 online.** Use only after fixed/oracle crop gains justify it. |
+| **GreenAug**, 2024, arXiv ([project](https://greenaug.github.io/), [paper](https://arxiv.org/abs/2407.07868)) | Chroma-key green-screen backgrounds, then texture replacement. | 800+ demos over 8 real tasks and 8.2K evaluations. Existing demos lack a green screen. | Code linked; site CC BY-SA 4.0, code license must be checked separately. **D4, REJECT for current data.** Useful only as future collection-design evidence. |
+| **GenAug**, 2023, arXiv ([project](https://genaug.github.io/)) | Generatively changes backgrounds, objects/textures/classes in RGB-D while respecting a task data-generation pipeline. | Tabletop examples from 10 demonstrations; reported ~40% real generalization improvement. Requires depth/calibration and generation validation. | Code linked; exact code/weight license **UNKNOWN**. **E4/D1--D4, REJECT initially.** Generated semantic errors could corrupt action labels. |
+| **RoboEngine**, 2025, IROS ([paper](https://arxiv.org/abs/2503.18738), [project](https://roboengine.github.io/)) | Robo-SAM + object masks + background diffusion for plug-and-play scene augmentation. | Six new-scene evaluations; RoboSeg has 3,800 images from 35+ robot datasets. Release page promised data/weights; exact compute/license **UNKNOWN**. | Code/data links exist; license **UNKNOWN** in this audit. **E4/D1, BACKLOG.** Simple augmentation should fail first before adding a generative pipeline. |
+
+### Low-data, history, retrieval, intervention, and execution
+
+| Paper / year / venue | Reusable component and due diligence | Fit / cost | License / verdict |
+| --- | --- | --- | --- |
+| **robomimic BC-RNN**, 2021, CoRL ([paper](https://arxiv.org/abs/2108.03298), [project](https://robomimic.github.io/), [repository](https://github.com/ARISE-Initiative/robomimic)) | Configurable recurrent BC over image and low-dimensional observation sequences. No universal history length should be copied. | A two-frame or short-window derived LeRobot view is E2/D1; full framework port is unnecessary. | MIT. **DO NOW as history baseline.** |
+| **Copycat Agents**, 2020, NeurIPS ([paper](https://proceedings.neurips.cc/paper/2020/hash/1b113258af3968aaf3969ca67e744ff8-Abstract.html)) | Demonstrates history can let BC infer and repeat previous expert actions rather than use causal scene information. | Add shuffled-history and previous-action-predictability controls; E1/D0--D1. | Method-level diagnostic; code reuse not needed. **Mandatory guardrail.** |
+| **Towards Balanced Behavior Cloning**, 2025, Autonomous Robots ([paper](https://link.springer.com/article/10.1007/s10514-025-10237-0)) | Formalizes policy bias toward overrepresented behaviors; compares reweighting/meta-gradient balance on CALVIN RGB+wrist+state. It does **not** directly establish equal-episode sampling for a single task. | Start with frame/episode/phase occupancy and simple weights, E1--E2/D0--D1; skip meta-gradient initially. | Official code/license **UNKNOWN**. **DO simple audit.** |
+| **GAP**, 2026, ICLR ([paper](https://arxiv.org/abs/2602.12032), [repository](https://github.com/GeWu-Lab/GAP)) | Finds proprioception can dominate learning during motion-transition phases; uses change-point/learned phase probabilities to reduce proprioceptive gradients. PyTorch 2.1 + customized `ruptures`. | Strong hypothesis fit. Offline change-point audit and groupwise state dropout E1--E2/D1; faithful phase-gradient method E3. | No explicit repo license: do not copy. **TOP-PRIORITY ANALYSIS.** |
+| **NADA / proprioception shift**, 2025, arXiv ([paper](https://arxiv.org/abs/2506.23944), [project](https://proprioception-shift.github.io/)) | Measures expert/rollout state shift with time-conditioned Wasserstein distance, optimizes groupwise Gaussian noise, retrains. Reports Franka pick-place/locker; cheap masking is a baseline. | Full method needs rollout traces E3/D2. Current state has no velocity, so its velocity findings cannot be assumed. Run calibrated dropout/noise baselines only. | Code “coming soon”; license **UNKNOWN**. **NEXT after baseline.** |
+| **VINN**, 2021, RSS ([paper](https://arxiv.org/abs/2112.01511), [project](https://jyopari.github.io/VINN/), [repository](https://github.com/jyopari/VINN)) | Learns/uses visual embedding, retrieves nearest demo frames, executes locally weighted actions. Explicit memory is transparent for 20,744 frames. | Clean 1-NN mathematical reimplementation, leave-one-episode-out; add normalized state/phase only after visual baseline. E2/D0--D1. Never start physical control with averaged absolute joints. | No top-level license found: do not copy. **DO NOW offline.** |
+| **MT3**, 2025, Science Robotics ([paper](https://arxiv.org/abs/2511.10110), [project](https://www.robot-learning.uk/learning-1000-tasks), [repository](https://github.com/kamil-dreczkowski/learning_thousand_tasks)) | Decomposes alignment and interaction and retrieves both. Release expects 720×1280 RGB-D, binary object mask, intrinsics, SE(3) bottleneck pose and `T×7` EE twists at 30 Hz. | 3,450 controlled + 2,200 large-scale real rollouts; order-of-magnitude few-demo advantage under 10 demos/task. Full port E4/D4; simplified phase/retrieval hypothesis E2--E3/D1. | MIT. **Use as scientific motivation, not drop-in.** |
+| **DemInf**, 2025, RSS ([paper](https://arxiv.org/abs/2502.08623), [project](https://jhejna.github.io/demonstration-info), [repository](https://github.com/jhejna/demonstration-information)) | kNN mutual-information estimate in learned state/action embeddings for demonstration curation; release uses JAX/Flax/RLDS and notes relative actions work best. | With 25 absolute-action episodes, estimates may be unstable. Do simple coverage/duration/phase audits first; E3/D0--D1. | MIT. **BACKLOG.** |
+| **DAgger**, 2011, AISTATS ([paper](https://proceedings.mlr.press/v15/ross11a.html)) | Aggregates expert labels on learner-induced states to control sequential covariate shift. | Full oracle query assumption is impractical; human takeover is safer. Foundational citation, not literal reproduction. | Algorithmic reference. |
+| **IWR**, 2020, arXiv ([paper](https://arxiv.org/abs/2012.06733), [project](https://sites.google.com/stanford.edu/iwr)) | Human takes over near bottlenecks; intervention/non-intervention samples are balanced 50/50. Outperformed an equivalent amount of full-demo data on threading/coffee. | Direct equal-human-time correction hypothesis; E2/D3, only after reliable rollout/intervention capture. | Reusable code/license **UNKNOWN**. **TOP post-rollout direction.** |
+| **Sirius**, 2023, RSS ([paper](https://arxiv.org/abs/2211.08416), [project](https://ut-austin-rpl.github.io/sirius), [repository](https://github.com/UT-Austin-RPL/sirius)) | Trust-weighted BC and intervention memory management; released robomimic/HDF5 collection/training workflow. | Real contact-rich tasks; project reports 27% hardware success gain, 2× faster convergence and 85% memory reduction relative to its baselines. E2--E3/D3 adapter. | MIT. **TOP post-rollout implementation reference.** |
+| **ThriftyDAgger**, 2021, CoRL ([paper](https://arxiv.org/abs/2109.08273)) | Robot-gated novelty + risk criteria solicit interventions under a desired supervisor budget. | Physical cable routing and user study. Automated risk gating is E3/D3 and premature; its budget framing is useful now. | Official reusable code/license **UNKNOWN**. **BACKLOG; use budget principle.** |
+| **Diffusion Meets DAgger**, 2024, RSS ([paper](https://www.roboticsproceedings.org/rss20/p048.html)) | Synthesizes eye-in-hand OOD states instead of collecting them. Reports 80% pushing with 8 demos versus 20% BC, plus stacking/pouring/shirt tasks. | Faithful reproduction needs a generative state/action relabeling pipeline; E4/D1, and label validity is difficult for joint-space dual-view data. | Code/license **UNKNOWN**. **REJECT now; relevant reference for covariate-shift augmentation.** |
+| **CCIL**, 2024, ICLR ([project/paper](https://personalrobotics.github.io/CCIL/), [repository](https://github.com/personalrobotics/CCIL)) | Learns locally Lipschitz state dynamics and synthesizes corrective labels; released interface consumes `T×o` observations and `T×a` actions. | 12-D numeric shapes superficially fit, but bottle/box/contact state is missing; synthesized state-only corrections may be physically false. E3/D1. | No explicit repo license. **ANALYSIS ONLY.** |
+| **HIL-SERL**, 2024, arXiv ([paper](https://arxiv.org/abs/2410.21845), [project](https://hil-serl.github.io/), [repository](https://github.com/rail-berkeley/hil-serl)) | Reward classifier + demo buffer + online SAC + asynchronous actor/learner and interventions, tied to JAX/CUDA and Franka impedance infrastructure. | Real tasks with 100-trial evaluations; E5/D4--D5 for this system. | Apache-2.0. **REJECT now.** This is an online-RL/hardware project, not a small correction adapter. |
+| **MILES**, 2024, CoRL ([paper](https://arxiv.org/abs/2410.19693), [project](https://www.robot-learning.uk/miles)) | One wrist-camera demonstration plus autonomous perturb-and-return collection with reachability/environment checks; paper uses around 10 perturbations per waypoint. | New autonomous motion/data/safety project, E5/D4. | Code linked; exact license **UNKNOWN**. **REJECT now.** |
+| **ACT temporal ensembling**, 2023, RSS | Exponentially fuses overlapping predictions; original coefficient 0.01 and current LeRobot supports it when executing one action per query. | E1/D2 and valid rollout required. Must compare identical checkpoints/consumers after Thread A. | ACT MIT / LeRobot Apache-2.0. **NEXT, rollout-owned.** |
+| **LeRobot asynchronous inference**, current official framework ([docs](https://huggingface.co/docs/lerobot/async), [design](https://huggingface.co/blog/async-robot-inference)) | Policy server, streamed observations, local action queue, replace/weighted overlap; parameters include actions/chunk and queue threshold. | Current project is pinned older, so E3/D2 runtime/safety port, overlapping Thread A. | Apache-2.0. **WAIT.** |
+
+## Candidate research directions: broad screen
+
+These are hypotheses, not a menu to combine indiscriminately. A direction
+advances only if its cheapest falsification passes. Offline action loss is used
+to kill ideas, not to claim physical task success.
+
+| ID | Direction and testable hypothesis | Existing components | Cheapest falsification | E / D | Immediate status |
+| --- | --- | --- | --- | --- | --- |
+| R1 | **Visual pretraining sample efficiency.** ImageNet initialization should matter most at 5--15 demos if it reduces representation-learning burden. | ACT + TorchVision ResNet-18. | Same episode split, seeds, update budget and head; scratch vs ImageNet at nested 5 and 25-demo subsets first. | E1 / D1 | DO NOW |
+| R2 | **Spatial foundation features, not pooled semantics.** Dense DINOv2 patches may preserve bottle/box geometry better than scratch CNN or CLS embeddings. | DINOv2-S + ACT token decoder; Theia findings. | Cache frozen spatial features; shallow episode-level action/phase probes. Reject if gains vanish under episode split or only occur with global/time leakage. | E2 / D1 | NEXT if R1 is positive |
+| R3 | **Matched ACT versus Diffusion Policy.** Generative action modeling helps only if local expert futures are genuinely multimodal. | Pinned LeRobot ACT and Diffusion. | Quantify per-phase conditional action variance; smoke/overfit a DP with matched pretraining and ~16-step consumer. | E1--E2 / D1 | AUDIT FIRST |
+| R4 | **Small VLA data boundary.** Robot/VLM pretraining may or may not outweigh embodiment shift at 25 demos. | SmolVLA base + LeRobot. | Model load, schema/stat check, one forward/backward, tiny-subset overfit, memory/latency record; stop before a sweep if any fail. | E1--E2 / D1 | AUDIT FIRST |
+| R5 | **Short causal history.** `[t-1,t]` should add motion information without long-context overfit. | Diffusion Policy obs=2 or small ACT history adapter; BC-RNN precedent. | Current, two-frame, shuffled-previous-frame and state-history-only controls; matched parameters/updates. | E2 / D1 | DO NOW |
+| R6 | **Phase-dependent modality shortcut.** Proprioception may dominate around motion transitions, where vision should matter most. | GAP/NADA insights + groupwise state dropout + observable history. | Derive change points from hand/action velocity, manually audit all 25, measure phase-wise gradients/occlusion sensitivity, then run state-group dropout controls. | E1--E3 / D0--D1 | TOP-PRIORITY ANALYSIS |
+| R7 | **Episode/phase-balanced learning.** Current frame-uniform objective may overrepresent long/slow phases. | Weighted sampler; Balanced BC motivation. | Plot actual sampler mass, unique-frame exposure and phase occupancy; frame-uniform vs episode-uniform vs phase-uniform with matched optimizer steps. | E0--E2 / D0--D1 | DO NOW as enabling baseline |
+| R8 | **View specialization and robustness.** Workspace provides global goal context; wrist provides local interaction; whole-view dropout may prevent brittle co-adaptation. | Current two views/shared ACT encoder; Seeing-from-Hands, CAGE, Octo. | Workspace-only, wrist-only, shared-both, separate-both; then modest whole-view dropout held constant over history. Evaluate normal and missing-view validation. | E1--E2 / D1 | DO NOW |
+| R9 | **Object-centric upper bound.** Bottle/box localization may reduce small-data background burden, but crops may remove hand and approach context. | Fixed ROI/manual boxes; later SAM2/detector. | Full frame vs fixed task ROI vs oracle crop-plus-context on episode-held-out data. If oracle does not help, stop detector work. | E1--E2 / D0--D1 | DO NOW audit |
+| R10 | **Semantics-preserving RGB augmentation.** Small coherent geometric/photometric shifts should improve camera/lighting robustness without changing action meaning. | LeRobot image transforms; CAGE/VIOLA evidence. | Mild crop/translation/color grid, transform fixed across temporal window; reject variants that reduce in-distribution fit without held-out shift benefit. | E1 / D1 | DO NOW |
+| R11 | **Explicit memory baseline.** With 20,744 frames, nearest expert context can be competitive and exposes dataset coverage gaps. | Clean VINN-style 1-NN + pretrained embeddings. | Leave one episode out; image-only, image+state and phase-filtered retrieval; report phase consistency, first/chunk error and continuity. | E2 / D0--D1 | DO NOW offline |
+| R12 | **Phase-conditioned or phase-regularized policy.** Separating approach/grasp/lift/transport/place/release may ease long-horizon BC only if phase is causally observable. | Change points, auxiliary phase head, phase balance. | Use phase labels for stratified loss/analysis first; compare oracle-label upper bound with a causal image/state predictor. Never feed demo time or oracle phase at rollout. | E2--E3 / D1 | AUDIT FIRST |
+| R13 | **Equal-time targeted corrections.** Short failure-state corrections should outperform more nominal demonstrations under a fixed operator budget. | IWR/Sirius + current BC policy. | Protocol design now; after valid rollout compare equal operator minutes and labeled transitions across full demos, correction segments and balanced corrections. | E2--E3 / D3 | TOP post-rollout direction |
+| R14 | **Recovery data allocation.** Five to ten deliberately sampled recovery clips may cover failure states better than nominal data. | DAgger/IWR/Sirius; failure taxonomy. | From validated rollout logs, predeclare failure classes and estimate their frequency/coverage; do not collect until classes and safe takeover/reset are operationally defined. | E2--E3 / D3 | NEXT after R13 pilot |
+| R15 | **Execution-induced distribution shift.** The chunk consumer can matter as much as the checkpoint. | Fixed chunks, receding horizon, ACT temporal ensemble, later async/RTC. | Offline replay seam, prediction-age, action-replacement and deadline metrics; physical comparison only after the identical checkpoint is valid. | E1--E3 / D2 | WAIT for Thread A |
+| R16 | **Hybrid learned/classical phases.** Deterministic close/release or grasp-completion logic may remove low-variance subproblems from BC. | Phase analysis + bounded state machine + learned motion. | Measure within-phase action variance and cross-demo alignment. If close/release is nearly deterministic, compare phase-specific offline predictors before controller integration. | E1--E2 / D1--D2 | BACKLOG |
+| R17 | **True 3D representation for spatial generalization.** Metric geometry may help held-out bottle/box/view positions even if it does not improve in-domain success. | iDP3/Simple-DP3; RealSense depth; joint-action decoder. | Current-data gate already fails. Future short RGB-D sensor-quality audit, then matched RGB, RGB-D and XYZ encoders with the same action head/horizons. | E3--E4 / D4 | STRETCH |
+| R18 | **Auxiliary dynamics/progress supervision.** Predicting next state, future feature or observable phase may regularize the representation. | Existing sequential labels; shallow auxiliary heads. | Linear probes first. Add one head only if its target is predictable under episode split and correlated with a failure-relevant phase, not merely time. | E2 / D1 | BACKLOG |
+| R19 | **Demo subset/coverage selection.** Coverage may matter more than count, but learned quality ranking can overfit 25 samples. | Nested subsets; simple position/action/phase coverage; later DemInf. | Several coverage-stratified and random 5/10/15/21-demo subsets; multiple draws/seeds; no frame subsets. | E0--E1 / D1 | DO NOW with R1 |
+| R20 | **Hybrid alignment/interaction retrieval.** Retrieve global alignment context and local interaction separately instead of asking one parametric policy to learn both. | MT3 decomposition + VINN memory + phase boundaries. | Offline phase-conditioned retrieval and continuity metrics. Only add a learned residual if 1-NN retrieves correct phase but misses precise actions. | E2--E3 / D0--D1 | NEXT if R11 succeeds |
+
+### Augmentations that preserve this task’s semantics
+
+Good first candidates are small translation/random-resized crop, mild
+brightness/contrast/color jitter, small perspective after label inspection,
+feature dropout, and whole-camera dropout. For temporal inputs, sample one
+geometric transform per camera **per observation window**; independent
+frame-to-frame transforms invent motion. Keep a camera-drop mask constant over
+the window, and never drop both views simultaneously.
+
+Do not begin with horizontal flips, arbitrary 90-degree rotations, strong
+perspective warps, temporal shuffling, or image compositing that moves the
+bottle without transforming its action labels. State noise must be calibrated
+from measured synchronization/noise or train-deployment residuals, grouped by
+arm/hand semantics. Arbitrary action noise is not augmentation of an expert
+label and is excluded. Monocular predicted depth must be described as
+pseudo-depth, not as a DP3 reproduction.
+
+### Multi-view decision rule
+
+There is no controlled general result that cross-view attention beats a matched
+concatenation baseline for this setting. Start with separate encoders because a
+fixed workspace camera and moving wrist camera have different statistics; keep
+shared weights as an ablation because current ACT already uses them. Add camera
+identity and missing-view masks before cross-attention. Cross-attention advances
+only if concatenation is clearly limited under occlusion/camera shift and if it
+beats a parameter-matched MLP.
+
+For future RGB-D work, the least risky first combination is workspace point
+cloud + wrist RGB. Merging two clouds sounds simple but wrist hand-eye/FK,
+timestamp alignment, close-range holes and occlusion make it an E3 module.
+
+## Top-10 idea matrix
+
+The top ten include baseline/enabling experiments as well as paper directions.
+“Our contribution” is intentionally narrower than the full combination.
+
+| ID | Direction | Source paper(s) | Reusable component | What we would change | Our possible contribution | Engineering cost E0-E5 | Data cost D0-D5 | Can test now? | Requires valid rollout? | Expected paper value | Novelty risk | Implementation risk | License status | ICRA positioning | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I1 | Pretrained spatial vision in low-demo ACT | ACT; ImageNet; DINOv2; Theia | Spatial pretrained backbone/tokens | Hold ACT/data/head fixed; vary scratch, trainable/frozen/partial ImageNet, then DINO spatial tokens | Evidence about which representation interface and adaptation regime improves **physical sample efficiency and spatial generalization**; not the swap itself | E1 initially, E2--E3 DINO | D1 | Yes | No for kill test; yes for paper | HIGH if tied to scaling + OOD; LOW as one swap | HIGH | LOW initially | ACT MIT; LeRobot/DINOv2 Apache-2.0; TorchVision BSD | ROBOT-LEARNING | DO NOW |
+| I2 | Phase-dependent vision–proprioception robustness | GAP; NADA; Causal Confusion; BC-RNN | Change-point audit, group state dropout/noise, short history | Measure and regulate modality reliance around grasp/place transitions without oracle phase at inference | A causal phase-confidence or transition-aware regularizer that generalizes beyond JAKA; simple dropout alone is existing | E1--E3 | D0--D2 | Yes, offline | Physical claim yes | HIGH | MEDIUM | MEDIUM | GAP/NADA code license UNKNOWN; implement cleanly from paper | ROBOT-LEARNING | DO NOW analysis / NEXT method |
+| I3 | Equal-human-time targeted corrections | DAgger; IWR; Sirius; ThriftyDAgger | Intervention capture labels and balanced/trust-weighted sampling | Compare additional full demos with short failure-state corrections under equal minutes and transitions | A general data-allocation result for low-data real manipulation; potentially a simple correction sampler/protocol | E2--E3 | D3 | Protocol only | Yes | HIGH | MEDIUM | MEDIUM | Sirius MIT; IWR/Thrifty code UNKNOWN; clean adapter | BALANCED | NEXT after valid rollout |
+| I4 | View specialization + controlled view dropout | Seeing-from-Hands; CAGE; Octo; MV-MWM | Two-view ablations, shared/separate encoders, whole-view mask | Identify workspace/wrist roles and train for missing/shifted view robustness before adding attention | General insight about asymmetric camera observability in low-data long-horizon BC; camera dropout itself is not novel | E1--E2 | D1--D2 | Yes | Physical paper claim yes | MEDIUM--HIGH | HIGH | LOW--MEDIUM | Current LeRobot Apache-2.0; external methods only attributed | ROBOT-LEARNING | DO NOW |
+| I5 | Explicit retrieval and phase-continuous memory | VINN; MT3 | Frozen embedding kNN and alignment/interaction decomposition | Leave-episode-out, phase-filtered, continuity-constrained retrieval of joint-action chunks; residual only if justified | A safe/continuous chunk retrieval principle or learned-versus-retrieved phase finding; not generic kNN | E2--E3 | D0--D2 | Yes | Only for physical claim | MEDIUM--HIGH | MEDIUM--HIGH | MEDIUM | MT3 MIT; VINN no license, so clean math reimplementation | BALANCED / ROBOT-LEARNING | DO NOW baseline |
+| I6 | Episode/phase-balanced objective + demo scaling | Balanced BC; standard weighted sampling | Episode-uniform sampler, phase occupancy audit, nested subsets | Compare frame-, episode- and phase-uniform exposure with matched steps and unique frames; 5/10/15/21 demos | A measurement/enabler; publishable only inside a larger hypothesis about data allocation | E0--E2 | D0--D1 | Yes | No for kill test | LOW alone / MEDIUM as mechanism | HIGH | LOW | Repository-owned; paper code license UNKNOWN and not needed | ROBOT-LEARNING | DO NOW |
+| I7 | Matched Diffusion Policy baseline | Diffusion Policy | Pinned native implementation, two-observation history, receding horizon | Match cameras, pretraining, split, action semantics and ~16-step execution to ACT | Controlled evidence on whether action-distribution modeling helps a low-modal 25-demo task; baseline, not architecture novelty | E1--E2 | D1--D2 | Yes offline | Yes for success | MEDIUM as evidence | HIGH | MEDIUM | Original MIT; LeRobot Apache-2.0 | BALANCED | AUDIT FIRST |
+| I8 | SmolVLA low-data/embodiment boundary | SmolVLA | 450M pretrained VLA + flow expert | Explicitly map two images, task, 12-D absolute action, stats and 16-step consumer; first only load/overfit audit | A negative/positive scaling-boundary result if evaluated across demo counts/tasks; “SmolVLA on RH56” is not novelty | E1--E2 | D1--D2 | Yes audit | Yes for paper | MEDIUM | HIGH | MEDIUM--HIGH | Apache-2.0 code/base model; verify model card | ROBOT-LEARNING | AUDIT FIRST |
+| I9 | Execution-induced distribution shift | ACT temporal ensemble; Diffusion receding horizon; LeRobot async; RTC | Overlap fusion, prediction-age/queue metrics | Same checkpoint, controlled consumers, latency/seam/response measurements | Insight connecting chunk consumer to closed-loop shift across policies; not a runtime port | E1--E3 | D0--D2 | Replay yes | Yes | MEDIUM--HIGH | MEDIUM--HIGH | HIGH due safety/timing | MIT/Apache-2.0 for relevant code | BALANCED / ROBOTICS-HEAVY | WAIT for Thread A |
+| I10 | True 3D under equal action decoder | DP3; iDP3; RISE; KALM | Metric point cloud or sparse keypoints | Future synchronized RGB-D; compare RGB/RGB-D/XYZ with matched joint decoder, horizons and splits | When 3D helps low-demo joint-space manipulation under position/view shift; not a DP3 port | E3--E4 | D4 | No | Yes | HIGH stretch | MEDIUM | HIGH | Prefer iDP3/DP3 MIT; avoid RISE NC-SA reuse | BALANCED / ROBOT-LEARNING | STRETCH |
+
+### Independent paper-value assessment
+
+| ID | Novelty potential | Scientific clarity | Expected effect size | Reproducibility | Physical relevance | Reviewer defensibility | Implementation risk | New-data dependence | Rollout-bug dependence | Generality beyond robot | Algorithmic strength | Embodiment-specific strength | Incremental likelihood | Likely reviewer criticism |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| I1 | MEDIUM | HIGH | MEDIUM--HIGH | HIGH | HIGH | MEDIUM | LOW--MEDIUM | LOW | MEDIUM | HIGH | LOW--MEDIUM unless new adapter/analysis | MEDIUM | HIGH | “Known encoder swap; one task; pretraining confounds capacity.” |
+| I2 | HIGH | HIGH | MEDIUM | MEDIUM | HIGH | HIGH if causal | MEDIUM | LOW--MEDIUM | MEDIUM | HIGH | HIGH if phase-conditioned regularizer is new | MEDIUM | MEDIUM | “Phase is a hidden clock; noise creates impossible inputs; force thread overlap.” |
+| I3 | MEDIUM--HIGH | HIGH | HIGH | MEDIUM | HIGH | HIGH | MEDIUM | HIGH | HIGH | HIGH | MEDIUM | MEDIUM | MEDIUM | “Corrections had more useful labels/easier starts; operator-time accounting unfair.” |
+| I4 | MEDIUM | HIGH | MEDIUM | HIGH | HIGH | MEDIUM | LOW--MEDIUM | LOW | MEDIUM | HIGH | LOW--MEDIUM | LOW | HIGH | “Camera dropout/concat are standard; missing-view test is artificial.” |
+| I5 | MEDIUM | MEDIUM--HIGH | UNKNOWN--MEDIUM | HIGH offline | MEDIUM--HIGH | MEDIUM | MEDIUM | LOW | MEDIUM | MEDIUM--HIGH | MEDIUM if continuity mechanism is real | LOW | MEDIUM--HIGH | “Memory just memorizes a fixed scene; absolute-action neighbors are unsafe.” |
+| I6 | LOW | HIGH | LOW--MEDIUM | HIGH | MEDIUM | LOW alone | LOW | LOW | LOW | HIGH | LOW | LOW | HIGH | “Sampler hygiene, not a contribution; oversamples short/poor demos.” |
+| I7 | LOW | HIGH | UNKNOWN--MEDIUM | HIGH | HIGH | LOW alone | MEDIUM | LOW | HIGH | MEDIUM | LOW | LOW | HIGH | “Policy bakeoff with unmatched horizons/compute; no learning insight.” |
+| I8 | LOW--MEDIUM | MEDIUM | UNKNOWN | MEDIUM | HIGH | LOW--MEDIUM | MEDIUM--HIGH | LOW--MEDIUM | HIGH | HIGH | LOW | LOW | HIGH | “One instruction does not test a VLA; 25 demos below recommended regime.” |
+| I9 | MEDIUM | HIGH | MEDIUM--HIGH | MEDIUM | HIGH | MEDIUM | HIGH | LOW | HIGH | HIGH | MEDIUM if formalized | MEDIUM | MEDIUM--HIGH | “Engineering tuning; consumer comparisons alter effective feedback rate.” |
+| I10 | MEDIUM--HIGH | HIGH | MEDIUM under OOD | MEDIUM | HIGH | HIGH if matched | HIGH | HIGH | HIGH | HIGH | MEDIUM | MEDIUM | MEDIUM | “Representation/action/horizon confounds; sensor quality; one tabletop task.” |
+
+---
+
+# Continuation update — 2026-08-13
+
+The material above is retained as the initial Thread-C survey. This update
+records what changed after local `dev` commit
+`0dc8bf989e610c616517691a79097b516c5775dc` and the operator's manual
+demonstration audit. Where the two sections conflict, this continuation is the
+current decision record.
+
+## 1. CONTINUATION STATUS
+
+### COMPLETED
+
+- Recovered the existing isolated worktree and branch. The shared `dev`
+  worktree was not modified; `research/broad-exploration` was fast-forwarded
+  only to local `dev` at `0dc8bf9`.
+- Audited repository data contracts, policy interfaces, camera roles, depth
+  availability, pinned LeRobot support, and more than 30 serious papers and
+  official projects. The original policy, vision, 3D, retrieval, intervention,
+  and execution matrices above remain useful.
+- Established that maintained demonstrations contain two RGB streams and
+  12-D state/action, while synchronized metric depth was not recorded. A true
+  current-data DP3 reproduction is therefore closed.
+- Ranked the initial R1--R20 directions and I1--I10 ideas, including explicit
+  licenses and implementation distances.
+- Inspected the new ACT failure report and supporting offline evidence rather
+  than treating the physical symptom as a runtime-freshness problem.
+
+### PARTIAL
+
+- The broad report existed as an uncommitted 399-line living document. This
+  continuation completes its missing decision sections; it still intentionally
+  contains no physical result.
+- Thread A added an ACT ImageNet-pretrained comparison config, but no clean
+  nominal16 scratch/pretrained comparison has been trained. The old val4 data
+  cannot support that causal claim.
+- Phase, quality, retrieval, and history probes have designs and literature
+  support, but Thread C has not implemented or run them.
+- SmolVLA and Diffusion Policy are interface-audited. Neither has been promoted
+  to a physical baseline, and no large training run was launched.
+
+### NOT STARTED
+
+- No Thread-C model training, sampler implementation, history adapter,
+  retrieval baseline, action-representation conversion, or robot evaluation.
+- No new demonstration, correction, recovery, RGB-D, or force collection.
+- No paper modification, external-repository modification, or merge. Before
+  this continuation, Thread C had made no commit and the survey was untracked;
+  this report is intended to be the first isolated, documentation-only commit.
+
+### BLOCKED
+
+- Final clean-data comparisons must wait for Thread A's canonical corrected
+  nominal16 dataset view and source-level split. Thread C will not reproduce or
+  compete with that segmentation.
+- Correction-versus-full-demonstration experiments require a valid rollout,
+  a separately reviewed intervention protocol, and explicit authorization for
+  physical operation. None is granted by this report.
+- Physical claims for any policy remain blocked on Thread A's valid baseline
+  and controlled rollouts. Offline validation may kill ideas, not establish
+  task success.
+
+### SUPERSEDED BY NEW EVIDENCE
+
+- “25 clean expert trajectories” is superseded. There are 25 automatically
+  materialized trajectories, but approximately 16 operator-audited nominal
+  segments after correcting source episode boundaries.
+- The old val4 0/56 transition-anticipation statistic is a valuable mechanism
+  clue, not final clean-data evidence, because the training/validation material
+  was mixed quality and validation source 89 is not in the operator's nominal
+  list.
+- “Try a larger policy first” is downgraded. A larger decoder sees the same
+  inconsistent demonstrations and may learn the same persistence shortcut.
+- Current-data DP3 is superseded by the negative depth audit. It is not merely
+  waiting for an adapter.
+
+The first unfinished high-value item is therefore a controlled, canonical-data
+test of **demonstration quality and rare critical transitions**, before broad
+architecture replacement.
+
+## 2. NEW EVIDENCE FROM ACT FAILURE
+
+Thread A's diagnosis in
+[`physical_bottle_act_baseline_diagnosis_20260813.md`](physical_bottle_act_baseline_diagnosis_20260813.md)
+establishes the following on the **old mixed-quality dataset/checkpoint**:
+
+- runtime freshness was restored and was no longer the primary failure;
+- consuming two actions per chunk did not explain failure;
+- later positions in the predicted chunk did not hide a grasp command;
+- on 56 recorded approach-to-closure transitions whose future closure entered
+  chunk positions 2--15, the model anticipated 0;
+- when the recorded observation was already in a grasped state, it predicted
+  closure almost all the time;
+- predicted RH56 chunks had only about `0.000123--0.000160` mean peak-to-peak
+  range, indicating a near-static target sequence;
+- an older five-demonstration checkpoint anticipated 13/70 measured cases, so
+  the symptom is not evidence of a universal adapter or controller defect.
+
+The most economical interpretation is a possible closed-loop fixed point:
+the model waits for grasp-state evidence that its own action must create. That
+is consistent with several mechanisms but proves none of them.
+
+| Candidate mechanism | What the evidence supports | What remains unknown | Cheapest discriminating test |
+| --- | --- | --- | --- |
+| Rare-event / phase imbalance | Grasp initiation occupies few frames relative to persistent open/closed phases; recent correction work independently reports long phases dominating datasets. | Event frequency in canonical nominal16 and whether weighting alone changes anticipation. | Derive event windows from commanded hand-target changes; compare frame-uniform and event-balanced training with identical updates. |
+| Mixed-quality contradictory supervision | Human audit identifies missing approaches, stalls and collisions in many sources. | Whether nominal16 alone restores anticipatory chunks, or whether quantity loss offsets quality gain. | Mixed corrected view versus nominal16, plus matched-count random mixed subsets. |
+| Single-frame temporal aliasing | The same pose/image may occur just before “stay open” and “begin close”; current ACT sees one observation. | Whether two recent frames make the boundary causally separable rather than merely revealing trajectory time. | One frame versus two-frame history, plus shuffled-previous-frame and previous-action predictability controls. |
+| Absolute-action persistence shortcut | Long static intervals make copying the current absolute hand target a low-loss predictor. | Whether chunk-relative targets improve rare transitions for RH56; modern action-space evidence usually keeps grippers absolute. | Change only the hand target to a chunk-relative-to-query representation, reconstruct absolute targets before deployment, and measure event/non-event errors. |
+| Multimodal future at a boundary | A single observation might admit both wait and close futures. | Whether local action futures are actually multimodal after conditioning on short history and phase. | Cluster normalized future hand chunks inside nearest observation neighborhoods before porting a generative model. |
+| Vision suppressed by proprioception | GAP reports underuse of vision around motion transitions. | Whether current joint state creates that shortcut; no gradient/occlusion evidence exists yet. | Phase-stratified image/state occlusion and gradient sensitivity; try state-group dropout only if the audit is positive. |
+| Chunk execution | Execution affects closed-loop response. | It cannot explain why the offline chunk itself is nearly static and contains no future grasp. | Leave with Thread A until a valid checkpoint; compare consumers only with the same checkpoint. |
+
+This changes the evaluation contract. Aggregate action MSE is insufficient.
+Every clean-data training comparison should also report:
+
+1. event frequency and sampler exposure;
+2. first-action grasp/release transition precision and recall;
+3. future-chunk transition recall by horizon position;
+4. per-channel chunk peak-to-peak dynamic range;
+5. non-event hand error and arm error, to detect destructive oversampling;
+6. episode/source-level validation, never random-frame validation.
+
+The rare-transition hypothesis is broader than grasping only if it is tested on
+at least two event types (for example grasp and release, or contact-to-lift) and
+does not require an oracle phase token at deployment.
+
+## 3. NEW EVIDENCE FROM HUMAN DATA AUDIT
+
+The operator identifies these nominal full source episodes:
+
+`67, 70, 81, 87, 88, 95, 96, 97, 98, 108, 109, 116, 117`.
+
+Source episode 99 contains two nominal demonstrations that the automatic
+splitter failed to separate. Source episode 102 also contains two
+demonstrations: the first is non-nominal and the second nominal. The corrected
+total is therefore approximately 16 nominal trajectory segments. Other source
+episodes can contain missing approach, stalls, bottle collision/knock-down, or
+other non-nominal behavior.
+
+Consequences for scientific use:
+
+| Dataset use | Allowed interpretation | Required guardrail |
+| --- | --- | --- |
+| Canonical nominal16 | Expert-policy baseline and final clean training comparisons. | Use Thread A's canonical view; split by source, so two segments from one source never cross train/validation. |
+| Corrected all-data view | Mixed-quality imitation and quality-scoring research. | Preserve quality labels and segment provenance; never call it expert-only. |
+| Excluded/non-nominal segments | Failure taxonomy, automatic filtering, transition detection, or future recovery/correction research. | Do not silently mix into nominal BC or relabel failure as expert action. |
+| Old v2/val4 results | Historical diagnosis and pipeline evidence. | Label every result “old mixed-quality”; do not use as final method comparison. |
+
+The high-value question is not the unsurprising statement that human curation
+helps. It is whether a small, reproducible signal can identify **which segments
+or temporal regions are useful for downstream policy behavior**. The four
+conceptual baselines must be kept distinct:
+
+- **A: naive mixed-quality BC** — corrected boundaries, every segment equally
+  treated as expert;
+- **B: human-curated nominal BC** — the essential upper-quality baseline;
+- **C: automatic selection** — a held-out scorer or deterministic segment rule,
+  evaluated against human labels and downstream policy impact;
+- **D: quality weighting** — retains uncertain data but changes its influence;
+- **E: targeted replacement/correction** — collects support specifically near
+  learner failure states, only after a valid rollout.
+
+A fair quality-versus-count result needs both a natural comparison (all mixed
+data versus nominal16) and a matched-budget control (nominal16 versus multiple
+random or coverage-matched 16-segment subsets from the corrected mixed pool).
+Otherwise quality, quantity, segmentation, and optimizer exposure are
+confounded.
+
+## 4. UPDATED LITERATURE MAP
+
+The continuation search focused only on gaps exposed by the new evidence. It
+did not repeat the policy/vision/3D catalog above.
+
+### Demonstration quality and critical-transition work
+
+| Work | Exact reusable idea | Due diligence | Compatibility and decision |
+| --- | --- | --- | --- |
+| **S2I: Towards Effective Utilization of Mixed-Quality Demonstrations via Segment-Level Selection and Optimization**, ICRA 2025 ([paper](https://arxiv.org/abs/2409.19917), [project](https://tonyfang.net/s2i/), [code](https://github.com/junxix/s2i)) | Segment at gripper changes / near-zero robot velocity; learn a contrastive segment representation from three expert references; select/weight similar segments; optionally optimize and relabel trajectories. | Demonstrated with BC-RNN, ACT, Diffusion Policy and RISE in simulation and on three Flexiv+AG95 real tasks with two D435s. Real studies use 50-demo mixed sets with different expert/suboptimal proportions; exact collection accounting in the paper is not fully clear. Unified observation/action spec and training compute are **UNKNOWN** because downstream policies differ. Code is MIT; example configs/data exist; generic pretrained weights are **UNKNOWN**. | Three clean reference demos and segment-level selection fit conceptually. Full optimization/relabeling is E3--E4 and action-space specific. **Clean selection audit E2/D0--D1; do not reproduce full S2I first.** |
+| **GAP: When Would Vision-Proprioception Policies Fail in Robotic Manipulation?**, ICLR 2026 ([paper](https://arxiv.org/abs/2602.12032), [project](https://gewu-lab.github.io/GAP/), [code](https://github.com/GeWu-Lab/GAP)) | Detect motion-consistent phases from end-effector/gripper changes; learn continuous transition probability from proprioceptive differences; attenuate proprioceptive gradients during transitions. | Five-observation history, ResNet-18 + temporal transformer, proprio MLP, action sequence 9. Simulation uses 100/500 demos; real xArm/Robotiq and Cobot Magic experiments use 50 demos/task and 20 rollouts. One RTX 3090; reported examples span roughly 2--8 h, exact real time **UNKNOWN**. No explicit repository license found. | Strong mechanism match, not proof of our cause. Current joint/action differences can propose events, but copying code is prohibited absent a license. Audit E0--E1; faithful method E3. **UPGRADE as scientific reference.** |
+| **Towards Balanced Behavior Cloning from Imbalanced Datasets**, Autonomous Robots 2026 ([paper](https://link.springer.com/article/10.1007/s10514-025-10237-0), [preprint](https://arxiv.org/abs/2508.06319)) | Shows equal per-sample weighting biases BC toward frequent subpolicies; evaluates fixed and learned subpolicy weights. | Controlled simulation tasks with known behavior groups; no directly matching 16-demo real-robot result. Exact code/license and compute are **UNKNOWN**. | Supports a phase/event-balanced control, not the claim that equal phase weights are optimal. Simple reweighting E1--E2/D1; meta-gradient version is unnecessary now. |
+| **UVD: Universal Visual Decomposer**, ICRA 2024 ([paper](https://arxiv.org/abs/2310.08581), [project](https://zcczhang.github.io/UVD/), [code](https://github.com/zcczhang/UVD)) | Recursively propose long-horizon phase boundaries from extrema in distances between frozen visual embeddings (VIP/R3M/LIV/CLIP/VC-1/DINOv2). | RGB-video-only decomposition; real Franka multistage manipulation. Exact real demonstration count and compute are **UNKNOWN**. Code is MIT; pretrained representation weights are external. | E1/D0 offline phase proposal. S2I reports visual decomposition can over-segment noisy suboptimal demos, so compare it against hand/action change points and operator labels; never trust it automatically. |
+| **DataMIL: Selecting Data for Robot Imitation Learning with Datamodels**, arXiv 2025, revised 2026 ([paper](https://arxiv.org/abs/2505.09603), [project](https://robin-lab.cs.utexas.edu/datamodels4imitation/), [code](https://github.com/UT-Austin-RobIn/datamil)) | Approximate each temporal cluster's policy-dependent effect on a target validation objective, then select and co-train source/target data. | More than 60 simulated/real tasks and OXE-source transfer to four real target tasks, including a new Tiago embodiment. JAX/TensorFlow/RLDS/MDS stack, optional Octo, four-GPU experiments and five seeds. Code is MIT; task checkpoints are not directly reusable here. | Scientifically stronger than hand heuristics but statistically and computationally disproportionate to 16 same-task trajectories. **E4/D1, KILL implementation; retain influence-based evaluation idea only.** |
+| **DemInf**, RSS 2025 ([paper](https://arxiv.org/abs/2502.08623), [project](https://jhejna.github.io/demonstration-info), [code](https://github.com/jhejna/demonstration-information)) | Score demonstrations with a kNN mutual-information estimator in learned state/action embeddings. | JAX/Flax/RLDS release; relative actions worked best in its experiments. Exact estimator stability at 16 trajectories is not established. MIT. | E3/D0--D1. Use only after simple human-label, coverage, duration and event-occupancy baselines; **DOWNGRADE as immediate implementation.** |
+
+### Action representation, temporal structure, and corrections
+
+| Work | Exact reusable idea | Due diligence | Compatibility and decision |
+| --- | --- | --- | --- |
+| **Demystifying Action Space Design for Robotic Manipulation Policies**, 2026 (the official project labels it ICML 2026; an OpenReview PDF is also labeled ICLR 2026, so venue metadata is inconsistent) ([paper](https://arxiv.org/abs/2602.23408), [project](https://cathyf9600.github.io/empirical/), [code](https://github.com/CathyF9600/DemystifyActionSpace)) | A **chunk-wise relative** target subtracts the query-time state from every chunk step; unlike sequential deltas, reconstruction does not accumulate error across the chunk. The study finds chunk-wise relative actions and shorter execution horizons strong in tested settings. | More than 2,000 demonstrations, 13,000 real rollouts and 500 models across four tasks; main real settings use 250 demos/task with 100/250/500 scaling. Joint and task-space actions are compared. Exact training compute is **UNKNOWN**. No top-level code license was found: do not copy. | Far larger than nominal16 and therefore motivation, not a prediction. Current LeRobot guidance normally keeps grippers absolute, making RH56-relative an open controlled test. **E2/D1; test hand-only chunk-relative, never sequential delta first.** |
+| **LeRobot action representations**, current official documentation ([docs](https://huggingface.co/docs/lerobot/action_representations)) | Defines absolute, query-state-relative, and sequential-delta representations; relative targets are converted before normalization. Supports excluding specified joints, especially grippers. | Documentation reflects current upstream and may not exist in pinned 0.6.2; an adapter must be repository-owned and checkpointed with its stats. Apache-2.0 framework. | Use as semantics reference, not as evidence of benefit. Arm remains unchanged in the first probe; predicted RH56 relative chunks are reconstructed to legal absolute targets before any deployment. |
+| **AWE: Waypoint-Based Imitation Learning for Robotic Manipulation**, CoRL 2023 ([paper](https://proceedings.mlr.press/v229/shi23b.html), [project](https://lucys0.github.io/awe/), [code](https://github.com/lucys0/awe)) | Dynamic programming finds the minimum position-control waypoints whose interpolation stays within a reconstruction tolerance, reducing effective decision horizon. | Proprioceptive joint or EE waypoints, including gripper width; demonstrated with ACT and Diffusion Policy. Simulation commonly uses 50 demos/task; RoboMimic 30--200. Real ALOHA uses four RGB views and joint actions at 50 Hz; exact real demo count and compute are **UNKNOWN**. No repository license found. | The current absolute joint targets fit well. First do E1/D0 compression and transition-retention audit. Policy port is E3/D1 and only justified if compression is large without deleting grasp/release events. |
+| **HYDRA: Hybrid Robot Actions for Imitation Learning**, CoRL 2023 ([paper](https://arxiv.org/abs/2306.17237), [project](https://sites.google.com/view/hydra-il-2023)) | Use sparse waypoint actions in free space and dense one-step delta actions in contact/dexterous phases, with a learned mode classifier. | Three simulation and four real tasks; released description uses EE/gripper observations/actions, human mode labels, a waypoint controller, RNN dense head and MLP sparse head. Exact real demo counts, compute, official code and license are **UNKNOWN**. | Useful coarse-free-space/fine-transition hypothesis; full port E3--E4 because joint actions and a safe waypoint controller differ. **Audit action compressibility first.** |
+| **Set-Supervised Diffusion Policy (SDP)**, RSS 2026 ([paper](https://arxiv.org/abs/2606.01865), [project](https://set-supervised-diffusion-policy.github.io/), [code](https://github.com/ZhaotingLi/Set_Supervised_DP)) | Pair the robot's rejected action chunk with the human's corrective chunk, define a set of desired chunks, and train diffusion to sample inside that set rather than imitating one correction exactly. | Real observations are two RGB cameras + EE pose; observation horizon 2, action horizon 16, execute 8 at 10 Hz. Insert-T uses 2-D position; round-table uses absolute world-frame EE pose + gripper. Real studies use 50 demonstrations + 40 intervention episodes (Insert-T), and Demo30 versus Demo30+Corrections versus Demo60 (round-table). Demo30 and each continuation train 12 h on an A40. MIT code; real ROS1/Franka adapters and HDF5 correction examples; no JAKA checkpoint. | Strongest new evidence for corrections: with roughly equal data, corrections concentrate on bottleneck stages and outperform 30 extra full demos. Full set-supervised diffusion is E4; an equal-operator-time ACT/DP correction protocol is E2--E3/D3 after valid rollout. **UPGRADE post-rollout direction.** |
+| **PF-DAG: Primary-Fine Decoupling for Action Generation**, ICLR 2026 ([paper](https://arxiv.org/abs/2602.21684), [project](https://xiaohanlei.github.io/projects/PF-DAG/), [code](https://github.com/XiaohanLei/PF-DAG)) | VQ-VAE action-chunk modes plus a mode-conditioned continuous flow decoder explicitly factor coarse action mode and fine trajectory. | Simulation and real tactile dexterous experiments; xArm7, L515 and XHand/Quest. Exact target-compatible action interface, real demo count and compute are **UNKNOWN**. Repository is MIT but marked early access and not fully deployed. | Could address multimodal boundary actions, but current data has not shown local multimodality. **E4/D1, KILL until a multimodality audit is positive.** |
+| **SARM: Stage-Aware Reward Modeling**, ICLR 2026 ([paper](https://arxiv.org/abs/2509.25358), [code](https://github.com/xdofai/opensarm), [LeRobot docs](https://huggingface.co/docs/lerobot/sarm)) | Stage classifier + within-stage progress regressor from RGB/joints; use learned reward to filter or reweight demonstrations. | Frozen CLIP and natural-language subtask annotations; long-sequence T-shirt-folding data on a much larger scale than 16 demonstrations. Exact general checkpoint, compute, and repository license are **UNKNOWN** in this audit. Current pinned LeRobot does not include the newer support. | Progress supervision is relevant, but a learned reward model and manual language stages are disproportionate. **E4/D3, KILL full port; use simple causal progress probes only.** |
+| **The Pitfalls of Imitation Learning when Actions are Continuous**, COLT 2025 ([paper](https://proceedings.mlr.press/v291/simchowitz25a.html)) | Establishes that small expert-distribution error for smooth deterministic Markov policies need not imply small closed-loop error; stochastic/non-Markov policies and broader expert support can help. | Theory plus illustrative experiments, not a matching real-robot recipe; reusable code/license are **UNKNOWN/not required**. | Supports evaluating closed-loop support and history/generative baselines, but does not specifically prove a grasp-transition failure. **Conceptual reference only.** |
+
+The updated causal map is:
+
+```text
+mixed demonstrations + long persistent phases
+                    |
+          corrected source segmentation
+                    |
+       +------------+-------------+
+       |                          |
+quality/utility question     critical-event question
+       |                          |
+human nominal seed          event proposals from action/state
+selection / weighting       exposure + identifiability audit
+       |                          |
+       +------------+-------------+
+                    |
+          matched clean BC baseline
+                    |
+       +------------+-------------+
+       |            |             |
+pretrained vision  short history  chunk-relative hand target
+       |            |             |
+       +------------+-------------+
+                    |
+       diffusion only if futures are multimodal
+                    |
+ targeted corrections only after a valid rollout
+```
+
+This is a sequence of falsifications, not a request to train the combined
+diagram as one model.
+
+## 5. UPDATED IDEA MATRIX
+
+This table evolves I1--I10 rather than resetting them. New candidates start at
+I11. “Novelty risk HIGH” means a high risk of being perceived as incremental.
+“Can test now?” assumes offline access only; rows requiring nominal16 say so
+explicitly. All physical work remains unauthorized in this thread.
+
+| Rank / ID | Direction | Status versus initial matrix and why | Existing components | What we would change / what could be ours | E / D | Can test now? / valid rollout? | Time to first falsification | Expected effect | Paper value | Scientific generality | ICRA robot-learning fit | Novelty risk | Implementation risk | Physical-robot dependence | Force | New demos | License status | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **1 / I11** | Critical-transition learning | **NEW, UPGRADE to #1.** The offline 0/56 anticipation and near-static chunks identify a concrete failure, while GAP/Balanced BC supply independent mechanisms. | GAP change points/transition probabilities; balanced BC; ACT metrics; short history. | First add self-supervised event proposals and event-aware metrics/sampling. A publishable contribution would isolate event **rarity**, **observability**, and **action representation**, then introduce only the smallest mechanism needed; event sampling alone is borrowed/enabling. | E0--E2 / D0--D1 | After canonical nominal16; no rollout for kill test, yes for final claim | VERY SHORT | HIGH if imbalance is causal; otherwise diagnostic | HIGH if shown across events/tasks | HIGH | HIGH | MEDIUM | LOW--MEDIUM | LOW offline / MEDIUM final | NONE | NONE initially | Clean-room implementation; GAP repo has no explicit license; weighting is repository-owned | **DO NOW** after nominal16 |
+| **2 / I12** | Quality-over-count and segment utility | **NEW, UPGRADE to #2.** Human audit changes the effective expert set from 25 records to about 16 nominal segments. | S2I segment selection; DemInf; DataMIL; human labels. | Compare mixed, human-curated, automatic selection and weighting. Our possible contribution is a low-sample, event-aware segment-utility signal that predicts downstream policy impact—not “we removed bad demos.” | E0--E2 / D0--D1 | After Thread A publishes corrected views; no rollout for kill test | VERY SHORT | HIGH | HIGH only with automatic/generalizable criterion | HIGH | HIGH | HIGH | LOW--MEDIUM | LOW offline / MEDIUM final | NONE | NONE | S2I/DemInf/DataMIL MIT; scorer can be clean repository code | **DO NOW**; curation alone is baseline |
+| **3 / I1** | Clean pretrained spatial vision + ACT | **KEEP near top.** The E1 control already exists, but it must be rerun scratch versus ImageNet on the same nominal16, not dirty versus clean. | ACT; TorchVision ImageNet ResNet-18; later DINOv2 spatial tokens. | Change initialization only. Our possible contribution requires sample-efficiency and spatial/OOD evidence or an event-specific representation insight; the backbone swap is not novel. | E1 initially / D1 | After nominal16; no rollout for offline kill, yes for paper | SHORT | MEDIUM | MEDIUM; LOW as one swap | MEDIUM--HIGH | MEDIUM--HIGH | HIGH | LOW | LOW offline / MEDIUM final | NONE | NONE | ACT MIT; LeRobot/DINOv2 Apache-2.0; TorchVision BSD | **DO NOW** after data control |
+| **4 / I3** | Equal-human-time targeted corrections | **UPGRADE.** SDP gives direct 2026 real evidence that corrections concentrate at bottleneck stages and can beat roughly equal full-demo data. | DAgger, IWR, Sirius, SDP; existing rollout/capture pipeline once valid. | Compare equal operator minutes, frames and transition labels for full demos versus targeted corrections. Ours could be event-directed correction allocation for rare skill transitions; a plain SDP/IWR port is not novel. | E2--E3 / D3 | Protocol now; experiment requires valid rollout | MEDIUM | HIGH | HIGH | HIGH | HIGH | MEDIUM | MEDIUM | HIGH | NONE | SMALL | Sirius/SDP MIT; IWR license UNKNOWN | **NEXT** after valid rollout and authorization |
+| **5 / I7** | Stronger-policy falsification ladder: Diffusion Policy first | **UPGRADE as required baseline, not paper idea.** Its two-observation history, pretrained vision and generative head could address ambiguity, but also confound three axes. | Pinned LeRobot Diffusion Policy; original MIT implementation. | First match cameras, clean split, normalization, action horizon, execute horizon and compute. Only claim decoder value after history/pretraining controls. Our contribution is the controlled boundary, not diffusion. | E1--E2 / D1--D2 | Schema audit now; clean training after nominal16; rollout for success | SHORT--MEDIUM | UNKNOWN--MEDIUM | MEDIUM as evidence / LOW alone | MEDIUM | MEDIUM | HIGH | MEDIUM | MEDIUM | NONE | NONE | Original MIT; LeRobot Apache-2.0 | **AUDIT/NEXT**, after simple ACT tests |
+| **6 / I13** | Chunk-relative RH56 action target | **NEW.** Modern large-scale evidence favors chunk-wise relative actions, and current absolute hand targets may reward persistence. | ICML 2026 action-space study; LeRobot action semantics. | Keep arm absolute; subtract current measured RH56 position from every future hand target at query time; normalize relative data; reconstruct absolute targets before the existing adapter. Ours could be interaction between rare events and action coordinates in small-data underactuated control, not relative actions themselves. | E2 / D1 | After nominal16; no rollout for kill test | SHORT | UNKNOWN--MEDIUM | MEDIUM if mechanistic | HIGH | HIGH | HIGH | LOW--MEDIUM | LOW offline / MEDIUM final | NONE | NONE | LeRobot Apache-2.0; external comparison repo license UNKNOWN, so clean implementation | **NEXT** after event audit; reject sequential delta |
+| **7 / I6** | Episode/phase/event-balanced objective | **UPGRADE as enabler, ABSORB under I11.** The new failure is phase-local and human audit changes phase occupancy. | Weighted sampling; Balanced BC motivation. | Frame-uniform versus episode-uniform versus event-window-balanced exposure with matched optimizer steps and unique-frame accounting. This is not standalone novelty. | E0--E2 / D0--D1 | After canonical view; no rollout for kill test | VERY SHORT | MEDIUM--HIGH | LOW alone / HIGH inside I11 | HIGH | MEDIUM--HIGH | HIGH | LOW | LOW | NONE | NONE | Repository-owned; no external code needed | **DO NOW** within I11 |
+| **8 / I2** | Phase-dependent vision/proprioception robustness | **KEEP but DOWNGRADE behind simpler causes.** GAP strengthens the hypothesis, yet no local gradient/occlusion evidence shows proprioception is the culprit. | GAP; NADA; state/image masking and phase-stratified sensitivity. | Measure modality use at event windows, then try grouped state dropout or transition-conditioned gradient scaling. Our contribution requires causal cross-embodiment evidence; dropout alone is standard. | E0--E3 / D0--D2 | Audit after nominal16; physical shift later | SHORT | UNKNOWN--MEDIUM | HIGH if causal | HIGH | HIGH | MEDIUM | MEDIUM | LOW offline / MEDIUM final | OPTIONAL diagnostic only | NONE initially | GAP/NADA licenses UNKNOWN; clean implementation only | **AUDIT FIRST** |
+| **9 / I5** | Retrieval / expert-continuation memory | **KEEP, slight DOWNGRADE.** Sixteen nominal trajectories make explicit memory attractive, but quality/transition causes are more directly evidenced. | VINN mathematics; MT3 alignment/interaction split; frozen visual features. | Leave-source-out nearest frame/segment and retrieve an expert continuation with phase/continuity gates. Ours needs a safe continuity or coverage insight; kNN itself is known. | E2--E3 / D0--D2 | Yes after nominal view; rollout only for physical claim | SHORT | UNKNOWN--MEDIUM | MEDIUM | MEDIUM | MEDIUM--HIGH | MEDIUM--HIGH | MEDIUM | LOW offline / MEDIUM final | NONE | NONE | MT3 MIT; VINN no license—clean implementation only | **NEXT negative control** |
+| **10 / I14** | Waypoint/hybrid temporal abstraction | **NEW.** AWE/HYDRA directly question whether every 30 Hz target should be learned equally. | AWE waypoint extraction; HYDRA sparse/dense modes. | First quantify reconstruction compression and whether grasp/release survive. A possible contribution is automatically allocating dense prediction only around learned critical events in joint-space manipulation; full state-machine control is not the idea. | E1 audit, E3 method / D0--D2 | Offline audit now after nominal view; final requires rollout | VERY SHORT audit / MEDIUM method | UNKNOWN | MEDIUM--HIGH if compression is causal | HIGH | HIGH | MEDIUM | MEDIUM--HIGH | LOW audit / HIGH method | NONE | NONE initially | AWE/HYDRA code/license UNKNOWN; clean-room math only | **AUDIT FIRST / HOLD port** |
+| **11 / I4** | View specialization + view dropout | **DOWNGRADE.** Still cheap, but new evidence points first to labels/events rather than camera fusion. | Current two cameras; Seeing-from-Hands; CAGE. | Matched workspace/wrist/both/shared/separate tests, then coherent whole-view dropout. Any contribution needs a partial-observability/generalization result, not camera masking alone. | E1--E2 / D1--D2 | After nominal16; rollout for OOD claim | SHORT | MEDIUM | MEDIUM | MEDIUM--HIGH | MEDIUM | HIGH | LOW--MEDIUM | MEDIUM | NONE | NONE | Local/LeRobot Apache-2.0; external ideas attributed | **NEXT**, not top three |
+| **12 / I8** | SmolVLA low-data boundary | **DOWNGRADE to compatibility-only.** Official guidance already reports poor performance around 25 episodes and recommends about 50; nominal16 is even smaller. | LeRobot SmolVLA base/action expert. | Load, map schema, one-batch and tiny-overfit audit only. A meaningful result needs scaling or transfer across tasks, not “SmolVLA on RH56.” | E1--E2 / D1--D3 | Audit now; useful evaluation needs rollout | VERY SHORT audit / MEDIUM train | LOW--UNKNOWN | LOW--MEDIUM | MEDIUM--HIGH | MEDIUM | HIGH | MEDIUM--HIGH | MEDIUM--HIGH | NONE | MODERATE if scaling | Apache-2.0 code/base; verify model card | **AUDIT ONLY** |
+| **13 / I9** | Chunk-consumer / execution distribution shift | **KEEP, HOLD.** It remains important but cannot explain static offline chunks and overlaps Thread A. | ACT temporal ensemble; receding horizon; async; RTC for flow policies. | Same checkpoint under controlled consumers with prediction-age/seam/effective-feedback metrics. Ours requires cross-policy closed-loop insight, not runtime tuning. | E1--E3 / D0--D2 | Replay only; valid rollout required for decision | SHORT replay / MEDIUM physical | MEDIUM | MEDIUM--HIGH | HIGH | MEDIUM--HIGH | MEDIUM | HIGH due control timing | HIGH | NONE | NONE | MIT/Apache-2.0 components | **HOLD — Thread A ownership** |
+| **14 / I10** | True 3D / DP3-like representation | **KILL for current data.** No synchronized metric depth exists in maintained demonstrations; pseudo-depth is not reproduction. | DP3/iDP3/KALM concepts; future RGB-D. | Only a future matched RGB/RGB-D/XYZ study with new calibrated data. Our contribution would need spatial generalization under matched decoder/horizon. | E3--E4 / D4 | No | LONG | MEDIUM under OOD | HIGH stretch | HIGH | HIGH | MEDIUM | HIGH | HIGH | NONE | LARGE | Prefer DP3/iDP3 MIT; avoid NC-SA code reuse | **KILL NOW / future stretch** |
+
+Three interactions are scientifically motivated, but each must be assembled only
+after its components pass independent controls:
+
+1. **Pretrained vision + event-balanced sampling.** Existing components:
+   ImageNet/ACT and weighted sampling. Complementarity: one reduces visual
+   representation burden while the other prevents rare event supervision from
+   disappearing. Possible contribution: show these are orthogonal factors and
+   identify which matters by demo count. Cheapest falsification: a matched
+   `2×2` offline design after each single-factor run; do not start with the
+   factorial.
+2. **Short history + chunk-relative RH56 actions.** Existing components:
+   recurrent/history BC and query-relative actions. Complementarity: history
+   may identify *when* to transition, while relative targets make the required
+   change explicit. Possible contribution: a causal decomposition of
+   transition observability versus target-coordinate bias. Cheapest
+   falsification: run the two main effects separately; add the combination only
+   if both improve event recall without degrading non-event/arm error.
+3. **Human nominal seed + automatic segment utility.** Existing components:
+   S2I/DemInf-style selection. Complementarity: 16 human labels can supervise
+   or calibrate a small scorer while mixed segments provide hard negatives.
+   Possible contribution: an event-aware scorer that predicts held-out policy
+   impact. Cheapest falsification: leave-source-out quality classification and
+   rank correlation with retraining ablations; if duration/simple heuristics
+   match it, stop.
+
+## 6. TOP 5 DIRECTIONS
+
+### 1. Rare critical-transition learning without deployment-time phase labels
+
+This is the strongest current robot-learning direction. It addresses a concrete
+physical failure—failure to initiate a task-changing action—through a general
+learning question: how should chunked BC learn low-frequency events embedded in
+long persistent phases? Start with event-aware measurement and sampling, then
+use short history or relative targets only if the corresponding ambiguity is
+observed. Force dependence: **NONE**.
+
+### 2. Demonstration quality versus count in small physical imitation
+
+The human audit creates a rare controlled resource: mixed-quality segments and
+an operator-vetted nominal seed from the same collection process. The useful
+paper question is whether automatic segment utility can recover the human
+quality advantage or identify downstream-useful exceptions. Human curation by
+itself is essential engineering, not sufficient novelty. This is the primarily
+**data / imitation-learning** candidate. Force dependence: **NONE**.
+
+### 3. Clean pretrained spatial perception under 16-demo supervision
+
+Run scratch and ImageNet ACT on the identical nominal16 view before paying for
+DINOv2. This is the lowest-cost test of whether policy failure is partly a
+representation-learning burden. It becomes a paper direction only with a
+sample-efficiency curve, spatial/object generalization, or a link to transition
+recognition. Force dependence: **NONE**.
+
+### 4. Targeted corrections versus more full demonstrations
+
+IWR/Sirius and especially SDP support the proposition that correction data
+naturally covers learner bottlenecks that long nominal trajectories
+underrepresent. The experiment should compare equal operator time, frames and
+failure-stage coverage after a valid rollout. It has high paper upside but is
+not a current offline action. Force dependence: **NONE**.
+
+### 5. Stronger-policy boundary: matched Diffusion Policy, then SmolVLA audit
+
+Diffusion Policy is the nearest credible modern baseline in the pinned
+ecosystem and plausibly helps only if futures are genuinely multimodal or its
+two-frame/pretrained interface matters. Separate those factors before claiming
+diffusion value. SmolVLA receives only a load/batch/overfit audit because its
+own guidance predicts data starvation below roughly 50 episodes. This top-five
+item explicitly tests whether a stronger pretrained/generalist policy is worth
+further investment; it is not an architecture-novelty bet. Force dependence:
+**NONE**.
+
+The strongest current paper story is therefore **not primarily about force**.
+Force remains an optional complementary signal owned by Thread B; the present
+evidence more directly supports data quality and critical-event learning.
+
+## 7. TOP 3 FAST FALSIFICATION EXPERIMENTS
+
+These are “72-hour style” scopes, not wall-clock promises. They require no new
+demonstrations and no robot motion. All use source-disjoint splits, identical
+optimizer-step budgets, multiple fixed seeds, training-only normalization and
+the transition metrics defined in Section 2.
+
+### F1 — Quality/count causal ladder
+
+**Controlled variable:** training-set quality, with a separate count control.
+
+- Train the same scratch ACT configuration on Thread A's canonical nominal16
+  and corrected mixed-quality view.
+- Separately compare nominal16 against several source-stratified, matched-count
+  16-segment subsets drawn from the mixed pool. Keep validation nominal and
+  source-disjoint.
+- Report aggregate/phase loss, event recall, chunk dynamic range, and variance
+  across subsets/seeds.
+
+**Decision:** if nominal16 consistently improves transition metrics despite
+fewer frames, upgrade quality-aware selection. If matched-count mixed subsets
+match nominal16, the manual quality narrative weakens. If every condition fails
+similarly, prioritize representation/observability rather than adding a scorer.
+
+**Cost:** E0--E1/D1; time to first falsification **VERY SHORT** once the
+canonical view exists. This does not authorize Thread C to create that view.
+
+### F2 — Uniform versus critical-event-balanced sampling
+
+**Controlled variable:** sampling weights only.
+
+- Propose grasp/release event windows from changes in the recorded RH56 target;
+  freeze the threshold using training sources and manually spot-check it.
+- Train frame-uniform and event-balanced samplers on the same nominal16 rows,
+  initialization family, updates and seed set. Account for unique-frame
+  exposure and do not simply duplicate a tiny window without reporting it.
+- Preserve the ordinary non-event objective and report arm/non-event regression
+  so a gain cannot come from forgetting the rest of the task.
+
+**Decision:** if event recall and chunk dynamics improve without broad
+degradation, critical-transition learning becomes the leading method track. If
+the same frames remain unlearnable, test short history before more weighting.
+
+**Cost:** E1--E2/D1; time **VERY SHORT--SHORT**.
+
+### F3 — Scratch versus ImageNet on canonical nominal16
+
+**Controlled variable:** ResNet-18 initialization/backbone learning rate only.
+
+- Use the existing scratch and strong-pretrained ACT design but point both at
+  the exact same nominal16 view and split. Do not compare the old dirty scratch
+  checkpoint to a new clean pretrained one.
+- Match head, chunk length, batch, update budget, transforms and evaluation.
+- In addition to action metrics, train a frozen linear event probe on held-out
+  spatial features or measure event-window image occlusion sensitivity.
+
+**Decision:** a robust gain upgrades pretrained spatial representations and
+justifies a DINOv2-S spatial-token adapter. No gain kills the expensive encoder
+tour and moves short history/action coordinates forward.
+
+**Cost:** E1/D1; time **SHORT**. The current val4 pretrained config is a useful
+template, not the final controlled run.
+
+The immediate next falsification after these three is one-frame versus
+two-frame history with a shuffled-previous-frame control. Hand-only
+chunk-relative targets follow if absolute-target persistence remains visible.
+
+## 8. DIRECTIONS DOWNGRADED/KILLED
+
+| Direction | Updated decision | Reason |
+| --- | --- | --- |
+| Dirty25 as an expert baseline | **KILL** | Human audit shows non-nominal behavior and missed episode boundaries. Use only as explicitly mixed-quality data. |
+| Human curation as the paper contribution | **KILL alone** | Necessary baseline, but the result “bad demonstrations hurt” lacks an algorithmic/general insight. |
+| Train a larger/VLA policy before fixing data controls | **DOWNGRADE** | Larger models see the same contradictory labels and rare-event frequency; they do not create missing supervision. |
+| SmolVLA full fine-tuning now | **DOWNGRADE to audit** | Nominal16 is below the release's own roughly 50-episode guidance; task language has almost no variation. |
+| π0 / π0-FAST / OpenVLA-OFT | **HOLD/KILL now** | Compute, embodiment statistics and adapters are disproportionate; no evidence a large language-conditioned model addresses the measured transition issue. |
+| Full S2I | **DOWNGRADE to simple selection audit** | Trajectory optimization, action relabeling and policy-specific representations are E3--E4; human labels already permit cheaper controls. |
+| Full GAP | **HOLD after modality audit** | Transition failure does not yet establish proprioceptive shortcut. Repository has no explicit reuse license. |
+| DataMIL / SARM / PF-DAG | **KILL now** | Heavy data/compute or unestablished multimodality; no small-sample advantage over direct controls. |
+| Sequential delta actions | **KILL as first action test** | Reconstruction accumulates error. Test query-time chunk-relative hand targets while keeping arm coordinates fixed. |
+| Full AWE/HYDRA port | **HOLD after E1 compression audit** | Potentially strong long-horizon structure, but waypoint reconstruction must preserve critical hand events and a safe controller would be new work. |
+| Complex multi-view attention/object foundation stack | **DOWNGRADE** | No matched evidence it beats simple concat/crops; new local evidence points to quality/events first. |
+| Current-data DP3/RISE/KALM | **KILL** | Maintained demonstrations have no synchronized metric depth; pseudo-depth would not be faithful reproduction. |
+| Monocular predicted depth called DP3 | **KILL** | It changes the input semantics and cannot recover missing metric geometry. |
+| Chunk fusion/async as explanation for 0/56 | **KILL as cause; HOLD as later deployment study** | Static offline chunks lack a hidden closure command. Thread A owns controlled consumers. |
+| Force-primary Thread-C narrative | **DOWNGRADE, not disproven** | Thread B owns force. Current Thread-C evidence supports a general data/transition problem that requires no force. |
+
+## 9. POSSIBLE ICRA PAPER NARRATIVES
+
+### Narrative A — Learning rare critical transitions in long-horizon imitation
+
+**PROBLEM**
+Frame-uniform action-chunk BC can achieve low loss by modeling persistent
+actions while missing rare transitions that determine physical task success.
+
+**ROBOT-LEARNING INSIGHT**
+Long-horizon performance may be governed by both the exposure and causal
+observability of a small set of action-changing events, so aggregate action
+error is a poor learning target and evaluation measure.
+
+**METHOD**
+Detect candidate events from training-only action/state change points; measure
+event-conditioned chunk behavior; introduce event-aware sampling/loss. Add the
+smallest of short history, transition-aware modality regulation, or
+chunk-relative hand targets only when a diagnostic identifies that mechanism.
+No oracle phase label is required at deployment.
+
+**WHAT IS BORROWED FROM PRIOR WORK**
+ACT action chunking; Balanced BC's imbalance formulation; GAP's motion-transition
+analysis; standard history and relative-action representations.
+
+**WHAT COULD ACTUALLY BE OUR CONTRIBUTION**
+A general formulation and metric suite for critical-transition underlearning,
+a self-supervised event-aware objective, and causal evidence separating rare
+exposure from temporal aliasing and target-coordinate persistence on physical
+joint-space manipulation.
+
+**MINIMUM EXPERIMENTS**
+Clean nominal baseline; frame/episode/event-balanced controls; single/two-frame
+history and shuffled-history control; absolute/chunk-relative hand target;
+grasp and release (or contact-to-lift) events; physical success and event-stage
+success; at least one second task/event family or a public offline benchmark;
+one cheap spatial/object-position generalization axis.
+
+**MAIN REVIEWER RISK**
+The event rule may look hand-engineered or task-specific; one bottle task is
+insufficient; oversampling could simply repeat labels; retrospective event
+definitions could leak oracle information. Predeclare thresholds on training
+sources and validate transfer across event types/tasks.
+
+### Narrative B — When does demonstration quality beat quantity in small-data robot imitation?
+
+**PROBLEM**
+Small physical datasets mix nominal and stalled/colliding/incomplete behavior,
+yet treating every recorded frame as expert supervision can be worse than using
+fewer demonstrations.
+
+**ROBOT-LEARNING INSIGHT**
+Demonstration utility is segment- and phase-dependent: a short critical segment
+may matter more than a long nominal-looking phase, so trajectory count and frame
+count are poor data-value proxies.
+
+**METHOD**
+Use a tiny human nominal seed to calibrate simple segment quality/coverage/event
+features; select or softly weight corrected mixed data; keep human-curated,
+duration, random, coverage and existing S2I/DemInf-inspired baselines.
+
+**WHAT IS BORROWED FROM PRIOR WORK**
+S2I segment selection, DemInf information scoring, DataMIL's downstream-impact
+view, and standard robust/weighted BC.
+
+**WHAT COULD ACTUALLY BE OUR CONTRIBUTION**
+A statistically lightweight event-aware utility estimator for tens—not
+thousands—of physical demonstrations, plus evidence that it predicts policy
+impact rather than merely matching subjective labels.
+
+**MINIMUM EXPERIMENTS**
+Corrected mixed and nominal views; source-disjoint quality labels; matched-count
+random/coverage baselines; leave-source-out scorer evaluation; ACT and at least
+one different policy head; physical success/stage results; sensitivity to the
+number of clean reference segments; ideally a second task or public mixed-quality
+dataset.
+
+**MAIN REVIEWER RISK**
+“Cleaning bad data helps” is obvious; 16 labels are too small; human quality is
+subjective; scoring may be circular or simply detect episode duration; results
+may not transfer beyond one operator/task.
+
+### Narrative C — Spend human time at policy bottlenecks, not on more full demonstrations
+
+**PROBLEM**
+Full demonstrations devote most operator time and frames to already-solved
+phases, while learner-induced critical failures remain out of distribution.
+
+**ROBOT-LEARNING INSIGHT**
+Data collection should optimize bottleneck-state coverage under a human-time
+budget, not demonstration count.
+
+**METHOD**
+After a valid baseline, collect either full nominal demonstrations or short
+targeted corrections under equal operator minutes; record policy attempts,
+intervention boundaries and stage coverage; train a matched BC baseline with
+balanced intervention sampling. Set-supervised diffusion is a later comparison,
+not required for the first hypothesis.
+
+**WHAT IS BORROWED FROM PRIOR WORK**
+DAgger's on-policy aggregation, IWR balancing, Sirius intervention weighting,
+and SDP's positive/negative action-chunk supervision.
+
+**WHAT COULD ACTUALLY BE OUR CONTRIBUTION**
+Event-directed correction allocation for rare phase transitions under
+underactuated joint-space control, with a strict equal-time/equal-frame study
+and failure-stage accounting.
+
+**MINIMUM EXPERIMENTS**
+Valid baseline and safe takeover protocol; predeclared failure taxonomy; equal
+operator time for full demos/corrections; at least two collection rounds;
+policy attempt plus correction logging; clean held-out initial conditions;
+stage and full-task success; operator-time and frame efficiency; multiple seeds
+or independently initialized policies.
+
+**MAIN REVIEWER RISK**
+Corrections start closer to success and are policy-specific; operator-time
+accounting may be unfair; physical safety/takeover latency can confound data;
+the method may be an IWR/SDP reproduction without a new allocation principle.
+
+### Narrative D — Representation or policy capacity: what is actually worth pretraining at 16 demos?
+
+**PROBLEM**
+With very little physical data, poor results are often answered by a larger
+encoder or VLA without isolating perception, temporal context and action-head
+capacity.
+
+**ROBOT-LEARNING INSIGHT**
+The right pretrained interface may matter more than model scale: spatial visual
+features can reduce representation burden, while generalist action priors may
+fail under unseen joint/hand semantics.
+
+**METHOD**
+A matched ladder: scratch/ImageNet ACT, then DINOv2 spatial tokens if justified;
+Diffusion Policy with matched history/pretraining controls; SmolVLA only as a
+low-data transfer boundary. Evaluate nested demonstration counts and spatial or
+object-instance shifts.
+
+**WHAT IS BORROWED FROM PRIOR WORK**
+ACT, Diffusion Policy, SmolVLA, ImageNet/DINOv2 and Theia's spatial-token
+findings.
+
+**WHAT COULD ACTUALLY BE OUR CONTRIBUTION**
+A controlled account of which pretrained component transfers to small-data,
+multi-view, joint-space underactuated manipulation, possibly an efficient
+spatial-token adapter. A model bakeoff or encoder swap alone is not a
+contribution.
+
+**MINIMUM EXPERIMENTS**
+Nested clean demonstration counts; matched optimizer/parameter controls;
+scratch/frozen/partial/full adaptation; event-conditioned and full-task metrics;
+held-out bottle/box position plus one unseen appearance/object axis; ACT and one
+modern policy; memory/latency and multiple seeds.
+
+**MAIN REVIEWER RISK**
+Incremental benchmark on one robot/task; pretrained data or parameter count is
+confounded; VLA language is unused; success differences may come from history,
+horizon or normalization rather than pretraining.
+
+Current ordering is A, B, C, then D. Narrative A has the best balance of a
+specific physical problem and a reusable learning insight. Narrative C may
+overtake it if a valid rollout reveals concentrated, repeatable failure states.
+
+## 10. NEXT IMPLEMENTATION ACTIONS
+
+1. **Wait for and consume Thread A's canonical nominal16 view.** Verify source
+   IDs, segment provenance, split grouping and row counts read-only. Do not add
+   a second splitter or edit raw/master data.
+2. **E0 transition/quality audit.** Add one repository-owned offline analyzer
+   only if it can consume the canonical manifest without duplicating it. It
+   should report per-source duration, action-change points, event-window
+   occupancy, phase/frame sampler mass, transition futures, and human-quality
+   labels; no model training or raw writes.
+3. **Run F1 and F2 with a small fixed seed/update budget.** Retain only durable
+   code: extend the current sampler/data interface rather than introducing a
+   parallel training stack. Treat all old mixed-data outputs as diagnostic.
+4. **Run F3 using a nominal16 equivalent of the existing ImageNet config.** If
+   ImageNet does not improve held-out event/full metrics, do not port DINOv2.
+5. **Implement a two-frame derived observation adapter (E2)** only after the
+   event audit. Include shuffled-history and current-frame duplication controls
+   so history cannot win merely by leaking trajectory time or the previous
+   action.
+6. **Implement a hand-only chunk-relative target adapter (E2)** only if the
+   persistence diagnostic remains. Store representation metadata and
+   normalization with the checkpoint, reconstruct absolute RH56 targets at the
+   existing policy boundary, and keep all safety/action legality unchanged.
+7. **Audit Diffusion Policy after the simple main effects.** Match history,
+   ImageNet initialization, horizon, action representation and execution before
+   attributing a gain to generative modeling. SmolVLA stops after load,
+   one-batch and tiny-overfit checks unless a clear transfer signal appears.
+8. **Prepare—but do not execute—the equal-time correction protocol.** Define
+   operator minutes, frames, intervention starts, rejected/accepted action
+   chunks, reset exclusions and stage-wise outcomes. Physical collection waits
+   for Thread A and explicit authorization.
+9. **Do not start** DP3/RGB-D collection, full S2I/GAP/DataMIL/SARM/PF-DAG,
+   complex cross-view fusion, a large VLA sweep, or any robot motion from this
+   thread.
+
+No large implementation is warranted until F1--F3 reorder—or fail to
+reorder—the roadmap. A negative result is actionable: quality-insensitive
+performance kills the scorer track; event-balanced failure redirects effort to
+history/action observability; no ImageNet gain kills the encoder tour.
+
+## BENCHMARK AND UNDERACTUATED-SIMULATION STRATEGY
+
+Date of this continuation: 2026-08-13. This section preserves the earlier
+survey as history but supersedes its nominal16 planning assumptions. The
+current real-data authority is now `physical_bottle_v4_nominal52`: 52
+human-audited logical trajectories, 33,111 trimmed rows, approximately 1,102 s
+of real JAKA + RH56 behavior, dual RGB, RH56 position and native actuator-load
+feedback. No raw data, paper text, controller code or physical device was
+changed or used during this audit.
+
+### Executive platform decision
+
+The smallest credible architecture is a **conditional Option 4**:
+
+1. use **ManiSkill 3** as the single standardized simulation/evaluation layer;
+2. add a JAKA + RH56 agent and 3--6 underactuated tasks there;
+3. retain the repository's native MuJoCo JAKA + RH56 model as a
+   **fidelity oracle and migration test**, not as a second benchmark suite; and
+4. validate the selected learning claim on the real JAKA + RH56 using
+   `physical_bottle_v4_nominal52` plus only the minimum additional real tasks.
+
+This recommendation is conditional because current ManiSkill unexpectedly
+already contains an official-framework `RH56DFX-2L/R` Inspire-hand asset, but
+its authors explicitly say that mimic offsets and limits still need system
+identification. Its linear URDF mimic relations are not equivalent to this
+repository's nonlinear MuJoCo thumb coupling. The first action is therefore a
+semantic-parity gate, not a platform port.
+
+If that gate fails, the fallback is **native MuJoCo + robosuite/MimicGen +
+real RH56**. This sacrifices some benchmark throughput and leaderboard value
+but preserves the known embodiment semantics at much lower engineering risk.
+RoboTwin remains useful as a standard-policy reference and XPolicy evaluation
+ecosystem; it is not the cheapest RH56 simulator. Isaac Lab is the strongest
+long-term actuator-uncertainty engine, but converting the current nonlinear
+coupling and building a separate imitation stack is not justified before a
+specific sim-to-real hypothesis needs it.
+
+The strongest resulting paper direction is also **not force-dependent**:
+learning rare grasp/release transitions through an underactuation-aware hand
+action interface, tested across standard tasks, custom RH56 simulation and the
+real nominal52 data. Load can be an optional observation/calibration ablation.
+
+### Audit basis and version boundary
+
+Current behavior was checked in official source rather than inferred from
+marketing pages. Read-only reference checkouts were inspected at:
+
+| Project | Inspected revision | Primary source / license |
+|---|---:|---|
+| RoboTwin 2.0 | `266f3aadf505` | [official repository](https://github.com/RoboTwin-Platform/RoboTwin), MIT; [project](https://robotwin-platform.github.io/) |
+| XPolicyLab | `c37109c500be` vendored in the checkout | [official policy/evaluation repository](https://github.com/RoboTwin-Platform/RoboTwin/tree/main/XPolicyLab), Apache-2.0 |
+| Isaac Lab | `2e44ddb2e195` | [official repository](https://github.com/isaac-sim/IsaacLab), BSD-3-Clause; Mimic files Apache-2.0 |
+| ManiSkill | `62ff3a5896b4` | [official repository](https://github.com/haosulab/ManiSkill), Apache-2.0 code; assets have separate terms |
+| robosuite | `5ce6643f3092` | [official repository](https://github.com/ARISE-Initiative/robosuite), MIT |
+| DexMimicGen | `940e8a1b3ad7` | [official repository](https://github.com/NVlabs/dexmimicgen), NVIDIA research/noncommercial source license |
+
+The Isaac Lab checkout identifies itself as a 3.0.0 beta targeting Isaac Sim
+6.0.1; its documentation recommends stable releases for projects. ManiSkill's
+ACT/DP pages still label results and benchmark setup **WIP**. DexVerse is a July
+2026 preprint with an active release roadmap, not yet a mature primary
+dependency. These version boundaries matter more than nominal feature lists.
+
+### A. RH56 simulation audit
+
+#### Maintained integrated model
+
+The maintained simulation is **MuJoCo MJCF**:
+
+- source: `assets/jaka_rh56.xml`;
+- runtime collision-qualified derivative:
+  `assets/jaka_rh56_visual_coacd.xml`;
+- 6-DoF JAKA Mini2 plus a 12-joint RH56 hand;
+- 12 actuators total: six arm position actuators and six hand position
+  actuators;
+- 18 generalized positions/velocities, 22 bodies, 169 geoms, six equality
+  constraints, no declared sensor, site or camera elements;
+- simulation timestep 0.002 s;
+- arm actuator `kp=40`; hand actuator `kp=8`;
+- arm runtime supports a 500 Hz plant step and a 125 Hz accepted-target option
+  through the existing `JakaMujocoSimulation` adapter;
+- the command interface is six accepted JAKA joint targets plus six independent
+  native RH56 actuator targets.
+
+The hand is underactuated geometrically through six rigid MuJoCo joint
+equalities. Four finger DIP joints track their MCP parents linearly. The thumb
+uses nonlinear cubic joint-equality polynomials:
+
+- PIP = `0.9093 q + 0.386918399052 q^2 - 0.111910868472 q^3`;
+- DIP = `1.33911 q - 0.623601534642 q^2 - 0.0274541095051 q^3`.
+
+The default runtime has 13 collision-disabled vendor visual geoms, 148 active
+CoACD convex collision geoms and seven reviewed adjacent-link contact
+exclusions. Default contact friction is `[1, 0.005, 0.0001]`; hand contact uses
+`[1.8, 0.08, 0.004]`, `condim=4`, `solref=[0.004, 1]` and
+`solimp=[0.92, 0.98, 0.002]`. Joint ranges and actuator control ranges are
+explicit.
+
+MuJoCo exposes `actuator_force`, `qfrc_actuator`, `cfrc_ext` and per-contact
+wrenches, but the model declares no calibrated load sensors. These values are
+**simulation forces**, not a validated proxy for the RH56 native actuator-load
+channels. Camera simulation, objects, resets, success predicates and benchmark
+tasks are not present in the integrated asset; current uses are teleoperation,
+replay and an offline self-test.
+
+#### Separate hand-only test bench
+
+The independent `/home/thor/projects/exp/rh56dfx_hand.xml` is also MuJoCo MJCF.
+It contains the same 12 joints, six actuators and six rigid equalities, with 163
+geoms and a fixed test object. It supports contact/force diagnostics and
+controlled mass/friction changes, but no JAKA, cameras, standardized task,
+dataset writer or policy environment. It provides useful contact evidence but
+does not add tendon compliance, cable elasticity, backlash, hysteresis or
+measured load sharing.
+
+Therefore “high fidelity” is defensible for **geometry, collision decomposition
+and the currently modeled kinematic coupling**. It is not yet evidence of
+actuator/load fidelity. Future claims must keep those two meanings separate.
+
+#### Semantic fidelity still to validate
+
+Before using any simulator for a scientific claim, validate:
+
+1. fingertip forward kinematics over a fixed grid of the six native commands;
+2. driven-to-passive joint curves, especially both thumb couplings;
+3. collision geometry and contact-onset ordering on common primitives;
+4. joint/command range, sign and zero-pose correspondence to the real hand;
+5. actuator transient, delay, deadband/backlash and saturation only if the
+   paper claims dynamics transfer; and
+6. load mapping only if simulated effort is used as a policy input.
+
+#### Migration-cost audit
+
+| Target | Asset path | Expected semantic loss | Cost | Verdict |
+|---|---|---|---:|---|
+| Current MuJoCo | None | None relative to current model; actuator/load realism remains unvalidated | **E0** | Fidelity reference |
+| robosuite | Wrap/compose native MJCF and implement JAKA/RH56 controller/action formatting | Low for MuJoCo equality/contact; task/controller naming work remains | **E2--E3** | Best fallback |
+| ManiSkill hand-only | Use shipped RH56DFX URDF/BaseAgent | Linear, not cubic, mimic; offsets/limits explicitly uncalibrated | **E2** | Parity gate first |
+| ManiSkill JAKA+RH56 | Add JAKA URDF/BaseAgent, mount, cameras, controllers and tasks | Same hand issue plus cross-engine contacts | **E3**; **E4** if a custom nonlinear actuator/constraint is required | Conditional primary |
+| Isaac Lab | MJCF/URDF to USD/PhysX; articulation, tendons/custom actuator, sensors and tasks | Cubic equality is not directly represented by a fixed tendon; import preservation UNKNOWN | **E3--E4** | Stretch for actuator study |
+| RoboTwin 2.0 | Build SAPIEN-compatible URDF embodiment, CuRobo config and replace scalar-gripper stack | Likely linear mimic/contact differences; broad schema/controller rewrite | **E4** | Do not start now |
+| DexVerse | First do the Isaac Lab port, then fit an incompletely released cross-embodiment suite | Same Isaac gap plus release risk | **E4--E5** | Monitor only |
+
+Asset licensing is a separate gate. The repository's vendor mesh
+redistribution terms are **UNKNOWN** and must be resolved before publishing an
+RH56 benchmark asset. ManiSkill labels its Inspire asset CC BY-NC-SA 4.0, which
+also prevents silently copying it into a differently licensed benchmark.
+
+### B. Platform comparison
+
+#### Physics, embodiment and sensing
+
+| Platform | Custom robot / dexterous hand | Underactuation / actuator extensibility | Contact / load observability | Cameras / 3D | Parallelism and randomization | Sim-to-real tools |
+|---|---|---|---|---|---|---|
+| **RoboTwin 2.0** | URDF embodiments in SAPIEN; five supplied bimanual embodiments. Custom hands possible, but the framework's hand abstraction is scalar | URDF mimic is possible at the physics level, but RoboTwin control expands one normalized gripper scalar through fixed multipliers/offsets. No released RH56 actuator model | SAPIEN joint/contact information is available, but the standard dataset/action schema does not expose calibrated multi-actuator hand loads | Multi-camera RGB, depth and point clouds are native | Large seed/task generation and multi-process orchestration; collection inspected here plans/replays seeds serially per worker, not an Isaac-style vectorized GPU environment. Broad scene/camera/light/object DR | Randomization and evaluation transfer help; no turnkey real JAKA/RH56 bridge |
+| **Isaac Lab / Sim** | Strong USD/URDF/MJCF articulation support; Allegro/Shadow and current DexSuite examples; custom articulation is a first-class path | Strongest option: implicit and explicit actuator APIs, IdealPD/DCMotor/delayed/remotized/ActuatorNet MLP/LSTM; PhysX fixed/spatial tendons. A fixed tendon is linear, so current cubic equality needs a custom solution. Newton backend currently does not supply equivalent tendon support | Contact sensors, filtered net forces, articulation applied/computed efforts. None is automatically a calibrated RH56 load | RTX RGB/depth/segmentation and ray/contact sensors | GPU-vectorized physics/rendering and event-based domain randomization including masses, materials, gains and fixed-tendon parameters | Excellent DR and actuator-system-identification hooks; real transfer remains project-owned |
+| **ManiSkill 3** | URDF/MJCF custom agents; already ships fixed/floating RH56DFX-2L/R BaseAgents and product-family URDFs | Six active finger controls plus six passive mimic joints. Current RH56 asset uses linear mimics and high-gain PD. Custom controllers are straightforward; nonlinear coupling needs additional work. Current MJCF loader does not preserve this repository's solver/actuator/contact/equality semantics | Pairwise/net contact forces, generalized forces and joint state; no calibrated native-load model | GPU RGB/depth/segmentation/point cloud; agent and external cameras | GPU SAPIEN/PhysX, heterogeneous parallel envs, domain randomization and recorded reconfiguration metadata | Digital-twin/real2sim examples and `BaseRealAgent`; no JAKA/RH56 ready-made bridge |
+| **robosuite + MimicGen** | Native MuJoCo composition; already has an Inspire hand class, although its six-to-twelve mapping is not this calibrated asset | Preserves MuJoCo equality/contact semantics; custom composite controllers and observables. Existing Inspire implementation manually duplicates controls and is not a fidelity substitute | MuJoCo contact/force/torque observables; explicit observable sampling rate/delay supports multi-rate studies | RGB/depth/segmentation cameras; point cloud can be derived | CPU MuJoCo is less scalable than GPU suites; domain-randomization wrappers exist | Highest-fidelity continuation from the current asset, but task/real bridge remains project-owned |
+| **DexVerse (emerging)** | Isaac Lab suite claims 100 tasks, three arms and six hands | Inherits Isaac capabilities | Inherits Isaac capabilities | Visual randomization and teleoperation data | Intended GPU scale | Only Shadow assets/data were released in the inspected roadmap; other embodiments/baselines remain staged |
+
+#### Demonstrations, policies and benchmark value
+
+| Platform | Automated experts | Human teleoperation | IL / policy support | Evaluation and public suite | License / maintenance | **Standard benchmark value** | **RH56 research value** |
+|---|---|---|---|---|---|---:|---:|
+| **RoboTwin 2.0** | Strong task-specific CuRobo/MPLib generation, seed filtering and replay; 100k+ stated demos across 50 tasks | External/custom; not the main strength | XPolicyLab converts HDF5 to LeRobot and lists ACT, DP, SmolVLA, pi0/pi0-FAST/pi0.5, OpenVLA-OFT, RDT and others | Strong: 50 bimanual tasks, randomized evaluation, multi-GPU/remote policy server | MIT, active through Aug 2026; object/data licenses need per-asset review | **HIGH** | **LOW--MEDIUM** until hand stack is replaced |
+| **Isaac Lab** | Isaac Lab Mimic transforms/stitches source subtasks; it is not a generic planner. Source demos, boundaries, object poses and success logic are required | Keyboard, SpaceMouse, XR/CloudXR including Quest-class workflows, Manus; custom retargeting | Native robomimic BC/BC-RNN/BCQ path. No official native ACT/DP implementation located. GR00T/LeRobot and RLinf VLA integrations are experimental | Many environments and strong metrics, but no single mature IL leaderboard comparable with RoboTwin | BSD-3; Mimic Apache-2.0; Isaac Sim/cuRobo have separate terms. Very active, current main is beta | **MEDIUM** | **HIGH** for actuator/contact uncertainty |
+| **ManiSkill 3** | Engineer-written motion-planning demos for selected robots/tasks; trajectory replay/recording. No generic multi-finger expert generator | Mouse/keyboard/SpaceMouse examples; community VR, official direct VR support limited | Native ACT and DP code for state/RGB, RGB-D variants, BC/RL; VLA examples reference Octo/RDT/RT-X but are external. Official baseline results are WIP | Strong standardized Gym API, `success_once`, `success_at_end`, fail/return metrics, trajectory source/backend metadata; broad public tasks | Apache-2.0 code, active; general assets often CC BY-NC 4.0, Inspire asset CC BY-NC-SA 4.0 | **HIGH** | **MEDIUM--HIGH** after fidelity validation |
+| **robosuite + MimicGen** | MimicGen object-relative subtask transformation; DexMimicGen demonstrates dexterous task composition, but released DexMimicGen repo omits the generation core | Mature keyboard/SpaceMouse/device framework | robomimic BC-RNN/BC/BCQ and dataset conventions; no maintained native ACT/DP/VLA benchmark | Stable task/success API, but classic suite is dominated by parallel-gripper tasks and has less modern leaderboard comparability | robosuite MIT; MimicGen/DexMimicGen code is NVIDIA research/noncommercial | **MEDIUM** | **HIGH** for preserving native MuJoCo semantics |
+| **DexVerse** | Demonstrations and baselines are announced for 19 tasks | VR teleoperation is a central claim | DP/DP3/OpenVLA/pi0.5 are reported | Potentially high cross-hand comparability, but the inspected release still withholds most embodiment assets/instructions/demos | BSD-3 code; gated asset terms separate; July 2026 preprint/active roadmap | **MEDIUM now; potentially HIGH** | **MEDIUM, long-horizon** |
+
+The two value columns should not be collapsed. RoboTwin is the strongest
+general-policy comparison suite in this set while being a poor low-cost RH56
+host. The native MuJoCo/robosuite route is the reverse. ManiSkill is the best
+current compromise only because it combines a standardized evaluation layer,
+native ACT/DP examples and an existing RH56-family asset.
+
+### C. RoboTwin RH56 data-generation feasibility
+
+#### Actual released path
+
+The relevant RoboTwin path is:
+
+```text
+task play_once()
+  -> task-specific target poses and grasp_actor/open/close calls
+  -> Action(stage, target_pose, gripper=scalar target)
+  -> CuRobo or MPLib plans arm joint positions
+  -> Robot maps one normalized gripper scalar through mimic multipliers/offsets
+  -> first pass retains only successful seed/path pairs
+  -> second pass replays the same seed/path while cameras/state/actions are written
+  -> task-specific check_success() accepts or rejects the episode
+  -> HDF5, then optional XPolicyLab/LeRobot conversion
+```
+
+This is not a generic “language task to dexterous expert” system. The task
+author writes the semantic stages and grasp target. CuRobo plans the arm; the
+gripper primitive remains one scalar. `Robot.get_obs()` likewise records a
+scalar left/right gripper state plus a derived vector. A six-channel RH56 cannot
+be made faithful by changing only the URDF.
+
+#### What can remain and what must change
+
+| Component | Reuse for JAKA+RH56? | Required work |
+|---|---|---|
+| Scene/task randomization and deterministic seeds | **Yes** | Add objects/tasks that exercise distinct RH56 grasp types; retain seed provenance |
+| CuRobo arm planning | **Mostly** | Supply a JAKA kinematic model, joint limits, retract pose and collision spheres; verify planning scene and tool frame |
+| Stage/task scripts | **Conceptually** | Replace each scalar `grasp_actor/open/close` call with a pregrasp, synergy/hand primitive and possibly closure-until-condition stage |
+| Scalar `Action.gripper` | **No** | Introduce a six-native-channel or low-dimensional synergy hand action while preserving arm action semantics |
+| Gripper mimic expansion | **No** | Replace fixed scalar multiplier/offset logic with an RH56 controller; do not pretend passive-joint mimic is actuator load sharing |
+| Task success predicates | **Mostly** | Object pose/containment predicates remain useful; remove scalar-open gates and add task-level release/retention predicates where needed |
+| First-pass plan filtering | **Yes, with caution** | Arm-plan success is not grasp success. Hand/contact execution must run before a seed is labeled expert |
+| Camera/depth/point-cloud capture | **Yes** | Define workspace/wrist cameras matched enough for a controlled sim-to-real study |
+| Dataset writer/converters | **Partial** | Extend observation/action metadata and normalization for 6-D RH56 command, 12 physical joints and optional simulated effort/load |
+| XPolicy policy server/evaluator | **Yes after schema work** | Add the embodiment/action adapter and enforce per-policy timing/action-unit contracts |
+
+#### Effort and scientific use
+
+An honest custom RoboTwin embodiment is **E4**: URDF/SAPIEN model, JAKA
+CuRobo configuration, six-channel hand schema, grasp-primitive library,
+dataset/converter changes and task revalidation. Preserving CuRobo, seeds,
+success predicates and capture saves work, but does not eliminate the hard
+part: generating valid multi-actuator hand behavior.
+
+RoboTwin is therefore appropriate in two narrower roles:
+
+1. run a standard-embodiment policy baseline if the paper truly needs
+   general-policy evidence; or
+2. reuse its task/evaluation ideas after a hand expert exists elsewhere.
+
+It should not be the first RH56 implementation. A paper that compares a
+RoboTwin scalar gripper to the real RH56 would confound embodiment, action
+space, expert quality and physics.
+
+### D. Isaac Lab RH56 feasibility
+
+Isaac Lab is the technically strongest platform for a paper specifically
+about **actuator/contact uncertainty**:
+
+- `ArticulationCfg` makes custom robots first-class;
+- implicit and explicit actuators support ideal PD, DC-motor limits, delay,
+  remoting and learned MLP/LSTM dynamics;
+- custom actuator subclasses can implement deadband, asymmetric saturation,
+  rate limits or history dependence;
+- PhysX fixed/spatial tendons and randomization of fixed-tendon parameters can
+  represent linear coupling and uncertainty;
+- contact sensors can cover all fingertip bodies or selected pairs; applied and
+  computed joint efforts are observable;
+- event-based randomization covers material, mass, gains, actuator parameters
+  and scene/camera properties; and
+- GPU parallelism makes contact/actuator ablations substantially cheaper than
+  CPU MuJoCo.
+
+The import caveat is decisive. A fixed tendon constrains a weighted linear sum
+of joint positions. It does not reproduce the current cubic thumb equalities.
+Official MJCF import does not establish that MuJoCo `polycoef` joint equalities,
+contact solver settings or position-actuator behavior survive in USD/PhysX.
+The Newton backend also cannot currently be assumed to supply equivalent
+tendon behavior. “The file imported” is not a fidelity test.
+
+A credible port would require:
+
+1. convert geometry/inertia/collision to USD and mount it to JAKA;
+2. implement either a validated nonlinear constraint approximation or a custom
+   actuator/controller that produces the same passive-joint trajectories;
+3. reproduce six native command channels and the real command ranges;
+4. add cameras, contact/effort sensors, task resets and success conditions;
+5. replay the semantic-parity suite against the MuJoCo reference; and
+6. only then identify/randomize delay, friction, backlash or load mapping.
+
+Isaac Lab Mimic can transform and stitch object-relative subtask segments from
+the 52 real trajectories or a few sim teleoperation traces, but it needs
+subtask boundaries, object poses, a success predicate and environment-specific
+methods. It is not automatic planning from a blank task specification. This is
+still attractive for the existing approach/grasp/lift/transport/place/release
+structure, particularly if event labels are derived automatically.
+
+Native official imitation support found in the inspected tree is robomimic
+BC/BC-RNN/BCQ. No maintained native ACT or Diffusion Policy implementation was
+located. GR00T/LeRobot/RLinf connections exist but remain experimental and do
+not remove the custom-action integration. Overall cost is **E3** for a
+geometric prototype and **E4** for a paper-grade fidelity/IL environment.
+
+Verdict: **do not make Isaac Lab primary now**. Upgrade it if a first experiment
+shows that actuator delay/coupling/contact randomization, rather than policy
+learning, is the scientific bottleneck.
+
+### E. ManiSkill RH56 feasibility
+
+ManiSkill has the shortest surprising path because it already registers:
+
+- fixed and floating left/right Inspire `RH56DFX-2L/R` agents;
+- six active hand joints and six passive mimic joints, plus two wrist joints in
+  floating variants;
+- absolute and delta joint-position control configurations;
+- tuned axis/sign conventions intended to match the real product family; and
+- an explicit asset note documenting remaining system-identification issues.
+
+The shipped finger mimic multiplier/offset is `1.06399/-0.167348`; the thumb
+chain uses `1.3333` and `0.5` linear relations. The controllers use high-gain PD
+(`stiffness=1e3`, `damping=1e2`, nominal force limit 20) and add small mimic
+damping for PhysX stability. Those choices differ materially from our native
+MuJoCo `kp=8` and nonlinear thumb equality. They are a useful starting asset,
+not ground truth.
+
+ManiSkill's generic MJCF loader is not a shortcut: in the inspected source,
+joint solver/stiffness/actuator properties are not directly imported, contact
+tags are unsupported, tendon parsing is commented out, and equality behavior
+is explicitly caveated. Importing `jaka_rh56_visual_coacd.xml` directly would
+silently discard the semantics we care about.
+
+#### Required integration
+
+1. build or legally reference a JAKA URDF/agent, then mount the existing
+   Inspire hand at the validated transform;
+2. define a 12-D native command controller matching real JAKA/RH56 units, plus
+   lower-dimensional hand-action variants for ablations;
+3. calibrate or replace the linear mimic relations using the MuJoCo/real
+   fingertip and joint curves;
+4. attach workspace/wrist cameras and expose RGB, optional depth, joint state,
+   contact/generalized force and optional effort proxy;
+5. implement task `evaluate()` outputs, reset distributions and failure-stage
+   metrics;
+6. add motion-planning/teleop demonstrations for RH56 tasks; and
+7. write explicit trajectory metadata: source (human/planner/RL/Mimic), physics
+   backend, action semantics and randomization seed.
+
+#### Learning and evaluation advantages
+
+ManiSkill supplies native, inspectable ACT and Diffusion Policy example stacks,
+including RGB and RGB-D variants, plus standard motion-planning demonstration
+recording and Gymnasium evaluation. Metrics distinguish success at any time,
+success at the end, explicit failure and episode return. The trajectory record
+also preserves source and backend provenance. These are exactly the controls
+needed to avoid comparing policies trained on different expert generators.
+
+However, official ACT/DP benchmark tables are WIP, VLA examples depend on
+external Octo/RDT/RT-X code, and the existing Inspire hand is not assigned to a
+released dexterity task. Rotate-object tasks target Allegro, RotateValve targets
+DClaw and InsertFlower has its own embodiment assumptions. Custom task work is
+still required.
+
+Cost is **E2** for a hand-only kinematic/contact parity environment and **E3**
+for JAKA + RH56, cameras, tasks and a demonstration path. It becomes **E4** if
+matching the cubic coupling requires changes below the controller layer.
+
+Verdict: **recommended conditional primary**, with a strict two-stage gate:
+
+- **Gate M1:** static/dynamic hand parity without a learned policy;
+- **Gate M2:** one task, one expert source, ACT/DP data and evaluation smoke
+  test.
+
+Only after both gates pass should task expansion or GPU training begin.
+
+### Other platform findings that change the decision
+
+#### robosuite / MimicGen / DexMimicGen
+
+robosuite is the only current alternative that can preserve the native MuJoCo
+equality/contact representation without an engine conversion. It provides
+composable robot/gripper models, controllers, cameras, observables with
+configurable sampling rate/delay, domain randomization, demonstration capture
+and stable task success APIs. Its built-in Inspire hand uses a separate manual
+six-to-twelve mapping and must not replace our asset without validation.
+
+MimicGen's reusable idea is object-relative transformation and stitching of
+subtask segments. DexMimicGen (ICRA 2025) demonstrates that the idea extends to
+dexterous/bimanual tasks and reports 21k demos from 60 sources across nine
+tasks. The inspected DexMimicGen repository releases environments, datasets and
+BC-RNN configs but not the generation core; the generic MimicGen generator or
+Isaac Lab Mimic must supply it. NVIDIA's source license is research/
+noncommercial, so a clean reimplementation needs legal review and attribution.
+
+This stack is the **fidelity-first fallback**, cost **E2--E3**. Its weaknesses
+are CPU throughput, fewer modern policy baselines and weaker current benchmark
+comparability.
+
+#### DexVerse
+
+[DexVerse](https://github.com/ycyao216/DexVerse) is a promising Isaac-Lab-based
+cross-embodiment suite (July 2026 preprint) claiming 100 dexterous tasks, six
+hands, VR demonstrations and DP/DP3/OpenVLA/pi0.5 evaluation. The inspected
+official roadmap currently releases the task framework and Shadow subset while
+other embodiments, cross-embodiment assets/instructions/demos and parts of the
+baseline suite remain staged. It is **not yet a stable primary dependency**.
+Monitor releases; do not build the paper schedule around them.
+
+### F. Recommended experiment architecture
+
+| Requested option | Scientific coverage | Engineering / data cost | Main confound | Decision |
+|---|---|---|---|---|
+| **1. RoboTwin standard + Isaac RH56 + real** | Highest standard-plus-fidelity breadth | **E5**, D2--D4; two simulator stacks and two policy/data interfaces | Results can differ because expert generator, engine, embodiment and policy adapter all change | **REJECT NOW**; too broad for the smallest ICRA claim |
+| **2. Isaac Lab RH56 + real** | Strong actuator/contact uncertainty and GPU scale | **E4**, D2--D4 | Cubic coupling/import fidelity and missing native ACT/DP path | **HOLD** for an explicitly dynamics-centered paper |
+| **3. RoboTwin custom JAKA+RH56 + real** | Strong benchmark branding and XPolicy breadth | **E4**, D2--D4 | Scalar-gripper assumptions require invasive replacement; SAPIEN fidelity unknown | **REJECT NOW**; preserve RoboTwin only as a reference suite |
+| **4. ManiSkill RH56 + real** | Best one-platform mix of standard tasks, native ACT/DP, GPU scale and exact product-family asset | **E3** after gates, D1--D3 | Linear uncalibrated mimic versus nonlinear native model | **RECOMMEND CONDITIONALLY** |
+
+#### Recommended Option 4+
+
+“Option 4+” does not add another benchmark. It uses:
+
+```text
+ManiSkill standard tasks
+    -> general learning/evaluation control
+ManiSkill JAKA+RH56 tasks
+    -> underactuation and multi-stage mechanism study
+native MuJoCo JAKA+RH56
+    -> asset/controller semantic oracle and selected replay checks
+real JAKA+RH56 + nominal52
+    -> physical validity and sim-to-real/generalization evidence
+```
+
+The minimum ICRA-scale claim needs all three evidence tiers only if the method
+claims generality beyond RH56. A standard task subset tests whether the learning
+idea is a generic action-chunk or sampling improvement; the custom simulator
+tests its underactuation mechanism; real results test physical relevance. Do
+not force standard tasks into the custom RH56 embodiment when their expert and
+controller assumptions make that comparison meaningless.
+
+For a purely sim-to-real actuator paper, select the fidelity-first fallback
+(native MuJoCo/robosuite + real) instead. For a broad VLA benchmark paper, use
+RoboTwin standard embodiments, but that is a different project and should not
+be combined with an RH56 fidelity claim.
+
+### G/H. Algorithm opportunity map around underactuation
+
+The open problem is not “use a dexterous hand.” RH56 exposes six commands but
+realizes them through coupled passive joints, contact-dependent configurations
+and uncertain actuator response. A reusable learning question is how a policy
+should represent and infer the controllable hand state at rare multi-stage
+transitions. The following map separates existing solutions from the remaining
+RH56 claim.
+
+| Method / source | What is already solved | Reusable component | What remains open | Mapping to RH56 | Standard-benchmark test? | Force/load required? | License / cost |
+|---|---|---|---|---|---|---|---|
+| **Critical-event BC** (this survey's ACT failure evidence; phase/change-point literature) | Event-centered sampling and phase labels are standard tools; short history can reduce temporal aliasing | Self-supervised hand-command change points, event-window sampler, phase/stage metrics | Whether chunk policies systematically learn persistence instead of rare approach-to-grasp/release transitions, and whether the fix transfers across embodiments/tasks | Direct: six native hand command transitions are observable in all 52 trajectories | **Yes**: apply identical sampler/history to ManiSkill PickCube, StackCube, PegInsertion and custom RH56 tasks | **No** | Repository-owned E1--E2; novelty risk HIGH alone, MEDIUM if tied to underactuation/action interface |
+| **DQ-RISE**, ICRA 2026, [paper/code](https://github.com/rise-policy/DQ-RISE) | Quantizes dexterous hand state with a residual VQ-VAE and jointly generates ordered hand codes with arm motion; real 6-DoF OyMotion hand on six tasks | Hand-only codebook, ordered discrete/continuous gesture index and arm/hand loss balancing | Released full policy assumes calibrated RGB-D point clouds and RISE; no evidence that quantization helps a six-channel hand whose main issue is rare transition timing | Train the codebook only on RH56 position/command trajectories; compare native absolute, delta and code actions with the same ACT/DP visual backbone | **Partly**: codebook can be tested on an RH56 sim task; standard scalar-gripper tasks are a negative control | **No** | CC BY-NC-SA 4.0; clean adapter/reimplementation E2, full RISE E4 |
+| **CrossDex**, ICLR 2025, [paper](https://proceedings.iclr.cc/paper_files/paper/2025/file/ca8c6f28d8ba1e732e3f217ab05c4ec0-Paper-Conference.pdf), [code](https://github.com/PKU-RL/CrossDex) | Human-hand eigengrasp action and fingertip/palm observations support shared policies across four hands and zero-shot tests on two | Low-dimensional eigengrasp/synergy prior and explicit retargeting interface | Grasping-focused, privileged/state-heavy RL; official repo TODO still lists parts of eigengrasp processing, randomization, RL/DAgger; code license absent | Learn/fit a 2--6D controllable RH56 synergy basis over nominal52 and map it to native commands; do not import the full RL stack | **Yes only for cross-hand simulation**, not ordinary gripper tasks | **No** | License **UNKNOWN**; concept-only E2, full reproduction E4 |
+| **DexFormer**, 2026 preprint, [project](https://davidlxu.github.io/DexFormer-web/) | History-conditioned transformer infers morphology/dynamics across 300 randomized hands and transfers to LEAP/Allegro/RAPID grasping | Hypothesis that short histories reveal hidden embodiment/dynamics without an explicit ID | Code and license not released on the inspected project; high-scale RL/grasping does not establish low-data multi-stage IL | Test two/four-frame vision+state history and commanded/measured residuals before any morphology transformer | **Yes** in multi-hand sim after a large port; cheap history ablation is general | **No** | Code/license UNKNOWN; cheap derived test E2, reproduction E4--E5 |
+| **DexTrack**, ICLR 2025, [code](https://github.com/Meowuu7/DexTrack) | Tracks human references using cumulative residual position targets with kinematic bias or relative targets on Allegro and LEAP+Franka | Residual action around a kinematic/reference continuation | Needs a reference trajectory and privileged tracking pipeline; released authors say specialist-generalist pieces are too messy to release | Use nearest nominal continuation or chunk start as a reference and predict bounded RH56 residuals; compare with absolute targets | **Yes** as a reference-conditioned policy baseline | **No** | BSD-3-Clause repository; E2 retrieval/residual probe, full system E4 |
+| **MimicGen / DexMimicGen / Isaac Lab Mimic**, CoRL 2023 / ICRA 2025 | Generates data by transforming object-relative subtask segments and stitching/interpolating them; demonstrated dexterous/bimanual generation | Phase boundaries, object-relative segment transforms, success filtering and provenance | Requires object poses, reliable segment annotations and a simulator that survives transformed contact; dexterity generator core is not in the DexMimicGen repo | Derive approach/grasp/lift/place/release boundaries, replay only geometrically valid segments, preserve six-channel hand trajectory | **Yes** on standard and RH56 tasks if the same source-budget protocol is used | **No** | Isaac Mimic Apache-2.0; NVIDIA generators research/noncommercial. E2 phase audit, E3 generation |
+| **DemoGrasp**, ICLR 2026, [code](https://github.com/BeingBeyond/DemoGrasp) | One-demo object-centric replay plus massive RL produces grasp policies across hands; released Inspire checkpoint/data generation to LeRobot v2 | Inspire configuration, object-centric demonstration replay, sim data writer | Grasp-only, Isaac Gym Preview 4, 3,200-object/6,400+ env scale; no clear repository license located | Reference for Inspire geometry/data semantics and a grasp-initialization baseline, not a monolithic policy replacement | **Only on grasping** | **No** | License UNKNOWN; E4 and substantial compute; HOLD |
+| **DexUMI**, CoRL 2025, [project/code](https://github.com/real-stanford/DexUMI) | Human-hand universal interface, Inspire/XHand exoskeletons, robot-hand inpainting and real Diffusion Policy; force input is optional | Exact Inspire linkage optimization data/results, feasible hand-action capture interface, optional FSR conditioning | Requires new wearable hardware/data pipeline; not an automatic sim expert or benchmark | Valuable independent evidence for Inspire kinematic linkage and feasible actions; reuse code/data only with provenance | **No direct standard benchmark** | **Optional** | MIT; E3--E4 to adopt collection, E0 reference now |
+| **ManipTrans**, CVPR 2025, [code](https://github.com/ManipTrans/ManipTrans) | Residual RL transfers human-reference dexterous/bimanual trajectories; provides Inspire configurations but withholds some URDFs | Residual correction around retargeted references and reference-state initialization | Old Isaac Gym, reference trajectories, large RL; Inspire asset access restricted | Conceptual residual baseline only; do not import GPL components into permissive code without deliberate licensing | **Cross-hand dexterity only** | **No** | GPL-3.0; E4, REJECT now |
+| **Actuator dynamics + randomization** (Isaac Lab actuator APIs; [2026 force-based sim-to-real preprint](https://arxiv.org/abs/2601.02778)) | Delayed/learned motor models and randomized saturation/backlash can close actuation gaps; the preprint reports current-to-torque calibration and zero-shot force tasks | Identified command-to-joint dynamics, delay/deadband/saturation randomization and asymmetric critic during sim training | Exact RH56 parameter identification, whether dynamics matter for vision IL, and whether simple history is sufficient | Fit only parameters supported by offline/authorized evidence; use native load only for optional calibration/observation studies | **Yes** in custom sim; not meaningful on a default scalar gripper | **Optional for calibration; not required for action uncertainty** | Isaac BSD-3; cited preprint code/license UNKNOWN. E2 identification audit, E4 full sim-to-real RL |
+| **Multi-rate contact conditioning** (robosuite observable delays; existing nominal52 streams) | Frameworks can sample/hold modalities at distinct rates; multimodal policies can mask unavailable sensors | Timestamp-aware history, last-value/age token, modality dropout, simulated rate/delay sweeps | Whether sparse/lagged load adds information beyond hand command/position and contact history | Preserve raw load rate and timing rather than upsampling it as if synchronous; compare no-load/held-load/age-aware-load | **Yes** in RH56 sim, with force-free standard tasks as control | **Optional** | Repository-owned E2; Thread B owns load-specific implementation |
+
+#### What is worth testing first
+
+The most defensible combination is:
+
+```text
+self-supervised transition events
+  + short observation/command history
+  + underactuation-aware hand action (delta/residual or small learned codebook)
+```
+
+The components complement one another: event sampling fixes rarity, history
+reduces phase/dynamics aliasing, and the hand interface prevents long static
+absolute targets from dominating arm-hand learning. The hypothesis is falsified
+if each component fails under a matched update/parameter budget on both a
+standard manipulation task and nominal52 offline metrics. Force/load is absent
+from the core claim.
+
+Two more ambitious combinations remain conditional:
+
+- **Mimic-generated phase segments + the transition-aware policy** tests
+  whether data coverage or objective imbalance is the real bottleneck. It is
+  justified only after the base sampler/history/action factorial.
+- **Identified actuator randomization + history-conditioned policy** tests
+  whether temporal context implicitly adapts to underactuation uncertainty. It
+  requires a passed simulation-fidelity gate and more physical evidence.
+
+Do not combine DQ-RISE, CrossDex, DexFormer, MimicGen and load in one model.
+Each represents an alternative explanation; the experiment should expose
+which explanation survives.
+
+### I. Benchmark task selection
+
+#### A. Ten standard tasks for general policy evaluation
+
+Use ManiSkill's supplied Panda/Panda-wristcam embodiment and official
+motion-planning demonstrations for this tier. Do **not** replace the standard
+gripper with RH56 merely to claim task count.
+
+| Task | Why selected | Main property / event |
+|---|---|---|
+| `PickCube-v1` | Minimal grasp/lift control and a saturation check | approach -> close -> lift |
+| `PlaceSphere-v1` | Placement target with shape-induced grasp ambiguity | grasp retention -> precise release |
+| `StackCube-v1` | Longer horizon than pick; support-surface contact | grasp -> transport -> alignment -> release |
+| `StackPyramid-v1` | Repeated multi-stage composition | repeated pick/place and error accumulation |
+| `PegInsertionSide-v1` | Contact-rich spatial precision | grasp -> align -> insertion |
+| `PlugCharger-v1` | Tight pose tolerance and geometry-specific grasp | multimodal pregrasp -> insertion |
+| `PullCube-v1` | Non-prehensile trajectory control | contact acquisition -> persistent pull |
+| `PullCubeTool-v1` | Tool acquisition plus use | grasp tool -> reorient -> tool-object contact |
+| `PushCube-v1` | Non-grasp baseline for separating hand-transition gains | sustained contact without closure |
+| `LiftPegUpright-v1` | Reorientation during/after acquisition | grasp type and orientation robustness |
+
+This set is deliberately not “ten variations of pick.” It contains prehensile,
+non-prehensile, insertion, tool and repeated-composition cases. Run the official
+embodiment and expert source, fixed train/evaluation seed sets, and report
+`success_once`, `success_at_end`, explicit failure, episode length and the
+task-specific stage at failure. A method aimed at grasp transitions should
+improve Pick/Place/Stack without being expected to improve PushCube equally;
+that negative control improves causal clarity.
+
+If official demonstration quality or task support is incomplete at the chosen
+stable ManiSkill release, reduce the list rather than silently mixing planner,
+human and RL experts. Eight well-controlled tasks are better than ten with
+different supervision.
+
+#### B. Six underactuated/dexterous simulation tasks
+
+| Proposed task | Grasp/contact variation | Scientific role |
+|---|---|---|
+| **RH-GraspLift** | cylinder, cuboid and compliant-looking-but-rigid object; pinch/wrap variants | Isolate grasp initiation, retention and action-interface efficiency |
+| **RH-RelocatePlace** | bottle/can/mug to box, coaster or bin | Multi-stage analogue of the real task with object/goal pose shifts |
+| **RH-HandlePull** | drawer or hinged handle; hook/wrap grasp | Persistent contact and arm-hand coordination under passive coupling |
+| **RH-ValveTurn** | knobs/valves with two radii and resistance levels | Continuous contact, regrasp or changing hand posture |
+| **RH-ToolPress** | acquire a handled tool, then press/poke a target | Two contact modes and a critical skill boundary |
+| **RH-HoldUncertain** | lift/transport objects across mass, friction, coupling and delay ranges | Sim-to-real/action-uncertainty stress; load remains optional |
+
+Each environment must expose stage predicates independently of the reward:
+reached, acquired/contacted, grasped/retained, lifted, transported/aligned,
+placed/actuated and released. Training must not consume privileged stage labels
+unless the method declares that input and supplies a deployable estimator.
+
+Core generalization splits should vary object XY/yaw, one held-out geometry,
+mass/friction, camera extrinsics and coupling/command delay. Avoid a Cartesian
+product explosion: predeclare one geometric split and one dynamics split per
+task. Report both nominal and shifted success.
+
+#### C. Three core real RH56 tasks plus one stretch task
+
+1. **Bottle -> box** using the existing nominal52 dataset. Vary bottle and box
+   XY and one held-out bottle appearance/geometry.
+2. **Handled mug relocation** to a coaster or bin. This adds a handle-aware
+   pinch/hook or body-wrap choice and different release geometry without a new
+   sensor.
+3. **Drawer/handle pull then object exposure or retrieval.** A simple bounded
+   tabletop fixture supplies sustained contact and a different terminal
+   predicate.
+4. **Stretch: grasp a simple tool and press a large target.** Run only if the
+   first three support the method; it is the clearest multi-contact-mode test
+   but has the highest collection/setup cost.
+
+No collection is authorized by this plan. Before any later physical work, task
+fixtures, ranges, success predicates, trial counts, resets and safety boundaries
+must be separately reviewed. The real suite should be two strong tasks rather
+than four weakly powered ones if robot time is tight.
+
+### Evaluation protocol shared by all packages
+
+- Keep demonstration source and count fixed within a comparison. Label planner,
+  teleop, RL and generated trajectories explicitly.
+- Train at least three seeds for learned policies; evaluate on a fixed hidden
+  seed set and report binomial trial counts rather than only percentages.
+- Report full-task success **and** stage-transition recall/latency, retention,
+  wrong-transition rate and recovery after a missed event.
+- Match observation/action horizon, execution scheme, visual initialization,
+  normalization and update budget when comparing ACT and DP.
+- Use nested real-data subsets of nominal52, for example 8/16/32/52 logical
+  trajectories grouped by source; do not turn trimmed frames into independent
+  “demonstrations.”
+- Treat excluded/mixed-quality data as an explicitly named robustness or
+  quality-estimation set, never as silent expert augmentation.
+- Predeclare sim-to-real randomizations. Include a no-randomization control and
+  an oracle/full-joint simulation upper bound where scientifically meaningful.
+- Measure inference latency and actual command rate. A slower model is not a
+  fair action-representation win if it changes closed-loop timing.
+
+### J. Top three viable ICRA-scale packages
+
+#### Package 1 — Critical transitions in underactuated imitation (**recommended**)
+
+**Central scientific question.** Why do chunked imitation policies miss rare
+but task-critical grasp/release/contact transitions, and can a transition-aware
+objective plus minimal temporal context solve the problem across standard and
+underactuated embodiments?
+
+**Platforms.** ManiSkill standard tier + conditional ManiSkill JAKA/RH56 tier +
+real nominal52; native MuJoCo is the fidelity oracle.
+
+**Baseline policies.** ACT, Diffusion Policy, frame-balanced versus
+episode-balanced BC; scratch/ImageNet perception held fixed. SmolVLA gets a
+schema/one-task transfer audit only after the causal ACT/DP study.
+
+**Proposed algorithm family.** Self-supervised change points from command/state
+derivatives; event-balanced sampling or loss; two/four-frame history; optional
+hand delta/residual output. No deployment-time oracle phase label.
+
+**Simulation tasks.** Standard PickCube, StackCube, PlaceSphere,
+PegInsertionSide, PullCubeTool and PushCube negative control; RH-GraspLift,
+RH-RelocatePlace, RH-HandlePull and RH-ToolPress.
+
+**Real tasks.** Bottle -> box and handled mug; add handle pull only if the
+first two reproduce the transition mechanism.
+
+**Ablations.** Uniform/event sampler; one/two/four frames; true/shuffled/
+duplicated history; absolute/delta/residual hand action; event window width;
+ACT/DP; phase-label oracle only as an upper bound.
+
+**Generalization and sim-to-real.** Held-out object/goal pose and geometry;
+camera shift; coupling/delay shift in simulation. The method itself trains on
+real data; simulation establishes mechanism and scale rather than pretending
+synthetic pixels transfer directly.
+
+**Role of load.** None in the core. Optional event detector or observation
+ablation owned separately; the main claim must stand without it.
+
+**Role of underactuation.** It creates delayed/contact-dependent consequences
+from a low-dimensional command and makes transition timing/short history a
+physical, not merely sequence-modeling, issue.
+
+**Novelty risk.** **MEDIUM--HIGH.** Sampling/history are known individually.
+The paper must demonstrate a systematic event-persistence failure, an
+underactuation mechanism and cross-task/embodiment transfer, not present a new
+sampler name.
+
+**Engineering/data cost.** **E2--E3, D1--D3.** Fastest first falsification on
+nominal52 requires no new robot data.
+
+**Likely reviewer criticism.** “This is class rebalancing plus frame stacking.”
+Counter only with event-specific diagnostics, non-grasp negative controls,
+multiple policy families, standard tasks and real physical stage outcomes.
+
+#### Package 2 — A controllable action interface for underactuated hands
+
+**Central scientific question.** What policy action representation best
+captures the controllable manifold of a tendon/mimic-coupled hand: raw absolute
+actuator targets, deltas, bounded residuals, analytic synergies or learned
+discrete hand codes?
+
+**Platforms.** ManiSkill JAKA/RH56 after parity gates + real nominal52; a small
+standard task tier tests whether gains are hand-specific. Native MuJoCo supplies
+the nonlinear-coupling reference.
+
+**Baseline policies.** ACT and DP with identical visual/history settings;
+absolute native 6-D hand action, delta, chunk-start residual, DQ-RISE-inspired
+codebook and a low-dimensional PCA/eigengrasp baseline. A privileged 12-joint
+sim-only controller is an upper bound, not a deployable baseline.
+
+**Proposed algorithm family.** A learned or analytic low-dimensional
+underactuation-aware hand interface with a deterministic, bounded decoder to
+native six-channel commands; possibly a separate discrete grasp-mode and
+continuous arm/residual head.
+
+**Simulation tasks.** RH-GraspLift across pinch/wrap shapes,
+RH-RelocatePlace, RH-ValveTurn and RH-HoldUncertain.
+
+**Real tasks.** Bottle -> box, handled mug and handle pull.
+
+**Ablations.** Codebook size/dimension; analytic versus learned synergy;
+absolute/delta/residual; shared versus separate arm/hand loss; with/without
+history; same decoder with randomized coupling; raw-command reconstruction
+error versus policy success.
+
+**Generalization and sim-to-real.** Held-out grasp geometry, mass/friction and
+coupling/delay; train-sim/test-real with and without a small real fine-tune;
+report decoder feasibility and saturation.
+
+**Role of load.** Optional feedback/calibration ablation; not required.
+
+**Role of underactuation.** Central: the proposed interface must encode the
+controllable six-channel manifold and uncertainty in passive-joint outcomes.
+
+**Novelty risk.** **MEDIUM--HIGH** because CrossDex and DQ-RISE already cover
+eigengrasps and quantized hand state. Novelty must be the multi-stage,
+realizable-command interface under passive coupling and its causal comparison,
+not “a VQ-VAE for RH56.”
+
+**Engineering/data cost.** **E3, D1--D3.** The offline action study is E2; the
+full claim needs simulation and at least two real task types.
+
+**Likely reviewer criticism.** Six RH56 channels may be too low-dimensional to
+need a latent space; observed gains may be regularization or action smoothing.
+Include PCA/linear and matched-smoothing controls and be willing to kill the
+learned-code route.
+
+#### Package 3 — Fidelity-gated simulation data for real underactuated IL
+
+**Central scientific question.** When do transformed or randomized simulation
+demonstrations help a mature real dataset, and which embodiment errors make
+synthetic data harmful for underactuated multi-stage manipulation?
+
+**Platforms.** Native MuJoCo/robosuite + Mimic-style generation is the
+fidelity-first version; conditional ManiSkill provides GPU scale and standard
+tasks only after parity. Real nominal52 is the anchor.
+
+**Baseline policies.** Real-only ACT/DP; sim-only; naive mixed real+sim;
+real+geometric randomization; real+actuator/contact randomization; transformed
+phase segments; optional pretrained SmolVLA as a transfer boundary.
+
+**Proposed algorithm family.** Fidelity-gated synthetic-data selection or
+weighting: accept simulated segments only when kinematic/contact/action
+statistics lie inside a validated real envelope, with explicit phase/source
+metadata.
+
+**Simulation tasks.** RH-RelocatePlace, RH-HandlePull, RH-ToolPress and
+RH-HoldUncertain. Standard StackCube/PegInsertion provide a generator sanity
+check.
+
+**Real tasks.** Bottle -> box and handle/mug task, with held-out initial pose and
+object geometry.
+
+**Ablations.** No sim; naive sim; geometry-only; dynamics-only; both; Mimic
+segments versus full episodes; accepted/rejected weighting; exact versus
+perturbed coupling; amount of real data.
+
+**Generalization and sim-to-real.** Object pose/geometry plus mass/friction,
+command delay and camera shift. Report where simulation hurts as a first-class
+result.
+
+**Role of load.** Optional for defining/validating an actuator/contact envelope;
+not required for policy input or core data-selection claim.
+
+**Role of underactuation.** Central source of structured simulator mismatch:
+the same actuator command can yield different passive joint/contact outcomes.
+
+**Novelty risk.** **MEDIUM.** Domain randomization and Mimic generation are
+known. The contribution must be a measurable fidelity gate or data-selection
+principle with negative-transfer evidence, not “we mixed sim and real.”
+
+**Engineering/data cost.** **E3--E4, D2--D4.** Highest cost and therefore third
+ranked.
+
+**Likely reviewer criticism.** Simulator tuning may consume real test data;
+Mimic transformations may leak object pose; gains may come from simply more
+data; one hand may not establish a general fidelity principle. Use a locked
+calibration/evaluation split, equal sample budgets and at least two simulated
+coupling models.
+
+### Package ranking and force decision
+
+| Rank | Package | Robotics significance | Learning significance | Fast falsification | Force dependence | ICRA fit | Decision |
+|---:|---|---|---|---|---|---|---|
+| 1 | Critical transitions | HIGH | HIGH if mechanism transfers | VERY SHORT on nominal52 | NONE | ROBOT-LEARNING | **DO NOW offline** |
+| 2 | Underactuated action interface | HIGH | MEDIUM--HIGH | SHORT via offline representation controls | NONE / optional | BALANCED | **NEXT after parity gate** |
+| 3 | Fidelity-gated sim data | HIGH | HIGH if negative transfer is explained | MEDIUM | OPTIONAL | ROBOT-LEARNING | **HOLD until sim task exists** |
+
+The force-centered story is not the default. Load is scientifically useful if
+it explains otherwise hidden contact/actuator state or calibrates a simulation
+uncertainty model. It should be removed from the central claim if position,
+history and action representation explain the same failures.
+
+### Living idea-matrix update after nominal52 and simulation audit
+
+This is an update to the earlier matrix, not a reset. “Effect” is expected
+effect on the scientific decision, not a promised success gain.
+
+| ID | Direction | Change | E / D | First falsification | Effect | Generality / ICRA fit | Physical dependence | Force | New demos | Verdict |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C1 | Transition-aware sampling + short history | **UPGRADE**: nominal52 can support event statistics and clean training | E1--E2 / D0--D1 | VERY SHORT | HIGH | HIGH / HIGH | LOW initially | NONE | NONE | **DO NOW offline** |
+| C2 | Absolute vs delta/residual/synergy hand action | **UPGRADE**: underactuated sim supplies mechanism tests | E2--E3 / D0--D2 | SHORT | HIGH/UNKNOWN | HIGH / HIGH | MEDIUM for final claim | NONE | NONE initially | **DO NEXT** |
+| C3 | ManiSkill JAKA+RH56 benchmark | **NEW/UPGRADE** after finding a shipped RH56DFX-family asset | E3 / D1--D3 | SHORT parity gate | HIGH | HIGH / HIGH | MEDIUM | NONE | SMALL for full real suite | **AUDIT FIRST** |
+| C4 | Fidelity-gated sim/Mimic augmentation | **UPGRADE** because a native MuJoCo oracle exists | E3--E4 / D1--D4 | MEDIUM | HIGH/UNKNOWN | HIGH / HIGH | HIGH | OPTIONAL | SMALL--MODERATE | **HOLD after gates** |
+| C5 | ImageNet/pretrained vision on nominal52 | **KEEP**, now better powered; not a benchmark architecture by itself | E1--E2 / D1 | VERY SHORT | MEDIUM | MEDIUM / MEDIUM | LOW | NONE | NONE | **DO NOW control** |
+| C6 | Matched Diffusion Policy baseline | **KEEP**; ManiSkill supplies an additional standard implementation | E1--E2 / D1 | SHORT | MEDIUM | HIGH / HIGH as baseline | LOW initially | NONE | NONE | **NEXT baseline** |
+| C7 | SmolVLA/generalist transfer boundary | **KEEP narrow**; schema/one-task audit only | E2--E3 / D1 | SHORT | UNKNOWN | HIGH / MEDIUM | LOW initially | NONE | NONE | **AUDIT, do not sweep** |
+| C8 | Custom RoboTwin JAKA+RH56 | **KILL**: scalar-gripper pipeline makes it E4 | E4 / D2--D4 | LONG | UNKNOWN | HIGH standard / MEDIUM RH56 | HIGH | NONE | MODERATE | **REJECT NOW** |
+| C9 | Isaac Lab primary RH56 platform | **DOWNGRADE** until an actuator-uncertainty hypothesis needs it | E4 / D2--D4 | MEDIUM--LONG | HIGH/UNKNOWN | HIGH / HIGH | HIGH | OPTIONAL | SMALL--MODERATE | **STRETCH** |
+| C10 | DP3/point-cloud policy | **DOWNGRADE**: no current real depth and it does not target the diagnosed transition problem | E3--E4 / D4 | LONG | UNKNOWN | MEDIUM / MEDIUM | HIGH | NONE | MODERATE | **REJECT NOW** |
+| C11 | Native load as central story | **DOWNGRADE to optional**; simulated effort is not calibrated load | E2--E4 / D1--D3 | SHORT offline | UNKNOWN | MEDIUM / MEDIUM | HIGH for final load claim | REQUIRED only for that ablation | NONE initially | **OPTIONAL, Thread B-owned** |
+
+The architecture choice does not displace the cheapest nominal52 controls.
+Those offline experiments should run before simulation expansion because they
+can kill an action-interface or representation story without paying E3.
+
+### K. Concrete next implementation step
+
+Do one **offline ManiSkill semantic-parity gate**, not a task port or training
+run.
+
+#### Gate M0 — provenance and static model map (E0)
+
+Create a comparison artifact that maps, by semantic name:
+
+- six native RH56 command channels;
+- all driven/passive joints, axes, signs, zeros and limits;
+- mount/wrist frames and fingertip frames;
+- mimic/equality formulas;
+- collision geom counts/materials; and
+- applicable source/mesh licenses.
+
+Exit immediately if JAKA or RH56 publication/redistribution terms cannot be
+resolved. Research use of an asset is not publication permission.
+
+#### Gate M1 — command-to-hand parity probe (E1--E2, D0)
+
+Using only offline simulators, evaluate a fixed grid containing open, midpoint,
+closed and one-channel sweeps. Record from native MuJoCo and ManiSkill:
+
+1. active/passive joint positions and velocities after settling;
+2. fingertip and palm poses in the hand frame;
+3. control targets/applied effort and settling behavior;
+4. self-collision and contact onset against the same sphere/cylinder/box
+   primitives; and
+5. determinism across repeated resets.
+
+Plot errors by command and joint, with the nonlinear thumb shown separately.
+Do not invent a universal numerical tolerance before observing the physical
+scale and task sensitivity. Predeclare task-relevant tolerances after the
+static model map, then use them without retuning on benchmark outcomes.
+
+Decision:
+
+- if a controller/parameter adapter restores task-relevant parity without an
+  engine patch, proceed with ManiSkill Option 4+;
+- if parity requires replacing PhysX constraint semantics or contact geometry,
+  stop the port and use native MuJoCo/robosuite;
+- if only actuator transients disagree while kinematics/contact geometry agree,
+  proceed for the transition/action-representation package but do **not** make
+  sim-to-real dynamics claims.
+
+This probe requires no robot, no new demonstration, no policy training and no
+raw-data change. Any one-off diagnostic code should be removed after the gate
+unless it protects a stable published asset contract.
+
+#### Gate M2 — one-task learning smoke test (only after M1)
+
+Implement RH-GraspLift with one cylinder and one success predicate, generate a
+small explicitly sourced demonstration set, and verify that ManiSkill's ACT and
+DP loaders consume the exact same observation/action contract. Run only a tiny
+overfit/evaluation smoke test. Do not create the six-task suite, launch GPU
+sweeps or collect physical data until this gate shows a viable end-to-end path.
+
+In parallel, the cheapest learning falsification remains offline on nominal52:
+measure event occupancy and compare native absolute, hand-delta and simple
+linear/PCA synergy reconstruction. That result can kill Package 2 before any
+simulator integration.
+
+### Directions explicitly downgraded or killed by this audit
+
+- **RoboTwin as the sole RH56 platform — KILL.** The scalar-gripper action,
+  state and expert primitives make this an E4 rewrite, not a robot config.
+- **Two independent simulator stacks from day one — KILL.** It increases task,
+  expert, engine and policy confounds faster than scientific coverage.
+- **Direct MJCF import into ManiSkill/Isaac as proof of fidelity — KILL.** The
+  current cubic equality/actuator/contact semantics are not guaranteed to
+  survive.
+- **Isaac Lab because it is fastest — DOWNGRADE.** Its throughput is valuable
+  only after the model and imitation path are correct.
+- **DexVerse as a primary 2026 dependency — DOWNGRADE to monitor.** The public
+  release is not yet complete enough for the project critical path.
+- **Full CrossDex/DexFormer/DemoGrasp reproduction — KILL for now.** These are
+  large-scale grasping/RL projects and do not directly answer the nominal52
+  multi-stage IL failure.
+- **DQ-RISE full port — KILL; retain its hand-code hypothesis.** Its released
+  policy brings an RGB-D/RISE stack and a restrictive noncommercial share-alike
+  license that are unnecessary for the first test.
+- **Simulated effort presented as real RH56 load — KILL.** A calibrated mapping
+  is absent.
+- **A FORCE_ACT-only fallback — KILL as default narrative.** Nothing in the
+  platform audit makes force necessary. Load remains an optional modality and
+  calibration signal.
+
+### Primary-source ledger for this continuation
+
+- **RoboTwin 2.0:** [official project](https://robotwin-platform.github.io/),
+  [paper](https://arxiv.org/abs/2506.18088),
+  [repository](https://github.com/RoboTwin-Platform/RoboTwin), and the shipped
+  XPolicyLab action/data/evaluation code at the revision listed above.
+- **Isaac Lab:** [official repository and documentation
+  source](https://github.com/isaac-sim/IsaacLab), including actuator,
+  articulation, sensor, teleoperation, domain-randomization and
+  `isaaclab_mimic` implementations; [Isaac Lab
+  paper](https://arxiv.org/abs/2511.04831).
+- **ManiSkill 3:** [official repository](https://github.com/haosulab/ManiSkill),
+  [RSS 2025 paper](https://arxiv.org/abs/2410.00425),
+  [RH56DFX asset notes](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/assets/robots/inspire_hand/README.md),
+  [ACT baseline](https://github.com/haosulab/ManiSkill/tree/main/examples/baselines/act),
+  and [Diffusion Policy baseline](https://github.com/haosulab/ManiSkill/tree/main/examples/baselines/diffusion_policy).
+- **robosuite/MimicGen:** [robosuite](https://github.com/ARISE-Initiative/robosuite),
+  [MimicGen](https://github.com/NVlabs/mimicgen),
+  [DexMimicGen project](https://dexmimicgen.github.io/),
+  [paper](https://arxiv.org/abs/2410.24185), and
+  [released repository](https://github.com/NVlabs/dexmimicgen).
+- **DexVerse:** [official project](https://ycyao216.github.io/DexVerse.site/),
+  [paper](https://arxiv.org/abs/2607.08751), and
+  [repository](https://github.com/ycyao216/DexVerse).
+- **Underactuation/action methods:**
+  [DQ-RISE](https://github.com/rise-policy/DQ-RISE),
+  [CrossDex](https://github.com/PKU-RL/CrossDex),
+  [DexFormer](https://davidlxu.github.io/DexFormer-web/),
+  [DexTrack](https://github.com/Meowuu7/DexTrack),
+  [DemoGrasp](https://github.com/BeingBeyond/DemoGrasp),
+  [DexUMI](https://github.com/real-stanford/DexUMI), and
+  [ManipTrans](https://github.com/ManipTrans/ManipTrans).
+
+All license statements apply only to the specific code checkout named here.
+Datasets, object assets, robot meshes, vendor SDKs, Isaac Sim/cuRobo and model
+weights may have different terms. **UNKNOWN** remains the correct status until
+the exact artifact is audited.
+
+## UNDERACTUATED SIMULATION FACT AUDIT
+
+**Phase 1 scope.** This section is a factual audit of public hand assets,
+simulation platforms, public data, and prior underactuation/action-space work.
+It is intentionally not a final method recommendation, benchmark design, or
+paper decision. Evidence was checked against primary papers, official project
+pages, official repositories, and the checked-in RH56 model. `UNKNOWN` means
+that the inspected primary source did not establish the claim; it does not
+mean that the capability cannot exist elsewhere.
+
+### 1. Verified hand-asset matrix
+
+The terms “DoF” and “joint” are kept separate. Several vendors use DoF to mean
+independently commanded channels while also reporting a larger number of
+physical joints. A hand is called underactuated below only when the primary
+source describes tendon, passive, or mechanically coupled joints.
+
+| Hand/version | Primary-source mechanical facts | Powered actuators / topology | Contact-dependent passive configuration | Public asset/simulator evidence | Code license | Asset license | Audit status |
+|---|---|---|---|---|---|---|---|
+| **Inspire RH56DFX-2L/R** | Inspire support reports 6 degrees of freedom and 12 finger joints. The product/manual identify six independently addressed bending/rotation actuator channels and six actuator force/current registers. | 6 linear-servo channels for 12 joints. The Isaac Sim Inspire tutorial models one driven joint with PhysX mimic joints at fixed gear ratios. The vendor pages do not document the exact physical transmission topology in enough detail to infer every passive joint. | **Not directly stated in the inspected vendor documentation.** The simulator asset has mimic joints; that is evidence of the digital model, not a vendor claim that every passive joint changes under contact in the real hand. | Official Isaac Sim sample USD (`Inspire` rigging samples and `inspire_hand.usda`) is available in the Isaac Sim Content Browser. ManiSkill has RH56DFX-2LR URDFs and a fixed/floating hand agent. This repository has a MuJoCo RH56 model with 12 hand joints and 6 actuators, rigid equality couplings, and no declared load sensors in the model. | Isaac Lab/Sim code terms are separate from the sample asset; vendor asset redistribution terms are **UNKNOWN**. ManiSkill repository code is Apache-2.0, but its copied RH56 asset is asset-specific CC BY-NC-SA 4.0. | Isaac Sim sample asset terms **UNKNOWN**. ManiSkill RH56 asset README says CC BY-NC-SA 4.0. Local model license is repository-specific. | Underactuated/coupled simulator representation is verified; the physical contact-to-passive-joint statement remains unsupported. |
+| **LEAP Hand V2 Basic** | The official RSS-2025 product page describes an 8-DoF, hybrid rigid-soft hand. The official SDK exposes four finger MCP-side/curl pairs and two thumb channels (8 motor channels). The total number of physical finger joints is not numerically specified in the inspected V2-basic sources. | Four finger curl tendons; the SDK describes a linear curl relation to the sum of finger joint angles, with MCP moving first and PIP/DIP following. The assembly page identifies eight motor IDs. This is explicit underactuation/coupling. | **Yes, explicitly stated by the official SDK:** when a finger contacts the environment, it wraps/conforms rather than continuing an unconstrained nominal curl. | Official RSS page says a URDF and simulation examples for multiple engines exist, but the exact downloadable V2-basic URDF and a simulator repository were not verified in this audit. Do not substitute the V1 Isaac Gym repository. | SDK repository MIT. Feetech firmware/software has separate terms. | CAD page states CC BY-NC-SA. Exact V2-basic URDF/mesh redistribution terms are **UNKNOWN**. | Underactuation and contact-conforming behavior are verified; exact public asset location is still unresolved. |
+| **LEAP Hand V2 Advanced** | Official site reports 21 physical DOF and 17 powered motors; it is a distinct product from Basic V2. | Each four-finger PIP/DIP pair is coupled by one tendon; the 17 motor groups include finger motors, thumb motors, and two palm articulations. The API accepts a 20-DOF pose representation but directly commands 17 motors. | Coupled PIP/DIP geometry is explicit. A separate experiment demonstrating contact-induced passive motion was not found in the inspected sources. | Official CAD page provides URDF/STP downloads. Official API includes PyBullet IK and position/velocity/effort reads. | API license is **UNKNOWN** in the inspected repository (no unambiguous license file found). | CAD download terms state CC BY-NC-SA 4.0. | A verified underactuated public asset, but Basic and Advanced must not be conflated. |
+| **RUKA (original)** | Official project page describes a five-finger, tendon-driven hand with 15 underactuated DOF and a sub-$1300 design. | The project describes learned joint-to-actuator and fingertip-to-actuator models from MANUS motion capture. A primary source inspected here does **not** provide a definitive powered-actuator count. | Tendon-driven underactuation is explicit; a quantitative contact/passive-joint experiment was not separately specified in the project page. | Open design/assembly/code/data are claimed by the project page, but the exact canonical repository, downloadable URDF/MJCF, and asset terms were not resolved in this audit. | **UNKNOWN** for the original canonical code checkout. | **UNKNOWN**. | Underactuation is verified; download and licensing facts remain incomplete. |
+| **RUKA-v2** | Official site states 16 finger/thumb DOF plus a 2-DOF parallel wrist (18 physical DOF total). The site describes tendon routing, a dedicated abduction tendon, and spring return. | Official repository code has 16 motor IDs and calibration/tension/curl ranges. Its URDF contains 21 revolute joint tags and four mimic tags; the resulting independent-joint count does not reconcile cleanly with the site’s 18-DOF statement. | Tendon routing and spring return are explicit. The exact contact-dependent passive-joint law is not documented in the inspected sources. | Official MIT repository includes `rukav2_sim`, URDF, PyBullet loading, collision geometry, calibration and teleoperation code. CAD is linked externally; exact CAD/mesh terms are **UNKNOWN**. | MIT for the checked-in code. | **UNKNOWN** for CAD/mesh assets. | Public asset/sim is verified, but the DOF/URDF accounting needs clarification before using it as a ground-truth embodiment. |
+| **LEAP Hand V1 (GET-Zero control hand)** | Official LEAP simulator URDF has 16 revolute joints and the Isaac Gym configuration uses 16 actions. | Direct per-joint position-target actions; no mimic/tendon tags were found in the inspected URDF. | Not an underactuated hand in the audited simulator representation. | Official Isaac Gym simulator with `LeapHandRot` and `LeapHandGrasp`, GPU environments, force sensors, and sim-to-real code. | MIT. | Repository asset terms follow the repository; separate third-party object terms may apply. | Included as a negative control because GET-Zero uses this direct-actuation LEAP variant; it must not be cited as an underactuated hand. |
+
+No additional hand is included in the verified matrix merely because a project
+uses a “dexterous” or “low-cost” hand. In particular, the audited LEAP V1
+simulator and several Allegro/Shadow-Hand projects have direct joint control in
+their released assets, which is insufficient evidence for underactuation.
+
+### 2. Verified platform matrix
+
+“Custom asset support” means that the platform has an official import or agent
+extension path. It does not mean that an arbitrary tendon model will preserve
+its calibrated physical semantics without validation.
+
+| Platform | Existing audited underactuated hands | Custom hand/asset path | Actuator, mimic, tendon and contact facts | Parallelism and data generation | Imitation/task facts | Standard benchmark value | RH56/underactuated research value | License / maintenance facts |
+|---|---|---|---|---|---|---|---|---|
+| **RoboTwin 2.0** *(cross-reference to the earlier platform audit in this report)* | No public RH56/RUKA/LEAP-underactuated embodiment was verified. The supplied standard embodiments use scalar gripper abstractions. | Custom SAPIEN-compatible URDF/task assets are possible, but the audited action/expert path assumes a scalar gripper and would require a new multi-actuator hand integration. | SAPIEN exposes joint/contact state, but the released standard action/data path does not expose calibrated multi-actuator hand transmission or hand-load channels. The prior audit found no released RH56 actuator model. | Multi-camera RGB/depth/point-cloud capture, task randomization and CuRobo/MPLib seed generation are documented; this is not evidence of an underactuated-hand expert. | XPolicyLab provides policy/data/evaluation adapters for standard embodiments; the prior audit did not verify an RH56-compatible ACT/DP/VLA contract. | High for standard task/policy comparisons. | Low until the scalar-gripper hand stack is replaced and its generated experts are validated. | Official repository MIT; XPolicyLab Apache-2.0; per-asset/data terms remain separate. |
+| **Isaac Sim + Isaac Lab** | Isaac Sim 6.0 content contains an official Inspire RH56DFX USD tutorial asset. The audited Isaac Lab asset package does not contain a preconfigured RH56 task/agent for RH56. | USD articulation import/configuration is official; URDF-to-USD and custom articulation configuration are supported. | Isaac Lab documents implicit and explicit actuators, delays, friction, DC motors, and custom neural/physics actuator classes. Isaac Sim’s Inspire tutorial verifies PhysX mimic joints and fixed gear ratios. Isaac Lab exposes fixed-tendon/articulation APIs and contact sensors, but a complete RH56 tendon calibration path is not demonstrated by the audited examples. | GPU-accelerated vectorized simulation is a core framework feature. `isaaclab_mimic` generates synthetic demonstrations from a small number of human demonstrations; the official tutorial uses 10 cube-stack demonstrations. | RL, imitation, motion planning, cameras/LiDAR/contact sensors are first-class framework features. An RH56-specific task and exact ACT/Diffusion/VLA adapter were not verified here; mark those **UNKNOWN** rather than assuming ecosystem support. | High for Isaac-native robot-learning and GPU-scale evaluation, but less standardized than ManiSkill task IDs for this specific audit. | High asset/actuator extensibility and the only audited official Inspire USD. Whether the repository’s high-fidelity MuJoCo semantics can be imported without loss is **UNKNOWN**. | Isaac Lab code BSD-3-Clause; `LICENSE-mimic` Apache-2.0. Isaac Sim runtime and sample asset terms are separate and **UNKNOWN**. Active upstream project. |
+| **ManiSkill 3** | RH56DFX-2LR URDF and fixed/floating Inspire agents are in the official repository. The built-in dexterity task cards audited here list DClaw, Allegro, and TriFinger tasks, not an Inspire-specific task. | Official custom task/agent/asset APIs and URDF-based robot assets. | Inspire agent uses six active finger joints (plus optional wrist joints) and six passive mimic joints; its README documents PhysX mimic tuning, offsets/limits, and damping. Controllers are joint position/delta style; a vendor motor/tendon transmission model beyond the mimic representation was not verified. Pairwise/net contact-force APIs are documented. | GPU simulation and GPU-parallel visual data collection are core capabilities. Official scripts generate motion-planning, RL, and teleoperation demonstrations and provide HDF5 replay. | Official repository includes BC and Diffusion Policy examples and references ACT/VLA baselines. Built-in task suite and task cards provide success/randomization metadata. | High: task IDs, demonstrations, baseline scripts, and a public HF demonstration corpus give a comparatively reproducible benchmark substrate. | High for quickly loading the RH56 asset and checking mimic/contact semantics; lower for claiming calibrated actuator fidelity because the asset README itself notes untuned mimic offsets/limits and small spurious motion. | Repository Apache-2.0; asset licenses are separate (RH56 asset README CC BY-NC-SA 4.0; many other assets CC BY-NC 4.0). Active upstream with v3.0.1 released in 2026. |
+| **GET-Zero environment** | No audited underactuated hand. The generated hand is LEAP V1 with direct 16-DoF joint actions. | Procedural URDF graph editing is present, but it assumes LEAP V1 joint/motor IDs and direct actions. | Graph/morphology variation is verified; tendon, passive-joint, motor-transmission, and contact-dependent actuation topology are not represented in the released generator/model. Contact is used by the grasp/RL simulator, but no underactuated actuator model is supplied. | Isaac Gym GPU RL is used for expert generation; the grasp cache is CPU/contact-heavy. | Expert RL generation, state logs, embodiment-aware GET/ET distillation and variable-DoF BC/distillation are released. | High for morphology-generalization research in its defined LEAP direct-actuation setting. | Low as an off-the-shelf RH56 platform; an actuation-topology extension would be new code and new expert generation, not a configuration change. | No repository LICENSE file was found in the audited checkout; code/dataset/checkpoint terms are **UNKNOWN**. Paper/project are public, but this is a licensing blocker for direct reuse. |
+| **DexMimicGen / robosuite / MimicGen** | No Inspire/RUKA/LEAP underactuated asset was verified in the released environments. Environments use Panda/gripper or humanoid/dexterous-hand configurations. | Custom robosuite/MuJoCo robot XML and gripper registrations are possible in the underlying stack, but generic RH56 support is not documented by DexMimicGen itself. | MuJoCo contact and gripper/joint state are available through the environment. A reusable tendon/underactuated actuator model is not demonstrated by the audited task files. | The released project supplies simulation playback and generated HDF5 demonstrations; exact generic GPU-parallel generation support was not established from the project repository. | Nine task families and BC-RNN configs are released; generated data comes from MimicGen-style source-demo retargeting. | High as a multi-stage demonstration-generation/data-format reference, not as an underactuated-hand benchmark. | Medium for reusing task/success/data conventions after a separate custom MuJoCo hand integration; low as evidence that the hand model is already supported. | DexMimicGen code is NVIDIA Source Code License (noncommercial/research). README says datasets CC-BY 4.0, while the current HF dataset card says CC-BY-NC-SA-4.0; artifact license must be resolved before reuse. |
+
+The platform rows distinguish “standard benchmark value” from “RH56 value”
+because a platform can be excellent for reproducible policy comparisons while
+still being a poor model of a particular tendon transmission.
+
+### 3. Verified public-data matrix
+
+The four availability fields below are intentionally independent:
+
+- **ASSET AVAILABLE:** a robot/hand model or mesh can be obtained.
+- **TASK AVAILABLE:** an environment/task implementation is public.
+- **DEMONSTRATION DATA AVAILABLE:** recorded or generated trajectories are
+  downloadable or explicitly released.
+- **EXPERT POLICY AVAILABLE:** a policy used to generate demonstrations is
+  released or directly downloadable.
+- **PRETRAINED POLICY AVAILABLE:** a named checkpoint intended for policy use
+  is released. An asset or simulator alone does not satisfy this field.
+
+| Source / embodiment | Asset | Task | Demonstration data (count, task, embodiment, format, download, license) | Expert policy | Pretrained policy | Audit notes |
+|---|---|---|---|---|---|---|
+| **GET-Zero / LEAP V1 variants** | YES: LEAP V1 URDF and procedural variants. | YES: in-hand cube rotation (`LeapHandRot`). | YES, state logs in the official Google Drive `get_zero_dataset`; logs contain embodiment metadata, observations and actions. The paper/repository do not state a total trajectory count. The 44/10/20 numbers are train/validation/test **embodiment counts**, not trajectory counts. Logs exist fully for successful-performing embodiments and may be placeholders otherwise. Download link is in the official README. Dataset/checkpoint terms UNKNOWN. | YES: per-embodiment RL expert checkpoints are released/linked; generation is Isaac Gym RL after a grasp-cache stage. | YES: `GET.pt`, `ET.pt`, and several embodiment-specific `.pth` files are present/linked. They are for direct-actuation LEAP variants, not underactuated hands. | Do not count GET-Zero’s state logs as real human demonstrations; they are simulated expert behavior logs. |
+| **DexMimicGen / Panda and humanoid dexterous hands** | YES: released environment/task assets. | YES: 9 task families: TwoArmThreading, TwoArmThreePieceAssembly, TwoArmTransport, TwoArmDrawerCleanup, TwoArmBoxCleanup, TwoArmLiftTray, TwoArmCoffee, TwoArmPouring, and TwoArmCanSortRandom. | YES: paper reports over 21K generated demonstrations from 60 source human demonstrations across the nine tasks. HDF5 groups contain states, actions and RGB observations; released BC-RNN configs use low-dimensional end-effector pose/gripper state and images, with task-specific dimensions. Download: HF `MimicGen/dexmimicgen_datasets`; README and HF card disagree on exact license (CC-BY 4.0 vs CC-BY-NC-SA 4.0), so **UNRESOLVED**. | UNKNOWN: generation uses MimicGen/source-demo retargeting and task controllers, but a single downloadable “expert policy” checkpoint was not documented in the audited project. | UNKNOWN: BC-RNN reproduction configs are present, but no named pretrained policy checkpoint was verified. | “21K” is a paper/project aggregate, not a promise that every HDF5 file has identical fields or embodiment. |
+| **ManiSkill 3 task corpus** | YES: many public robot assets; Inspire RH56DFX URDF/agent is available. | YES: broad task suite; built-in dexterity cards include DClaw valve rotation, Allegro in-hand rotation, and TriFinger cube rotation. No Inspire-specific task card was found. | YES for the public HF `haosulab/ManiSkill_Demonstrations` corpus, organized by environment and source (`motionplanning`, `rl`, `teleop`) with HDF5 trajectories. The current card states 5.17 GB and Apache-2.0 but does not state a total trajectory count. Exact per-task counts/observation/action schemas are task-specific and must be read from each file. Download command is documented in ManiSkill utilities. | UNKNOWN as a single public expert-policy set. Motion-planning/RL generated trajectories are available, but the corpus card does not identify a universal expert checkpoint. | UNKNOWN/limited: the repository references policy weights used in some generation workflows, but a named pretrained policy covering the corpus was not verified. | Asset availability must not be reported as an Inspire demonstration set; current Inspire has no audited task/data pair. |
+| **RUKA original** | YES in the project’s open-design claim; exact canonical download not verified. | YES in project demonstrations/teleoperation descriptions. | UNKNOWN: project page says code/data are open-source, but no trajectory count, downloadable log archive, exact observation/action format, or artifact license was verified in this audit. | UNKNOWN. | UNKNOWN. | The 40-episode/45-minute HuDOR statement is an experimental claim, not a verified public dataset release. |
+| **RUKA-v2** | YES: MIT repository contains URDF, PyBullet simulation and control/calibration code. | YES: repository simulation and project page tasks; project page lists teleoperation and three autonomous policy tasks (pen pickup, music-box opening, bread pick/place). | UNKNOWN: no downloadable trajectory archive, trajectory count, exact observation/action schema, or policy-log license was documented in the inspected official site/repository. | UNKNOWN. | UNKNOWN: BAKU code is referenced as a submodule/project, but a RUKA-v2 pretrained checkpoint was not verified. | Videos/task claims do not satisfy the demonstration-data field. |
+| **LEAP Hand V2 Basic** | YES in the official product/SDK/CAD ecosystem; exact basic-URDF URL not verified. | UNKNOWN: official RSS page says URDF and simulation examples exist, but a complete public task environment was not verified. | UNKNOWN: SDK/API and CAD are public; no trajectory dataset was verified. | UNKNOWN. | UNKNOWN. | Do not transfer V1 `LeapHandRot` checkpoints to V2 Basic. |
+| **LEAP Hand V2 Advanced** | YES: official URDF/STP CAD download and API. | UNKNOWN: API includes PyBullet IK, but no benchmark task suite was verified. | UNKNOWN: no trajectory dataset was verified. | UNKNOWN. | UNKNOWN. | CAD is CC BY-NC-SA; API code license remains UNKNOWN in this audit. |
+| **LEAP Hand V1 simulator (negative control)** | YES: MIT Isaac Gym repo with URDF. | YES: rotation/grasp environments. | No released human-demonstration corpus was identified; simulator includes RL rollouts. | YES in the sense of RL policy/checkpoint used by the simulator. | YES: `runs/pretrained/nn/LeapHand.pth`. | Direct-actuation 16-joint hand; not evidence for underactuated data. |
+
+### 4. GET-Zero architecture summary
+
+#### Verified existing capability
+
+1. **Embodiment family.** GET-Zero generates LEAP V1-style hand variants,
+   not RH56, RUKA, or LEAP V2. The released variants remove joints/links from
+   a base URDF and extend link lengths. The official configuration uses 44
+   graph-variation embodiments for training, 10 for validation, and 20 for
+   test; additional IDs represent link-extension and combined variations.
+2. **Representation.** The embodiment encoder has one token per joint/DoF plus
+   a global observation token. Audited node features include degree,
+   parent/child counts, and child-link identifiers. The graph model pads
+   variable-DoF state/action vectors. No motor nodes, tendon-routing edges,
+   passive-joint flags, transmission ratios, actuator force limits, or
+   contact-dependent coupling variables were found in the inspected model.
+3. **Expert generation.** A grasp-cache stage samples 1,024 grasp poses for
+   five cube sizes; contact-heavy cache construction runs on CPU, followed by
+   Isaac Gym GPU RL. The project reports roughly eight hours and 13 GB on an
+   RTX 3090 per seed for the expert-generation configuration, with a success
+   threshold of one (2\pi) rotation within 30 seconds.
+4. **Released data and policies.** State logs contain observations, actions,
+   reset information and embodiment properties; successful embodiments have
+   full logs while other entries can be placeholders. The repository/Drive
+   provides `GET.pt`, `ET.pt`, and some embodiment-specific checkpoints.
+   The loader reads global/local observations and embodiment properties; the
+   held-out test path can load embodiment properties without demonstrations.
+5. **BC/distillation path.** GET/ET distill or condition a policy on the
+   embodiment graph and emit padded variable-DoF action vectors. This is a
+   morphology/kinematic-graph generalization pipeline, not a transmission-aware
+   underactuation pipeline.
+
+#### Proposed extension (not existing GET-Zero capability)
+
+Extending GET-Zero to actuation topology would require at least actuator
+nodes/edges, motor-to-joint transmission maps, coupling/passive-joint
+parameters, action maps from motor space to joint space, and an expert
+generator that uses those semantics during contact. It would also require new
+URDF/asset generation and new train/test splits in which topology, not only
+link/joint graph morphology, changes. None of these extension points is a
+verified feature of the released GET-Zero code. This paragraph records the
+scope of a possible extension; it is not a recommendation or novelty claim.
+
+### 5. Relevant-work comparison
+
+| Work | Problem solved | Action/representation | Explicit actuation topology? | Underactuated hand? | Multi-task / embodiment scope | Code/data status | Force/load dependence |
+|---|---|---|---|---|---|---|---|
+| **DQ-RISE (ICRA 2026)** | Reduce high-dimensional dexterous-hand action complexity for visual manipulation. | VQ-VAE quantizes hand states; a continuous-relaxation diffusion policy predicts compact hand states with a RISE RGB-D point-cloud arm stack. | No explicit motor-to-passive-joint transmission graph in the inspected release. | Uses a RoHand-style dexterous hand; underactuation topology is not claimed. | Multiple real manipulation tasks are reported, but the released policy is tied to the RISE-style embodiment/action schema. | Official repository CC BY-NC-SA 4.0; sample data/checkpoint links are provided, but exact trajectory count is UNKNOWN. | No required force/load channel identified. |
+| **LAMP (2026 preprint)** | Make high-dimensional hand control smoother, lower-dimensional, and safer for online residual learning. | History-conditioned latent motion prior; BC predicts arm-native actions plus latent hand offsets; PCA and VQ-VAE are baselines. | No tendon/motor transmission graph; the latent prior is learned from hand command histories. | Real experiments use a Ruiyan hand; the paper does not establish a specific underactuated topology as the method’s premise. | Four real tasks (grasp/place, drawer, tissue, box assembly); environment-agnostic residual-RL interface. Exact demo count UNKNOWN. | Official repository MIT; no private dataset/checkpoint/driver bundle was identified. | No required force/load channel. |
+| **GET-Zero (ICRA 2025)** | Generalize in-hand rotation policies across variable hand morphology. | Graph embodiment transformer over joint/geometry graph; padded variable-DoF state/action. | No: audited graph is kinematic morphology only, without actuator/transmission topology. | No; released LEAP V1 simulator is direct-actuated. | 44/10/20 graph-variation embodiments plus link-length variants; one cube-rotation task. | Code has no verified LICENSE file; state logs/checkpoints are linked, terms UNKNOWN. | No required force/load channel, although simulator contacts are used. |
+| **DexTrack (ICLR 2025)** | Track human-hand/object references with robot dexterous hands and generate manipulation trajectories. | Kinematic-bias or relative-position residual targets; supports Allegro and LEAP+Franka in the released pipeline. | No explicit tendon/motor transmission topology; new hands require manually defined keypoints/retargeting. | The audited public configurations are direct-joint/kinematic hand embodiments, not a verified underactuated transmission model. | Multiple object/hand settings from GRAB/TACO-derived references; exact public trajectory count UNKNOWN. | Official code/data links exist; exact checked-out license and artifact terms require separate artifact-level audit. | No required force/load channel. |
+| **CrossDex (ICLR 2025)** | Cross-embodiment dexterous manipulation through a shared low-dimensional hand representation and RL/DAgger. | GRAB MANO eigengrasp/PCA, learned retargeting, embodiment randomization, Isaac Gym actions/states. | No explicit tendon or passive-joint actuation topology; representation is kinematic/retargeting based. | Four robot hands are used, but underactuation is not established as the common factor. | Multi-embodiment YCB manipulation and DAgger/RL. | Official repository is public; no root LICENSE was found in the inspected checkout; data/checkpoint terms and exact counts UNKNOWN. | No required force/load channel. |
+| **RUKA / HuDOR** | Build a low-cost tendon-driven hand and learn residual motor control after teleoperation. | Project describes learned joint-to-actuator and fingertip-to-actuator models; RUKA-v2 repository exposes calibrated motor/tension/curl controls. | **Yes, explicitly actuator-aware**, though the public project does not present a general cross-topology policy benchmark. | Yes, tendon-driven RUKA. | Original project shows teleoperation and a small set of autonomous tasks; exact public dataset facts UNKNOWN. | RUKA-v2 code MIT; original artifact terms/download UNKNOWN. | Load/current is read by the hardware code, but the inspected policy description does not require force/load as an input. |
+| **DexFormer (2026 preprint)** | Cross-embodiment dexterous manipulation with randomized embodiments and historical control. | Exact representation, simulator schema, policy/checkpoint and code are not verified from an official repository in this audit. | UNKNOWN. | UNKNOWN. | Claimed cross-embodiment scope; primary implementation details remain UNKNOWN. | Official project page/paper found; code/data/license/weights UNKNOWN. | UNKNOWN. |
+| **LAMP / DQ-RISE / CrossDex latent-action family** | Reduce action dimensionality or smooth hand commands. | Learned latent, quantized, or PCA/eigengrasp coordinates. | Generally no calibrated physical transmission; these are command-space or kinematic representations. | Not established as a shared requirement. | Varies from one embodiment family to cross-embodiment. | See rows above. | Force is optional/not required in the inspected methods. |
+
+The comparison separates “uses a dexterous hand” from “models the hand’s
+actuation topology.” The latter is rare in the audited public learning work.
+
+### 6. Mechanism-coordinate novelty audit
+
+The candidate under review is: native actuator command followed by a
+calibration-derived mechanism-progress coordinate. It is not treated as our
+method here; this is a prior-art check.
+
+| Prior work/fact | What overlaps the candidate | What is not established by the source |
+|---|---|---|
+| **LEAP V2 Basic SDK** | Defines a curl/tendon control relation to the sum of finger-joint angle actuations and documents contact-conforming finger wrapping. This is already a mechanism-space command coordinate. | It is a hand-specific SDK coordinate, not a learned cross-embodiment policy or a calibration-derived residual representation. |
+| **RUKA original and RUKA-v2** | Original RUKA explicitly learns joint-to-actuator and fingertip-to-actuator models; v2 code calibrates motor tension/curl ranges and uses motor IDs. This substantially overlaps calibration-aware actuator coordinates. | A general policy representation spanning different actuation topologies, with contact-conditioned passive-joint prediction, is not established by the audited RUKA sources. |
+| **LAMP** | Learns a compact latent hand-action coordinate and predicts latent offsets around a motion prior. | The latent is learned from command histories; no calibrated tendon/transmission coordinate is claimed. |
+| **DQ-RISE** | Quantized hand-state coordinates provide a compact action space. | VQ state tokens are not a mechanism/transmission coordinate and topology is not explicitly modeled. |
+| **CrossDex / eigengrasp / retargeting** | PCA/eigengrasp and learned retargeting use shared low-dimensional hand coordinates across embodiments. | No explicit actuator-to-passive-joint calibration or contact-dependent transmission is claimed. |
+| **DexTrack** | Residual/relative hand targets provide a mechanism-independent way to stay near a kinematic reference. | No actuator transmission coordinate is used. |
+| **GET-Zero** | Encodes kinematic graph structure and variable joint/action dimension. | No actuator nodes, tendon graph, transmission ratio, or passive coupling is present in the audited implementation. |
+
+**Factual conclusion.** The broad statement “use a lower-dimensional or
+calibration-aware hand coordinate” is already substantially covered by LEAP’s
+curl SDK, RUKA’s learned/calibrated actuator mapping, LAMP’s latent prior, and
+PCA/eigengrasp/retargeting work. A narrower gap may exist around a *unified*
+coordinate that explicitly carries actuator-to-passive-joint transmission and
+contact-dependent coupling across different topologies, but the inspected
+sources do not establish that gap as novel. The exact claim would require a
+more exhaustive transmission-control literature search and artifact-level
+comparison. No novelty or method recommendation is made here.
+
+### 7. Uncertainties and unsupported claims requiring follow-up
+
+- **Inspire physical mechanics:** vendor sources establish six actuator
+  channels and 12 joints; they do not, in the inspected pages, specify a
+  complete contact-dependent passive-joint law. The Isaac Sim mimic model must
+  not be presented as a calibrated physical transmission without validation.
+- **Inspire licensing:** the Isaac Sim sample USD redistribution terms and the
+  vendor’s original mesh/URDF terms were not established. ManiSkill’s copied
+  RH56 asset is explicitly CC BY-NC-SA 4.0 and should be treated separately.
+- **LEAP V2 naming:** Basic V2 and Advanced V2 are different hands. Basic V2’s
+  exact URDF download and simulator repository were not verified; Advanced V2
+  has an official URDF/CAD download but its API code license remains UNKNOWN.
+- **RUKA accounting:** RUKA-v2’s official 18-physical-DOF statement,
+  16-motor code, and URDF joint/mimic tags do not reconcile from the audited
+  files. This needs maintainer clarification before quantitative comparisons.
+- **RUKA original release:** the public project claims open code/data, but the
+  canonical archive, trajectory count, actuator count, and artifact licenses
+  were not verified.
+- **Isaac Lab RH56 integration:** Isaac Sim has an Inspire USD tutorial asset;
+  an Isaac Lab RH56 task/agent with preserved transmission semantics was not
+  found. Fixed-tendon APIs and custom actuators establish engine capability,
+  not a finished RH56 import.
+- **ManiSkill RH56 fidelity:** the official asset README notes untuned mimic
+  offsets/limits and small spurious motion. A task, expert, or demonstration
+  set specifically using Inspire was not found in the audited public corpus.
+- **DexMimicGen licensing and generation internals:** the README/HF card have
+  conflicting dataset licenses. The released project demonstrates task/data
+  environments and playback, but the generic MimicGen generation core is an
+  upstream dependency rather than wholly contained in this repository.
+- **GET-Zero licensing and counts:** no code LICENSE was found; Drive artifact
+  terms and total state-log trajectory count are UNKNOWN. Embodiment split
+  counts must not be reported as trajectory counts.
+- **Policy support claims:** Isaac Lab/ManiSkill ecosystem references to ACT,
+  diffusion, or VLA models do not establish a single maintained checkpoint or
+  identical observation/action contract for every task. Each baseline needs an
+  artifact-level audit before reproduction.
+- **Mechanism-coordinate prior art:** the audit found strong overlaps but did
+  not exhaust every tendon-control, synergy, residual-control, and
+  calibration-based policy paper. The candidate remains an unresolved prior-art
+  question, not a supported novelty claim.
+
+### Primary-source ledger for this fact audit
+
+- **Inspire / Isaac Sim:** [Inspire RH56 product page](https://en.inspire-robots.com/dexterous%20hands/rh56dfx-series/), [Inspire support](https://en.inspire-robots.com/support), [RH56 user manual](https://en.inspire-robots.com/wp-content/uploads/2024/02/INSPIRE-ROBOTS-THE-DEXTEROUS-HAND-RH56-SERIES-USER-MANUAL.pdf), [Isaac Sim Inspire asset structure tutorial](https://docs.isaacsim.omniverse.nvidia.com/latest/openusd_tuning_tutorials/tutorial_02_asset_structure.html), and [joint-drive/mimic tutorial](https://docs.isaacsim.omniverse.nvidia.com/6.0.1/openusd_tuning_tutorials/tutorial_05_joint_drive_tuning.html).
+- **LEAP V2:** [official Basic V2 SDK](https://github.com/leap-hand/LEAP_Hand_V2_API), [official Basic V2 RSS page](https://roboticsconference.org/2025/program/papers/132/), [Basic V2 assembly](https://v2.leaphand.com/assembly), [Advanced V2 site](https://v2-adv.leaphand.com/), [Advanced V2 API](https://github.com/leap-hand/LEAP_Hand_V2_Adv_API), and [Advanced CAD/URDF download](https://v2-adv.leaphand.com/leap_cad).
+- **RUKA:** [RUKA project](https://ruka-hand.github.io/), [RUKA-v2 project](https://ruka-hand-v2.github.io/), and [RUKA-v2 MIT repository](https://github.com/ruka-hand-v2/RUKA-v2).
+- **Platforms:** [Isaac Lab repository](https://github.com/isaac-sim/IsaacLab), [Isaac Lab actuators API](https://isaac-sim.github.io/IsaacLab/develop/source/api/lab/isaaclab.actuators.html), [Isaac Lab Mimic](https://isaac-sim.github.io/IsaacLab/develop/source/overview/imitation-learning/teleop_imitation.html), [ManiSkill repository](https://github.com/haosulab/ManiSkill), [ManiSkill Inspire asset notes](https://github.com/haosulab/ManiSkill/blob/main/mani_skill/assets/robots/inspire_hand/README.md), [ManiSkill task cards](https://maniskill.readthedocs.io/en/latest/tasks/index.html), and [ManiSkill demonstrations](https://huggingface.co/datasets/haosulab/ManiSkill_Demonstrations).
+- **GET-Zero:** [paper](https://arxiv.org/abs/2407.15002) and [official repository](https://github.com/real-stanford/get_zero).
+- **DexMimicGen:** [paper](https://arxiv.org/abs/2410.24185), [project page](https://dexmimicgen.github.io/), [repository](https://github.com/NVlabs/dexmimicgen), and [HF dataset card](https://huggingface.co/datasets/MimicGen/dexmimicgen_datasets).
+- **Prior work:** [DQ-RISE](https://github.com/rise-policy/DQ-RISE), [LAMP](https://github.com/dex-lamp/LAMP), [DexTrack](https://github.com/Meowuu7/DexTrack), [CrossDex](https://github.com/PKU-RL/CrossDex), and [DexFormer project page](https://davidlxu.github.io/DexFormer-web/).
