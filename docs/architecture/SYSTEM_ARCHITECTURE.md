@@ -245,9 +245,11 @@ runtime can establish it; device/source timestamps remain separately labelled.
 
 `src/episode_dataset` provides an offline-tested episode layer shared by the
 simulation path and the separately gated physical combined path. The physical
-v2 wiring is not yet physically validated. Complete clock/geometry calibration,
-a validated real multimodal dataset, and end-to-end ACT, Diffusion Policy, or
-OpenPI training remain unavailable.
+v2 wiring is not yet physically validated. Complete clock/geometry calibration
+and a production-validated real multimodal dataset remain open. The
+project-specific π0.5/RH56 training integration is maintained under
+`experiments/pi05_rh56`; its upstream OpenPI core is pinned as an external
+read-only runtime, and no physical policy validation is claimed.
 
 ## Maintained entry points
 

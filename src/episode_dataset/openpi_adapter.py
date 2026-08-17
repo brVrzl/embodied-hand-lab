@@ -1,9 +1,9 @@
 """Thin openpi/π robot-data adapter.
 
-The local environment currently has no openpi installation.  This module
-therefore keeps the repository-specific mapping explicit and dependency-free;
-an installed openpi runner can consume the returned dictionary through its
-normal LeRobot input transform without changing openpi core.
+The host project environment intentionally stays dependency-light and does not
+install the upstream OpenPI package. The project-specific Thor π0.5 runner
+mounts the pinned upstream checkout separately; this module keeps the
+repository-owned mapping explicit and dependency-free.
 """
 
 from __future__ import annotations

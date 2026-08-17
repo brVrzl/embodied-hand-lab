@@ -67,6 +67,7 @@ review.
 ## Training
 
 - [LeRobot ACT and ACT+Force training](training/lerobot/README.md)
+- [π0.5 RH56 training integration](training/PI05_RH56.md)
 
 ## Reference and status
 
@@ -147,6 +148,7 @@ review.
 ## 训练
 
 - [LeRobot ACT 与 ACT+Force 训练](training/lerobot/README.md)
+- [π0.5 RH56 训练集成](training/PI05_RH56.md)
 
 ## 参考与状态
 

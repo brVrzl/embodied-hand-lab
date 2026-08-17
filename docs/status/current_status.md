@@ -69,7 +69,7 @@ not physical validation.
 | Physical combined operation | One bounded 60.105 s PASS; no 300 s PASS |
 | TCP calibration | Not complete |
 | Dual-camera physical dataset capture | Process-isolated camera/shared-memory-ring/recorder path offline tested; not physically validated end to end |
-| Policy training from physical episodes | Not validated |
+| Policy training from physical episodes | Project-specific π0.5/RH56 Thor LoRA integration and offline training evidence exist; physical policy validation is not complete |
 
 Offline, replay, and simulation results are not physical PASS evidence.
 
@@ -319,8 +319,9 @@ Inspecting help or running plant-free tests does not open or command hardware.
 6. Physically validate integrated dual-D435 staging capture and calibrate
    camera/robot time and geometry before treating reviewed conversions as a
    training dataset.
-7. Validate dataset quality and framework adapters before claiming ACT,
-   Diffusion Policy, or OpenPI training support.
+7. Complete dataset quality and framework-adapter validation before claiming a
+   production dataset or physical policy validation; the project-specific
+   π0.5/RH56 Thor training integration is now maintained separately.
 
 See [system architecture](../architecture/SYSTEM_ARCHITECTURE.md) and
 [real hardware safety](../safety/REAL_HARDWARE_SAFETY.md) for the current
@@ -390,7 +391,8 @@ partial episode。
 4. 物理验证 Quest input recovery/re-clutch 和完整 duration gate；
 5. 完成 RH56 target/feedback characterization 及 staged Quest hand validation；
 6. 物理验证双 D435 staging、camera geometry 和 time alignment；
-7. 在宣称数据集或 policy training 可用前完成质量和 exporter 验证。
+7. 在宣称 production dataset 或 policy 真机验证前完成数据质量和 exporter 验证；项目专用
+   π0.5/RH56 Thor training integration 已作为独立训练入口维护。
 
 所有结论必须标记为 offline tested、simulation validated、partial physical、physical PASS、physical
 FAIL 或 not validated。`docs/history/` 中的 dated evidence 只提供历史证据，不覆盖当前 source、

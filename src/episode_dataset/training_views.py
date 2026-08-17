@@ -35,7 +35,7 @@ class _RowRef:
 class ActDatasetAdapter:
     """ACT-style examples with two RGB images, state, and action chunks.
 
-    The repository has no maintained upstream ACT trainer.  This adapter uses
+    The repository does not vendor an upstream ACT trainer. This adapter uses
     a documented local convention: observations are uint8 CHW RGB arrays,
     actions are absolute/native `[horizon, 12]` targets, and the boolean mask
     marks real actions when the horizon reaches an episode/segment boundary.

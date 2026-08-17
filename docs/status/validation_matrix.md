@@ -33,7 +33,7 @@ Statuses apply to the current source and preserved evidence. In this table:
 | TCP calibration | Interfaces/model frames tested | Frame tests pass | **Not validated** | TCP1--TCP10 recorded zero |
 | Dual-D435 capture and synchronization | Adapter/profile fallback tested offline | n/a | **Not validated end to end** | Serial roles, extrinsics, and device-time alignment still require target-hardware work |
 | Canonical episode lifecycle, validation, split, statistics, and export | Offline tested | Synthetic/offline fixtures | Not physically validated | Does not yet prove a production multimodal dataset |
-| ACT / Diffusion Policy / OpenPI training | Integration boundary documented | n/a | n/a | No current trainer or trained checkpoint |
+| ACT / Diffusion Policy / OpenPI training | Project-specific π0.5/RH56 JAX LoRA adapter and Thor runner offline tested | n/a | Not physically validated | Upstream OpenPI core is pinned externally; training evidence exists, but no robot rollout or physical policy PASS |
 | Digital-twin workspace | Tools/config tests present | Integrated Workspace | n/a | Provisional geometry and unresolved calibration; not Simulation Ready |
 | Foundation J6 gates | Historical implementation | n/a | Exact +0.25° and +5° gates passed | Historical bounded evidence, not full teleoperation |
 

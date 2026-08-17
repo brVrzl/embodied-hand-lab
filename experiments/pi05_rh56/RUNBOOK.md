@@ -47,6 +47,8 @@ so the official base checkpoint can load without inventing RH56 channels.
 
 - OpenPI checkout: `/home/thor/openpi/repo`
 - OpenPI commit: `15a9616a00943ada6c20a0f158e3adb39df2ccac`
+- Project pin: `experiments/pi05_rh56/openpi.lock.json`
+- Runtime check: `experiments/pi05_rh56/scripts/check_openpi.sh --require-image`
 - Backend: official upstream JAX
 - Model: `pi05_base` initialization, flow-matching pi0.5
 - LoRA variants: `gemma_2b_lora` and `gemma_300m_lora`
@@ -79,7 +81,7 @@ checkpoint contents.
 The output directory is under ignored `outputs/`; do not commit datasets,
 caches, logs, or checkpoints. The staged commands are `manifest`,
 `build-view`, `validate-view`, `norm-stats`, `data-smoke`, `model-smoke`, and
-`checkpoint-smoke`. They validate the audited data, OpenPI q01/q99/mean/std,
+`checkpoint-smoke`, and `val-eval`. They validate the audited data, OpenPI q01/q99/mean/std,
 decoded images, language, finite values, LoRA parameter freezing, one JAX
 forward/backward/update, and actual checkpoint resume.
 
