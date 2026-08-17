@@ -1,188 +1,81 @@
-# Embodied Lab repository guide
+# Repository Agent Guide
 
-## Purpose and current authority
+## Scope
 
-This repository develops simulation, teleoperation, perception, and data tools
-for a JAKA Mini2 arm with an Inspire RH56DFX hand. The primary current
-teleoperation stack is Meta Quest 3 hand/wrist tracking plus a left Touch
-controller, MuJoCo simulation, and an explicitly authorized physical JAKA
-ServoJ/EDG adapter.
+- Follow the user's current request first. Treat this file as stable repository-wide guidance, not as a source of current experiment status.
+- Inspect the relevant code and current documentation before changing behavior. Do not infer present requirements from stale reports, old experiments, or Git history alone.
+- Keep repository-wide instructions here. Put genuinely subsystem-specific rules in a nested `AGENTS.md` only when that subsystem needs durable instructions of its own.
+- Prefer the existing canonical implementation and configuration. Do not create a parallel path when the maintained path can be extended cleanly.
 
-Read [docs/README.md](docs/README.md) and
-[docs/status/current_status.md](docs/status/current_status.md) before changing
-control code or interpreting an old report. Dated files under `docs/history/`
-are evidence or design history, not current operating instructions.
+## Authorization and safety
 
-The authoritative Quest-to-JAKA control path is:
+- Default to offline, simulation, and read-only work.
+- Do not enable, command, move, calibrate, or reconfigure physical hardware unless the user explicitly authorizes that physical action in the current task.
+- Never weaken safety limits, watchdogs, freshness checks, workspace limits, legality checks, or cleanup behavior to make an experiment or test pass.
+- Treat raw/master datasets and irreplaceable captures as immutable unless the task explicitly requests changing them. Create derived views or outputs instead.
+- External writes and destructive operations require explicit task scope. Reading, analysis, local edits, and non-destructive tests do not.
 
-```text
-Quest HTS + CTRL packets
-  -> validation and bounded input queue
-  -> release-before-press clutch/reference capture
-  -> frame mapping and filters
-  -> shared continuation IK and feasibility checks
-  -> immutable AcceptedArmTarget
-  -> MuJoCo adapter OR JAKA joint adapter
-```
+## Engineering restraint
 
-The two adapters are identical before `AcceptedArmTarget`. Physical JAKA must
-never follow MuJoCo `qpos`, and the physical adapter must not remap, filter, or
-recompute IK. In joint-teleop mode the native worker must make zero JAKA
-`kine_inverse` calls.
+- Make the smallest change that solves the observed requirement.
+- Prefer deletion, consolidation, or extension of an existing implementation over adding another implementation of the same responsibility.
+- Do not add fallback paths, retries, compatibility layers, recovery states, configuration flags, wrappers, caches, state machines, or abstractions without a current caller, observed failure, or explicit requirement.
+- Do not add code only for hypothetical future use.
+- Validate untrusted input at the boundary that owns it. Do not repeatedly revalidate trusted internal data at consecutive layers.
+- Prefer an explicit, observable failure over silent fallback that hides a programming, configuration, or integration error.
+- Do not catch and rethrow errors through multiple layers unless the added layer contributes actionable context or owns recovery.
+- Do not duplicate safety or validation logic across layers. Keep one authoritative check at the appropriate boundary.
+- Do not compute or persist checksums, SHA hashes, file fingerprints, or whole-tree integrity manifests as routine validation. Use them only when integrity/provenance is the subject of the task, an external artifact must be verified, or an existing interface explicitly requires them.
+- Do not introduce defensive complexity merely because something could theoretically fail.
 
-## Absolute safety rules
+## Temporary work and durable artifacts
 
-- Default to offline and simulation work. Never connect to or command a JAKA,
-RH56DFX, Quest headset, or other actuator without an explicit user request
-for the physical operation in the current session.
-- Repository maintenance, tests, `--help`, fake-worker replay, and static
-  analysis do not authorize login, enable, servo mode, EDG, or motion.
-- Never perform automatic payload identification or write payload, TCP,
-  installation, collision, or controller safety settings.
-- A physical procedure must retain software-verifiable runtime constraints,
-  bounded execution parameters, actuator safety limits, and deterministic
-  cleanup behavior.
-- Human-only operational confirmations that cannot be independently verified
-  by software must not be implemented as mandatory command-line flags,
-  acknowledgement parameters, or permanent workflow gates.
-- Controller collision, servo alarm, emergency stop, loss of power/enable,
-  SDK error, command-loop hard timing fault, or actual liveness loss is a hard
-  stop. Candidate infeasibility is different: `HOLD_REJECTED` keeps a fresh
-  heartbeat and holds the last safe target.
-- Do not weaken startup continuity, timeout, singularity, collision, joint
-  limit, output velocity/acceleration, or cleanup contracts to make a test pass.
-- Describe physical status literally: offline tested, simulation validated,
-  partially physically validated, passed, failed, or not validated. Never turn
-  implementation or replay evidence into a physical PASS.
+- Investigation artifacts are temporary by default.
+- Put ad-hoc probes, experiments, parameter sweeps, scratch analysis, debug output, and one-time migration helpers in an untracked or ignored temporary location whenever practical, not directly in maintained `src/`, `tools/`, or `tests/`.
+- Before finishing a task, review every file created by that task and either:
+  1. promote it because it has durable value, or
+  2. delete it.
+- A new tracked tool has durable value only if it supports a current documented workflow, is expected to be reused, or provides a maintained operator/developer capability.
+- A file being referenced only by its own test is not sufficient reason to keep it.
+- A one-off analysis script does not become permanent merely because it produced an important result. Preserve the result or concise evidence, not necessarily the generator.
+- Generated logs, plots, dumps, replay outputs, and large analysis artifacts should not be committed unless they contain intentionally retained, non-reconstructible evidence.
+- Research narratives and experiment-specific artifacts should stay out of the production `main` tree unless explicitly promoted into maintained documentation or code.
 
-Recorded operator state (not code-owned truth): payload 0.8 kg, COM
-`[9.289, 12.427, 36.961]` mm, upright/floor installation with X=0° and Z=0°,
-TCP1-TCP10 zero, and unchanged controller safety limits. Software must not
-silently apply these values. Verify them at the controller before any future authorized physical operation.
+## Tests
 
-## Repository and worktree discipline
+- Add or retain tests for stable behavior, public interfaces, safety-critical behavior, or real regressions that could reasonably recur.
+- Prefer extending an existing behavior-level test over adding a new test file.
+- Do not add permanent tests for one-off probes, implementation details, private call order, mock call counts, temporary architecture, or historical constants.
+- When deleting obsolete code, delete tests whose only purpose was to test that obsolete code.
+- Test count and coverage percentage are not goals by themselves.
+- Run the smallest relevant validation that gives confidence in the change.
+- Run broader tests when the change crosses subsystem boundaries, affects shared infrastructure, changes safety-critical behavior, or the user explicitly requests broader validation.
+- Do not create checksum comparisons, snapshot manifests, duplicate validators, or extra test harnesses merely to demonstrate that unrelated files were untouched.
 
-- Work only in the current worktree and branch. Inspect `git status`,
-  `git worktree list`, remotes, and upstream state before broad work.
-- Preserve unrelated changes and all intentionally untracked data. In
-  particular, do not modify, stage, rename, delete, or commit
-  `tools/teleop_mujoco_jaka_rh56.py`, `learned_policy/`, or concurrent user
-  captures/models/calibration/experiments unless the user explicitly expands
-  the scope.
-- Never rewrite history, force-push, use `git clean`, reset another person's
-  work, delete branches, or modify another linked worktree.
-- Keep commits scoped. Inspect the staged diff, run `git diff --check`, exclude
-  user work, fetch before push, and never overwrite remote work.
-- Start a new Codex session for a separately authorized physical operation,
-  after a major context-changing merge, or when the current session cannot
-  retain the complete safety/evidence context.
+## Git and worktree discipline
 
-## Layout and documentation
+- Inspect the current branch, worktree, and `git status` before broad edits.
+- Preserve unrelated user changes and intentionally untracked work.
+- Keep commits scoped to the requested change.
+- Do not rewrite history, force-push, hard-reset user work, run destructive `git clean`, or delete branches unless the task explicitly requires that operation and the affected history has been inspected.
+- Before deleting or consolidating a branch, check its unique commits and whether those commits are reachable elsewhere.
+- Do not commit datasets, checkpoints, transient logs, caches, generated build output, or large experiment artifacts unless they are intentionally versioned repository assets.
 
-- `src/`: reusable Python packages and shared control contracts.
-- `tools/`: Python entry points and diagnostics.
-- `scripts/`: operator-facing wrappers.
-- `native/`: JAKA diagnostic and EDG worker C++ sources.
-- `configs/`: versioned examples and runtime policy.
-- `assets/`, `models/`: robot and simulation assets.
-- `tests/`: offline tests; hardware is never required by the default suite.
-- `docs/`: current architecture, operation, safety, development, reference,
-  status, and indexed history.
+## Documentation
 
-Use one current page per topic and link to it from `docs/README.md`. Put dated
-outcomes and superseded designs in `docs/history/`; do not edit raw evidence to
-match later behavior. When moving evidence, keep report/raw-log relationships
-and update the history index. New documentation must use repository-relative
-paths, verified command names, and explicit validation levels.
+- Keep durable architecture, interfaces, setup, operation, and safety information in maintained documentation.
+- Keep transient experiment status, dated investigations, benchmark outputs, checkpoint identifiers, commit SHAs, and research conclusions out of this file.
+- Prefer one maintained source of truth per topic instead of copying the same rule or status into multiple documents.
+- Update documentation only when the maintained behavior or interface changes; do not create a new report for every engineering task.
 
-## Engineering restraint and test lifecycle
+## Completion
 
-- Temporary tests, probes, diagnostic scripts, parameter sweeps, log analysis,
-  and validation code are welcome while locating a fault, reproducing a
-  failure, testing a hypothesis, or confirming a fix. Before finishing the
-  task, decide whether each artifact has durable value. The default is to
-  remove it, together with temporary data, logs, debug output, and process
-  notes.
-- A permanent test must protect a stable public contract, core safety behavior,
-  an important real regression, or a representative end-to-end workflow. Test
-  count and coverage percentage are not primary quality measures. Prefer a
-  small, deterministic, high-signal suite.
-- Deleting a low-value test does not require a one-for-one replacement. For a
-  real, important defect that may recur, usually retain the smallest regression
-  test that protects its stable external behavior.
-- Do not add a permanent test for every small edit. When behavior changes,
-  first update or extend an existing behavior-level test. Avoid tests tied to
-  private helpers, mock call counts, internal call order, generated artifacts,
-  or a temporary architecture.
-- One-off probes, parameter scans, result generators, and diagnostic/log
-  analysis scripts must be removed after use unless a current document or
-  maintained workflow names a continuing use. Do not retain a dated narrative
-  when its durable decision is already captured by an authoritative page.
-- Do not add fallback, compatibility branches, duplicate validation, recovery
-  states, configuration sources, or exception layers merely to look robust.
-  First identify a real caller, failure record, or current requirement. New
-  abstractions, configuration options, state machines, and recovery mechanisms
-  must state the present problem they solve.
-- Validate untrusted data once at the appropriate system boundary. Internal
-  trusted data should not be repeatedly rechecked at consecutive layers.
-  Handle an error at the boundary that owns it; avoid catch-wrap-rethrow chains,
-  broad exception swallowing, half-initialized continuation, and silent
-  fallback to a value that hides a programming or configuration error.
-- Compatibility paths require a known consumer and a migration/removal plan.
-  Prefer simple, direct, observable failure over an implicit “just in case”
-  behavior. Remove unused future-facing code rather than preserving it for a
-  hypothetical caller.
-- These restraint rules never justify removing robot-control safety. Startup
-  continuity, hardware boundaries, collision, singularity, joint/command
-  legality, control-cycle timing, velocity/acceleration/jerk, watchdog, and
-  cleanup checks require call-chain review. Keep tests backed by real
-  regressions. If deletion value is uncertain, retain or consolidate the item
-  instead of guessing.
+Before finishing a change:
 
-## Setup, build, and validation
+- review the final diff for unnecessary files and accidental complexity;
+- remove temporary probes, debug code, unused compatibility paths, and generated artifacts;
+- run the relevant validation;
+- check for unrelated staged changes;
+- report what changed, what was validated, and anything intentionally left unresolved.
 
-From the repository root:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
-
-cmake -S native/jaka_servo_worker -B build/jaka_servo_worker
-cmake --build build/jaka_servo_worker -j
-
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m compileall -q src tools tests
-PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest --collect-only -q -p no:cacheprovider
-.venv/bin/python -m pytest -q
-git diff --check
-```
-
-Critical Quest/JAKA checks:
-
-```bash
-.venv/bin/python -m pytest -q \
-  tests/test_quest_jaka_shared_pipeline.py \
-  tests/test_quest_jaka_output_feasibility.py \
-  tests/test_quest_jaka_singularity_liveness.py \
-  tests/test_jaka_edg_resampler.py \
-  tests/test_native_jaka_servo_worker.py
-```
-
-Run `bash -n` on changed shell scripts. The project currently configures no
-separate formatter, linter, type checker, or CI workflow; do not invent a
-passing claim for tools that are not configured.
-
-Permanent tests should name the current contract, use deterministic
-fake/offline backends, and retain regression coverage for fixed safety defects.
-Do not delete a test because it is old or slow; first prove the behavior is
-obsolete or fully duplicated. Physical probes remain separate from the default pytest workflow and require
-their own explicit execution context.
-
-## Current constraints
-
-The sole JAKA SDK session performs lightweight status polling in the command
-worker; the earlier second-session monitor was rejected after a physical
-no-motion failure. The latest shared output-acceleration correction is offline
-tested but has not received a bounded post-fix physical validation. The earlier
-J4 collision cause is unresolved. TCP calibration and Quest-driven physical
-RH56 teleoperation are not complete. See the validation matrix and current
-status before planning the next phase.
+Do not claim validation that was not actually performed.
