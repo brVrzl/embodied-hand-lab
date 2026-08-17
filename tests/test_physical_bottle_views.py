@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from episode_dataset.physical_bottle_materialization import _validate_split_groups
+from episode_dataset.cli import _load_policy_view_config
 from episode_dataset.training_materialization import materialize_training_dataset
 from episode_dataset.training_views import ActDatasetAdapter, ActForceDatasetAdapter
 
@@ -95,7 +96,7 @@ def test_split_group_contract_rejects_session_leakage() -> None:
 
 def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
     config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_nominal52.yaml").read_text(
+        (Path(__file__).parents[1] / "configs/training/physical_bottle.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -118,17 +119,25 @@ def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
     for group in config["split_groups"]:
         assert len({split_for[segment] for segment in group["segments"]}) == 1
 
-    strong_split = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_nominal52_split.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert strong_split["expected"] == {
+    assert config["training"]["expected"] == {
         "train_trajectories": 37,
         "validation_trajectories": 15,
         "train_rows": 23802,
         "validation_rows": 9309,
     }
-    assert set(strong_split["validation_source_episodes"]) == {
+    assert set(config["training"]["validation_source_episodes"]) == {
         87, 88, 108, 109, 138, 139, 140, 141, 142, 172, 173, 174
     }
+
+
+def test_canonical_policy_view_config_resolves_act_and_force_views() -> None:
+    config_path = Path(__file__).parents[1] / "configs/training/act_physical_bottle.yaml"
+    act_root, act_config = _load_policy_view_config(config_path)
+    force_root, force_config = _load_policy_view_config(
+        config_path, view_name="act_force"
+    )
+
+    assert act_root.name == "act"
+    assert force_root.name == "act_force"
+    assert act_config["observation"]["force"] == "ignored"
+    assert force_config["observation"]["force"] == "observation.force"

@@ -7,9 +7,9 @@ source_submodule: third_party/lerobot
 source_checkout_policy: git_submodule
 container_home: outputs/training/lerobot_container_home
 network: none
-source_root: data/training/physical_bottle_v2
-derived_root: outputs/training/physical_bottle_v2
+source_root: data/training/physical_bottle_v4_nominal52
+derived_root: outputs/training/physical_bottle_v4_nominal52
 raw_root: data/raw_episodes
 raw_is_read_only: true
-act_config: configs/training/lerobot/act_physical_bottle_mixed.json
-act_force_config: configs/training/lerobot/act_force_physical_bottle_mixed.json
+dataset_config: configs/training/physical_bottle.yaml
+act_config: configs/training/lerobot/act_physical_bottle.json

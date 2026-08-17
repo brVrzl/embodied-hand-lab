@@ -147,14 +147,28 @@ def _video_path(master: Path, record: dict[str, Any], role: str) -> Path:
 
 def _validation_source_episodes(args: argparse.Namespace) -> set[int]:
     values: list[int] = list(args.validation_source_episodes or [])
+    configured_values: list[list[int]] = []
     if args.split_config is not None:
         import yaml
 
         payload = yaml.safe_load(args.split_config.read_text(encoding="utf-8"))
         configured = payload.get("validation_source_episodes", [])
-        if values and set(values) != {int(value) for value in configured}:
+        configured_values.append([int(value) for value in configured])
+    if args.dataset_config is not None:
+        import yaml
+
+        payload = yaml.safe_load(args.dataset_config.read_text(encoding="utf-8"))
+        training = payload.get("training", {})
+        if not isinstance(training, dict):
+            raise ValueError("dataset config training section must be a mapping")
+        configured = training.get("validation_source_episodes", [])
+        configured_values.append([int(value) for value in configured])
+    for configured in configured_values:
+        if values and set(values) != set(configured):
             raise ValueError("validation episodes were specified twice with different values")
-        values = [int(value) for value in configured]
+        values = configured
+    if configured_values and any(set(configured) != set(configured_values[0]) for configured in configured_values[1:]):
+        raise ValueError("split configurations specify different validation episodes")
     result = {int(value) for value in values}
     if any(value < 0 for value in result):
         raise ValueError("validation source episode ids must be non-negative")
@@ -649,6 +663,7 @@ def make_parser() -> argparse.ArgumentParser:
     build.add_argument("--image-writer-threads", type=int, default=8)
     build.add_argument("--encoder-threads", type=int, default=4)
     build.add_argument("--split-config", type=Path)
+    build.add_argument("--dataset-config", type=Path)
     build.add_argument("--validation-source-episodes", type=int, nargs="+")
     build.add_argument("--replace", action="store_true")
     build.set_defaults(function=build_view)
