@@ -13,7 +13,7 @@ machine-readable run manifest is `outputs/training/pi05_rh56/audited_manifest.js
 Its acceptance evidence is:
 
 - `configs/training/shared/physical_bottle.yaml`
-- `research_log/physical_bottle_nominal52_audit.md`
+- `docs/data/PHYSICAL_TRAINING_DATASET.md` and its generated manifest
 - `data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json`
 
 The locked ACT split is 37 train / 15 validation logical episodes, recorded in

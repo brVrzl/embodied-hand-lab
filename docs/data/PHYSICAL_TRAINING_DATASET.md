@@ -165,8 +165,10 @@ PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
 ```
 
 The exact decisions and source frame/timestamp ranges are in
-`configs/training/shared/physical_bottle.yaml` and
-`research_log/physical_bottle_nominal52_materialization.md`.
+`configs/training/shared/physical_bottle.yaml` and the generated
+`data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json`.
+The dated research narrative remains on
+`research/thread-b-force-interaction` and is intentionally not part of main.
 
 ### Strong ACT baseline
 
@@ -186,9 +188,8 @@ scripts/evaluate_physical_bottle_nominal52_checkpoints.sh
 
 The exact split is
 the split is included in `configs/training/shared/physical_bottle.yaml`, the trainer
-config is `configs/training/act/lerobot.json`, and
-the audit/selection protocol is in
-`research_log/physical_bottle_nominal52_strong_act_20260813.md`. Checkpoints and
+config is `configs/training/act/lerobot.json`, and the audit/selection protocol is
+summarized in this document and the machine-readable manifest. Checkpoints and
 derived LeRobot views stay under ignored `outputs/training/`; do not commit
 them. ACT+Force training remains gated until the strong ACT configuration and
 checkpoint-selection result are fixed.

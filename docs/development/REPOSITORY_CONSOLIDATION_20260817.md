@@ -65,4 +65,33 @@ therefore archival rather than active.
 
 ## Final decisions and validation
 
-This section is completed after the isolated integration branch is validated.
+The isolated integration snapshot is validated before it is applied to main.
+It keeps the current hardware/simulation/data/runtime code, canonical ACT and
+π0.5 training layout, current offline evaluation tools, and the pinned OpenPI
+and LeRobot gitlinks. It removes the six superseded root training aliases, the
+historical `configs/archive/training/**` family, the empty `research/` package,
+the old `act_physical_bottle_validation.py` integration pair, and the four
+one-off analysis/replay tools with their dedicated tests. The existing main
+`research_log/**` files are removed from the final main tree; the research
+branch retains the complete dated evidence and generated artifacts.
+
+The final main tree has no `research_log/` or `research/` directory and no
+maintained source reference to either. This is a deliberate removal of stale
+paths already present on the old main, not an import of research material.
+
+Validation on `integration/main-consolidation-20260817`:
+
+- `700 passed, 2 warnings` with the repository's full offline pytest suite;
+- Python compileall for `src`, `tools`, `tests`, and `training` passed;
+- 700 tests collected before execution;
+- all shell scripts under `scripts/` and `training/` passed `bash -n`;
+- unified CLI and dataset CLI `--help` passed;
+- pinned OpenPI runner source compiles, but its host-side help smoke requires
+  the Thor OpenPI container dependencies (`flax` was not installed in the
+  repository venv); the runbook continues to require that pinned container;
+- `git diff --check` passed;
+- no hardware connection, robot motion, raw/master dataset edit, or training
+  job was performed.
+
+Final branch SHAs, pushed branch decisions, archival tags, and any remaining
+uncertain items are appended after the normal main/research push sequence.
