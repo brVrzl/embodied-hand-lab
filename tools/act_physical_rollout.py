@@ -843,7 +843,6 @@ def _resolve_execution_options(
     execution_mode = "canonical_temporal_ensemble" if requested_mode is None else requested_mode
     if execution_mode not in {
         "canonical_temporal_ensemble",
-        "temporal_ensemble",
         "async_temporal_ensemble",
     }:
         raise ValueError(f"unsupported ACT execution mode: {execution_mode}")
@@ -950,7 +949,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     command_period_ns = int(round(1e9 / args.command_rate_hz))
     if execution_mode in {
         "canonical_temporal_ensemble",
-        "temporal_ensemble",
         "async_temporal_ensemble",
     }:
         temporal_ensembler = AbsoluteTimeTemporalEnsembler(
@@ -1474,7 +1472,6 @@ def main() -> int:
         "--act-execution-mode",
         choices=(
             "canonical_temporal_ensemble",
-            "temporal_ensemble",
             "async_temporal_ensemble",
         ),
         default=None,

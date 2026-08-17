@@ -198,6 +198,20 @@ def test_consume_k_mode_is_removed_from_rollout_options() -> None:
         )
 
 
+def test_generic_temporal_ensemble_mode_alias_is_removed() -> None:
+    rollout = _load_rollout_tool()
+    with pytest.raises(ValueError, match="unsupported ACT execution mode"):
+        rollout._resolve_execution_options(
+            requested_mode="temporal_ensemble",
+            command_rate_hz=30.0,
+            query_rate_hz=30.0,
+            temporal_ensemble_coeff=None,
+            max_source_horizon=None,
+            max_prediction_age_ticks=None,
+            temporal_buffer_capacity=None,
+        )
+
+
 def test_control_tick_timing_keeps_bounded_percentile_statistics() -> None:
     timing_type = _load_rollout_tool().BoundedStageTiming
     timing = timing_type(capacity=2)
