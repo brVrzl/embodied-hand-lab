@@ -1,5 +1,5 @@
 schema_version: embodied_lab.physical_bottle_collection_config.v1
-name: physical_bottle_v4_nominal52
+name: physical_bottle_nominal52
 source_root: ../../data/raw_episodes
 output_root: ../../data/training/physical_bottle_v4_nominal52
 audit_report: ../../research_log/physical_bottle_nominal52_audit.md

@@ -54,17 +54,18 @@ and the 12-D absolute action; it deliberately omits force.
 
 From the repository root:
 
+The original five-demonstration v1 pilot configuration is no longer an active
+training entrypoint. Its raw-data decisions remain documented in the dated
+research records; the active reproducible materialization is the mixed-quality
+view below and the current nominal52 view later in this document.
+
 ```bash
-.venv/bin/embodied-lab dataset materialize-training \
-  --config configs/training/physical_bottle_v1.yaml
-.venv/bin/embodied-lab dataset validate-training \
-  data/training/physical_bottle_v1
-.venv/bin/embodied-lab dataset act-smoke \
-  --config configs/training/act_physical_bottle_v1.yaml
-.venv/bin/embodied-lab dataset act-force-smoke \
-  --config configs/training/act_force_physical_bottle_v1.yaml
-.venv/bin/embodied-lab dataset openpi-smoke \
-  --config configs/training/openpi_physical_bottle_v1.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
+  --config configs/training/physical_bottle_mixed.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
+  --config configs/training/physical_bottle_mixed.yaml
+PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
+  data/training/physical_bottle_v2
 ```
 
 The materializer uses the persisted task-release timestamp, not a fixed
@@ -77,18 +78,17 @@ and 70 are enabled; 68 is excluded as recovery/reclutch-heavy; 71 remains
 review-required and disabled by default. This is a data-processing choice,
 not a claim that the excluded raw episodes are useless.
 
-## Human-audited nominal16 baseline (2026-08-13)
+## Historical human-audited nominal16 development view (2026-08-13)
 
 The earlier `physical_bottle_v2` view is retained for reproducibility but is a
 mixed-quality diagnostic dataset, not 25 clean expert demonstrations. The
-current nominal-success baseline is the derived, immutable-source view:
+The historical nominal-success baseline was the derived, immutable-source view:
 
 ```text
 data/training/physical_bottle_v2_nominal16/
 ```
 
-Its authority is
-`configs/training/physical_bottle_v2_nominal16.yaml`: 13 direct nominal source
+Its historical authority was the now-retired nominal16 development config: 13 direct nominal source
 episodes plus two nominal segments from source 99 and the second nominal
 segment from source 102. Source 102's first segment and all other reviewed
 trajectories are excluded as `manual_audit_non_nominal`; they remain untouched
@@ -100,43 +100,17 @@ task-release row, before the approximately five-second manual recovery tail.
 The few significant pre-task holds end one row before the first accepted target
 change, without removing approach motion. Sources 99 and 102 use reviewed frame
 and timestamp boundaries because their first completion was not independently
-persisted. Rebuild and audit with:
+persisted. The generated nominal16 data tree is retained as historical
+evidence, but its development materialization and dedicated training modes
+are no longer active.
 
-```bash
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
-  --config configs/training/physical_bottle_v2_nominal16.yaml
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
-  --config configs/training/physical_bottle_v2_nominal16.yaml
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
-  data/training/physical_bottle_v2_nominal16
-PYTHONPATH=src .venv/bin/python tools/analyze_physical_bottle_curation.py \
-  --config configs/training/physical_bottle_v2_nominal16.yaml \
-  --mixed-master data/training/physical_bottle_v2/act/master \
-  --nominal-master data/training/physical_bottle_v2_nominal16/act/master \
-  --output outputs/training/physical_bottle_v2_nominal16/analysis/curation
-```
+The clean validation split was deterministic at acquisition-session level:
+sessions containing sources 87/88 and 108/109 were held out. The scratch /
+pretrained comparison and its dedicated launcher modes were development-only
+and are retired. No physical rollout was authorized by those offline
+historical commands.
 
-The clean validation split is deterministic at acquisition-session level:
-sessions containing sources 87/88 and 108/109 are held out (2,800 rows), and
-the other 12 trajectories are training data (9,377 rows). Both source-99
-segments stay together. Start the controlled scratch comparison first:
-
-```bash
-scripts/train_physical_bottle_lerobot.sh clean-scratch
-```
-
-`clean-pretrained` uses exactly the same rows and split and is refused until
-the clean-scratch 2k checkpoint and its offline transition report exist:
-
-```bash
-scripts/train_physical_bottle_lerobot.sh clean-pretrained
-```
-
-Both commands use the pinned LeRobot 0.6.2, network-disabled container. The
-old `strong-pretrained` mode on mixed-quality `val4` is retired. No physical
-rollout is authorized by these offline commands.
-
-## Human-audited nominal33 expansion (2026-08-13)
+## Historical human-audited nominal33 expansion (2026-08-13)
 
 The versioned `physical_bottle_v3_nominal33` view extends nominal16 with 17
 accepted trajectories from the later source-121--149 cohort. The operator
@@ -152,31 +126,15 @@ crops contain 10,476 rows; 3,132 of their 13,608 raw rows (23.0%) are outside
 the reviewed task intervals. Together with the immutable nominal16 view, the
 new master contains 33 trajectories and 22,653 matched ACT/ACT+Force rows.
 
-The split remains acquisition-session grouped: 24 trajectories/16,670 rows are
-train and 9 trajectories/5,983 rows are validation. Reproduce and validate it
-offline with:
+The split was acquisition-session grouped: 24 trajectories/16,670 rows were
+train and 9 trajectories/5,983 rows were validation. This intermediate
+materialization is retained only through its generated data and dated research
+reports; its development configuration and dedicated commands are no longer
+active.
 
-```bash
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
-  --config configs/training/physical_bottle_v3_nominal33.yaml
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
-  --config configs/training/physical_bottle_v3_nominal33.yaml
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
-  data/training/physical_bottle_v3_nominal33
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-smoke \
-  --config configs/training/act_physical_bottle_v3_nominal33.yaml
-PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
-  --config configs/training/act_force_physical_bottle_v3_nominal33.yaml
-```
+## Current human-audited nominal52 baseline (2026-08-13)
 
-The authoritative curation and exact source frame/timestamp boundaries are in
-`configs/training/physical_bottle_v3_nominal33.yaml`; generated datasets remain
-ignored by Git. See `research_log/physical_bottle_nominal33_audit.md` and
-`research_log/physical_bottle_nominal33_materialization.md` for the results.
-
-## Human-audited nominal52 expansion (2026-08-13)
-
-`physical_bottle_v4_nominal52` extends nominal33 with the accepted recordings
+`physical_bottle_nominal52` extends nominal33 with the accepted recordings
 150--180. The operator-marked unusable recordings remain excluded. Source 172
 is split into `172_a`, `172_b`, and `172_c`; source 174 contributes `174_a` and
 `174_b`, while its incomplete third task is excluded. The reset/manual-recovery
@@ -195,19 +153,19 @@ Rebuild and validate the immutable-source derived view with:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli audit-physical-bottle \
-  --config configs/training/physical_bottle_v4_nominal52.yaml
+  --config configs/training/physical_bottle_nominal52.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli materialize-physical-bottle \
-  --config configs/training/physical_bottle_v4_nominal52.yaml
+  --config configs/training/physical_bottle_nominal52.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli validate-physical-bottle \
   data/training/physical_bottle_v4_nominal52
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-smoke \
-  --config configs/training/act_physical_bottle_v4_nominal52.yaml
+  --config configs/training/act_physical_bottle_nominal52.yaml
 PYTHONPATH=src .venv/bin/python -m episode_dataset.cli act-force-smoke \
-  --config configs/training/act_force_physical_bottle_v4_nominal52.yaml
+  --config configs/training/act_force_physical_bottle_nominal52.yaml
 ```
 
 The exact decisions and source frame/timestamp ranges are in
-`configs/training/physical_bottle_v4_nominal52.yaml` and
+`configs/training/physical_bottle_nominal52.yaml` and
 `research_log/physical_bottle_nominal52_materialization.md`.
 
 ### Strong ACT baseline
@@ -227,8 +185,8 @@ scripts/evaluate_physical_bottle_nominal52_checkpoints.sh
 ```
 
 The exact split is
-`configs/training/physical_bottle_v4_nominal52_split.yaml`, the trainer config
-is `configs/training/lerobot/act_physical_bottle_v4_nominal52_strong.json`, and
+`configs/training/physical_bottle_nominal52_split.yaml`, the trainer config
+is `configs/training/lerobot/act_physical_bottle_nominal52_strong.json`, and
 the audit/selection protocol is in
 `research_log/physical_bottle_nominal52_strong_act_20260813.md`. Checkpoints and
 derived LeRobot views stay under ignored `outputs/training/`; do not commit
@@ -276,17 +234,15 @@ ACT+Force 通过单独的 `observation.environment_state` 提供六维 raw force
 拼入 12-D state。
 
 2026-08-13 人工审核后，`physical_bottle_v2` 仅保留为混合质量诊断数据，不能再称为
-“25 条干净专家示教”。当前 nominal baseline 是
-`data/training/physical_bottle_v2_nominal16/`，由 13 条直接 nominal episode、99
-的两段和 102 的第二段组成。99/102 的人工恢复区间不属于任何派生 episode；普通
+“25 条干净专家示教”。nominal16 仅作为历史中间视图保留，由 13 条直接 nominal
+episode、99 的两段和 102 的第二段组成。当前 nominal baseline 是
+`data/training/physical_bottle_v4_nominal52/`。99/102 的人工恢复区间不属于任何派生 episode；普通
 episode 在持久化 task-release 行结束，约 5 秒人工 reset 尾段不进入训练。少数明显的
 任务前静止段也通过清单中的精确 frame/timestamp 边界排除，但不会裁掉 approach。
 
 clean split 按采集 session 划分：87/88 与 108/109 为验证集（2,800 行），其余 12
-条为训练集（9,377 行）；99 的两段始终同 split。先运行
-`scripts/train_physical_bottle_lerobot.sh clean-scratch`，完成离线 transition 诊断后才允许
-`clean-pretrained`。旧 mixed val4 上的 `strong-pretrained` 已停用。以上均为离线训练，
-不会授权真机运动。
+条为训练集（9,377 行）；99 的两段始终同 split。相关 scratch/pretrained 入口属于开发试验，
+已从当前配置和 launcher 中移除。以上均为离线历史记录，不会授权真机运动。
 
 同日新增的 `physical_bottle_v3_nominal33` 是 nominal16 的版本化扩展。新批次中
 122--129、132 按人工审核排除，130 缺少完整载荷；135/136 的人物出现在实际任务
@@ -294,5 +250,10 @@ clean split 按采集 session 划分：87/88 与 108/109 为验证集（2,800 �
 到 release/最后任务动作，并裁掉任务前静止和任务后人工恢复。新轨迹由原始 13,608
 行裁为 10,476 行；与 nominal16 合并后共有 33 条、22,653 行完全匹配的 ACT 与
 ACT+Force 样本。训练/验证按采集 session 隔离，分别为 24 条/16,670 行和 9 条/5,983
-行。权威边界与复现命令见本页英文小节和
-`configs/training/physical_bottle_v3_nominal33.yaml`。
+行。nominal33 是后续已被 nominal52 替代的中间扩展，当前配置和复现入口不再保留；
+其审计结论仍在 dated research log 中。
+
+当前正式配置为 `configs/training/physical_bottle_nominal52.yaml`、
+`configs/training/physical_bottle_nominal52_split.yaml` 以及对应的 ACT /
+ACT+Force view 配置。LeRobot 的当前 strong ACT trainer 配置为
+`configs/training/lerobot/act_physical_bottle_nominal52_strong.json`。

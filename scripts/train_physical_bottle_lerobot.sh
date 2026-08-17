@@ -3,7 +3,9 @@
 #
 # The raw/master datasets stay outside the container's write scope.  Only the
 # disposable LeRobot views and ignored training outputs are written below
-# outputs/training/physical_bottle_v2.
+# outputs/training/physical_bottle_v2. The source dataset ID is historical v2;
+# its retained configuration names this formal mixed-quality reproducibility
+# baseline explicitly.
 
 set -Eeuo pipefail
 
@@ -14,7 +16,6 @@ LEROBOT_SOURCE="${LEROBOT_SOURCE:-$ROOT_DIR/third_party/lerobot}"
 EXPECTED_LEROBOT_COMMIT="f66e5128ecb2456e8c54a63d15404fa59c16aebc"
 CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-$ROOT_DIR/outputs/training/lerobot_container_home}"
 MODE="${1:-both}"
-STRONG_STAGE="${2:-2000}"
 
 die() {
   echo "ERROR: $*" >&2
@@ -22,34 +23,27 @@ die() {
 }
 
 case "$MODE" in
-  act|act-force|both|val4|clean-scratch|clean-pretrained|strong-act) ;;
-  strong-pretrained)
-    die "strong-pretrained on the mixed-quality val4 dataset is retired; run clean-scratch first"
-    ;;
+  act|act-force|both|val4|strong-act) ;;
   -h|--help)
     cat <<'EOF'
-Usage: scripts/train_physical_bottle_lerobot.sh [act|act-force|both|val4]
-       scripts/train_physical_bottle_lerobot.sh clean-scratch
-       scripts/train_physical_bottle_lerobot.sh clean-pretrained
-       scripts/train_physical_bottle_lerobot.sh strong-act
+Usage: scripts/train_physical_bottle_lerobot.sh [act|act-force|both|val4|strong-act]
 
 Builds and validates the disposable LeRobot v3 view, then starts the pinned
 official LeRobot 0.6.2 ACT trainer. `both` runs ACT and ACT+Force sequentially.
 Existing generated views are reused only when they contain a prior loader
 validation report. Existing training output directories are never overwritten.
-`clean-scratch` trains the controlled 2k ACT on the human-audited,
-task-trimmed nominal16 view. `clean-pretrained` uses the exact same rows and
-split with cached ImageNet ResNet18 initialization, and is gated on completion
-and offline transition analysis of clean-scratch. The launcher is network-disabled.
+`act`, `act-force`, `both`, and `val4` reproduce the retained mixed-quality
+LeRobot runs. `strong-act` trains the current nominal52 baseline. The launcher
+is network-disabled.
 `strong-act` trains the fixed nominal52 session split for 100k steps with the
 canonical-size ACT and a 60-step prediction horizon. It does not run a robot.
 EOF
     exit 0
     ;;
-  *) die "mode must be act, act-force, both, val4, clean-scratch, clean-pretrained, or strong-act" ;;
+  *) die "mode must be act, act-force, both, val4, or strong-act" ;;
 esac
 if [[ $# -gt 1 ]]; then
-  die "training stages beyond the controlled 2k budget require a separate reviewed config"
+  die "this entrypoint accepts one mode argument"
 fi
 
 command -v docker >/dev/null 2>&1 || die "docker is required"
@@ -57,9 +51,6 @@ mkdir -p "$CONTAINER_HOME"
 if [[ "$MODE" == "strong-act" ]]; then
   [[ -d "$ROOT_DIR/data/training/physical_bottle_v4_nominal52/act" ]] || \
     die "materialize physical_bottle_v4_nominal52 first"
-elif [[ "$MODE" == clean-* ]]; then
-  [[ -d "$ROOT_DIR/data/training/physical_bottle_v2_nominal16/act" ]] || \
-    die "materialize physical_bottle_v2_nominal16 first"
 else
   [[ -d "$ROOT_DIR/data/training/physical_bottle_v2/act" ]] || die "run physical bottle materialization first"
   [[ -d "$ROOT_DIR/data/training/physical_bottle_v2/act_force" ]] || die "run physical bottle materialization first"
@@ -90,38 +81,14 @@ run_one() {
   local master="$ROOT_DIR/data/training/$dataset_name/$kind/master"
   local view_name="${kind}_view"
   local run_name="${kind}_run"
-  local config_name="act_physical_bottle_v2.json"
+  local config_name="act_physical_bottle_mixed.json"
   local chunk_size=16
   local split_args=()
   if [[ "$variant" == "val4" ]]; then
     view_name="${kind}_val4_view"
     run_name="${kind}_val4_run"
-    config_name="act_physical_bottle_v2_val4.json"
-    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_v2_val4.yaml)
-  fi
-  if [[ "$variant" == "clean-scratch" || "$variant" == "clean-pretrained" ]]; then
-    [[ "$kind" == "act" ]] || die "clean controlled experiments are defined only for standard ACT"
-    dataset_name="physical_bottle_v2_nominal16"
-    master="$ROOT_DIR/data/training/$dataset_name/act/master"
-    view_name="act_clean_view"
-    run_name="act_clean_scratch_run"
-    config_name="act_physical_bottle_v2_nominal16_clean_scratch.json"
-    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_v2_nominal16_split.yaml)
-  fi
-  if [[ "$variant" == "clean-pretrained" ]]; then
-    run_name="act_clean_pretrained_run"
-    config_name="act_physical_bottle_v2_nominal16_clean_pretrained.json"
-    local weights="$CONTAINER_HOME/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
-    local expected_weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
-    [[ -f "$weights" ]] || die "cached ImageNet ResNet18 weights are missing: $weights"
-    [[ "$(sha256sum "$weights" | awk '{print $1}')" == "$expected_weights_sha256" ]] || \
-      die "cached ImageNet ResNet18 weights failed the pinned checksum"
-    local scratch="$ROOT_DIR/outputs/training/$dataset_name/act_clean_scratch_run/checkpoints/002000"
-    local analysis="$ROOT_DIR/outputs/training/$dataset_name/analysis/clean_scratch/transition_analysis.json"
-    [[ -d "$scratch/pretrained_model" && -d "$scratch/training_state" ]] || \
-      die "clean-scratch 2k checkpoint is required before clean-pretrained"
-    [[ -f "$analysis" ]] || \
-      die "clean-scratch offline transition analysis is required before clean-pretrained: $analysis"
+    config_name="act_physical_bottle_mixed_val4.json"
+    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_mixed_val4.yaml)
   fi
   if [[ "$variant" == "strong" ]]; then
     [[ "$kind" == "act" ]] || die "strong baseline is defined only for standard ACT"
@@ -129,9 +96,9 @@ run_one() {
     master="$ROOT_DIR/data/training/$dataset_name/act/master"
     view_name="act_strong_view"
     run_name="act_strong_run"
-    config_name="act_physical_bottle_v4_nominal52_strong.json"
+    config_name="act_physical_bottle_nominal52_strong.json"
     chunk_size=60
-    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_v4_nominal52_split.yaml)
+    split_args=(--split-config /workspace/embodied_lab/configs/training/physical_bottle_nominal52_split.yaml)
     local weights="$CONTAINER_HOME/.cache/torch/hub/checkpoints/resnet18-f37072fd.pth"
     local expected_weights_sha256="f37072fd47e89c5e827621c5baffa7500819f7896bbacec160b1a16c560e07ec"
     [[ -f "$weights" ]] || die "cached ImageNet ResNet18 weights are missing: $weights"
@@ -142,9 +109,9 @@ run_one() {
   local config="/workspace/embodied_lab/configs/training/lerobot/$config_name"
   local label="act"
   if [[ "$kind" == "act_force" ]]; then
-    config_name="act_force_physical_bottle_v2.json"
+    config_name="act_force_physical_bottle_mixed.json"
     if [[ "$variant" == "val4" ]]; then
-      config_name="act_force_physical_bottle_v2_val4.json"
+      config_name="act_force_physical_bottle_mixed_val4.json"
     fi
     config="/workspace/embodied_lab/configs/training/lerobot/$config_name"
     label="act_force"
@@ -179,12 +146,6 @@ fi
 if [[ "$MODE" == "val4" ]]; then
   run_one act val4
   run_one act_force val4
-fi
-if [[ "$MODE" == "clean-scratch" ]]; then
-  run_one act clean-scratch
-fi
-if [[ "$MODE" == "clean-pretrained" ]]; then
-  run_one act clean-pretrained
 fi
 if [[ "$MODE" == "strong-act" ]]; then
   run_one act strong

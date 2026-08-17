@@ -32,7 +32,8 @@ for a separately managed runtime home.
 It performs, in order:
 
 1. checks the pinned image and the already-materialized immutable source;
-2. builds a disposable LeRobot v3 view from `data/training/physical_bottle_v2/act`;
+2. builds a disposable LeRobot v3 view from the retained mixed-quality source
+   `data/training/physical_bottle_v2/act`;
 3. builds the matching ACT+Force view from `.../act_force`;
 4. validates each view through the real `LeRobotDataset` loader;
 5. starts `python -m lerobot.scripts.lerobot_train` for ACT and ACT+Force.
@@ -51,8 +52,8 @@ master dataset remains unchanged and still stores `observation.force` as a
 separate six-vector with age, validity, and timestamp provenance.
 
 The training configs are in
-`configs/training/lerobot/act_physical_bottle_v2.json` and
-`configs/training/lerobot/act_force_physical_bottle_v2.json`. They reproduce
+`configs/training/lerobot/act_physical_bottle_mixed.json` and
+`configs/training/lerobot/act_force_physical_bottle_mixed.json`. They reproduce
 the previous strong baseline architecture: 16-step chunks, batch 16, fp32,
 AdamW at `1e-4`, seed 1000, no temporal ensemble, no pretrained backbone, and
 2,000 optimizer steps. Deployment may consume only a prefix of the predicted
@@ -71,7 +72,7 @@ for the four reviewed clean demonstrations 89, 98, 114, and 116:
 scripts/train_physical_bottle_lerobot.sh val4
 ```
 
-This uses `configs/training/physical_bottle_v2_val4.yaml` and the matching
+This uses `configs/training/physical_bottle_mixed_val4.yaml` and the matching
 `*_val4.json` trainer configs. The derived views put the other 21 logical
 episodes first and the four held-out episodes last, matching LeRobot 0.6.2's
 episode-level `eval_split: 0.16` behavior. The split is 18,064 training rows /
@@ -92,10 +93,30 @@ manually invoked Docker command. The reproducibility evidence is retained in
 `research_log/act_thor_environment.md` and
 `research_log/act_five_demo_overfit.md`. The old workflow hard-coded the v1
 five-demo master and copied commands from `/home/thor/LeRobot/scripts`; it did
-not provide a repository-owned entrypoint for the current v2 matched views.
+not provide a repository-owned entrypoint for the retained mixed matched views.
 This integration keeps the official trainer but moves view construction,
 version checks, container invocation, and the ACT/ACT+Force mapping into this
 repository.
+
+### Current nominal52 baseline
+
+The current formal vision/state baseline is the human-audited nominal52 view.
+It uses the session-grouped 37/15 train/validation split, ImageNet-pretrained
+ResNet18, a 60-step action chunk, and the canonical 512/3200 ACT model. Start
+it with:
+
+```bash
+scripts/train_physical_bottle_lerobot.sh strong-act
+```
+
+Its split and trainer configuration are
+`configs/training/physical_bottle_nominal52_split.yaml` and
+`configs/training/lerobot/act_physical_bottle_nominal52_strong.json`. The
+generated view and checkpoints remain under the ignored
+`outputs/training/physical_bottle_v4_nominal52/` tree. ACT+Force source-view
+configuration remains available as
+`configs/training/act_force_physical_bottle_nominal52.yaml`; a force-aware
+LeRobot trainer is not declared as the current formal baseline.
 
 ## 中文说明
 

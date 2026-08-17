@@ -1,5 +1,5 @@
 schema_version: embodied_lab.training_validation.v1
-name: physical_bottle_v2_val4
+name: physical_bottle_mixed_val4
 source_episode_ids: [89, 98, 114, 116]
 validation_source_episodes: [89, 98, 114, 116]
 eval_split: 0.16

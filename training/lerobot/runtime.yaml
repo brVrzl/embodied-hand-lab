@@ -11,5 +11,5 @@ source_root: data/training/physical_bottle_v2
 derived_root: outputs/training/physical_bottle_v2
 raw_root: data/raw_episodes
 raw_is_read_only: true
-act_config: configs/training/lerobot/act_physical_bottle_v2.json
-act_force_config: configs/training/lerobot/act_force_physical_bottle_v2.json
+act_config: configs/training/lerobot/act_physical_bottle_mixed.json
+act_force_config: configs/training/lerobot/act_force_physical_bottle_mixed.json

@@ -35,32 +35,6 @@ def test_act_force_keeps_invalid_force_rows_matched(tmp_path: Path) -> None:
     assert any(sample["observation"]["force_valid"] is False for sample in force_rows)
 
 
-def test_nominal16_manifest_keeps_corrected_demonstrations_separate() -> None:
-    config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_v2_nominal16.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-    segments = {value["id"]: value for value in config["segments"]}
-
-    assert len([value for value in segments.values() if value.get("include")]) == 16
-    assert (segments["ep099_a"]["start_frame"], segments["ep099_a"]["end_frame"]) == (0, 965)
-    assert (segments["ep099_b"]["start_frame"], segments["ep099_b"]["end_frame"]) == (1335, 2348)
-    assert (segments["ep102_a"]["start_frame"], segments["ep102_a"]["end_frame"]) == (0, 877)
-    assert (segments["ep102_b"]["start_frame"], segments["ep102_b"]["end_frame"]) == (1209, 1934)
-    assert segments["ep099_a"]["end_frame"] < segments["ep099_b"]["start_frame"]
-    assert segments["ep102_a"]["end_frame"] < segments["ep102_b"]["start_frame"]
-    assert segments["ep102_a"]["include"] is False
-    assert segments["ep102_b"]["include"] is True
-
-    split_for = {
-        segment: split
-        for split, values in config["splits"].items()
-        for segment in values
-    }
-    assert split_for["ep099_a"] == split_for["ep099_b"] == "train"
-
-
 def test_corrected_merged_episode_chunks_cannot_cross_reset_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -119,42 +93,9 @@ def test_split_group_contract_rejects_session_leakage() -> None:
         )
 
 
-def test_nominal33_manifest_adds_only_reviewed_task_trimmed_trajectories() -> None:
-    config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_v3_nominal33.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
-    segments = {value["id"]: value for value in config["segments"]}
-    included = {name for name, value in segments.items() if value.get("include")}
-    new_included = {
-        "ep121", "ep131", "ep133", "ep134", "ep137", "ep138", "ep139",
-        "ep140", "ep141", "ep142", "ep143", "ep144", "ep145", "ep146",
-        "ep147", "ep148", "ep149",
-    }
-
-    assert len(included) == 33
-    assert new_included <= included
-    assert not ({f"ep{value}" for value in range(122, 130)} | {"ep130", "ep132", "ep135", "ep136"}) & included
-    assert segments["ep130"]["reason"] == "missing_complete_payload"
-    assert segments["ep135"]["classification"] == "REVIEW_REQUIRED"
-    assert segments["ep136"]["classification"] == "REVIEW_REQUIRED"
-    assert (segments["ep121"]["start_frame"], segments["ep121"]["end_frame"]) == (60, 672)
-    assert (segments["ep149"]["start_frame"], segments["ep149"]["end_frame"]) == (1, 460)
-
-    split_for = {
-        segment: split
-        for split, values in config["splits"].items()
-        for segment in values
-    }
-    for group in config["split_groups"]:
-        assert len({split_for[segment] for segment in group["segments"]}) == 1
-    assert {split_for[f"ep{value}"] for value in range(138, 143)} == {"val"}
-
-
 def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
     config = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_v4_nominal52.yaml").read_text(
+        (Path(__file__).parents[1] / "configs/training/physical_bottle_nominal52.yaml").read_text(
             encoding="utf-8"
         )
     )
@@ -178,7 +119,7 @@ def test_nominal52_manifest_keeps_new_splits_and_reset_gaps_separate() -> None:
         assert len({split_for[segment] for segment in group["segments"]}) == 1
 
     strong_split = yaml.safe_load(
-        (Path(__file__).parents[1] / "configs/training/physical_bottle_v4_nominal52_split.yaml").read_text(
+        (Path(__file__).parents[1] / "configs/training/physical_bottle_nominal52_split.yaml").read_text(
             encoding="utf-8"
         )
     )

@@ -250,7 +250,7 @@ def build_audited_manifest(source_master: Path, output_path: Path) -> dict[str, 
                 "audit_classification": audit["classification"],
                 "audit_notes": audit.get("notes"),
                 "audit_source": [
-                    "configs/training/physical_bottle_v4_nominal52.yaml",
+                    "configs/training/physical_bottle_nominal52.yaml",
                     "research_log/physical_bottle_nominal52_audit.md",
                     "data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json",
                 ],

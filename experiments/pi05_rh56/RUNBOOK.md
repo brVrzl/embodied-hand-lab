@@ -7,17 +7,17 @@ actuator commands. The source ACT data is not modified.
 
 Task prompt: `Pick up the bottle and place it on the cardboard box.`
 
-The latest exact-match `physical_bottle_v4_nominal52` audit set contains 52
+The latest exact-match `physical_bottle_nominal52` audit set contains 52
 explicitly accepted logical demonstrations and 33,111 frames at 30 Hz. The
 machine-readable run manifest is `outputs/training/pi05_rh56/audited_manifest.json`.
 Its acceptance evidence is:
 
-- `configs/training/physical_bottle_v4_nominal52.yaml`
+- `configs/training/physical_bottle_nominal52.yaml`
 - `research_log/physical_bottle_nominal52_audit.md`
 - `data/training/physical_bottle_v4_nominal52/manifests/logical_segments.json`
 
 The locked ACT split is 37 train / 15 validation logical episodes, recorded in
-`configs/training/physical_bottle_v4_nominal52_split.yaml` and
+`configs/training/physical_bottle_nominal52_split.yaml` and
 `data/training/physical_bottle_v4_nominal52/act/manifests/splits.json`. The
 OpenPI training view is
 `outputs/training/pi05_rh56/lerobot_home_v2/local/pi05_rh56_train`; it contains
