@@ -45,7 +45,7 @@ so the official base checkpoint can load without inventing RH56 channels.
 
 ## Pinned software and configuration
 
-- OpenPI checkout: `/home/thor/openpi/repo`
+- OpenPI checkout: `third_party/openpi` (override with `PI05_OPENPI_REPO` when using a separately audited checkout)
 - OpenPI commit: `15a9616a00943ada6c20a0f158e3adb39df2ccac`
 - Project pin: `experiments/pi05_rh56/openpi.lock.json`
 - Runtime check: `experiments/pi05_rh56/scripts/check_openpi.sh --require-image`

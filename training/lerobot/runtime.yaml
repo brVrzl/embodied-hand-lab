@@ -3,6 +3,8 @@ image: jaka-lerobot-dev:snapshot-before-raw-mount
 image_id: sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e
 lerobot_version: 0.6.2
 official_commit: f66e5128ecb2456e8c54a63d15404fa59c16aebc
+source_submodule: third_party/lerobot
+source_checkout_policy: git_submodule
 network: none
 source_root: data/training/physical_bottle_v2
 derived_root: outputs/training/physical_bottle_v2

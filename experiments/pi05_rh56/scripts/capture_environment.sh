@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 OUTPUT=${1:-$REPOSITORY_ROOT/outputs/training/pi05_rh56/environment_summary.json}
-OPENPI_REPO=${PI05_OPENPI_REPO:-/home/thor/openpi/repo}
+OPENPI_REPO=${PI05_OPENPI_REPO:-$REPOSITORY_ROOT/third_party/openpi}
 
 python3 - "$OUTPUT" "$REPOSITORY_ROOT" "$OPENPI_REPO" <<'PY'
 import json

@@ -17,5 +17,7 @@ controller or hand mapping is copied into the training run.
   in this baseline. Repository: <https://github.com/EmptyBlueBox/DexLatent>.
 
 The derived adapter keeps the project's audited six active RH56 actuator
-channels and native absolute arm targets. The external references are not
-runtime dependencies and their code is not vendored.
+channels and native absolute arm targets. The Unitree and DexLatent entries
+above are references only, not runtime dependencies; their code is not
+vendored. The actual OpenPI and LeRobot runtime sources are pinned separately
+as project submodules under `third_party/`.

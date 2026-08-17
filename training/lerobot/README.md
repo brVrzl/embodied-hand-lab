@@ -1,8 +1,9 @@
 # Repository LeRobot training integration
 
 This directory documents the repository-owned boundary to the official
-LeRobot trainer. LeRobot core is intentionally not vendored here. The pinned
-runtime is the audited image `jaka-lerobot-dev:snapshot-before-raw-mount`,
+LeRobot trainer. The upstream LeRobot source is kept as the Git submodule
+`third_party/lerobot`, pinned to the exact commit used by the audited runtime.
+The pinned runtime is the audited image `jaka-lerobot-dev:snapshot-before-raw-mount`,
 image ID
 `sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e`,
 with LeRobot `0.6.2` from official commit
@@ -14,6 +15,17 @@ The maintained entrypoint is:
 ```bash
 scripts/train_physical_bottle_lerobot.sh both
 ```
+
+Verify both external training repositories and the ACT image before training:
+
+```bash
+scripts/check_training_dependencies.sh --require-image
+```
+
+The launcher mounts `third_party/lerobot/src` read-only into the container and
+puts it first on `PYTHONPATH`; the image and source commit are checked before
+any dataset view is built. Set `LEROBOT_SOURCE` only for a separately audited
+checkout with the same pinned commit.
 
 It performs, in order:
 
@@ -85,7 +97,8 @@ repository.
 
 ## 中文说明
 
-本目录定义仓库与官方 LeRobot trainer 的边界，不把第三方 LeRobot 源码复制进来。
+本目录定义仓库与官方 LeRobot trainer 的边界。第三方 LeRobot 源码通过
+`third_party/lerobot` Git submodule 固定 commit，不复制成普通源码目录。
 固定使用已经审计过的 `jaka-lerobot-dev:snapshot-before-raw-mount` 镜像和 LeRobot 0.6.2。
 
 从仓库根目录运行：
@@ -93,6 +106,16 @@ repository.
 ```bash
 scripts/train_physical_bottle_lerobot.sh both
 ```
+
+训练前可统一检查外部训练依赖和 ACT 镜像：
+
+```bash
+scripts/check_training_dependencies.sh --require-image
+```
+
+入口会把 `third_party/lerobot/src` 以只读方式挂载到容器并置于
+`PYTHONPATH` 首位，同时检查 source commit 和镜像 digest。只有使用同一
+固定 commit 的单独审计 checkout 时才设置 `LEROBOT_SOURCE`。
 
 入口会先检查镜像、构建并验证两个临时 LeRobot v3 view，然后依次启动 ACT 与 ACT+Force
 训练。它使用 `--network none`，不访问机器人，不覆盖已经存在的 view 或 checkpoint。

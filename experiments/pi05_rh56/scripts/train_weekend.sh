@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPOSITORY_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
 EXPERIMENT_ROOT=${PI05_EXPERIMENT_ROOT:-$REPOSITORY_ROOT/outputs/training/pi05_rh56}
-OPENPI_REPO=${PI05_OPENPI_REPO:-/home/thor/openpi/repo}
+OPENPI_REPO=${PI05_OPENPI_REPO:-$REPOSITORY_ROOT/third_party/openpi}
 OPENPI_CACHE=${PI05_OPENPI_CACHE:-/home/thor/openpi/cache}
 JAX_CACHE=${PI05_JAX_CACHE:-/home/thor/openpi/jax_cache}
 IMAGE=${PI05_OPENPI_IMAGE:-jaka-openpi:thor-cuda13}

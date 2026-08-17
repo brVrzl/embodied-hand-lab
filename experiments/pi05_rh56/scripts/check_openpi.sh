@@ -3,7 +3,8 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 EXPERIMENT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
-OPENPI_REPO=${PI05_OPENPI_REPO:-/home/thor/openpi/repo}
+REPOSITORY_ROOT=$(cd "$EXPERIMENT_DIR/../.." && pwd)
+OPENPI_REPO=${PI05_OPENPI_REPO:-$REPOSITORY_ROOT/third_party/openpi}
 OPENPI_IMAGE=${PI05_OPENPI_IMAGE:-jaka-openpi:thor-cuda13}
 REQUIRE_IMAGE=0
 
@@ -29,7 +30,7 @@ print(json.loads(open(sys.argv[1], encoding="utf-8").read())["commit"])
 PY
 )
 
-if [[ ! -d "$OPENPI_REPO/.git" ]]; then
+if [[ ! -e "$OPENPI_REPO/.git" ]]; then
     printf 'OpenPI checkout missing or is not a Git worktree: %s\n' "$OPENPI_REPO" >&2
     exit 1
 fi

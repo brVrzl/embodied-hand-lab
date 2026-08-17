@@ -2,10 +2,10 @@
   "upstream_repository": "https://github.com/Physical-Intelligence/openpi.git",
   "commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
   "checkout_environment_variable": "PI05_OPENPI_REPO",
-  "default_checkout": "/home/thor/openpi/repo",
+  "default_checkout": "third_party/openpi",
   "container_image": "jaka-openpi:thor-cuda13",
   "backend": "official_jax",
   "base_model": "pi05_base",
   "runner": "experiments/pi05_rh56/scripts/openpi_runner.py",
-  "source_policy": "Keep upstream OpenPI outside the repository and mount it read-only into the pinned training container. Project-specific transforms, config, supervision, and validation remain in embodied_lab."
+  "source_policy": "Use the pinned Git submodule at third_party/openpi and mount it read-only into the pinned training container. PI05_OPENPI_REPO may override the checkout for a separately audited runtime. Project-specific transforms, config, supervision, and validation remain in embodied_lab."
 }

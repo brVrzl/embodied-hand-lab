@@ -10,6 +10,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${LEROBOT_IMAGE:-jaka-lerobot-dev:snapshot-before-raw-mount}"
 EXPECTED_IMAGE_ID="sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e"
+LEROBOT_SOURCE="${LEROBOT_SOURCE:-$ROOT_DIR/third_party/lerobot}"
+EXPECTED_LEROBOT_COMMIT="f66e5128ecb2456e8c54a63d15404fa59c16aebc"
 CONTAINER_HOME="${LEROBOT_CONTAINER_HOME:-/home/thor/LeRobot/container-home}"
 MODE="${1:-both}"
 STRONG_STAGE="${2:-2000}"
@@ -65,13 +67,19 @@ fi
 
 actual_image_id="$(docker image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || true)"
 [[ "$actual_image_id" == "$EXPECTED_IMAGE_ID" ]] || die "image $IMAGE is not the audited pinned image: $actual_image_id"
+[[ -e "$LEROBOT_SOURCE/.git" ]] || die "LeRobot source submodule is missing: $LEROBOT_SOURCE"
+actual_lerobot_commit="$(git -C "$LEROBOT_SOURCE" rev-parse HEAD 2>/dev/null || true)"
+[[ "$actual_lerobot_commit" == "$EXPECTED_LEROBOT_COMMIT" ]] || \
+  die "LeRobot source commit mismatch: expected $EXPECTED_LEROBOT_COMMIT, got $actual_lerobot_commit"
 
 run_container() {
   docker run --rm --runtime=nvidia --ipc=host --network none \
     -v "$ROOT_DIR:/workspace/embodied_lab:rw" \
+    -v "$LEROBOT_SOURCE:/workspace/lerobot_source:ro" \
     -v "$CONTAINER_HOME:/home/lerobot:rw" \
     -w /workspace/embodied_lab \
     -e HOME=/home/lerobot \
+    -e PYTHONPATH=/workspace/lerobot_source/src \
     "$IMAGE" "$@"
 }
 
