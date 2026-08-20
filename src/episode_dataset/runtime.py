@@ -38,7 +38,13 @@ def _next_staging_episode_index(root: str | Path) -> int:
         "meta/episodes/chunk-000/episode_*.json.partial",
         "data/chunk-000/episode_*.jsonl",
         "data/chunk-000/episode_*.jsonl.partial",
+        # A control/software abort can happen after the staging episode
+        # directory (for example DAgger provenance) is created but before
+        # the normal metadata/data files are finalized.  Reserve that index
+        # as well so a retry never reuses the same episode directory.
+        "audit/chunk-000/episode_*",
     ):
+
         for path in root_path.glob(pattern):
             name = path.name.split(".", 1)[0]
             if name.startswith("episode_"):

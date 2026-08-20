@@ -1,0 +1,52 @@
+schema_version: embodied_lab.physical_bottle_collection_config.v1
+name: physical_bottle_dagger_v1
+source_root: ../../../data/dagger_episodes
+output_root: ../../../data/training/physical_bottle_dagger_v1
+audit_report: ../../../docs/data/DATASET.md
+materialization_report: ../../../docs/data/DATASET.md
+
+task:
+  id: place_bottle_on_cardboard_box
+  prompt: Pick up the bottle and place it on the cardboard box.
+
+fps: 30
+action_horizon: 16
+
+# Policy-facing views are part of the shared dataset contract.  The ACT policy
+# config selects this entry with `view: act`; it does not define the entry
+# itself.
+views:
+  act:
+    dataset_root: ../../../data/training/physical_bottle_dagger_v1/act
+    view: act
+    split: train
+    action_horizon: 16
+    short_horizon_policy: repeat_last_with_mask
+    action_semantics: absolute_native_target
+    observation:
+      images: [workspace, wrist]
+      state: observation.state
+      force: ignored
+    normalization:
+      state: ../../../data/training/physical_bottle_dagger_v1/stats/state_stats.json
+      action: ../../../data/training/physical_bottle_dagger_v1/stats/action_stats.json
+
+# This is a review manifest template. Add reviewed source episode ids,
+# source_reviews, logical segments, and split_groups after a DAgger rollout.
+# The raw source tree remains immutable; recovery segments should start at the
+# first canonical frame with a valid expert action.
+source_episode_ids: []
+source_reviews: []
+segments: []
+split_groups: []
+splits:
+  train: []
+  val: []
+  test: []
+
+dagger:
+  provenance_stream: audit/chunk-000/<episode>/dagger_control.jsonl
+  train_label_source: expert
+  exclude_sources:
+    - policy
+    - hold

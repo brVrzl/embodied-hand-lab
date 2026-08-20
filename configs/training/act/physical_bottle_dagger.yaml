@@ -1,0 +1,13 @@
+schema_version: embodied_lab.policy_view_config.v2
+dataset_config: ../shared/physical_bottle_dagger.yaml
+view: act
+split: train
+action_horizon: 16
+
+# The model-facing contract remains unchanged:
+# two RGB observations, 12-D measured state, and 12-D absolute/native action.
+observation:
+  images: [workspace, wrist]
+  state: observation.state
+  force: ignored
+action_semantics: absolute_native_target
