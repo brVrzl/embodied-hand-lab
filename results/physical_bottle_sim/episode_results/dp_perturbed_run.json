@@ -1,0 +1,14 @@
+{
+  "model": "dp",
+  "source_root": "/home/thor/projects/embodied_lab",
+  "instances": "results/physical_bottle_sim/initial_instances.json",
+  "output": "outputs/physical_bottle_sim/dp_perturbed",
+  "seconds": 40.0,
+  "chunk": 8,
+  "phase": "perturbed",
+  "acceptance": "results/physical_bottle_sim/environment_acceptance.json",
+  "video_count": 20,
+  "code_commit": "ec162a997ba94159ca63cff9a2eec02887299acd",
+  "control_hz": 30,
+  "observation_source": "current_simulation_only"
+}

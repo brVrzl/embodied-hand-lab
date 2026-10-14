@@ -70,3 +70,5 @@ DP 沿用官方 LeRobot `DiffusionPolicy`，隔离依赖在 worktree `outputs/di
 实际 Unix socket 测试确认两个不同 tick 的图像/状态保持顺序、无丢失，并确认首 tick 的 `previous_obs=None` 复制当前帧；见 `dp_protocol_history_review.json`。runner 在第7 tick的物理步进之前保存上一观测，第8 tick查询使用该观测和当前状态，符合连续 `t-1,t`，不是上一query的第0 tick。episode reset 重新将历史设为None；正式8步executor无跨episode待执行动作。
 
 π0.5 的固定seed只保证显式初始化相同JAX采样key，不能据本轮检查宣称跨进程逐位复现。实际 nominal v2/v3 中，同一instance0、seed20261014 的首个raw chunk最大差异为0.003170669，前8步执行目标最大差异为0.003013849。worker每episode确实执行 `policy._rng=jax.random.key(seed)`；差异的具体根因尚未确认，可能涉及渲染输入/加速计算数值，不能当作已证明的原因。该限制不改写旧attempt，也不通过额外重采样挑选结果。
+
+DP最终checkpoint保留官方DDPM `clip_sample=true,clip_sample_range=1.0`，在归一化空间内裁剪去噪预测，随后通过train-only MIN_MAX反归一化。该内部采样行为属于原模型契约，不是runner额外投影。因此DP原生输出无域外值与ACT/π域外比例不能脱离内部表示直接排名；runner仍对三者执行同一限位，并保留到达该边界前的原生动作。

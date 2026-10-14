@@ -56,3 +56,11 @@ Rollout wall time/latency reflect this shared load. Separate fixed-sample ACT/π
 warm timings are retained in OBS_ACTION_CONTRACT.md; neither set proves realtime
 physical control. The20 starting postures come from the training split and are
 frozen simulation instances, not an unseen-real-episode generalization benchmark.
+
+DP uses the same frozen instance manifest, duration and executor. Its official
+2-frame history is consecutive t-1/t (repeat t at reset), horizon16 includes the
+past action at index0; official output[1:9] provides8 current/future targets.
+The runner does not apply another offset. Final10000-update checkpoint is selected
+by the pretraining budget, with100 DDPM denoising steps and one training seed.
+Sampler clipping remains its checkpoint contract; native actuator projection is
+identical across methods. See DP_REPORT.md and OBS_ACTION_CONTRACT.md.

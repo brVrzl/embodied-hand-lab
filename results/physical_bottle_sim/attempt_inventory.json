@@ -1,0 +1,41 @@
+{
+  "formal_started": 120,
+  "formal_completed": 120,
+  "formal_successes": 0,
+  "formal_technical_errors": 0,
+  "formal_numerical_instabilities": 0,
+  "development_attempts": [
+    {
+      "run": "act_dev_first",
+      "attempt": "act_development_000",
+      "original_status": "model_task_timeout",
+      "disposition": "development_smoke",
+      "ticks": 60,
+      "queries": 8,
+      "success": false
+    },
+    {
+      "run": "pi05_dev_first",
+      "attempt": "pi05_development_000",
+      "original_status": "model_task_timeout",
+      "disposition": "development_smoke",
+      "ticks": 60,
+      "queries": 8,
+      "success": false
+    },
+    {
+      "run": "dp_dev_first",
+      "attempt": "dp_development_000",
+      "original_status": "model_task_timeout",
+      "ticks": 60,
+      "queries": 8,
+      "success": false
+    }
+  ],
+  "superseded_attempt_count": 34,
+  "superseded_ledger": "earlier_attempts.json (exclude its two development_smoke rows)",
+  "total_policy_attempts": 157,
+  "environment_attempts_separate": 2,
+  "training_technical_attempts_separate": "DP_REPORT.md",
+  "validation": "All six formal groups have 20 starts and 20 outcomes, identical ordered frozen phase instances, 1200 ticks/150 actual queries each, and local raw NPZ/trace present. Older records remain unchanged."
+}

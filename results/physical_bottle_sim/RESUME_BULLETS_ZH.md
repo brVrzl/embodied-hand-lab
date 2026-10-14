@@ -4,7 +4,7 @@
 
 - 建立双路RGB与机器人状态同步的抓瓶示教训练流程，审核整理52条逻辑轨迹、33,111帧，锁定37条训练/15条验证划分；完成ACT训练、π0.5 LoRA训练及Diffusion Policy基线训练，统一核验数据、归一化与权重身份。[数据与训练证据](ASSET_AND_CHECKPOINT_AUDIT.md)
 - 完成ACT在JAKA Mini2 + RH56DFX上的真实部署与有界运行调试，定位观测新鲜度、动作执行时序及退出流程问题，保留硬件命令记录与异常退出证据。[历史真机证据](historical_physical_evidence.json)
-- 重建MuJoCo抓瓶搬运场景，将ACT、π0.5与Diffusion Policy接入当前仿真图像和状态驱动的闭环；统一12维动作、30 Hz仿真控制与固定8步执行，完成独立专家物理验收，并用阶段指标、动作投影和全部尝试记录分析直接迁移失败。[接口](OBS_ACTION_CONTRACT.md) · [协议](EVALUATION_PROTOCOL.md) · [验收](environment_acceptance.json) · [闭环记录索引](EVIDENCE_INDEX.md)
+- 重建MuJoCo抓瓶搬运场景，将ACT、π0.5与Diffusion Policy接入当前仿真图像和状态驱动的闭环；统一12维动作、30 Hz仿真控制与固定8步执行，完成独立专家物理验收及120次正式闭环评测，保留三模型完整任务均0/40的结果，以阶段指标、动作投影和全部尝试记录分析直接迁移失败。[接口](OBS_ACTION_CONTRACT.md) · [协议](EVALUATION_PROTOCOL.md) · [验收](environment_acceptance.json) · [闭环记录索引](EVIDENCE_INDEX.md) · [120次正式统计](formal_summary.json)
 
 ## 数字与经历的证据边界
 

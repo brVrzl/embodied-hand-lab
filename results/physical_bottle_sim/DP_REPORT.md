@@ -35,7 +35,7 @@ docker run --rm --name bottle-dp-train --network none --runtime nvidia --ipc hos
   --entrypoint python jaka-lerobot-dev:snapshot-before-raw-mount \
   /work/training/diffusion/train_bottle.py \
   --config /work/configs/training/diffusion/physical_bottle.json \
-  --output /work/outputs/diffusion_bottle/train_seed20261014 --mode train
+  --output /work/outputs/diffusion_bottle/train_seed20261014_reproduction --mode train
 ```
 
 输出目录必须不存在，防止覆盖历史。最终checkpoint为该目录下pretrained_model，已完成正常训练与保存恢复，可用于冻结协议正式评估。

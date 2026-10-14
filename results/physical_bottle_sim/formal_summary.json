@@ -1,0 +1,146 @@
+{
+  "act_nominal_v2": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 0,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 16,
+    "max_lift_m": 0.003105886820140402,
+    "mean_projected_action_fraction": 0.068625,
+    "max_hand_projection": 0.003531843423843384,
+    "max_arm_projection_rad": 0.0,
+    "mean_warm_latency_ms": 19.366377988367674,
+    "mean_real_time_factor": 6.6926979628345125,
+    "wall_seconds": 122.22296982072294,
+    "total_queries": 3000
+  },
+  "act_perturbed_v2": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 0,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 13,
+    "max_lift_m": 0.0031134457282796374,
+    "mean_projected_action_fraction": 0.06754166666666667,
+    "max_hand_projection": 0.004051774740219116,
+    "max_arm_projection_rad": 0.0,
+    "mean_warm_latency_ms": 29.72371040393392,
+    "mean_real_time_factor": 4.953679135801726,
+    "wall_seconds": 163.7997561097145,
+    "total_queries": 3000
+  },
+  "pi05_nominal_v3": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 5,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 20,
+    "max_lift_m": 0.019943154426622214,
+    "mean_projected_action_fraction": 0.9605833333333333,
+    "max_hand_projection": 0.09164292365312576,
+    "max_arm_projection_rad": 0.0401527690887451,
+    "mean_warm_latency_ms": 469.04008825459584,
+    "mean_real_time_factor": 0.5249373287420777,
+    "wall_seconds": 1548.7393800579011,
+    "total_queries": 3000
+  },
+  "pi05_perturbed_v3": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 6,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 20,
+    "max_lift_m": 0.00817913424000731,
+    "mean_projected_action_fraction": 0.9635833333333335,
+    "max_hand_projection": 0.09361061453819275,
+    "max_arm_projection_rad": 0.07490156173706053,
+    "mean_warm_latency_ms": 502.6884895208723,
+    "mean_real_time_factor": 0.4969756209406242,
+    "wall_seconds": 1653.2184073142707,
+    "total_queries": 3000
+  },
+  "dp_nominal": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 2,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 4,
+    "max_lift_m": 0.007989888327931058,
+    "mean_projected_action_fraction": 0.0,
+    "max_hand_projection": 0.0,
+    "max_arm_projection_rad": 0.0,
+    "mean_warm_latency_ms": 822.271009716799,
+    "mean_real_time_factor": 0.32169014060342593,
+    "wall_seconds": 2627.3867916893214,
+    "total_queries": 3000
+  },
+  "dp_perturbed": {
+    "started": 20,
+    "completed": 20,
+    "statuses": {
+      "model_task_timeout": 20
+    },
+    "stage_counts": {
+      "approach": 1,
+      "grasp_lift": 0,
+      "transport": 0,
+      "place": 0,
+      "release": 0,
+      "final_success": 0
+    },
+    "hand_contact_episodes": 2,
+    "max_lift_m": 0.025495677879393316,
+    "mean_projected_action_fraction": 0.0,
+    "max_hand_projection": 0.0,
+    "max_arm_projection_rad": 0.0,
+    "mean_warm_latency_ms": 718.4799547232187,
+    "mean_real_time_factor": 0.34697784915164237,
+    "wall_seconds": 2305.853946111165,
+    "total_queries": 3000
+  }
+}
