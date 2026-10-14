@@ -1,0 +1,60 @@
+{
+  "source": "development train master episode_000000 (source 67); FK and RGB estimate, not calibrated digital twin",
+  "initial_state": [
+    0.65786695,
+    -0.67165506,
+    -2.15144992,
+    -3.91878772,
+    -1.36828578,
+    4.74171066,
+    0,
+    0.007,
+    0.015,
+    0.013,
+    0.127,
+    0.646
+  ],
+  "bottle_center": [
+    -0.055,
+    0.512,
+    0.115
+  ],
+  "bottle_radius": 0.027,
+  "bottle_height": 0.23,
+  "bottle_mass": 0.35,
+  "box_center": [
+    0.22,
+    0.53,
+    0.035
+  ],
+  "box_halfsize": [
+    0.075,
+    0.09,
+    0.035
+  ],
+  "workspace_camera_position": [
+    0.45,
+    1.15,
+    0.7
+  ],
+  "workspace_camera_target": [
+    0.04,
+    0.4,
+    0.04
+  ],
+  "workspace_fovy": 50,
+  "wrist_camera_position_local": [
+    0.05,
+    0.04,
+    0.02
+  ],
+  "wrist_camera_xyaxes_local": [
+    -0.8959964610610199,
+    0.050696156234066675,
+    0.4411578419446054,
+    -0.19094248718549095,
+    -0.9409144690337872,
+    -0.2796800467503671
+  ],
+  "parameter_status": "Robot geometry, mount and equality reused; object/table/cameras and physical servos estimated. RH56 normalized closure mapped linearly to model joint range; hardware tendon calibration not measured."
+}

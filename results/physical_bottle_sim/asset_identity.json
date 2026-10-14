@@ -1,0 +1,225 @@
+{
+  "data": {
+    "train": {
+      "episodes": 37,
+      "frames": 23802,
+      "source_episodes": [
+        67,
+        70,
+        81,
+        95,
+        96,
+        97,
+        98,
+        99,
+        102,
+        116,
+        117,
+        121,
+        131,
+        133,
+        134,
+        137,
+        143,
+        144,
+        145,
+        146,
+        147,
+        148,
+        149,
+        150,
+        151,
+        152,
+        154,
+        155,
+        156,
+        157,
+        158,
+        159,
+        160,
+        161,
+        162,
+        166
+      ],
+      "logical_ids": [
+        "ep067",
+        "ep070",
+        "ep081",
+        "ep095",
+        "ep096",
+        "ep097",
+        "ep098",
+        "ep099_a",
+        "ep099_b",
+        "ep102_b",
+        "ep116",
+        "ep117",
+        "ep121",
+        "ep131",
+        "ep133",
+        "ep134",
+        "ep137",
+        "ep143",
+        "ep144",
+        "ep145",
+        "ep146",
+        "ep147",
+        "ep148",
+        "ep149",
+        "ep150",
+        "ep151",
+        "ep152",
+        "ep154",
+        "ep155",
+        "ep156",
+        "ep157",
+        "ep158",
+        "ep159",
+        "ep160",
+        "ep161",
+        "ep162",
+        "ep166"
+      ]
+    },
+    "val": {
+      "episodes": 15,
+      "frames": 9309,
+      "source_episodes": [
+        87,
+        88,
+        108,
+        109,
+        138,
+        139,
+        140,
+        141,
+        142,
+        172,
+        173,
+        174
+      ],
+      "logical_ids": [
+        "ep087",
+        "ep088",
+        "ep108",
+        "ep109",
+        "ep138",
+        "ep139",
+        "ep140",
+        "ep141",
+        "ep142",
+        "ep172_a",
+        "ep172_b",
+        "ep172_c",
+        "ep173",
+        "ep174_a",
+        "ep174_b"
+      ]
+    }
+  },
+  "source_episode_overlap": [],
+  "pi_manifest_counts": {
+    "accepted_episode_count": 52,
+    "total_frame_count": 33111,
+    "train_episode_count": 37,
+    "validation_episode_count": 15,
+    "fps": 30
+  },
+  "checkpoint_files": [
+    {
+      "path": "outputs/training/physical_bottle_v4_nominal52/act_strong_run/checkpoints/100000/pretrained_model/model.safetensors",
+      "bytes": 206585072,
+      "sha256": "35c1ab6c733b99f46972b45d07619e59b08a495323026c8c33067fde25b28f48"
+    },
+    {
+      "path": "outputs/training/physical_bottle_v4_nominal52/act_strong_run/checkpoints/100000/pretrained_model/policy_preprocessor_step_3_normalizer_processor.safetensors",
+      "bytes": 10480,
+      "sha256": "bfeb94f25c213e65ff507e38eff5db329c806eb16fe74b83d7aa7e2caa9f9f55"
+    },
+    {
+      "path": "outputs/training/physical_bottle_v4_nominal52/act_strong_run/checkpoints/100000/pretrained_model/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+      "bytes": 10568,
+      "sha256": "44225625c41ebcd30fecc70fcc4040a48d8f592f5ff9f98a60868308553c5250"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/_METADATA",
+      "bytes": 33071,
+      "sha256": "2cb332dd1d2d706dd51ac967f24d617e264c716542cb43a33839bc75485458db"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/_sharding",
+      "bytes": 21749,
+      "sha256": "23bb45158be9267393931bcf7d5518d049bc069f97c1194d0e79cfa9a7283aec"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/array_metadatas/process_0",
+      "bytes": 12891,
+      "sha256": "da5f8952b77ab352fa92e3e58d742bfe0db5b9c1b956212f8279895b9df03721"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/d/474227f363ff48da9f0c39a18b598b4d",
+      "bytes": 2553,
+      "sha256": "090133d4b4bf98794a18c7033dfc1f4a344b552465f8d608996b9bb78ea0c213"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/manifest.ocdbt",
+      "bytes": 118,
+      "sha256": "add57f29597c0a77a0c5fad559a020b2d1625c25bec6c3a7c79fc7739a54c6a7"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/014a18f697940088da3854f4de472d8c",
+      "bytes": 1891246080,
+      "sha256": "3b4c54e29c055f31d571e81f08b1fdf3d3b6be414e7412f1a2eb14f47f6a43ee"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/093f5ca76fffcec22b7cebb1c395425b",
+      "bytes": 1829830656,
+      "sha256": "51aed0d2ba38bb7a0d7bc3b53b558c1cac14777fc845d593bc495c619f7f9f53"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/1b7e7491e824d0be3fb503b4d7624a2e",
+      "bytes": 1376,
+      "sha256": "e43163c6c67941f90156dcc5ae501720f0e0ea0dabfe8651c50b5c3aca84ff33"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/25fb32ee7162dbc9258d9983829063de",
+      "bytes": 965,
+      "sha256": "72b799a223643aff2cec82ff23d6079bd0db17177676b6d1c93eff00893e4ecc"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/3c3957408be94f45508714a218908cf8",
+      "bytes": 468661,
+      "sha256": "c349a5fbb0faf794c2c148cf023eaeb69c9ffda00370a92f07aef92ba66817d3"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/6521b860a37a7df81750765ccb7bf84e",
+      "bytes": 2271997952,
+      "sha256": "3d9641e91c26a7bf1b48155d4e882e365d04ee4b19770a8c5bc8ad6cfa0d2a4f"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/a4461a77f8949dbbdbc7f21703eb9b4d",
+      "bytes": 305623040,
+      "sha256": "4a5df639408f743ff1cfdfd76b6a3b6683f0fe479b6809a06659c776467c89e2"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/e195769f1fbcfdccaafe02105e4ebb7c",
+      "bytes": 264,
+      "sha256": "2a7d2f18d341d2dc25342b8b453d466203284736137389f21d81ae354aaf530e"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/d/f099a33d5cf74792bf9972b7572f8e6f",
+      "bytes": 36634624,
+      "sha256": "e823a691eade0c15ff81005a0082ad4118e2b97eeee40a6b3265e71addb1fd55"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/params/ocdbt.process_0/manifest.ocdbt",
+      "bytes": 437,
+      "sha256": "7a9391c015f2b82ddae896d23efe60fbf4cb77ae0b9a6326d3158fd7af67ca71"
+    },
+    {
+      "path": "outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/assets/local/pi05_rh56_train/norm_stats.json",
+      "bytes": 2897,
+      "sha256": "294a0547e4590b4f7d466ad09fa4d611a5e8375e1ff7647bf1c0f9c5289443b0"
+    }
+  ]
+}

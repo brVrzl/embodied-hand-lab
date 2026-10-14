@@ -1,0 +1,67 @@
+{
+  "roundtrip_max_abs": 0.0,
+  "jaka_joint_1": {
+    "target_increment": 0.029999971389770508,
+    "measured_increment": 0.029999971389770508,
+    "finite": true
+  },
+  "jaka_joint_2": {
+    "target_increment": 0.029999971389770508,
+    "measured_increment": 0.01111292839050293,
+    "finite": true
+  },
+  "jaka_joint_3": {
+    "target_increment": 0.029999971389770508,
+    "measured_increment": 0.023886919021606445,
+    "finite": true
+  },
+  "jaka_joint_4": {
+    "target_increment": 0.029999971389770508,
+    "measured_increment": 0.029340505599975586,
+    "finite": true
+  },
+  "jaka_joint_5": {
+    "target_increment": 0.029999971389770508,
+    "measured_increment": 0.03319406509399414,
+    "finite": true
+  },
+  "jaka_joint_6": {
+    "target_increment": 0.03000020980834961,
+    "measured_increment": 0.029983043670654297,
+    "finite": true
+  },
+  "rh56_R_index_MCP_joint": {
+    "target_increment": 0.10000000149011612,
+    "measured_increment": 0.1000213474035263,
+    "finite": true
+  },
+  "rh56_R_middle_MCP_joint": {
+    "target_increment": 0.10000000149011612,
+    "measured_increment": 0.10002537816762924,
+    "finite": true
+  },
+  "rh56_R_ring_MCP_joint": {
+    "target_increment": 0.10000000149011612,
+    "measured_increment": 0.1000155434012413,
+    "finite": true
+  },
+  "rh56_R_pinky_MCP_joint": {
+    "target_increment": 0.10000000894069672,
+    "measured_increment": 0.1000032126903534,
+    "finite": true
+  },
+  "rh56_R_thumb_MCP_joint2": {
+    "target_increment": 0.09999999403953552,
+    "measured_increment": 0.09920859336853027,
+    "finite": true
+  },
+  "rh56_R_thumb_MCP_joint1": {
+    "target_increment": 0.10000002384185791,
+    "measured_increment": 0.10051882266998291,
+    "finite": true
+  },
+  "bottle_gravity_support": {
+    "after_2s_z": 0.114941159811283,
+    "expected_z": 0.115
+  }
+}
