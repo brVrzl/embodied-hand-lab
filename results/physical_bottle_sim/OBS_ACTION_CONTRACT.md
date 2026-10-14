@@ -54,3 +54,11 @@ with BottlePolicyClient('pi05', Path('/home/thor/projects/embodied_lab'),
 ```
 
 权重路径在 client metadata 中完整记录。formal rollout 的仿真状态清单、投影限制、控制子步及阶段判定在评测协议/场景报告中记录；本文件只证明观测/动作接口与固定样本离线推理，不将它们计作抓放成功。
+
+## Diffusion Policy 接口追加
+
+DP 沿用官方 LeRobot `DiffusionPolicy`，隔离依赖在 worktree `outputs/diffusion_bottle/deps`，不会升级 ACT/OpenPI 环境。参数为 `n_obs_steps=2,horizon=16,n_action_steps=8`、DDPM100采样。输入必须是连续物理 tick `t-1,t` 的两帧，**不是前一次8步查询时的旧画面**。worker 显式构造 `B=1,T=2`，使用 checkpoint 保存的 processors；官方 `generate_actions` 已选择 horizon `[1:9]` 当前八步，worker不再切偏移。状态/动作 MIN_MAX normalization，RGB ImageNet MEAN_STD；权重初始化关闭额外 ImageNet 下载，因为完整 backbone 已在 checkpoint 中。
+
+调用 `policy.infer_history(previous_obs,current_obs)`，两观测均含 `state/workspace/wrist`；episode 第一查询传 `previous_obs=None`，复制当前帧作为历史。`reset(seed)` 清空官方 policy/processor状态并设随机种子，worker 不使用内部 `select_action` 队列。runner须逐物理tick保存前一观测。
+
+新增本地证据 `policy_contract/dp_worker_smoke.json`：使用**40步冒烟权重**在CPU加载，真实开发样本复制双帧，输出 `(8,12)` 有限，reset重跑整块最大误差0，首次CPU推理2.949s。此验证仅证明已接通 DP checkpoint/历史接口，**不代表正常训练完成或闭环评测**。第一次加载因保存的 ImageNet initializer 尝试联网失败；设 `pretrained_backbone_weights=None` 后成功，本次异常在证据中保留。正式默认权重路径为 worktree `outputs/diffusion_bottle/train_seed20261014/pretrained_model`，不存在时明确失败，不自动回退到冒烟权重。
