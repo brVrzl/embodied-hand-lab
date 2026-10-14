@@ -50,3 +50,9 @@ are retained and π is rerun on the unchanged v2 matrix in *_v3 output directori
 ACT's v2 attempts all ran the complete1200 ticks; none invoked the removed guard.
 This correction changes neither physics, observations, action execution, nor
 success thresholds. Scene v2 geometry and pose manifest remain frozen.
+
+Resource note: DP training and parts of ACT/π evaluation overlap on the Thor GPU.
+Rollout wall time/latency reflect this shared load. Separate fixed-sample ACT/π
+warm timings are retained in OBS_ACTION_CONTRACT.md; neither set proves realtime
+physical control. The20 starting postures come from the training split and are
+frozen simulation instances, not an unseen-real-episode generalization benchmark.

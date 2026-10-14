@@ -1,0 +1,62 @@
+{
+  "scope": "Read-only historical evidence; no physical action in current task; no inference about pi05/DP physical capability",
+  "act_runs": [
+    {
+      "checkpoint": "/home/thor/projects/embodied_lab/outputs/training/physical_bottle_v4_nominal52/act_strong_run/checkpoints/100000/pretrained_model",
+      "command_enabled": true,
+      "command_count": 5,
+      "policy_query_count": 6,
+      "abort_reason": "RuntimeError: ACT temporal-ensemble result exceeded policy freshness limit",
+      "label": "CONTROL_OR_SOFTWARE_ABORT",
+      "duration_sec": 60.0,
+      "act_execution_mode": "canonical_temporal_ensemble",
+      "chunk_size": 60,
+      "source_summary": "outputs/act_physical_rollouts/canonical001/rollout_summary.json",
+      "rh56_successful_serial_write_count": 8,
+      "policy_full_task_success_validated": false,
+      "limitation": "Only five policy commands before policy freshness abort; configured60s is not completed duration.",
+      "tracked_report": "research_log/physical_bottle_act_canonical_rollout_20260814.md",
+      "source_native_metrics": "outputs/act_physical_rollouts/canonical001/native_metrics.json",
+      "native_metrics": {
+        "outcome": "completed",
+        "stop_classification": "normal_completion",
+        "elapsed_s": 0.477824262,
+        "accepted_targets": 6,
+        "rejected_targets": 0,
+        "hard_timing_misses": 0,
+        "tracking_hard_crossings": 0,
+        "controller_alarm_events": 0
+      },
+      "count_interpretation": "5 policy command rows; 6 native accepted targets include startup alignment. Native normal_completion is controlled cleanup after wrapper freshness abort, not task success."
+    },
+    {
+      "checkpoint": "/home/thor/projects/embodied_lab/outputs/training/physical_bottle_v2/act_run/checkpoints/002000/pretrained_model",
+      "command_enabled": true,
+      "command_count": 901,
+      "policy_query_count": 451,
+      "abort_reason": null,
+      "label": "UNLABELED",
+      "duration_sec": 30.0,
+      "act_execution_mode": null,
+      "chunk_size": 16,
+      "source_summary": "outputs/act_physical_rollouts/20260812_act/rollout_summary.json",
+      "rh56_successful_serial_write_count": 746,
+      "policy_full_task_success_validated": false,
+      "limitation": "UNLABELED; tracked report identifies repeated stale startup JAKA state and cleanup timeout. Cannot infer fresh-state closed-loop task success.",
+      "tracked_report": "research_log/physical_bottle_v2_rollout_report.md",
+      "source_native_metrics": "outputs/act_physical_rollouts/20260812_act/native_metrics.json",
+      "native_metrics": {
+        "outcome": "command_stream_timeout",
+        "stop_classification": "producer_liveness_loss",
+        "elapsed_s": 30.187777629,
+        "accepted_targets": 901,
+        "rejected_targets": 0,
+        "hard_timing_misses": 0,
+        "tracking_hard_crossings": 0,
+        "controller_alarm_events": 0
+      }
+    }
+  ],
+  "resume_supported_zh": "完成ACT在JAKA+RH56上的真实部署与有界调试，定位观测新鲜度和执行时序问题。",
+  "resume_not_supported_zh": "不能写ACT完整抓放成功率，也不能将ACT经历扩展为π0.5或DP真机验证。"
+}

@@ -62,3 +62,11 @@ DP 沿用官方 LeRobot `DiffusionPolicy`，隔离依赖在 worktree `outputs/di
 调用 `policy.infer_history(previous_obs,current_obs)`，两观测均含 `state/workspace/wrist`；episode 第一查询传 `previous_obs=None`，复制当前帧作为历史。`reset(seed)` 清空官方 policy/processor状态并设随机种子，worker 不使用内部 `select_action` 队列。runner须逐物理tick保存前一观测。
 
 新增本地证据 `policy_contract/dp_worker_smoke.json`：使用**40步冒烟权重**在CPU加载，真实开发样本复制双帧，输出 `(8,12)` 有限，reset重跑整块最大误差0，首次CPU推理2.949s。此验证仅证明已接通 DP checkpoint/历史接口，**不代表正常训练完成或闭环评测**。第一次加载因保存的 ImageNet initializer 尝试联网失败；设 `pretrained_backbone_weights=None` 后成功，本次异常在证据中保留。正式默认权重路径为 worktree `outputs/diffusion_bottle/train_seed20261014/pretrained_model`，不存在时明确失败，不自动回退到冒烟权重。
+
+## 最终接口复核与复现边界
+
+对正在运行的 DP 训练容器再次只读核对：训练安装包 `/usr/local/lib/python3.12/dist-packages/lerobot` 与 worker 所用 pinned `third_party/lerobot`，在 diffusion 模型/config/processor、policy factory/pretrained、normalization/batch/pipeline、base config 九个相关文件逐字节相同（源提交 `f66e5128ecb2456e8c54a63d15404fa59c16aebc`）。将训练统计重建的 processors 与冒烟 checkpoint 加载的 processors，作用于相同的不同双帧输入，state/RGB preprocessing 和 action postprocessing 最大误差均0；实际形状是 `[1,2,12]` 与 `[1,2,3,240,320]`。见本地 `policy_contract/dp_train_inference_parity_review.json`。
+
+实际 Unix socket 测试确认两个不同 tick 的图像/状态保持顺序、无丢失，并确认首 tick 的 `previous_obs=None` 复制当前帧；见 `dp_protocol_history_review.json`。runner 在第7 tick的物理步进之前保存上一观测，第8 tick查询使用该观测和当前状态，符合连续 `t-1,t`，不是上一query的第0 tick。episode reset 重新将历史设为None；正式8步executor无跨episode待执行动作。
+
+π0.5 的固定seed只保证显式初始化相同JAX采样key，不能据本轮检查宣称跨进程逐位复现。实际 nominal v2/v3 中，同一instance0、seed20261014 的首个raw chunk最大差异为0.003170669，前8步执行目标最大差异为0.003013849。worker每episode确实执行 `policy._rng=jax.random.key(seed)`；差异的具体根因尚未确认，可能涉及渲染输入/加速计算数值，不能当作已证明的原因。该限制不改写旧attempt，也不通过额外重采样挑选结果。

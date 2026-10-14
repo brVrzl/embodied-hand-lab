@@ -1,0 +1,14 @@
+{
+  "model": "act",
+  "source_root": "/home/thor/projects/embodied_lab",
+  "instances": "results/physical_bottle_sim/initial_instances.json",
+  "output": "outputs/physical_bottle_sim/act_nominal_v2",
+  "seconds": 40.0,
+  "chunk": 8,
+  "phase": "nominal",
+  "acceptance": "results/physical_bottle_sim/environment_acceptance.json",
+  "video_count": 2,
+  "code_commit": "537dc1af9d4db245c3ca332afaa82cdd0b6e9d0c",
+  "control_hz": 30,
+  "observation_source": "current_simulation_only"
+}

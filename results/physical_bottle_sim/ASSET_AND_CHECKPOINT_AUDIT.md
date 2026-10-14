@@ -30,3 +30,7 @@
 ## DP可行性与证据边界
 
 在已有ACT容器中、network none条件下成功导入官方 `lerobot.policies.diffusion.modeling_diffusion.DiffusionPolicy` 与 `DiffusionConfig`。无需升级ACT/OpenPI环境。该检查只是依赖可用，不是训练/rollout成功；后续实际结果见 DP_REPORT.md。既有资产证明ACT/π训练和历史离线评估，不自动证明本轮闭环或真机成功。已读文档中“12-D arm plus six”表述歧义，以metadata的总维度12为准。
+
+## 历史ACT真机证据（只读核验）
+
+`historical_physical_evidence.json` 从两个实际rollout_summary/native_metrics抽取非敏感计数及报告路径：nominal52 `canonical001` 有5条policy command、6条native accepted target（含startup alignment），因freshness gate中止；早期 `20260812_act` 有901条accepted target但UNLABELED，且历史报告指出JAKA状态新鲜度与清理问题。两个checkpoint身份不同。可写真实部署与有界调试经历；不能写完整任务成功率。native `normal_completion` 仅说明清理完成，不是抓放成功。本轮没有新增真机操作。

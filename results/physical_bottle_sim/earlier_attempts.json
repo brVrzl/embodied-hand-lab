@@ -295,5 +295,32 @@
     "ticks": 0,
     "queries": 0,
     "success": false
+  },
+  {
+    "run": "pi05_nominal_v2",
+    "attempt": "pi05_nominal_000",
+    "original_status": "physical_instability",
+    "disposition": "superseded_mixed_velocity_unit_guard",
+    "ticks": 263,
+    "queries": 33,
+    "success": false
+  },
+  {
+    "run": "pi05_nominal_v2",
+    "attempt": "pi05_nominal_001",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_mixed_velocity_unit_guard",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "pi05_nominal_v2",
+    "attempt": "pi05_nominal_002",
+    "original_status": "technical_interruption",
+    "disposition": "superseded_mixed_velocity_unit_guard",
+    "ticks": 880,
+    "queries": 110,
+    "success": false
   }
 ]

@@ -1,0 +1,17 @@
+{
+  "purpose": "requested environment and evaluation provenance, not a whole-tree integrity manifest",
+  "sha256": {
+    "assets/bottle_sim/scene.json": "aecd63b4404f295aef48ba0f0de334366b576802de8b838a3b0a69feabb731c5",
+    "assets/jaka_rh56_visual_coacd.xml": "5c82d1fad9c92ea96cf8743cf351afba17fae37f0f987975d9c553c5218b3346",
+    "assets/rh56_thumb_table_calibration.json": "1bdeb5b7c42a85ccfdf2b93487889f0fdaeea911508c8ed63e7aee30b2d34d68",
+    "results/physical_bottle_sim/initial_instances.json": "e2c2ff61555009ea9bdc9edfc7357718b8678eb2bc9e8939ff9d8437e01e2f1d",
+    "configs/training/diffusion/physical_bottle.json": "ef8e0544577269af52c1b1bc19ae7e9c68be516863d434b8079c0b0e28682f15"
+  },
+  "checkpoint_identity": "asset_identity.json",
+  "data_split_identity": "asset_identity.json",
+  "code_versions": {
+    "first_scene": "ad892fb",
+    "collision_free_initialization": "537dc1a",
+    "finite_dynamics_guard": "580ae3c"
+  }
+}
