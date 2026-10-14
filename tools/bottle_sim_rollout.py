@@ -89,8 +89,7 @@ def main():
         instances = instances[args.phase] if args.phase in instances else instances["instances"]
     metadata = vars(args) | {"code_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=worktree, text=True).strip(), "control_hz": 30, "observation_source": "current_simulation_only"}
     (args.output / "run.json").write_text(json.dumps(metadata, default=str, indent=2))
-    with BottlePolicyClient(model=args.model, source_root=args.source_root, worktree=worktree, log_dir=args.output) as policy:
-        scene = BottleScene()
+    with BottlePolicyClient(model=args.model, source_root=args.source_root, worktree=worktree, log_dir=args.output) as policy, BottleScene() as scene:
         for i, instance in enumerate(instances):
             attempt = f"{args.model}_{args.phase}_{i:03d}"
             result = {"attempt": attempt, "model": args.model, "phase": args.phase, "environment_seed": instance.get("environment_seed", i), "model_seed": instance.get("model_seed", 20261014), "instance": instance, "status": "started"}
@@ -163,7 +162,6 @@ def main():
                     (args.output / f"{attempt}.trace.json").write_text(json.dumps(snapshots, default=jsonable))
                 append_json(args.output / "episodes.jsonl", result)
                 print(json.dumps(result, default=jsonable), flush=True)
-        scene.close()
     rows = [json.loads(line) for line in (args.output / "episodes.jsonl").read_text().splitlines()]
     fields = ["attempt", "model", "phase", "status", "ticks", "queries", "sim_seconds", "wall_seconds", "real_time_factor", "warm_latency_ms_mean", "projected_action_fraction", "raw_hand_out_of_domain_fraction", "tracking_arm_rmse"]
     with (args.output / "episodes.csv").open("w") as f:
