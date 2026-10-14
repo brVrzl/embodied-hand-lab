@@ -69,7 +69,7 @@ def append_json(path, obj):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--model", choices=["act", "pi05"], required=True)
+    p.add_argument("--model", choices=["act", "pi05", "dp"], required=True)
     p.add_argument("--source-root", type=Path, default=Path("/home/thor/projects/embodied_lab"))
     p.add_argument("--instances", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -103,15 +103,19 @@ def main():
                 scene.reset(instance)
                 policy.reset(result["model_seed"])
                 stages = Stages(scene.snapshot())
+                previous_obs = None
                 for tick in range(round(args.seconds * 30)):
                     if tick % args.chunk == 0:
                         obs = scene.observe()
-                        response = policy.infer(obs["state"], obs["workspace"], obs["wrist"])
+                        response = (policy.infer_history(previous_obs or obs, obs) if args.model == "dp"
+                                    else policy.infer(obs["state"], obs["workspace"], obs["wrist"]))
                         chunk = np.asarray(response["prediction"])
                         if chunk.ndim != 2 or chunk.shape[1] != 12 or len(chunk) < args.chunk or not np.isfinite(chunk).all():
                             raise ValueError(f"Invalid native future chunk: {chunk.shape}")
                         raw_chunks.append(chunk)
                         latencies.append(float(response["latency_ms"]))
+                    if args.model == "dp" and tick % args.chunk == args.chunk - 1:
+                        previous_obs = scene.observe()
                     raw = chunk[tick % args.chunk]
                     snapshot = scene.step(raw)
                     raw_actions.append(raw.copy())
@@ -133,6 +137,9 @@ def main():
                         break
                 else:
                     result["status"] = "success" if stages.events["final_success"] is not None else "model_task_timeout"
+            except KeyboardInterrupt:
+                result.update(status="technical_interruption", error="Operator interrupted this attempt; retained")
+                raise
             except Exception as exc:
                 result.update(status="technical_error", error=f"{type(exc).__name__}: {exc}")
                 (args.output / f"{attempt}.error.txt").write_text(traceback.format_exc())
@@ -145,6 +152,10 @@ def main():
                     raw, final = np.asarray(raw_actions), np.asarray(executed)
                     projected = np.abs(raw - final) > 1e-7
                     result.update(projected_action_fraction=float(np.mean(np.any(projected, axis=1))), projected_dimension_fraction=float(np.mean(projected)), raw_hand_out_of_domain_fraction=float(np.mean((raw[:, 6:] < 0) | (raw[:, 6:] > 1))), tracking_arm_rmse=float(np.sqrt(np.mean((np.asarray([s["state"][:6] for s in snapshots]) - final[:, :6]) ** 2))))
+                    result["max_projection_per_dimension"] = np.max(np.abs(raw - final), axis=0).tolist()
+                    result["final_bottle_pos"] = snapshots[-1]["bottle_pos"]
+                    result["max_bottle_lift_m"] = float(np.max(np.asarray([s["bottle_pos"] for s in snapshots])[:, 2]) - stages.initial[2])
+                    result["hand_contact_ticks"] = sum(s["hand_contacts"] > 0 for s in snapshots)
                     np.savez_compressed(args.output / f"{attempt}.npz", raw_actions=raw, executed_actions=final, raw_chunks=np.asarray(raw_chunks), latency_ms=latencies)
                     (args.output / f"{attempt}.trace.json").write_text(json.dumps(snapshots, default=jsonable))
                 append_json(args.output / "episodes.jsonl", result)

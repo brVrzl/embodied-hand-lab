@@ -48,7 +48,7 @@ def receive(conn):
 
 class BottlePolicyClient:
     """One offline container per policy; only its own container is stopped."""
-    def __init__(self, model, source_root, worktree, log_dir):
+    def __init__(self, model, source_root, worktree, log_dir, checkpoint=None):
         self.model = model
         self.source = Path(source_root).resolve()
         self.worktree = Path(worktree).resolve()
@@ -61,14 +61,18 @@ class BottlePolicyClient:
         self.proc = None
         suffix = ('pi05_rh56/checkpoints/pi05_rh56/weekend/4500' if model == 'pi05'
                   else 'physical_bottle_v4_nominal52/act_strong_run/checkpoints/100000/pretrained_model')
-        self.checkpoint = self.source / 'outputs/training' / suffix
+        self.checkpoint = (Path(checkpoint).resolve() if checkpoint is not None else
+                           self.worktree / 'outputs/diffusion_bottle/train_seed20261014/pretrained_model'
+                           if model == 'dp' else self.source / 'outputs/training' / suffix)
         self.metadata = {'model': model, 'checkpoint': str(self.checkpoint), 'image_input': 'uint8 RGB HWC 480x640', 'native_action_dim': 12}
 
     def __enter__(self):
         image = 'jaka-openpi:thor-cuda13' if self.model == 'pi05' else 'jaka-lerobot-dev:snapshot-before-raw-mount'
         paths = '/workspace/src:/workspace/training/pi05:/workspace/training/pi05/scripts:/app/src'
-        if self.model == 'act':
+        if self.model in ('act', 'dp'):
             paths += ':/lerobot/src'
+        if self.model == 'dp':
+            paths = '/workspace/outputs/diffusion_bottle/deps:' + paths
         cmd = ['docker', 'run', '--rm', '--name', self.container_name, '--runtime=nvidia', '--network=none', '--ipc=host',
                '-v', f'{self.source}:{self.source}:ro', '-v', f'{self.worktree}:/workspace:ro',
                '-v', f'{self.runtime}:/runtime:rw', '-v', f'{self.source}/third_party/openpi:/app:ro',
@@ -78,7 +82,8 @@ class BottlePolicyClient:
                '-e', 'XLA_PYTHON_CLIENT_PREALLOCATE=false', '-e', 'OMP_NUM_THREADS=4',
                '-w', '/workspace', image, '/.venv/bin/python' if self.model == 'pi05' else 'python',
                'tools/bottle_policy_worker.py', '--serve', '--model', self.model,
-               '--checkpoint', str(self.checkpoint), '--socket', '/runtime/policy.sock']
+               '--checkpoint', str(self.checkpoint).replace(str(self.worktree), '/workspace'),
+               '--socket', '/runtime/policy.sock']
         self.log = (self.log_dir / f'{self.model}_worker.log').open('a')
         self.proc = subprocess.Popen(cmd, stdout=self.log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 600
@@ -104,6 +109,15 @@ class BottlePolicyClient:
 
     def infer(self, state, workspace, wrist):
         return self.request({'state': np.asarray(state, np.float32), 'workspace': workspace, 'wrist': wrist})
+
+    def infer_history(self, previous_obs, current_obs):
+        if self.model != 'dp':
+            raise ValueError('explicit two-tick history is only used by DP')
+        previous_obs = current_obs if previous_obs is None else previous_obs
+        history = {key: np.stack([previous_obs[key], current_obs[key]])
+                   for key in ('state', 'workspace', 'wrist')}
+        history['state'] = history['state'].astype(np.float32)
+        return self.request({'history': history})
 
     def close(self):
         if self.conn is not None:
@@ -191,8 +205,47 @@ def load_act(checkpoint):
     return infer, reset
 
 
+
+def load_dp(checkpoint, device='cuda'):
+    import cv2
+    import torch
+    from lerobot.configs import PreTrainedConfig
+    from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+    from lerobot.policies.factory import make_pre_post_processors
+    config = PreTrainedConfig.from_pretrained(checkpoint)
+    config.device = device
+    config.pretrained_backbone_weights = None  # Complete weights are in the local checkpoint.
+    if (config.n_obs_steps, config.horizon, config.n_action_steps) != (2, 16, 8):
+        raise ValueError('DP checkpoint must declare n_obs_steps=2, horizon=16, n_action_steps=8')
+    policy = DiffusionPolicy.from_pretrained(checkpoint, config=config).to(device).eval()
+    pre, post = make_pre_post_processors(
+        policy_cfg=config, pretrained_path=str(checkpoint),
+        preprocessor_overrides={'device_processor': {'device': device}})
+
+    def infer(req):
+        history = req['history']
+        # Explicit B=1,T=2: automatic batch processor only adds a dimension
+        # for single observations. Do not let T be interpreted as batch size.
+        batch = {'observation.state': torch.from_numpy(history['state'])[None]}
+        for key in ('workspace', 'wrist'):
+            rgb = np.stack([cv2.resize(frame, (320, 240), interpolation=cv2.INTER_AREA)
+                            for frame in history[key]])
+            image = np.ascontiguousarray(rgb.transpose(0, 3, 1, 2), dtype=np.float32) / 255.
+            batch[f'observation.images.{key}'] = torch.from_numpy(image)[None]
+        with torch.inference_mode():
+            # Official generate_actions already slices horizon[1:9]. Do not
+            # offset again, and never populate select_action's history queue.
+            return post(policy.predict_action_chunk(pre(batch))).detach().cpu().numpy()[0].astype(np.float32)
+
+    def reset(seed):
+        torch.manual_seed(seed)
+        policy.reset()
+        pre.reset()
+        post.reset()
+    return infer, reset
+
 def serve(args):
-    infer, reset = (load_pi if args.model == 'pi05' else load_act)(args.checkpoint)
+    infer, reset = {'pi05': load_pi, 'act': load_act, 'dp': load_dp}[args.model](args.checkpoint)
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(str(args.socket))
     os.chmod(args.socket, 0o666)
@@ -210,11 +263,13 @@ def serve(args):
                     reset(req['seed'])
                     send(conn, {'reset': True, 'seed': req['seed']})
                     continue
+                obs = req['history'] if args.model == 'dp' else req
+                prefix = (2,) if args.model == 'dp' else ()
                 for key in ('workspace', 'wrist'):
-                    if req[key].shape != (480, 640, 3) or req[key].dtype != np.uint8:
-                        raise ValueError(f'{key} must be uint8 RGB HWC 480x640')
-                if req['state'].shape != (12,) or not np.isfinite(req['state']).all():
-                    raise ValueError('state must be finite native12')
+                    if obs[key].shape != prefix + (480, 640, 3) or obs[key].dtype != np.uint8:
+                        raise ValueError(f'{key} must be uint8 RGB, shape {prefix + (480,640,3)}')
+                if obs['state'].shape != prefix + (12,) or not np.isfinite(obs['state']).all():
+                    raise ValueError('state must be finite native12 with declared history')
                 started = time.perf_counter()
                 actions = infer(req)
                 elapsed = 1000 * (time.perf_counter() - started)
@@ -228,7 +283,7 @@ def serve(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serve', action='store_true', required=True)
-    parser.add_argument('--model', choices=['act', 'pi05'], required=True)
+    parser.add_argument('--model', choices=['act', 'pi05', 'dp'], required=True)
     parser.add_argument('--checkpoint', type=Path, required=True)
     parser.add_argument('--socket', type=Path, required=True)
     serve(parser.parse_args())

@@ -1,0 +1,299 @@
+[
+  {
+    "run": "act_dev_first",
+    "attempt": "act_development_000",
+    "original_status": "model_task_timeout",
+    "disposition": "development_smoke",
+    "ticks": 60,
+    "queries": 8,
+    "success": false
+  },
+  {
+    "run": "pi05_dev_first",
+    "attempt": "pi05_development_000",
+    "original_status": "model_task_timeout",
+    "disposition": "development_smoke",
+    "ticks": 60,
+    "queries": 8,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_000",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_001",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_002",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_003",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_004",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_005",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_006",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_007",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_008",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_009",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_010",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_011",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_012",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_013",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_014",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_015",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_016",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_017",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_018",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_nominal",
+    "attempt": "act_nominal_019",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_000",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_001",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_002",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_003",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_004",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_005",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_006",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_007",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_008",
+    "original_status": "model_task_timeout",
+    "disposition": "superseded_initialization_v1",
+    "ticks": 1200,
+    "queries": 150,
+    "success": false
+  },
+  {
+    "run": "act_perturbed",
+    "attempt": "act_perturbed_009",
+    "original_status": "started",
+    "disposition": "technical_interruption_to_repair_initialization",
+    "ticks": 40,
+    "queries": 5,
+    "success": false
+  },
+  {
+    "run": "pi05_nominal",
+    "attempt": "pi05_nominal_000",
+    "original_status": "started",
+    "disposition": "technical_interruption_to_repair_initialization",
+    "ticks": 0,
+    "queries": 0,
+    "success": false
+  }
+]

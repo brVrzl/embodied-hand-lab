@@ -1,0 +1,668 @@
+{
+  "revision": 2,
+  "selection_rule": "replace indexes1,6,9,13 with next four train list entries20,21,22,23, selected solely for collision-free reset",
+  "old_penetrating_instances": [
+    {
+      "index": 1,
+      "source_train_episode": 1,
+      "contacts": [
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_000",
+          "distance_m": -0.004334732554215626
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_002",
+          "distance_m": -0.0022306231203574945
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_003",
+          "distance_m": -0.0014872387663242284
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_006",
+          "distance_m": -0.004584840322784056
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_002",
+          "distance_m": -0.010183392844907291
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_003",
+          "distance_m": -0.0029713865392311804
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_004",
+          "distance_m": -0.008168971065106598
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_004",
+          "distance_m": -0.008168971065106598
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_005",
+          "distance_m": -0.0013185993495787862
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_006",
+          "distance_m": -0.0003151872603329581
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_007",
+          "distance_m": -0.0044622569422025915
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_008",
+          "distance_m": -0.0026688457508725057
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_009",
+          "distance_m": -0.008593070966949598
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "source_train_episode": 8,
+      "contacts": [
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_000",
+          "distance_m": -0.0015375557349338737
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_006",
+          "distance_m": -0.001720368845653353
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_002",
+          "distance_m": -0.010452433241111005
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_004",
+          "distance_m": -0.0034569918498671692
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_009",
+          "distance_m": -0.004763215810937
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "source_train_episode": 11,
+      "contacts": [
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_hand_base_link_visual_coacd_collision_005",
+          "distance_m": -0.0012720886489919758
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_000",
+          "distance_m": -0.0012416187979463064
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_001",
+          "distance_m": -0.004217950286027991
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_004",
+          "distance_m": -0.00024911390689451307
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_006",
+          "distance_m": -0.0006577246454065738
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_007",
+          "distance_m": -0.0007881758361470564
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_ring_distal_visual_coacd_collision_008",
+          "distance_m": -0.0007553868339301163
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_000",
+          "distance_m": -0.019790919803495264
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_001",
+          "distance_m": -0.010477836451618679
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_002",
+          "distance_m": -0.016570903949330057
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_003",
+          "distance_m": -0.019260671717379486
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_004",
+          "distance_m": -0.010514295676349034
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_006",
+          "distance_m": -0.019731809936983195
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_006",
+          "distance_m": -0.019731809936983195
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_008",
+          "distance_m": -0.015167263286801232
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_010",
+          "distance_m": -0.010485005666306233
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_000",
+          "distance_m": -0.011217012514931464
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_001",
+          "distance_m": -0.015657333360195307
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_002",
+          "distance_m": -0.02528482304490756
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_003",
+          "distance_m": -0.016368966493518718
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_004",
+          "distance_m": -0.021480389386115947
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_005",
+          "distance_m": -0.013446208955242596
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_006",
+          "distance_m": -0.012398362106451804
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_007",
+          "distance_m": -0.016694177552027165
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_008",
+          "distance_m": -0.016924873395977397
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_009",
+          "distance_m": -0.021967267646565716
+        }
+      ]
+    },
+    {
+      "index": 13,
+      "source_train_episode": 17,
+      "contacts": [
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_hand_base_link_visual_coacd_collision_001",
+          "distance_m": -0.0015804491832246415
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_hand_base_link_visual_coacd_collision_003",
+          "distance_m": -0.0050125720043250966
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_hand_base_link_visual_coacd_collision_008",
+          "distance_m": -0.005938389303080657
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_hand_base_link_visual_coacd_collision_008",
+          "distance_m": -0.005938389303080657
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_000",
+          "distance_m": -0.002276671555735577
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_003",
+          "distance_m": -0.0011553420102873996
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_proximal_visual_coacd_collision_006",
+          "distance_m": -0.003092446415321693
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_002",
+          "distance_m": -0.004719513968914694
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_004",
+          "distance_m": -0.0017163458492534395
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_007",
+          "distance_m": -0.0004606132473636143
+        },
+        {
+          "geom1": "cardboard_box",
+          "geom2": "rh56_R_pinky_distal_visual_coacd_collision_009",
+          "distance_m": -0.002429423867581188
+        }
+      ]
+    }
+  ],
+  "new_instances": [
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_00",
+      "source_train_episode": 0,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_01",
+      "source_train_episode": 29,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_02",
+      "source_train_episode": 2,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_03",
+      "source_train_episode": 5,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_04",
+      "source_train_episode": 6,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_05",
+      "source_train_episode": 7,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_06",
+      "source_train_episode": 30,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_07",
+      "source_train_episode": 9,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_08",
+      "source_train_episode": 10,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_09",
+      "source_train_episode": 31,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_10",
+      "source_train_episode": 14,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_11",
+      "source_train_episode": 15,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_12",
+      "source_train_episode": 16,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_13",
+      "source_train_episode": 32,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_14",
+      "source_train_episode": 18,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_15",
+      "source_train_episode": 19,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_16",
+      "source_train_episode": 20,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_17",
+      "source_train_episode": 26,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_18",
+      "source_train_episode": 27,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "nominal",
+      "instance_id": "nominal_19",
+      "source_train_episode": 28,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_00",
+      "source_train_episode": 0,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_01",
+      "source_train_episode": 29,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_02",
+      "source_train_episode": 2,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_03",
+      "source_train_episode": 5,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_04",
+      "source_train_episode": 6,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_05",
+      "source_train_episode": 7,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_06",
+      "source_train_episode": 30,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_07",
+      "source_train_episode": 9,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_08",
+      "source_train_episode": 10,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_09",
+      "source_train_episode": 31,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_10",
+      "source_train_episode": 14,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_11",
+      "source_train_episode": 15,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_12",
+      "source_train_episode": 16,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_13",
+      "source_train_episode": 32,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_14",
+      "source_train_episode": 18,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_15",
+      "source_train_episode": 19,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_16",
+      "source_train_episode": 20,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_17",
+      "source_train_episode": 26,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_18",
+      "source_train_episode": 27,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    },
+    {
+      "phase": "perturbed",
+      "instance_id": "perturbed_19",
+      "source_train_episode": 28,
+      "finite": true,
+      "within_native_limits": true,
+      "contacts": [],
+      "hand_bottle_contacts": 0
+    }
+  ],
+  "all40_finite_in_limits_and_no_contacts": true
+}

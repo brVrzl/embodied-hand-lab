@@ -1,0 +1,106 @@
+{
+  "mode": "smoke",
+  "seed": 20261014,
+  "train_episodes": 37,
+  "train_frames": 23802,
+  "validation_episodes": 15,
+  "shapes": {
+    "observation.images.workspace": [
+      8,
+      2,
+      3,
+      240,
+      320
+    ],
+    "observation.images.wrist": [
+      8,
+      2,
+      3,
+      240,
+      320
+    ],
+    "observation.state": [
+      8,
+      2,
+      12
+    ],
+    "action": [
+      8,
+      16,
+      12
+    ],
+    "source_episode_index": [
+      8
+    ],
+    "source_frame_index": [
+      8
+    ],
+    "segment_id": [
+      8
+    ],
+    "timestamp": [
+      8
+    ],
+    "frame_index": [
+      8
+    ],
+    "episode_index": [
+      8
+    ],
+    "index": [
+      8
+    ],
+    "task_index": [
+      8
+    ],
+    "observation.images.workspace_is_pad": [
+      8,
+      2
+    ],
+    "observation.images.wrist_is_pad": [
+      8,
+      2
+    ],
+    "observation.state_is_pad": [
+      8,
+      2
+    ],
+    "action_is_pad": [
+      8,
+      16
+    ]
+  },
+  "action_offsets": [
+    -1,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+  ],
+  "observation_offsets": [
+    -1,
+    0
+  ],
+  "inference_action_slice": [
+    1,
+    9
+  ],
+  "padding": "LeRobot endpoint repetition with action_is_pad loss mask",
+  "normalization_scope": "train logical segments only",
+  "status": "technical_error",
+  "optimizer_steps": 40,
+  "initial_loss": 1.147727370262146,
+  "final_loss": 0.00327356718480587,
+  "error": "Overstrict bitwise sampled inference check failed max_abs0.000328779 after100 DDPM steps; revised check exact weights and inference atol1e-3, deterministic cuDNN."
+}

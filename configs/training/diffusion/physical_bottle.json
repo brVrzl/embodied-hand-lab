@@ -1,0 +1,29 @@
+{
+  "seed": 20261014,
+  "steps": 10000,
+  "batch_size": 8,
+  "num_workers": 4,
+  "learning_rate": 0.0001,
+  "warmup_steps": 500,
+  "checkpoint_selection": "final_budget_step_only",
+  "n_obs_steps": 2,
+  "horizon": 16,
+  "n_action_steps": 8,
+  "down_dims": [
+    256,
+    512,
+    1024
+  ],
+  "num_train_timesteps": 100,
+  "num_inference_steps": 100,
+  "noise_scheduler_type": "DDPM",
+  "do_mask_loss_for_padding": true,
+  "image_shape": [
+    3,
+    240,
+    320
+  ],
+  "normalization_source": "existing ACT derived view train-only statistics, MIN_MAX for state/action and ImageNet MEAN_STD RGB",
+  "source_root": "/source/outputs/training/physical_bottle_v4_nominal52/lerobot/act_strong_view",
+  "use_group_norm": false
+}
