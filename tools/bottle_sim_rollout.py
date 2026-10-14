@@ -132,7 +132,7 @@ def main():
                             if not video.isOpened():
                                 raise RuntimeError("VideoWriter failed")
                         video.write(frame)
-                    if not np.isfinite(snapshot["state"]).all() or np.linalg.norm(snapshot["bottle_velocity"]) > 20:
+                    if snapshot["bad_dynamics_warnings"] or not np.isfinite(snapshot["state"]).all() or not np.isfinite(snapshot["bottle_velocity"]).all():
                         result["status"] = "physical_instability"
                         break
                 else:
@@ -156,6 +156,9 @@ def main():
                     result["final_bottle_pos"] = snapshots[-1]["bottle_pos"]
                     result["max_bottle_lift_m"] = float(np.max(np.asarray([s["bottle_pos"] for s in snapshots])[:, 2]) - stages.initial[2])
                     result["hand_contact_ticks"] = sum(s["hand_contacts"] > 0 for s in snapshots)
+                    velocities = np.asarray([s["bottle_velocity"] for s in snapshots])
+                    result["max_bottle_linear_speed_m_s"] = float(np.max(np.linalg.norm(velocities[:, :3], axis=1)))
+                    result["max_bottle_angular_speed_rad_s"] = float(np.max(np.linalg.norm(velocities[:, 3:], axis=1)))
                     np.savez_compressed(args.output / f"{attempt}.npz", raw_actions=raw, executed_actions=final, raw_chunks=np.asarray(raw_chunks), latency_ms=latencies)
                     (args.output / f"{attempt}.trace.json").write_text(json.dumps(snapshots, default=jsonable))
                 append_json(args.output / "episodes.jsonl", result)

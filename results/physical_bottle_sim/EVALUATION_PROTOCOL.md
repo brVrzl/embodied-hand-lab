@@ -39,3 +39,14 @@ Warm latency excludes first query (compilation); real-time factor=sim time/wall 
 Raw traces, videos, source RGB comparisons and weights remain local and untracked;
 only lightweight evidence summaries and explicit paths are committed. No real device
 connections are permitted. This is a single-task engineering investigation.
+
+Technical revision after the first π nominal attempts: the initial runner used
+norm([linear_velocity, angular_velocity])>20 as an instability early-stop. This
+mixed incompatible units and falsely labeled ordinary finite bottle rolling
+(angular20.05rad/s, linear0.515m/s) as instability. That guard is removed;
+MuJoCo BADQPOS/BADQVEL/BADQACC warnings or nonfinite dynamics now identify numerical
+instability. Peak linear/angular speeds are logged separately. Original π attempts
+are retained and π is rerun on the unchanged v2 matrix in *_v3 output directories.
+ACT's v2 attempts all ran the complete1200 ticks; none invoked the removed guard.
+This correction changes neither physics, observations, action execution, nor
+success thresholds. Scene v2 geometry and pose manifest remain frozen.

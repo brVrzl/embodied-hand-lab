@@ -112,7 +112,12 @@ class BottleScene:
         bottom=b.xpos[2]-extent_z
         on_box = on_box and bool(np.all(np.abs(b.xpos[:2]-box[:2]) < half[:2])) and abs(bottom-(box[2]+half[2])) < .012
         vadr=self.model.joint('bottle_free').dofadr[0]
-        return {'time':float(self.data.time),'state':self.state().tolist(),'bottle_pos':b.xpos.copy().tolist(),'bottle_velocity':self.data.qvel[vadr:vadr+6].copy().tolist(),'hand_distance':float(np.linalg.norm(hand_center-b.xpos)),'hand_contacts':contacts,'on_box':bool(on_box),'contacts':int(self.data.ncon)}
+        bad_dynamics = sum(int(self.data.warning[w].number) for w in (
+            mujoco.mjtWarning.mjWARN_BADQPOS,
+            mujoco.mjtWarning.mjWARN_BADQVEL,
+            mujoco.mjtWarning.mjWARN_BADQACC,
+        ))
+        return {'time':float(self.data.time),'state':self.state().tolist(),'bottle_pos':b.xpos.copy().tolist(),'bottle_velocity':self.data.qvel[vadr:vadr+6].copy().tolist(),'hand_distance':float(np.linalg.norm(hand_center-b.xpos)),'hand_contacts':contacts,'on_box':bool(on_box),'contacts':int(self.data.ncon),'bad_dynamics_warnings':bad_dynamics}
 
     diagnostics=snapshot
 
