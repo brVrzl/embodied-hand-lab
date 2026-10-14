@@ -1,0 +1,29 @@
+[
+  {
+    "model": "act",
+    "source": "outputs/physical_bottle_sim/act_nominal_v2/act_nominal_000.mp4",
+    "video": "outputs/physical_bottle_sim/representative_videos/act_env0_model20261014_failure.mp4",
+    "environment_seed": 0,
+    "model_seed": 20261014,
+    "result": "model_task_timeout",
+    "frames": 400
+  },
+  {
+    "model": "pi05",
+    "source": "outputs/physical_bottle_sim/pi05_nominal_v3/pi05_nominal_000.mp4",
+    "video": "outputs/physical_bottle_sim/representative_videos/pi05_env0_model20261014_failure.mp4",
+    "environment_seed": 0,
+    "model_seed": 20261014,
+    "result": "model_task_timeout",
+    "frames": 400
+  },
+  {
+    "model": "dp",
+    "source": "outputs/physical_bottle_sim/dp_nominal/dp_nominal_000.mp4",
+    "video": "outputs/physical_bottle_sim/representative_videos/dp_env0_model20261014_failure.mp4",
+    "environment_seed": 0,
+    "model_seed": 20261014,
+    "result": "model_task_timeout",
+    "frames": 400
+  }
+]

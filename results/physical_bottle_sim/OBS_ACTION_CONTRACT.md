@@ -65,7 +65,7 @@ DP 沿用官方 LeRobot `DiffusionPolicy`，隔离依赖在 worktree `outputs/di
 
 ## 最终接口复核与复现边界
 
-对正在运行的 DP 训练容器再次只读核对：训练安装包 `/usr/local/lib/python3.12/dist-packages/lerobot` 与 worker 所用 pinned `third_party/lerobot`，在 diffusion 模型/config/processor、policy factory/pretrained、normalization/batch/pipeline、base config 九个相关文件逐字节相同（源提交 `f66e5128ecb2456e8c54a63d15404fa59c16aebc`）。将训练统计重建的 processors 与冒烟 checkpoint 加载的 processors，作用于相同的不同双帧输入，state/RGB preprocessing 和 action postprocessing 最大误差均0；实际形状是 `[1,2,12]` 与 `[1,2,3,240,320]`。见本地 `policy_contract/dp_train_inference_parity_review.json`。
+训练期间对 DP 容器再次只读核对：训练安装包 `/usr/local/lib/python3.12/dist-packages/lerobot` 与 worker 所用 pinned `third_party/lerobot`，在 diffusion 模型/config/processor、policy factory/pretrained、normalization/batch/pipeline、base config 九个相关文件逐字节相同（源提交 `f66e5128ecb2456e8c54a63d15404fa59c16aebc`）。将训练统计重建的 processors 与冒烟 checkpoint 加载的 processors，作用于相同的不同双帧输入，state/RGB preprocessing 和 action postprocessing 最大误差均0；实际形状是 `[1,2,12]` 与 `[1,2,3,240,320]`。见本地 `policy_contract/dp_train_inference_parity_review.json`。
 
 实际 Unix socket 测试确认两个不同 tick 的图像/状态保持顺序、无丢失，并确认首 tick 的 `previous_obs=None` 复制当前帧；见 `dp_protocol_history_review.json`。runner 在第7 tick的物理步进之前保存上一观测，第8 tick查询使用该观测和当前状态，符合连续 `t-1,t`，不是上一query的第0 tick。episode reset 重新将历史设为None；正式8步executor无跨episode待执行动作。
 

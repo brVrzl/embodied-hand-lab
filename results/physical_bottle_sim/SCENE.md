@@ -2,7 +2,7 @@
 
 本场景复用 `assets/jaka_rh56_visual_coacd.xml` 的 JAKA Mini2、RH56DFX 安装变换、惯量、网格碰撞与六条手指 equality；未替换机器人。机器人底座坐标原点在桌面，新增有质量的自由瓶体和固定刚性纸盒。纸盒不模拟变形，瓶体为圆柱近似，不模拟液体。此为有依据的近似任务重建，不能称高保真数字孪生。
 
-配置：`assets/bottle_sim/scene.json`。场景生成器：`src/embodied_bottle_sim/scene.py`。校准只查看训练集 master episode 0（原始 episode 67）的起始 RGB 和机器人 FK。瓶半径 27 mm、高 230 mm、质量 350 g、盒半尺寸 75×90×35 mm 均为估计；工作台与瓶盒相对位置由视频和抓取/释放姿态 FK 估计，没有找到对应设备的数值相机外参。workspace 与 wrist 相机都是估计针孔模型，不能描述为完成真实标定。workspace 当前 640×480 RGB、50° 竖直视角，wrist 65°；预处理由模型 adapter 负责。腕部相机固定在手掌上，随物理手掌运动。
+配置：`assets/bottle_sim/scene.json`。场景生成器：`src/embodied_bottle_sim/scene.py`。校准只查看训练集 master episode 0（原始 episode 67）的起始 RGB 和机器人 FK。瓶半径 27 mm、高 230 mm、圆柱质量 350 g（另加 5 g 瓶盖，总质量 355 g）、盒半尺寸 75×90×35 mm 均为估计；工作台与瓶盒相对位置由视频和抓取/释放姿态 FK 估计，没有找到对应设备的数值相机外参。workspace 与 wrist 相机都是估计针孔模型，不能描述为完成真实标定。workspace 当前 640×480 RGB、50° 竖直视角，wrist 65°；预处理由模型 adapter 负责。腕部相机固定在手掌上，随物理手掌运动。
 
 原模型手部 CoACD 碰撞摩擦 `1.8 .08 .004`、接触参数、碰撞掩码完全复用；瓶体 `0.8 .005 .0001`，没有为成功增加摩擦。既有碰撞模型自身不包含所有真实软组织和腱传动接触细节。本次没有添加吸附、瓶体焊接、隐藏约束或逐帧 qpos 搬运。只在 reset 初始化 qpos；之后通过 ctrl 与 mj_step 执行。
 

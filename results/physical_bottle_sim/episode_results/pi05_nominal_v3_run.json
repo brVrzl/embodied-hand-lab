@@ -1,0 +1,14 @@
+{
+  "model": "pi05",
+  "source_root": "/home/thor/projects/embodied_lab",
+  "instances": "results/physical_bottle_sim/initial_instances.json",
+  "output": "outputs/physical_bottle_sim/pi05_nominal_v3",
+  "seconds": 40.0,
+  "chunk": 8,
+  "phase": "nominal",
+  "acceptance": "results/physical_bottle_sim/environment_acceptance.json",
+  "video_count": 2,
+  "code_commit": "580ae3c9faf5b38e13cdb363406d471f5d56ee87",
+  "control_hz": 30,
+  "observation_source": "current_simulation_only"
+}

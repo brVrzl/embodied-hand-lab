@@ -1,0 +1,18 @@
+{
+  "selected_checkpoint_directory_index": 4500,
+  "selected_train_state_step": 4501,
+  "selected_optimizer_counts": {
+    "opt_state.1.0.count": 4501,
+    "opt_state.1.2.count": 4501
+  },
+  "read_method": "CPU TensorStore zarr driver over OCDBT; read only scalar step and two optimizer counts, no model/optimizer arrays restored",
+  "selected_source": "/home/thor/projects/embodied_lab/outputs/training/pi05_rh56/checkpoints/pi05_rh56/weekend/4500/train_state",
+  "upstream_commit": "15a9616a00943ada6c20a0f158e3adb39df2ccac",
+  "source_semantics": "scripts/train.py:168 increments state.step; :250 uses train_state.step as start index; :261 updates state before :272-273 saves with zero-based loop index",
+  "historical_final_checkpoint_index": 19999,
+  "historical_completed_optimizer_updates": 20000,
+  "historical_final_counter_evidence": "Inferred from inspected save-after-update code plus actual finalization log, not from configured budget alone; final19999 checkpoint no longer on disk",
+  "historical_log": "outputs/training/pi05_rh56/logs/weekend.log",
+  "historical_finalized_log_line": 55047,
+  "historical_completed_process_log_line": 55103
+}

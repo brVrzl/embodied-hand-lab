@@ -221,5 +221,60 @@
       "bytes": 2897,
       "sha256": "294a0547e4590b4f7d466ad09fa4d611a5e8375e1ff7647bf1c0f9c5289443b0"
     }
-  ]
+  ],
+  "pi05_step_identity": {
+    "checkpoint_directory_index": 4500,
+    "completed_updates_in_selected_checkpoint": 4501,
+    "historical_final_directory_index": 19999,
+    "historical_completed_optimizer_updates": 20000,
+    "evidence": "pi05_step_counter_audit.json"
+  },
+  "dp_checkpoint_identity": {
+    "model": "official LeRobot DiffusionPolicy",
+    "checkpoint": "outputs/diffusion_bottle/train_seed20261014/pretrained_model",
+    "workspace_root": "/home/thor/projects/embodied-bottle-sim",
+    "optimizer_steps": 10000,
+    "sample_visits": 80000,
+    "seed": 20261014,
+    "selection_rule": "final_budget_step_only",
+    "training_script_archive_commit": "537dc1af9d4db245c3ca332afaa82cdd0b6e9d0c",
+    "training_script_sha256": "e9ca3ef7379355dcf37328ed631f8c15fb71a2f2fad7c697886ec2d2cbb298be",
+    "frozen_config_sha256": "1c57ae95b5738a80dadfbc512fba602bb62267353650022783e684be4f0e3127",
+    "image": "jaka-lerobot-dev:snapshot-before-raw-mount",
+    "image_id": "sha256:150b3af40810b763ce54ecdf8ff927dde3a36b00f5946feb9617ae823f5e8f1e",
+    "lerobot_pinned_commit": "f66e5128ecb2456e8c54a63d15404fa59c16aebc",
+    "isolated_diffusers_version": "0.39.0",
+    "files": [
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/config.json",
+        "bytes": 2290,
+        "sha256": "02e00df2244492eacea7c0622c339dab10d1aa2b39232489edbe061db2c62f8b"
+      },
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/model.safetensors",
+        "bytes": 357754272,
+        "sha256": "9f36544d88dcb3dd7e9b43985036b9773b92462ce39052cb0fe48ed17992f43a"
+      },
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/policy_postprocessor.json",
+        "bytes": 659,
+        "sha256": "b87216929e12da919a9a2b75b1c76faa7f2646444e4a04ff3b193ed1e308f205"
+      },
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+        "bytes": 10568,
+        "sha256": "44225625c41ebcd30fecc70fcc4040a48d8f592f5ff9f98a60868308553c5250"
+      },
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/policy_preprocessor.json",
+        "bytes": 1332,
+        "sha256": "ef9a7369c4cde5d36f5e839fb0b5a7a964f6b8e690c6d80494e56b1cfbff020c"
+      },
+      {
+        "path": "outputs/diffusion_bottle/train_seed20261014/pretrained_model/policy_preprocessor_step_3_normalizer_processor.safetensors",
+        "bytes": 10576,
+        "sha256": "9e47029955c0a1c4c4d8ce9906a8bc76bbecd232a84e3d549c56bacc5dc683ee"
+      }
+    ]
+  }
 }
